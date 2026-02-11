@@ -30,7 +30,7 @@
 
 ## Cloudflare Worker & Wrangler Conventions
 - Registry is a **Hono** app deployed as a Cloudflare Worker. Wrangler handles bundling — tsup is only for type generation and local build validation.
-- **Environment separation** via wrangler environments in `apps/registry/wrangler.toml`:
+- **Environment separation** via wrangler environments in `apps/registry/wrangler.jsonc`:
   - `--env dev` for development (Worker: `clawdentity-registry-dev`, D1: `clawdentity-db-dev`)
   - `--env production` for production (Worker: `clawdentity-registry`, D1: `clawdentity-db`)
 - **Local dev** uses `wrangler dev --env dev` with local SQLite. Override vars via `apps/registry/.dev.vars` (gitignored).
@@ -46,7 +46,7 @@
 - Generate migrations: `pnpm -F @clawdentity/registry run db:generate` (outputs to `apps/registry/drizzle/`).
 - Apply locally: `pnpm -F @clawdentity/registry run db:migrate:local`.
 - Drizzle meta files (`drizzle/meta/`) are excluded from Biome via `biome.json`.
-- Wrangler reads migrations from the `drizzle/` directory (`migrations_dir = "drizzle"` in wrangler.toml).
+- Wrangler reads migrations from the `drizzle/` directory (`migrations_dir = "drizzle"` in wrangler.jsonc).
 - HLD Section 5 defines the canonical schema: humans, agents, revocations, api_keys, invites.
 
 ## Biome Configuration
@@ -72,7 +72,7 @@
 
 ## T37/T38 Deployment Scaffold Best Practices
 - Always separate dev and production via wrangler environments — never use a single top-level D1 binding.
-- Keep `wrangler.toml` database IDs in version control (they are not secrets). Secrets go via `wrangler secret put`.
+- Keep `wrangler.jsonc` database IDs in version control (they are not secrets). Secrets go via `wrangler secret put`.
 - Deploy scripts should always run migrations before deploy (`db:migrate:remote && wrangler deploy`) for atomic one-touch deploys.
 - The `/health` endpoint is the baseline verification target. It returns `{ status, version, environment }`.
 - When adding generated files (drizzle migrations, wrangler temp), immediately exclude them from Biome in `biome.json`.

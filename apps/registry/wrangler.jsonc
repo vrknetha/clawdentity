@@ -1,0 +1,35 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "clawdentity-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "env": {
+    "dev": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "clawdentity-db-dev",
+          "database_id": "7d06305b-47ec-47be-9e3c-4cec93156d3e",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "vars": {
+        "ENVIRONMENT": "development"
+      }
+    },
+    "production": {
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "clawdentity-db",
+          "database_id": "73419085-e439-486d-aa35-b968c00edc50",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "vars": {
+        "ENVIRONMENT": "production"
+      }
+    }
+  }
+}
