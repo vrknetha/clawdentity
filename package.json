@@ -1,0 +1,17 @@
+{
+  "name": "@clawdentity/root",
+  "private": true,
+  "scripts": {
+    "lint": "biome check .",
+    "test": "nx run-many -t test",
+    "build": "nx run-many -t build",
+    "typecheck": "nx run-many -t typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.14",
+    "nx": "22.5.0",
+    "tsup": "^8.5.1",
+    "typescript": "5.8.3",
+    "vitest": "^4.0.18"
+  }
+}
