@@ -1,8 +1,11 @@
 node_modules/
 dist/
 .nx/
+nx
+nx.bat
 *.tsbuildinfo
 .wrangler/
 .env
 .env.*
 !.env.example
+.dev.vars

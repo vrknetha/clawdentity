@@ -1,7 +1,15 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.14/schema.json",
   "files": {
-    "includes": ["packages/**", "apps/**", "*.ts", "*.json", "!**/dist"]
+    "includes": [
+      "packages/**",
+      "apps/**",
+      "*.ts",
+      "*.json",
+      "!**/dist",
+      "!**/drizzle/meta",
+      "!**/.wrangler"
+    ]
   },
   "formatter": {
     "enabled": true,

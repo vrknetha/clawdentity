@@ -13,11 +13,22 @@
   },
   "scripts": {
     "build": "tsup",
+    "dev": "wrangler dev --env dev",
+    "deploy:dev": "wrangler d1 migrations apply clawdentity-db-dev --remote --env dev && wrangler deploy --env dev",
+    "deploy:production": "wrangler d1 migrations apply clawdentity-db --remote --env production && wrangler deploy --env production",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply clawdentity-db-dev --local --env dev",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@clawdentity/protocol": "workspace:*",
-    "@clawdentity/sdk": "workspace:*"
+    "@clawdentity/sdk": "workspace:*",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.11.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260210.0",
+    "drizzle-kit": "^0.31.9"
   }
 }
