@@ -1,3 +1,4 @@
+import { REQUEST_ID_HEADER } from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
 import app from "./index.js";
 
@@ -15,5 +16,6 @@ describe("GET /health", () => {
       version: "0.0.0",
       environment: "test",
     });
+    expect(res.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
   });
 });
