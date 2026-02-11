@@ -36,6 +36,10 @@
       "inputs": ["default", "{workspaceRoot}/biome.json"],
       "cache": true
     },
+    "format": {
+      "inputs": ["default", "{workspaceRoot}/biome.json"],
+      "cache": true
+    },
     "typecheck": {
       "dependsOn": ["^build"],
       "inputs": ["default", "^default"],

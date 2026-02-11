@@ -56,8 +56,16 @@
 
 ## CI Pipeline
 - `.github/workflows/ci.yml` runs on push and pull_request.
-- Steps: `pnpm install --frozen-lockfile` -> `pnpm -r lint` -> `pnpm -r typecheck` -> `pnpm -r test` -> `pnpm -r build`.
-- Note: `pnpm -r lint` currently finds no per-package lint scripts (lint is root-only). CI should use `pnpm lint` for the Biome check.
+- Steps: `pnpm install --frozen-lockfile` -> set `NX_BASE`/`NX_HEAD` -> `pnpm lint` -> `pnpm affected:ci`.
+- CI must run `actions/checkout` with `fetch-depth: 0` so `nx affected` can resolve the commit graph.
+- `pnpm affected:ci` must include `lint`, `format`, `typecheck`, `test`, and `build`.
+
+## Local Quality Gates
+- Husky hooks are required for local checks (`prepare` installs hooks).
+- `pre-commit` runs `pnpm lint:staged` (staged-file `biome check --write --no-errors-on-unmatched --files-ignore-unknown=true` and staged-file `nx affected -t typecheck`).
+- `pre-push` runs `nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD`.
+- Keep pre-commit fast: staged-file linting only, with impacted project checks delegated to `nx affected`.
+- Workspace Node runtime is pinned in `.npmrc` via `use-node-version=22.16.0` to match `engines.node` and prevent unsupported-engine drift.
 
 ## Testing Patterns
 - Use **Vitest** for all tests.
