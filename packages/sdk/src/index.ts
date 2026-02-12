@@ -21,6 +21,15 @@ export {
   createHonoErrorHandler,
   toErrorEnvelope,
 } from "./exceptions.js";
+export { signHttpRequest } from "./http/sign.js";
+export type {
+  ClawSignatureHeaders,
+  SignHttpRequestInput,
+  SignHttpRequestResult,
+  VerifyHttpRequestInput,
+  VerifyHttpRequestResult,
+} from "./http/types.js";
+export { verifyHttpRequest } from "./http/verify.js";
 export type {
   RegistryAitVerificationKey,
   SignAitInput,
