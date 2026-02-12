@@ -11,6 +11,7 @@
 - `config`: schema-validated runtime config parsing.
 - `request-context`: request ID extraction/generation and propagation.
 - `crypto/ed25519`: byte-first keypair/sign/verify helpers for PoP and token workflows.
+- `jwt/ait-jwt`: AIT JWS signing and verification with strict header and issuer checks.
 
 ## Design Rules
 - Keep helpers Cloudflare-compatible and local-runtime-compatible.
@@ -20,9 +21,11 @@
 - Keep cryptography APIs byte-first (`Uint8Array`) and runtime-portable.
 - Reuse protocol base64url helpers as the single source of truth; do not duplicate encoding logic in SDK.
 - Never log secret keys or raw signature material.
+- Enforce AIT JWT security invariants in verification: `alg=EdDSA`, `typ=AIT`, and `kid` lookup against registry keys.
 
 ## Testing Rules
 - Unit test each shared module.
 - Validate error codes/envelopes and request ID behavior.
 - Keep tests deterministic and offline.
 - Crypto tests must include explicit negative verification cases (wrong message/signature/key).
+- JWT tests must include sign/verify happy path and failure paths for issuer mismatch and missing/unknown `kid`.
