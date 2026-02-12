@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_NAME_REGEX,
+  aitClaimsSchema,
   CLAW_PROOF_CANONICAL_VERSION,
   canonicalizeRequest,
   decodeBase64url,
   encodeBase64url,
   generateUlid,
+  MAX_AGENT_DESCRIPTION_LENGTH,
+  MAX_AGENT_NAME_LENGTH,
   makeAgentDid,
   makeHumanDid,
   PROTOCOL_VERSION,
   ProtocolParseError,
+  parseAitClaims,
   parseDid,
   parseUlid,
+  validateAgentName,
 } from "./index.js";
 
 describe("protocol", () => {
@@ -52,5 +58,36 @@ describe("protocol", () => {
         "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
       ].join("\n"),
     );
+  });
+
+  it("exports AIT helpers from package root", () => {
+    const agentUlid = generateUlid(1700000000000);
+    const ownerUlid = generateUlid(1700000000100);
+    const parsed = parseAitClaims({
+      iss: "https://registry.clawdentity.dev",
+      sub: makeAgentDid(agentUlid),
+      ownerDid: makeHumanDid(ownerUlid),
+      name: "agent_01",
+      framework: "openclaw",
+      cnf: {
+        jwk: {
+          kty: "OKP",
+          crv: "Ed25519",
+          x: encodeBase64url(Uint8Array.from({ length: 32 }, (_, i) => i + 1)),
+        },
+      },
+      iat: 1700000000,
+      nbf: 1700000000,
+      exp: 1700003600,
+      jti: generateUlid(1700000000200),
+    });
+
+    expect(validateAgentName("agent_01")).toBe(true);
+    expect(validateAgentName("bad/name")).toBe(false);
+    expect(parsed.name).toBe("agent_01");
+    expect(MAX_AGENT_NAME_LENGTH).toBe(64);
+    expect(MAX_AGENT_DESCRIPTION_LENGTH).toBe(280);
+    expect(AGENT_NAME_REGEX.test("agent_01")).toBe(true);
+    expect(aitClaimsSchema).toBeDefined();
   });
 });
