@@ -2,6 +2,19 @@ export const SDK_VERSION = "0.0.0";
 
 export type { RegistryConfig } from "./config.js";
 export { parseRegistryConfig, registryConfigSchema } from "./config.js";
+export type {
+  Ed25519KeypairBase64url,
+  Ed25519KeypairBytes,
+} from "./crypto/ed25519.js";
+export {
+  decodeEd25519KeypairBase64url,
+  decodeEd25519SignatureBase64url,
+  encodeEd25519KeypairBase64url,
+  encodeEd25519SignatureBase64url,
+  generateEd25519Keypair,
+  signEd25519,
+  verifyEd25519,
+} from "./crypto/ed25519.js";
 export { addSeconds, isExpired, nowIso } from "./datetime.js";
 export {
   AppError,
