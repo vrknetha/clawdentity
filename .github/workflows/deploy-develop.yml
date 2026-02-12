@@ -1,0 +1,115 @@
+name: Deploy develop
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+jobs:
+  deploy:
+    name: Lint, test, migrate, and deploy to dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Validate required secrets
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Run tests
+        run: pnpm -r test
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: Capture pre-deploy rollback artifacts
+        run: |
+          mkdir -p artifacts
+          PREDEPLOY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "PREDEPLOY_TS=${PREDEPLOY_TS}" >> "${GITHUB_ENV}"
+          printf "%s\n" "${PREDEPLOY_TS}" > artifacts/predeploy.timestamp
+          wrangler --cwd apps/registry deployments list --env dev --json > artifacts/worker-deployments-pre.json
+          wrangler --cwd apps/registry d1 time-travel info clawdentity-db-dev --env dev --timestamp "${PREDEPLOY_TS}" --json > artifacts/d1-time-travel-pre.json
+          wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output artifacts/d1-dev-predeploy.sql
+
+      - name: Apply dev migrations and deploy
+        run: pnpm --filter @clawdentity/registry run deploy:dev
+
+      - name: Verify health endpoint
+        run: |
+          python3 - <<'PY'
+          import json, sys, urllib.request, urllib.error
+          url = "https://dev.api.clawdentity.com/health"
+          try:
+              resp = urllib.request.urlopen(url, timeout=10)
+          except urllib.error.HTTPError as exc:
+              sys.stderr.write(f"health check failed ({exc.code} {exc.reason})\n")
+              sys.exit(1)
+          data = json.load(resp)
+          if data.get("status") != "ok" or data.get("environment") != "development":
+              raise SystemExit(f"unexpected health payload: {data}")
+          print("healthcheck passed", data)
+          PY
+
+      - name: Capture post-deploy state
+        if: always()
+        run: |
+          mkdir -p artifacts
+          wrangler --cwd apps/registry deployments list --env dev --json > artifacts/worker-deployments-post.json || true
+          wrangler --cwd apps/registry d1 migrations list clawdentity-db-dev --remote --env dev > artifacts/d1-migrations-post.txt || true
+
+      - name: Rollback instructions on failure
+        if: failure()
+        run: |
+          echo "Worker rollback:"
+          echo "  wrangler --cwd apps/registry deployments list --env dev --json"
+          echo "  wrangler --cwd apps/registry rollback <version-id> --env dev -y -m \"ci rollback\""
+          echo ""
+          echo "D1 rollback:"
+          echo "  wrangler --cwd apps/registry d1 time-travel restore clawdentity-db-dev --env dev --timestamp \"${PREDEPLOY_TS}\""
+          echo "  # or restore via bookmark from artifacts/d1-time-travel-pre.json"
+
+      - name: Upload rollback artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-develop-rollback-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14

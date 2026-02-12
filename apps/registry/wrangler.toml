@@ -14,6 +14,10 @@ migrations_dir = "drizzle"
 [env.dev.vars]
 ENVIRONMENT = "development"
 
+[[env.dev.routes]]
+pattern = "dev.api.clawdentity.com"
+custom_domain = true
+
 # ── Production (wrangler deploy --env production) ──
 
 [[env.production.d1_databases]]
@@ -24,3 +28,7 @@ migrations_dir = "drizzle"
 
 [env.production.vars]
 ENVIRONMENT = "production"
+
+[[env.production.routes]]
+pattern = "api.clawdentity.com"
+custom_domain = true

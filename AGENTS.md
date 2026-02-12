@@ -34,6 +34,7 @@
   - `--env dev` for development (Worker: `clawdentity-registry-dev`, D1: `clawdentity-db-dev`)
   - `--env production` for production (Worker: `clawdentity-registry`, D1: `clawdentity-db`)
 - **Local dev** uses `wrangler dev --env dev` with local SQLite. Override vars via `apps/registry/.dev.vars` (gitignored).
+- Use `pnpm -F @clawdentity/registry run dev:local` (or root alias `pnpm dev:registry:local`) to apply local D1 migrations before starting dev server.
 - **One-touch deploy** scripts in `apps/registry/package.json`:
   - `deploy:dev` — migrates remote dev D1 + deploys dev Worker
   - `deploy:production` — migrates remote prod D1 + deploys prod Worker
