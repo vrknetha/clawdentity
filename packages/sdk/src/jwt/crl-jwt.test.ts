@@ -4,8 +4,12 @@ import {
   generateUlid,
   makeAgentDid,
 } from "@clawdentity/protocol";
+import { importJWK, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
-import { generateEd25519Keypair } from "../crypto/ed25519.js";
+import {
+  encodeEd25519KeypairBase64url,
+  generateEd25519Keypair,
+} from "../crypto/ed25519.js";
 import { type CrlClaims, signCRL, verifyCRL } from "./crl-jwt.js";
 
 const textEncoder = new TextEncoder();
@@ -180,17 +184,29 @@ describe("CRL JWT helpers", () => {
   it("rejects schema-invalid but correctly signed payloads", async () => {
     const keypair = await generateEd25519Keypair();
     const now = Math.floor(Date.now() / 1000);
-    const token = await signCRL({
-      claims: {
-        iss: "https://registry.clawdentity.dev",
-        jti: generateUlid(1700105000000),
-        iat: now,
-        exp: now + 3600,
-        revocations: [],
-      } as unknown as CrlClaims,
-      signerKid: "reg-crl-1",
-      signerKeypair: keypair,
-    });
+    const encodedKeypair = encodeEd25519KeypairBase64url(keypair);
+    const privateKey = await importJWK(
+      {
+        kty: "OKP",
+        crv: "Ed25519",
+        x: encodedKeypair.publicKey,
+        d: encodedKeypair.secretKey,
+      },
+      "EdDSA",
+    );
+    const token = await new SignJWT({
+      iss: "https://registry.clawdentity.dev",
+      jti: generateUlid(1700105000000),
+      iat: now,
+      exp: now + 3600,
+      revocations: [],
+    })
+      .setProtectedHeader({
+        alg: "EdDSA",
+        typ: "CRL",
+        kid: "reg-crl-1",
+      })
+      .sign(privateKey);
 
     await expect(
       verifyCRL({
@@ -205,6 +221,27 @@ describe("CRL JWT helpers", () => {
             },
           },
         ],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CRL_CLAIMS",
+    });
+  });
+
+  it("rejects invalid CRL claims before signing", async () => {
+    const keypair = await generateEd25519Keypair();
+    const now = Math.floor(Date.now() / 1000);
+
+    await expect(
+      signCRL({
+        claims: {
+          iss: "https://registry.clawdentity.dev",
+          jti: generateUlid(1700105000000),
+          iat: now,
+          exp: now + 3600,
+          revocations: [],
+        } as unknown as CrlClaims,
+        signerKid: "reg-crl-1",
+        signerKeypair: keypair,
       }),
     ).rejects.toMatchObject({
       code: "INVALID_CRL_CLAIMS",

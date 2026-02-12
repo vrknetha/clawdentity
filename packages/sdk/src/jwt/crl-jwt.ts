@@ -55,6 +55,7 @@ function unknownCrlKid(kid: string): CrlJwtError {
 }
 
 export async function signCRL(input: SignCrlInput): Promise<string> {
+  const claims = parseCrlClaims(input.claims);
   const encodedKeypair = encodeEd25519KeypairBase64url(input.signerKeypair);
   const privateJwk: CrlPrivateJwk = {
     kty: "OKP",
@@ -64,7 +65,7 @@ export async function signCRL(input: SignCrlInput): Promise<string> {
   };
   const privateKey = await importJWK(privateJwk, "EdDSA");
 
-  return new SignJWT(input.claims)
+  return new SignJWT(claims)
     .setProtectedHeader({
       alg: "EdDSA",
       typ: "CRL",
