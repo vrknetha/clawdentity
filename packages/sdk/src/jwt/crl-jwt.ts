@@ -1,4 +1,7 @@
-import type { CrlClaims as ProtocolCrlClaims } from "@clawdentity/protocol";
+import {
+  type CrlClaims as ProtocolCrlClaims,
+  parseCrlClaims,
+} from "@clawdentity/protocol";
 import type { JWTVerifyOptions } from "jose";
 import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT } from "jose";
 import type { Ed25519KeypairBytes } from "../crypto/ed25519.js";
@@ -100,5 +103,5 @@ export async function verifyCRL(input: VerifyCrlInput): Promise<CrlClaims> {
   }
 
   const { payload } = await jwtVerify(input.token, publicKey, options);
-  return payload as CrlClaims;
+  return parseCrlClaims(payload);
 }

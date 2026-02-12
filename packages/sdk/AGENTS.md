@@ -26,6 +26,7 @@
 - Keep CRL claim schema authority in `@clawdentity/protocol` (`crl.ts`); SDK JWT helpers should avoid duplicating claim-validation rules.
 - Never log secret keys or raw signature material.
 - Enforce AIT JWT security invariants in verification: `alg=EdDSA`, `typ=AIT`, and `kid` lookup against registry keys.
+- Always parse CRL JWT payloads through protocol `parseCrlClaims` after signature verification so schema invariants (revocations non-empty, DID/ULID checks) are enforced.
 - For HTTP signing errors, keep user-facing messages static and send extra context through `AppError.details`.
 - Enforce Ed25519 key lengths at SDK boundaries (`secretKey` 32 bytes, `publicKey` 32 bytes) so misconfiguration returns stable `AppError` codes.
 - Treat any decoded PoP proof that is not 64 bytes as `HTTP_SIGNATURE_INVALID_PROOF`.

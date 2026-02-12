@@ -176,4 +176,38 @@ describe("CRL JWT helpers", () => {
       }),
     ).rejects.toThrow();
   });
+
+  it("rejects schema-invalid but correctly signed payloads", async () => {
+    const keypair = await generateEd25519Keypair();
+    const now = Math.floor(Date.now() / 1000);
+    const token = await signCRL({
+      claims: {
+        iss: "https://registry.clawdentity.dev",
+        jti: generateUlid(1700105000000),
+        iat: now,
+        exp: now + 3600,
+        revocations: [],
+      } as unknown as CrlClaims,
+      signerKid: "reg-crl-1",
+      signerKeypair: keypair,
+    });
+
+    await expect(
+      verifyCRL({
+        token,
+        registryKeys: [
+          {
+            kid: "reg-crl-1",
+            jwk: {
+              kty: "OKP",
+              crv: "Ed25519",
+              x: encodeBase64url(keypair.publicKey),
+            },
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "INVALID_CRL_CLAIMS",
+    });
+  });
 });
