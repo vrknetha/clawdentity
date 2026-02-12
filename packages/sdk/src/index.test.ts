@@ -16,9 +16,11 @@ import {
   signAIT,
   signCRL,
   signEd25519,
+  signHttpRequest,
   verifyAIT,
   verifyCRL,
   verifyEd25519,
+  verifyHttpRequest,
 } from "./index.js";
 
 describe("sdk", () => {
@@ -141,5 +143,29 @@ describe("sdk", () => {
 
     expect(verified.revocations).toHaveLength(1);
     expect(CrlJwtError).toBeTypeOf("function");
+  });
+
+  it("exports HTTP signing helpers from package root", async () => {
+    const keypair = await generateEd25519Keypair();
+    const body = new TextEncoder().encode('{"ok":true}');
+    const signed = await signHttpRequest({
+      method: "POST",
+      pathWithQuery: "/v1/messages?b=2&a=1",
+      timestamp: "1739364000",
+      nonce: "nonce_root_http",
+      body,
+      secretKey: keypair.secretKey,
+    });
+
+    const verified = await verifyHttpRequest({
+      method: "POST",
+      pathWithQuery: "/v1/messages?b=2&a=1",
+      headers: signed.headers,
+      body,
+      publicKey: keypair.publicKey,
+    });
+
+    expect(verified.proof).toBe(signed.proof);
+    expect(verified.canonicalRequest).toBe(signed.canonicalRequest);
   });
 });

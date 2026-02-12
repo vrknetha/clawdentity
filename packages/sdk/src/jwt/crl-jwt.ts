@@ -1,4 +1,7 @@
-import type { CrlClaims as ProtocolCrlClaims } from "@clawdentity/protocol";
+import {
+  type CrlClaims as ProtocolCrlClaims,
+  parseCrlClaims,
+} from "@clawdentity/protocol";
 import type { JWTVerifyOptions } from "jose";
 import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT } from "jose";
 import type { Ed25519KeypairBytes } from "../crypto/ed25519.js";
@@ -52,6 +55,7 @@ function unknownCrlKid(kid: string): CrlJwtError {
 }
 
 export async function signCRL(input: SignCrlInput): Promise<string> {
+  const claims = parseCrlClaims(input.claims);
   const encodedKeypair = encodeEd25519KeypairBase64url(input.signerKeypair);
   const privateJwk: CrlPrivateJwk = {
     kty: "OKP",
@@ -61,7 +65,7 @@ export async function signCRL(input: SignCrlInput): Promise<string> {
   };
   const privateKey = await importJWK(privateJwk, "EdDSA");
 
-  return new SignJWT(input.claims)
+  return new SignJWT(claims)
     .setProtectedHeader({
       alg: "EdDSA",
       typ: "CRL",
@@ -100,5 +104,5 @@ export async function verifyCRL(input: VerifyCrlInput): Promise<CrlClaims> {
   }
 
   const { payload } = await jwtVerify(input.token, publicKey, options);
-  return payload as CrlClaims;
+  return parseCrlClaims(payload);
 }
