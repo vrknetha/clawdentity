@@ -48,6 +48,23 @@ function ensureNonEmptyString(value: unknown, field: string): string {
   return value;
 }
 
+function ensureNonceCacheInput(input: unknown): NonceCacheInput {
+  if (typeof input !== "object" || input === null) {
+    throw new AppError({
+      code: "NONCE_CACHE_INVALID_INPUT",
+      message: "Nonce cache input must be an object",
+      status: 400,
+      details: { field: "input" },
+    });
+  }
+
+  const parsed = input as Partial<NonceCacheInput>;
+  return {
+    agentDid: ensureNonEmptyString(parsed.agentDid, "agentDid"),
+    nonce: ensureNonEmptyString(parsed.nonce, "nonce"),
+  };
+}
+
 function resolveTtlMs(ttlMs: number | undefined): number {
   const ttl = ttlMs ?? DEFAULT_NONCE_TTL_MS;
   if (!Number.isFinite(ttl) || ttl <= 0) {
@@ -77,8 +94,7 @@ export function createNonceCache(options: NonceCacheOptions = {}): NonceCache {
   const clock = options.clock ?? Date.now;
   const seenByAgent = new Map<string, Map<string, NonceRecord>>();
 
-  function purgeExpired(): void {
-    const now = clock();
+  function purgeExpiredAt(now: number): void {
     for (const [agentDid, agentMap] of seenByAgent.entries()) {
       pruneExpiredFromAgent(agentMap, now);
       if (agentMap.size === 0) {
@@ -87,18 +103,22 @@ export function createNonceCache(options: NonceCacheOptions = {}): NonceCache {
     }
   }
 
+  function purgeExpired(): void {
+    purgeExpiredAt(clock());
+  }
+
   function tryAcceptNonce(input: NonceCacheInput): NonceCacheResult {
-    const agentDid = ensureNonEmptyString(input.agentDid, "agentDid");
-    const nonce = ensureNonEmptyString(input.nonce, "nonce");
+    const parsed = ensureNonceCacheInput(input);
+    const agentDid = parsed.agentDid;
+    const nonce = parsed.nonce;
     const now = clock();
+    purgeExpiredAt(now);
 
     let agentMap = seenByAgent.get(agentDid);
     if (!agentMap) {
       agentMap = new Map<string, NonceRecord>();
       seenByAgent.set(agentDid, agentMap);
     }
-
-    pruneExpiredFromAgent(agentMap, now);
 
     const existing = agentMap.get(nonce);
     if (existing) {
