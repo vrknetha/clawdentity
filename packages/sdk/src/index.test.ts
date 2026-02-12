@@ -4,6 +4,8 @@ import {
   AppError,
   addSeconds,
   CrlJwtError,
+  createNonceCache,
+  DEFAULT_NONCE_TTL_MS,
   decodeEd25519KeypairBase64url,
   decodeEd25519SignatureBase64url,
   encodeEd25519KeypairBase64url,
@@ -167,5 +169,29 @@ describe("sdk", () => {
 
     expect(verified.proof).toBe(signed.proof);
     expect(verified.canonicalRequest).toBe(signed.canonicalRequest);
+  });
+
+  it("exports nonce cache helpers from package root", () => {
+    const now = 5_000;
+    const cache = createNonceCache({
+      ttlMs: 100,
+      clock: () => now,
+    });
+
+    const first = cache.tryAcceptNonce({
+      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      nonce: "nonce-root",
+    });
+    const second = cache.tryAcceptNonce({
+      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      nonce: "nonce-root",
+    });
+
+    expect(first.accepted).toBe(true);
+    expect(second).toMatchObject({
+      accepted: false,
+      reason: "replay",
+    });
+    expect(DEFAULT_NONCE_TTL_MS).toBe(300000);
   });
 });
