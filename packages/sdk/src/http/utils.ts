@@ -9,6 +9,8 @@ import {
 import type { ClawSignatureHeaders } from "./types.js";
 
 export const textEncoder = new TextEncoder();
+const ED25519_PUBLIC_KEY_LENGTH = 32;
+const ED25519_SECRET_KEY_LENGTH = 32;
 
 type SubtleCryptoLike = {
   digest: (algorithm: string, data: Uint8Array) => Promise<ArrayBuffer>;
@@ -57,26 +59,34 @@ export function ensureBodyBytes(body: Uint8Array | undefined): Uint8Array {
 }
 
 export function ensureSecretKey(key: Uint8Array): void {
-  if (!(key instanceof Uint8Array) || key.length === 0) {
+  if (
+    !(key instanceof Uint8Array) ||
+    key.length !== ED25519_SECRET_KEY_LENGTH
+  ) {
     throw new AppError({
       code: "HTTP_SIGNATURE_MISSING_SECRET",
       message: "Secret key is required to sign HTTP requests",
       status: 500,
       details: {
         keyLength: key instanceof Uint8Array ? key.length : null,
+        expectedKeyLength: ED25519_SECRET_KEY_LENGTH,
       },
     });
   }
 }
 
 export function ensurePublicKey(key: Uint8Array): void {
-  if (!(key instanceof Uint8Array) || key.length === 0) {
+  if (
+    !(key instanceof Uint8Array) ||
+    key.length !== ED25519_PUBLIC_KEY_LENGTH
+  ) {
     throw new AppError({
       code: "HTTP_SIGNATURE_MISSING_PUBLIC",
       message: "Public key is required to verify HTTP requests",
       status: 500,
       details: {
         keyLength: key instanceof Uint8Array ? key.length : null,
+        expectedKeyLength: ED25519_PUBLIC_KEY_LENGTH,
       },
     });
   }

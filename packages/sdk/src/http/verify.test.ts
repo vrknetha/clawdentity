@@ -104,4 +104,48 @@ describe("verifyHttpRequest", () => {
       code: "HTTP_SIGNATURE_INVALID_PROOF",
     });
   });
+
+  it("fails verification when proof decodes to non-64-byte signature", async () => {
+    const { keypair, body, signed } = await makeSignedFixture();
+    const tamperedHeaders = {
+      ...signed.headers,
+      "X-Claw-Proof": "AA",
+    };
+
+    await expect(
+      verifyHttpRequest({
+        method: "POST",
+        pathWithQuery: "/v1/messages?b=2&a=1",
+        headers: tamperedHeaders,
+        body,
+        publicKey: keypair.publicKey,
+      }),
+    ).rejects.toMatchObject({
+      code: "HTTP_SIGNATURE_INVALID_PROOF",
+      status: 401,
+      details: {
+        reason: "invalid_base64url_or_signature_length",
+      },
+    });
+  });
+
+  it("rejects wrong-length public keys", async () => {
+    const { body, signed } = await makeSignedFixture();
+
+    await expect(
+      verifyHttpRequest({
+        method: "POST",
+        pathWithQuery: "/v1/messages?b=2&a=1",
+        headers: signed.headers,
+        body,
+        publicKey: new Uint8Array([1]),
+      }),
+    ).rejects.toMatchObject({
+      code: "HTTP_SIGNATURE_MISSING_PUBLIC",
+      details: {
+        keyLength: 1,
+        expectedKeyLength: 32,
+      },
+    });
+  });
 });

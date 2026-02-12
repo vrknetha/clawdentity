@@ -57,6 +57,9 @@ export async function verifyHttpRequest(
   let signature: Uint8Array;
   try {
     signature = decodeEd25519SignatureBase64url(headers[X_CLAW_PROOF]);
+    if (signature.length !== 64) {
+      throw new Error("invalid_signature_length");
+    }
   } catch {
     throw new AppError({
       code: "HTTP_SIGNATURE_INVALID_PROOF",
@@ -64,6 +67,7 @@ export async function verifyHttpRequest(
       status: 401,
       details: {
         header: X_CLAW_PROOF,
+        reason: "invalid_base64url_or_signature_length",
       },
     });
   }

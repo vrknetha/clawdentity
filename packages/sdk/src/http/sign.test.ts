@@ -62,4 +62,23 @@ describe("signHttpRequest", () => {
       "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
     );
   });
+
+  it("rejects wrong-length secret keys", async () => {
+    await expect(
+      signHttpRequest({
+        method: "POST",
+        pathWithQuery: "/v1/messages?b=2&a=1",
+        timestamp: "1739364000",
+        nonce: "nonce_bad_secret",
+        body: textEncoder.encode("bad"),
+        secretKey: new Uint8Array([1]),
+      }),
+    ).rejects.toMatchObject({
+      code: "HTTP_SIGNATURE_MISSING_SECRET",
+      details: {
+        keyLength: 1,
+        expectedKeyLength: 32,
+      },
+    });
+  });
 });

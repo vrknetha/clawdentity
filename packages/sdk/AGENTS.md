@@ -27,6 +27,8 @@
 - Never log secret keys or raw signature material.
 - Enforce AIT JWT security invariants in verification: `alg=EdDSA`, `typ=AIT`, and `kid` lookup against registry keys.
 - For HTTP signing errors, keep user-facing messages static and send extra context through `AppError.details`.
+- Enforce Ed25519 key lengths at SDK boundaries (`secretKey` 32 bytes, `publicKey` 32 bytes) so misconfiguration returns stable `AppError` codes.
+- Treat any decoded PoP proof that is not 64 bytes as `HTTP_SIGNATURE_INVALID_PROOF`.
 
 ## Testing Rules
 - Unit test each shared module.
