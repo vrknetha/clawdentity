@@ -3,6 +3,7 @@ import {
   AitJwtError,
   AppError,
   addSeconds,
+  CrlJwtError,
   decodeEd25519KeypairBase64url,
   decodeEd25519SignatureBase64url,
   encodeEd25519KeypairBase64url,
@@ -13,8 +14,10 @@ import {
   resolveRequestId,
   SDK_VERSION,
   signAIT,
+  signCRL,
   signEd25519,
   verifyAIT,
+  verifyCRL,
   verifyEd25519,
 } from "./index.js";
 
@@ -97,5 +100,46 @@ describe("sdk", () => {
 
     expect(verified.name).toBe("jwt-root-test");
     expect(AitJwtError).toBeTypeOf("function");
+  });
+
+  it("exports CRL JWT helpers from package root", async () => {
+    const keypair = await generateEd25519Keypair();
+    const now = Math.floor(Date.now() / 1000);
+    const token = await signCRL({
+      claims: {
+        iss: "https://registry.clawdentity.dev",
+        jti: "01HF7YAT4TXP6AW5QNXA2Y9K43",
+        iat: now,
+        exp: now + 3600,
+        revocations: [
+          {
+            jti: "01HF7YAT31JZHSMW1CG6Q6MHB7",
+            agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            reason: "manual revoke",
+            revokedAt: now,
+          },
+        ],
+      },
+      signerKid: "reg-crl-root",
+      signerKeypair: keypair,
+    });
+
+    const verified = await verifyCRL({
+      token,
+      registryKeys: [
+        {
+          kid: "reg-crl-root",
+          jwk: {
+            kty: "OKP",
+            crv: "Ed25519",
+            x: encodeEd25519KeypairBase64url(keypair).publicKey,
+          },
+        },
+      ],
+      expectedIssuer: "https://registry.clawdentity.dev",
+    });
+
+    expect(verified.revocations).toHaveLength(1);
+    expect(CrlJwtError).toBeTypeOf("function");
   });
 });

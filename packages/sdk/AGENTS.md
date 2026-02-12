@@ -12,6 +12,8 @@
 - `request-context`: request ID extraction/generation and propagation.
 - `crypto/ed25519`: byte-first keypair/sign/verify helpers for PoP and token workflows.
 - `jwt/ait-jwt`: AIT JWS signing and verification with strict header and issuer checks.
+- `jwt/crl-jwt`: CRL JWT helpers with EdDSA signing, header consistency checks, and tamper-detection test coverage.
+- Tests should prove tamper cases (payload change, header kid swap, signature corruption).
 
 ## Design Rules
 - Keep helpers Cloudflare-compatible and local-runtime-compatible.
@@ -20,6 +22,7 @@
 - Keep all parse/validation errors explicit and deterministic.
 - Keep cryptography APIs byte-first (`Uint8Array`) and runtime-portable.
 - Reuse protocol base64url helpers as the single source of truth; do not duplicate encoding logic in SDK.
+- Keep CRL claim schema authority in `@clawdentity/protocol` (`crl.ts`); SDK JWT helpers should avoid duplicating claim-validation rules.
 - Never log secret keys or raw signature material.
 - Enforce AIT JWT security invariants in verification: `alg=EdDSA`, `typ=AIT`, and `kid` lookup against registry keys.
 

@@ -27,6 +27,13 @@ export type {
   VerifyAitInput,
 } from "./jwt/ait-jwt.js";
 export { AitJwtError, signAIT, verifyAIT } from "./jwt/ait-jwt.js";
+export type {
+  CrlClaims,
+  RegistryCrlVerificationKey,
+  SignCrlInput,
+  VerifyCrlInput,
+} from "./jwt/crl-jwt.js";
+export { CrlJwtError, signCRL, verifyCRL } from "./jwt/crl-jwt.js";
 export type { Logger } from "./logging.js";
 export { createLogger, createRequestLoggingMiddleware } from "./logging.js";
 export type { RequestContextVariables } from "./request-context.js";

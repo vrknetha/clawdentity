@@ -2,6 +2,7 @@ import { z } from "zod";
 import { decodeBase64url } from "./base64url.js";
 import { parseDid } from "./did.js";
 import { ProtocolParseError } from "./errors.js";
+import { hasControlChars } from "./text.js";
 import { parseUlid } from "./ulid.js";
 
 export const MAX_AGENT_NAME_LENGTH = 64;
@@ -15,16 +16,6 @@ export type AitCnfJwk = {
   crv: "Ed25519";
   x: string;
 };
-
-function hasControlChars(value: string): boolean {
-  for (const char of value) {
-    const code = char.charCodeAt(0);
-    if (code <= 0x1f || code === 0x7f) {
-      return true;
-    }
-  }
-  return false;
-}
 
 function invalidAitClaims(message: string): ProtocolParseError {
   return new ProtocolParseError("INVALID_AIT_CLAIMS", message);
