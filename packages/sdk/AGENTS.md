@@ -14,6 +14,7 @@
 - `jwt/ait-jwt`: AIT JWS signing and verification with strict header and issuer checks.
 - `jwt/crl-jwt`: CRL JWT helpers with EdDSA signing, header consistency checks, and tamper-detection test coverage.
 - `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash.
+- `security/nonce-cache`: in-memory TTL nonce replay protection keyed by `agentDid + nonce`.
 - Tests should prove tamper cases (payload change, header kid swap, signature corruption).
 
 ## Design Rules
@@ -38,3 +39,4 @@
 - Crypto tests must include explicit negative verification cases (wrong message/signature/key).
 - JWT tests must include sign/verify happy path and failure paths for issuer mismatch and missing/unknown `kid`.
 - HTTP signing tests must include sign/verify happy path and explicit failures when method, path, body, or timestamp are altered.
+- Nonce cache tests must include duplicate nonce rejection within TTL and acceptance after TTL expiry.

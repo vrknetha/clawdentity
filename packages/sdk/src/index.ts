@@ -51,3 +51,13 @@ export {
   REQUEST_ID_HEADER,
   resolveRequestId,
 } from "./request-context.js";
+export type {
+  NonceCache,
+  NonceCacheInput,
+  NonceCacheOptions,
+  NonceCacheResult,
+} from "./security/nonce-cache.js";
+export {
+  createNonceCache,
+  DEFAULT_NONCE_TTL_MS,
+} from "./security/nonce-cache.js";
