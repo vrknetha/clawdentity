@@ -9,6 +9,7 @@
 - Use `fetch-depth: 0` when running `nx affected`.
 - Compute and export `NX_BASE` and `NX_HEAD` before invoking affected commands.
 - Run root lint (`pnpm lint`) before affected tasks to keep style checks global.
+- Avoid duplicate CI runs for PR updates by limiting `push` triggers to long-lived branches (`main`, `develop`) and using `pull_request` for feature branches.
 
 ## Quality Gates
 - CI command order: install -> base/head setup -> lint -> affected checks.
