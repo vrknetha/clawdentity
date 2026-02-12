@@ -4,6 +4,7 @@ import {
   aitClaimsSchema,
   CLAW_PROOF_CANONICAL_VERSION,
   canonicalizeRequest,
+  crlClaimsSchema,
   decodeBase64url,
   encodeBase64url,
   generateUlid,
@@ -14,6 +15,7 @@ import {
   PROTOCOL_VERSION,
   ProtocolParseError,
   parseAitClaims,
+  parseCrlClaims,
   parseDid,
   parseUlid,
   validateAgentName,
@@ -89,5 +91,29 @@ describe("protocol", () => {
     expect(MAX_AGENT_DESCRIPTION_LENGTH).toBe(280);
     expect(AGENT_NAME_REGEX.test("agent_01")).toBe(true);
     expect(aitClaimsSchema).toBeDefined();
+  });
+
+  it("exports CRL helpers from package root", () => {
+    const now = 1700000000;
+    const agentUlid = generateUlid(now);
+    const agentDid = makeAgentDid(agentUlid);
+
+    const parsed = parseCrlClaims({
+      iss: "https://registry.clawdentity.dev",
+      jti: generateUlid(now + 1000),
+      iat: now,
+      exp: now + 3600,
+      revocations: [
+        {
+          jti: generateUlid(now + 2000),
+          agentDid,
+          reason: "manual revoke",
+          revokedAt: now + 100,
+        },
+      ],
+    });
+
+    expect(parsed.revocations[0].agentDid).toBe(agentDid);
+    expect(crlClaimsSchema).toBeDefined();
   });
 });
