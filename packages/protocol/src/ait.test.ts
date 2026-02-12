@@ -91,9 +91,13 @@ describe("AIT claims schema", () => {
     const badX = makeValidClaims();
     badX.cnf.jwk.x = "invalid+base64url";
 
+    const shortX = makeValidClaims();
+    shortX.cnf.jwk.x = encodeBase64url(Uint8Array.from([1]));
+
     expect(() => parseAitClaims(badKty)).toThrow(ProtocolParseError);
     expect(() => parseAitClaims(badCrv)).toThrow(ProtocolParseError);
     expect(() => parseAitClaims(badX)).toThrow(ProtocolParseError);
+    expect(() => parseAitClaims(shortX)).toThrow(ProtocolParseError);
   });
 
   it("rejects invalid temporal ordering", () => {

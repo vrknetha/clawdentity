@@ -10,6 +10,7 @@ export const MAX_AGENT_DESCRIPTION_LENGTH = 280;
 export const AGENT_NAME_REGEX = /^[A-Za-z0-9._ -]{1,64}$/;
 
 const MAX_FRAMEWORK_LENGTH = 32;
+const ED25519_PUBLIC_KEY_LENGTH = 32;
 
 export type AitCnfJwk = {
   kty: "OKP";
@@ -102,7 +103,14 @@ export const aitClaimsSchema = z
     }
 
     try {
-      decodeBase64url(claims.cnf.jwk.x);
+      const decodedPublicKey = decodeBase64url(claims.cnf.jwk.x);
+      if (decodedPublicKey.length !== ED25519_PUBLIC_KEY_LENGTH) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "cnf.jwk.x must decode to 32-byte Ed25519 public key",
+          path: ["cnf", "jwk", "x"],
+        });
+      }
     } catch {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
