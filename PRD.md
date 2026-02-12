@@ -54,6 +54,7 @@ Because OpenClaw requires `hooks.token` and expects Bearer/token auth for `/hook
 ### In scope (MVP)
 - **Registry**
   - Create agent identity: register public key, issue AIT
+  - Cloudflare Worker runtime config lives at `apps/registry/wrangler.jsonc`
   - Publish registry signing public keys (`/.well-known/claw-keys.json`)
   - Revoke agent → CRL
   - CRL endpoint (signed)

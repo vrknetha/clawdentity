@@ -13,6 +13,8 @@
   },
   "scripts": {
     "build": "tsup",
+    "format": "biome format .",
+    "lint": "biome lint .",
     "dev": "wrangler dev --env dev",
     "dev:local": "wrangler d1 migrations apply clawdentity-db-dev --local --env dev && wrangler dev --env dev",
     "deploy:dev": "wrangler d1 migrations apply clawdentity-db-dev --remote --env dev && wrangler deploy --env dev",

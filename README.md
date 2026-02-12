@@ -149,7 +149,7 @@ OpenClaw Gateway  (normal /hooks/agent handling)
 
 This repo is a monorepo:
 
-- `apps/registry` — issues AITs, serves CRL + public keys
+- `apps/registry` — issues AITs, serves CRL + public keys (Worker config: `apps/registry/wrangler.jsonc`)
 - `apps/proxy` — verifies Clawdentity headers then forwards to OpenClaw hooks
 - `apps/cli` — operator workflow (`claw create`, `claw revoke`, `claw share`)
 - `packages/sdk` — TS SDK (sign + verify + CRL cache)

@@ -1,29 +1,40 @@
-# Registry Agent Notes
+# AGENTS.md (apps/registry)
 
 ## Purpose
-- Keep registry deployment and domain configuration consistent across environments.
+- Define registry app conventions for Cloudflare Worker runtime and Wrangler configuration.
+- Keep deployment, domains, and rollback flow consistent across environments.
 
-## Domain Rules
-- Public endpoints must use branded custom domains, not `*.workers.dev`.
-- Development custom domain: `dev.api.clawdentity.com`.
-- Production custom domain: `api.clawdentity.com`.
-- `workers.dev` is currently disabled by custom-domain routing unless `workers_dev = true` is explicitly set.
+## Wrangler Configuration
+- Use `wrangler.jsonc` as the source of truth for worker config.
+- Keep `dev` and `production` environments explicit and isolated in config.
+- Keep D1 database IDs version-controlled; manage secrets with `wrangler secret put`.
+- Keep `migrations_dir` aligned with Drizzle output directory (`drizzle`).
+- Prefer branded custom domains over `*.workers.dev` for public endpoints.
+  - Development: `dev.api.clawdentity.com`
+  - Production: `api.clawdentity.com`
 
 ## Deployment Rules
 - Always deploy with explicit environment: `--env dev` or `--env production`.
-- For deploy scripts, run D1 migrations before Worker deploy.
-- Verify `GET /health` returns:
-  - `status: "ok"`
-  - expected environment value (`development` or `production`).
-- For CI deploys, capture a pre-migration D1 export and time-travel point-in-time marker for rollback.
-- Local development should run migrations against the local D1 alias before `wrangler dev --env dev`, e.g. `pnpm -F @clawdentity/registry dev:local`.
+- Deploy scripts must run D1 migrations before Worker deployment.
+- For local development, run local migrations before `wrangler dev --env dev` (use `pnpm -F @clawdentity/registry run dev:local`).
+- Verify `GET /health` returns `status: "ok"` and environment (`development` or `production`).
 
-## Database Authorization Rules
-- Cloudflare D1 (SQLite) does not provide PostgreSQL-style row-level security (RLS) policies.
-- Enforce per-actor access in application queries and handlers (e.g., `owner_id` / `human_id` filters).
-- Treat authorization as fail-closed: no actor context means no data access.
+## Runtime and API
+- Preserve `/health` response contract: `{ status, version, environment }`.
+- Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
 
-## Change Safety
-- When changing routes/domains, validate no overlap with existing zone routes.
-- Do not store secrets in repo; use `wrangler secret put`.
-- If deploy fails after migrations, rollback DB with D1 Time Travel and rollback Worker to the previous version.
+## Validation
+- Validate config changes with `wrangler check` before deployment.
+- Run `pnpm -F @clawdentity/registry run test` and `pnpm -F @clawdentity/registry run typecheck` for app-level safety.
+
+## Database Authorization
+- Cloudflare D1 (SQLite) does not provide PostgreSQL-style RLS policies.
+- Enforce per-actor authorization in handlers and queries (for example `owner_id`/`human_id` filters).
+- Fail closed when actor context is missing.
+
+## Rollback and Safety
+- For CI deploys, capture pre-deploy artifacts (deployments list, D1 time-travel marker, D1 export).
+- If deploy fails after migrations:
+  - Roll back Worker to previous version.
+  - Restore D1 from time-travel checkpoint.
+- When changing routes/domains, validate there is no overlap with existing zone routes.

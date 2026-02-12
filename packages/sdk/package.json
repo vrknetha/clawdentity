@@ -13,10 +13,14 @@
   },
   "scripts": {
     "build": "tsup",
+    "format": "biome format .",
+    "lint": "biome lint .",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@clawdentity/protocol": "workspace:*"
+    "@clawdentity/protocol": "workspace:*",
+    "hono": "^4.11.9",
+    "zod": "^4.1.12"
   }
 }
