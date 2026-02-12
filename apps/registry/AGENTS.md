@@ -21,12 +21,18 @@
 
 ## Runtime and API
 - Preserve `/health` response contract: `{ status, version, environment }`.
+- Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
 
 ## Validation
 - Validate config changes with `wrangler check` before deployment.
 - Run `pnpm -F @clawdentity/registry run test` and `pnpm -F @clawdentity/registry run typecheck` for app-level safety.
 - Keep Vitest path aliases pointed at workspace source (`packages/*/src/index.ts`) so tests do not depend on stale package `dist` outputs.
+
+## Health & Config Readiness
+- Treat `/health` as the release verification surface: return `status`, the build `version`, and the live `environment`. Prefer sourcing `version` from build metadata or an environment override rather than hard-coded `0.0.0` so deployments can be differentiated.
+- Rely on `parseRegistryConfig` early and cache it once per worker—fail-fast with `CONFIG_VALIDATION_FAILED` errors when the schema rejects the runtime bindings.
+- Cover both happy and failure paths in Vitest (status/headers plus config validation) so downstream tickets can rely on this contract without reintroducing regressions.
 
 ## Database Authorization
 - Cloudflare D1 (SQLite) does not provide PostgreSQL-style RLS policies.
