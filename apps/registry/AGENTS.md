@@ -26,6 +26,7 @@
 ## Validation
 - Validate config changes with `wrangler check` before deployment.
 - Run `pnpm -F @clawdentity/registry run test` and `pnpm -F @clawdentity/registry run typecheck` for app-level safety.
+- Keep Vitest path aliases pointed at workspace source (`packages/*/src/index.ts`) so tests do not depend on stale package `dist` outputs.
 
 ## Database Authorization
 - Cloudflare D1 (SQLite) does not provide PostgreSQL-style RLS policies.
