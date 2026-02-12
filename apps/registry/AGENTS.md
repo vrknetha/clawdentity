@@ -45,3 +45,10 @@
   - Roll back Worker to previous version.
   - Restore D1 from time-travel checkpoint.
 - When changing routes/domains, validate there is no overlap with existing zone routes.
+
+## Auth & API Keys
+- Treat `Authorization: Bearer clw_pat_<token>` as the default registry entry point for human- or CLI-issued requests and assume the value is SHA-256 hashed before persistence (see `api_keys.key_hash`).
+- Prefer Drizzle ORM (`src/db/client.ts`) for API-key lookup and `last_used_at` updates; keep raw D1 SQL only for unsupported query shapes.
+- Use constant-time comparison when checking the header-derived hash against `api_keys.key_hash`, only allow `status = 'active'`, and surface failures through `AppError` codes such as `API_KEY_MISSING`, `API_KEY_INVALID`, or `API_KEY_REVOKED` so the shared SDK error handler can produce consistent envelopes.
+- Enrich the request context with `humanId`, `apiKeyId`, and `apiKeyName` for downstream handlers and update `last_used_at` as part of the auth middleware/handler so analytics and revocation tooling stay honest.
+- Keep the middleware reversible: a no-auth `GET /health` can stay open but any future `/v1/*` endpoints should extend this middleware so unauthorized access never reaches the DB layer.
