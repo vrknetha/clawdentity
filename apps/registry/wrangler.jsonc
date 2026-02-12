@@ -14,6 +14,12 @@
           "migrations_dir": "drizzle"
         }
       ],
+      "routes": [
+        {
+          "pattern": "dev.api.clawdentity.com",
+          "custom_domain": true
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "development"
       }
@@ -25,6 +31,12 @@
           "database_name": "clawdentity-db",
           "database_id": "73419085-e439-486d-aa35-b968c00edc50",
           "migrations_dir": "drizzle"
+        }
+      ],
+      "routes": [
+        {
+          "pattern": "api.clawdentity.com",
+          "custom_domain": true
         }
       ],
       "vars": {

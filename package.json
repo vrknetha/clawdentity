@@ -16,7 +16,8 @@
     "typecheck": "nx run-many -t typecheck",
     "affected:typecheck:local": "nx affected -t typecheck --base=origin/main --head=HEAD",
     "affected:test:local": "nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD",
-    "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD"
+    "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD",
+    "dev:registry:local": "pnpm -F @clawdentity/registry run dev:local"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",
