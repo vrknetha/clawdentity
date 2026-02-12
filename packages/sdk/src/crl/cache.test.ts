@@ -72,8 +72,12 @@ describe("crl cache", () => {
     ]);
 
     now += 50;
-    await cache.refreshIfStale();
-    expect(fetchCalls).toBe(1);
+    const second = await cache.refreshIfStale();
+    expect(fetchCalls).toBe(2);
+    expect(second.warnings.map((warning) => warning.code)).toEqual([
+      "CRL_REFRESH_FAILED",
+      "CRL_STALE",
+    ]);
   });
 
   it("throws in fail-closed mode when stale cache cannot refresh", async () => {
@@ -90,6 +94,34 @@ describe("crl cache", () => {
     await expect(cache.refreshIfStale()).rejects.toMatchObject({
       code: "CRL_CACHE_STALE",
     });
+  });
+
+  it("attempts refresh immediately when cache is stale even before refresh interval", async () => {
+    let now = 0;
+    let fetchCalls = 0;
+    const cache = createCrlCache({
+      fetchLatest: async () => {
+        fetchCalls += 1;
+        if (fetchCalls === 1) {
+          throw new Error("temporary outage");
+        }
+        return makeClaims(REVOCATION_JTI_A);
+      },
+      staleBehavior: "fail-open",
+      refreshIntervalMs: 1000,
+      maxAgeMs: 100,
+      clock: () => now,
+    });
+
+    const first = await cache.refreshIfStale();
+    expect(first.stale).toBe(true);
+    expect(fetchCalls).toBe(1);
+
+    now = 150;
+    const second = await cache.refreshIfStale();
+    expect(fetchCalls).toBe(2);
+    expect(second.refreshed).toBe(true);
+    expect(second.stale).toBe(false);
   });
 
   it("refreshes when interval elapsed and uses latest revocation list", async () => {

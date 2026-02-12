@@ -188,8 +188,9 @@ export function createCrlCache(options: CrlCacheOptions): CrlCache {
     const warnings: CrlCacheWarning[] = [];
     let refreshed = false;
     const now = clock();
+    const staleBeforeRefresh = isStale(now);
 
-    if (shouldRefresh(now) && canAttemptRefresh(now)) {
+    if (shouldRefresh(now) && (staleBeforeRefresh || canAttemptRefresh(now))) {
       lastRefreshAttemptAtMs = now;
       try {
         const nextClaims = parseCrlClaims(await options.fetchLatest());

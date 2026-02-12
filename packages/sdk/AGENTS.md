@@ -31,6 +31,7 @@
 - Always parse CRL JWT payloads through protocol `parseCrlClaims` after signature verification so schema invariants (revocations non-empty, DID/ULID checks) are enforced.
 - CRL cache must parse fetched payloads through protocol `parseCrlClaims` before replacing cache state.
 - CRL cache stale behavior must be explicit and configurable (`fail-open` or `fail-closed`), with warnings surfaced on refresh failures.
+- CRL cache refresh throttling must not block stale recovery attempts; once stale, refresh should be attempted immediately.
 - For HTTP signing errors, keep user-facing messages static and send extra context through `AppError.details`.
 - Enforce Ed25519 key lengths at SDK boundaries (`secretKey` 32 bytes, `publicKey` 32 bytes) so misconfiguration returns stable `AppError` codes.
 - Treat any decoded PoP proof that is not 64 bytes as `HTTP_SIGNATURE_INVALID_PROOF`.
