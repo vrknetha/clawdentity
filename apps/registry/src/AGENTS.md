@@ -23,7 +23,7 @@
 
 ## GET /v1/agents Contract
 - Require PAT auth via `createApiKeyAuth`; only caller-owned agents may be returned.
-- Keep query parsing in `agentList.ts` to avoid duplicating validation rules in route handlers.
+- Keep query parsing in `agent-list.ts` to avoid duplicating validation rules in route handlers.
 - Supported optional filters:
   - `status`: `active | revoked`
   - `framework`: trimmed non-empty string, max 32 chars, no control chars
@@ -40,10 +40,22 @@
   - `framework`: optional; default to `openclaw` when omitted.
   - `publicKey`: base64url Ed25519 key that decodes to 32 bytes.
   - `ttlDays`: optional; default `30`; allow only integer range `1..90`.
-- Keep request parsing and validation in a reusable helper module (`agentRegistration.ts`) so future routes can share the same constraints without duplicating schema logic.
+- Keep request parsing and validation in a reusable helper module (`agent-registration.ts`) so future routes can share the same constraints without duplicating schema logic.
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `development`/`test` for debugging.
 - Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
 - Use shared SDK datetime helpers (`nowIso`, `addSeconds`) for issuance/expiry math instead of ad-hoc `Date.now()` arithmetic in route logic.
-- Resolve signing material through a reusable signer helper (`registrySigner.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
+- Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
 - Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.api.clawdentity.com`, `production` -> `https://api.clawdentity.com`) rather than request-origin inference.
 - Response shape remains `{ agent, ait }`; the token must be verifiable with the public keyset returned by `/.well-known/claw-keys.json`.
+
+## DELETE /v1/agents/:id Contract
+- Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be revoked.
+- Validate `:id` as ULID in `agent-revocation.ts`; path validation errors must be environment-aware via `shouldExposeVerboseErrors`.
+- For unknown IDs or foreign-owned IDs, return `404 AGENT_NOT_FOUND` (single not-found behavior to avoid ownership leaks).
+- Keep revocation idempotent:
+  - return `204` when agent is already `revoked`
+  - return `204` after first successful revoke
+- If an owned active agent has no `current_jti`, fail with `409 AGENT_REVOKE_INVALID_STATE` rather than writing a partial revocation.
+- Perform state changes in one DB transaction:
+  - update `agents.status` to `revoked` and `agents.updated_at` to `nowIso()`
+  - insert `revocations` row using the previous `current_jti`
