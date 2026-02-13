@@ -77,4 +77,74 @@ describe("config helpers", () => {
       expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
     }
   });
+
+  it("throws AppError when REGISTRY_SIGNING_KEYS contains duplicate kids", () => {
+    try {
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+            status: "active",
+          },
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICE",
+            status: "revoked",
+          },
+        ]),
+      });
+      throw new Error("expected parseRegistryConfig to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
+    }
+  });
+
+  it("throws AppError when REGISTRY_SIGNING_KEYS has malformed x", () => {
+    try {
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "not+base64url",
+            status: "active",
+          },
+        ]),
+      });
+      throw new Error("expected parseRegistryConfig to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
+    }
+  });
+
+  it("throws AppError when REGISTRY_SIGNING_KEYS x length is not Ed25519", () => {
+    try {
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBA",
+            status: "active",
+          },
+        ]),
+      });
+      throw new Error("expected parseRegistryConfig to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
+    }
+  });
 });

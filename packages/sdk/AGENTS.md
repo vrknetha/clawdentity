@@ -38,6 +38,7 @@
 - Nonce cache accept path must prune expired entries across all agent buckets to keep memory bounded under high-cardinality agent traffic.
 - Nonce cache must validate the top-level input shape before reading fields so invalid JS callers receive structured `AppError`s instead of runtime `TypeError`s.
 - Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
+- Registry keyset validation must reject duplicate `kid` values and malformed `x` key material (non-base64url or non-32-byte Ed25519) so verifier behavior cannot become order-dependent.
 
 ## Testing Rules
 - Unit test each shared module.
