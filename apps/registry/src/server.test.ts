@@ -12,15 +12,15 @@ import {
   verifyAIT,
 } from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_AGENT_LIST_LIMIT } from "./agentList.js";
+import { DEFAULT_AGENT_LIST_LIMIT } from "./agent-list.js";
 import {
   DEFAULT_AGENT_FRAMEWORK,
   DEFAULT_AGENT_TTL_DAYS,
-} from "./agentRegistration.js";
+} from "./agent-registration.js";
 import {
   deriveApiKeyLookupPrefix,
   hashApiKeyToken,
-} from "./auth/apiKeyAuth.js";
+} from "./auth/api-key-auth.js";
 import app, { createRegistryApp } from "./server.js";
 
 function makeAitClaims(publicKey: Uint8Array): AitClaims {
@@ -60,6 +60,8 @@ type FakeD1Row = {
 };
 
 type FakeAgentInsertRow = Record<string, unknown>;
+type FakeAgentUpdateRow = Record<string, unknown>;
+type FakeRevocationInsertRow = Record<string, unknown>;
 type FakeAgentRow = {
   id: string;
   did: string;
@@ -68,6 +70,8 @@ type FakeAgentRow = {
   framework: string | null;
   status: "active" | "revoked";
   expiresAt: string | null;
+  currentJti?: string | null;
+  updatedAt?: string;
 };
 
 type FakeAgentSelectRow = {
@@ -76,16 +80,34 @@ type FakeAgentSelectRow = {
   name: string;
   status: "active" | "revoked";
   expires_at: string | null;
+  current_jti: string | null;
 };
 
-function parseInsertColumns(query: string): string[] {
-  const match = query.match(/insert\s+into\s+"?agents"?\s*\(([^)]+)\)/i);
+function parseInsertColumns(query: string, tableName: string): string[] {
+  const match = query.match(
+    new RegExp(`insert\\s+into\\s+"?${tableName}"?\\s*\\(([^)]+)\\)`, "i"),
+  );
   if (!match) {
     return [];
   }
 
   const columns = match[1]?.split(",") ?? [];
   return columns.map((column) => column.replace(/["`\s]/g, ""));
+}
+
+function parseUpdateSetColumns(query: string, tableName: string): string[] {
+  const match = query.match(
+    new RegExp(`update\\s+"?${tableName}"?\\s+set\\s+(.+?)\\s+where`, "i"),
+  );
+  if (!match) {
+    return [];
+  }
+
+  const assignments = match[1]?.split(",") ?? [];
+  return assignments
+    .map((assignment) => assignment.split("=")[0] ?? "")
+    .map((column) => column.replace(/["`\s]/g, ""))
+    .filter((column) => column.length > 0);
 }
 
 function extractWhereClause(query: string): string {
@@ -107,22 +129,100 @@ function extractWhereClause(query: string): string {
   return normalized.slice(whereIndex, endIndex);
 }
 
+function hasFilter(
+  whereClause: string,
+  column: string,
+  operator = "=",
+): boolean {
+  const escapedColumn = column.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const escapedOperator = operator.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const quotedPattern = new RegExp(
+    `"${escapedColumn}"\\s*${escapedOperator}\\s*\\?`,
+  );
+  const barePattern = new RegExp(
+    `\\b${escapedColumn}\\b\\s*${escapedOperator}\\s*\\?`,
+  );
+  return quotedPattern.test(whereClause) || barePattern.test(whereClause);
+}
+
+function parseSelectedColumns(query: string): string[] {
+  const normalized = query.toLowerCase();
+  const selectIndex = normalized.indexOf("select ");
+  const fromIndex = normalized.indexOf(" from ");
+  if (selectIndex < 0 || fromIndex < 0 || fromIndex <= selectIndex) {
+    return [];
+  }
+
+  const selectClause = query.slice(selectIndex + 7, fromIndex);
+  return selectClause
+    .split(",")
+    .map((column) => column.trim())
+    .map((column) => {
+      const aliasMatch = column.match(/\s+as\s+"?([a-zA-Z0-9_]+)"?\s*$/i);
+      if (aliasMatch?.[1]) {
+        return aliasMatch[1].toLowerCase();
+      }
+
+      const quotedMatch = column.match(/"([a-zA-Z0-9_]+)"\s*$/);
+      if (quotedMatch?.[1]) {
+        return quotedMatch[1].toLowerCase();
+      }
+
+      const bare =
+        column
+          .split(".")
+          .pop()
+          ?.replace(/["`\s]/g, "") ?? "";
+      return bare.toLowerCase();
+    })
+    .filter((column) => column.length > 0);
+}
+
+function getAgentSelectColumnValue(
+  row: FakeAgentSelectRow,
+  column: string,
+): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "did") {
+    return row.did;
+  }
+  if (column === "name") {
+    return row.name;
+  }
+  if (column === "status") {
+    return row.status;
+  }
+  if (column === "expires_at") {
+    return row.expires_at;
+  }
+  if (column === "current_jti") {
+    return row.current_jti;
+  }
+  return undefined;
+}
+
 function resolveAgentSelectRows(options: {
   query: string;
   params: unknown[];
   agentRows: FakeAgentRow[];
 }): FakeAgentSelectRow[] {
   const whereClause = extractWhereClause(options.query);
-  const hasStatusFilter =
-    whereClause.includes("status") && whereClause.includes("= ?");
-  const hasFrameworkFilter =
-    whereClause.includes("framework") && whereClause.includes("= ?");
-  const hasCursorFilter =
-    whereClause.includes("id") && whereClause.includes("< ?");
+  const hasOwnerFilter = hasFilter(whereClause, "owner_id");
+  const hasStatusFilter = hasFilter(whereClause, "status");
+  const hasFrameworkFilter = hasFilter(whereClause, "framework");
+  const hasIdFilter = hasFilter(whereClause, "id");
+  const hasCursorFilter = hasFilter(whereClause, "id", "<");
+  const hasLimitClause = options.query.toLowerCase().includes(" limit ");
 
   let parameterIndex = 0;
-  const ownerId = String(options.params[parameterIndex] ?? "");
-  parameterIndex += 1;
+  const ownerId = hasOwnerFilter
+    ? String(options.params[parameterIndex] ?? "")
+    : undefined;
+  if (hasOwnerFilter) {
+    parameterIndex += 1;
+  }
 
   const statusFilter = hasStatusFilter
     ? String(options.params[parameterIndex] ?? "")
@@ -138,21 +238,34 @@ function resolveAgentSelectRows(options: {
     parameterIndex += 1;
   }
 
+  const idFilter = hasIdFilter
+    ? String(options.params[parameterIndex] ?? "")
+    : undefined;
+  if (hasIdFilter) {
+    parameterIndex += 1;
+  }
+
   const cursorFilter = hasCursorFilter
     ? String(options.params[parameterIndex] ?? "")
     : undefined;
+  if (hasCursorFilter) {
+    parameterIndex += 1;
+  }
 
-  const maybeLimit = Number(options.params[options.params.length - 1]);
+  const maybeLimit = hasLimitClause
+    ? Number(options.params[options.params.length - 1])
+    : Number.NaN;
   const limit = Number.isFinite(maybeLimit)
     ? maybeLimit
     : options.agentRows.length;
 
   const filteredRows = options.agentRows
-    .filter((row) => row.ownerId === ownerId)
+    .filter((row) => (ownerId ? row.ownerId === ownerId : true))
     .filter((row) => (statusFilter ? row.status === statusFilter : true))
     .filter((row) =>
       frameworkFilter ? row.framework === frameworkFilter : true,
     )
+    .filter((row) => (idFilter ? row.id === idFilter : true))
     .filter((row) => (cursorFilter ? row.id < cursorFilter : true))
     .sort((left, right) => right.id.localeCompare(left.id))
     .slice(0, limit)
@@ -162,6 +275,7 @@ function resolveAgentSelectRows(options: {
       name: row.name,
       status: row.status,
       expires_at: row.expiresAt,
+      current_jti: row.currentJti ?? null,
     }));
 
   return filteredRows;
@@ -170,6 +284,8 @@ function resolveAgentSelectRows(options: {
 function createFakeDb(rows: FakeD1Row[], agentRows: FakeAgentRow[] = []) {
   const updates: Array<{ lastUsedAt: string; apiKeyId: string }> = [];
   const agentInserts: FakeAgentInsertRow[] = [];
+  const agentUpdates: FakeAgentUpdateRow[] = [];
+  const revocationInserts: FakeRevocationInsertRow[] = [];
 
   const database: D1Database = {
     prepare(query: string) {
@@ -254,13 +370,12 @@ function createFakeDb(rows: FakeD1Row[], agentRows: FakeAgentRow[] = []) {
               params,
               agentRows,
             });
-            return resultRows.map((row) => [
-              row.id,
-              row.did,
-              row.name,
-              row.status,
-              row.expires_at,
-            ]);
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getAgentSelectColumnValue(row, column),
+              ),
+            );
           }
           return [];
         },
@@ -278,7 +393,7 @@ function createFakeDb(rows: FakeD1Row[], agentRows: FakeAgentRow[] = []) {
             normalizedQuery.includes('insert into "agents"') ||
             normalizedQuery.includes("insert into agents")
           ) {
-            const columns = parseInsertColumns(query);
+            const columns = parseInsertColumns(query, "agents");
             const row = columns.reduce<FakeAgentInsertRow>(
               (acc, column, index) => {
                 acc[column] = params[index];
@@ -288,13 +403,86 @@ function createFakeDb(rows: FakeD1Row[], agentRows: FakeAgentRow[] = []) {
             );
             agentInserts.push(row);
           }
+          if (
+            normalizedQuery.includes('update "agents"') ||
+            normalizedQuery.includes("update agents")
+          ) {
+            const setColumns = parseUpdateSetColumns(query, "agents");
+            const nextValues = setColumns.reduce<Record<string, unknown>>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            const whereClause = extractWhereClause(query);
+            const whereParams = params.slice(setColumns.length);
+            let whereIndex = 0;
+            const ownerFilter = hasFilter(whereClause, "owner_id")
+              ? String(whereParams[whereIndex++] ?? "")
+              : undefined;
+            const idFilter = hasFilter(whereClause, "id")
+              ? String(whereParams[whereIndex++] ?? "")
+              : undefined;
+
+            for (const row of agentRows) {
+              if (ownerFilter && row.ownerId !== ownerFilter) {
+                continue;
+              }
+              if (idFilter && row.id !== idFilter) {
+                continue;
+              }
+
+              if (
+                nextValues.status === "active" ||
+                nextValues.status === "revoked"
+              ) {
+                row.status = nextValues.status;
+              }
+              if (typeof nextValues.updated_at === "string") {
+                row.updatedAt = nextValues.updated_at;
+              }
+              if (
+                typeof nextValues.current_jti === "string" ||
+                nextValues.current_jti === null
+              ) {
+                row.currentJti = nextValues.current_jti;
+              }
+            }
+
+            agentUpdates.push({
+              ...nextValues,
+              owner_id: ownerFilter,
+              id: idFilter,
+            });
+          }
+          if (
+            normalizedQuery.includes('insert into "revocations"') ||
+            normalizedQuery.includes("insert into revocations")
+          ) {
+            const columns = parseInsertColumns(query, "revocations");
+            const row = columns.reduce<FakeRevocationInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            revocationInserts.push(row);
+          }
           return { success: true } as D1Result;
         },
       } as D1PreparedStatement;
     },
   } as D1Database;
 
-  return { database, updates, agentInserts };
+  return {
+    database,
+    updates,
+    agentInserts,
+    agentUpdates,
+    revocationInserts,
+  };
 }
 
 function makeValidPatContext(token = "clw_pat_valid-token-value") {
@@ -930,6 +1118,217 @@ describe("GET /v1/agents", () => {
     expect(body.error.code).toBe("AGENT_LIST_INVALID_QUERY");
     expect(body.error.message).toBe("Request could not be processed");
     expect(body.error.details).toBeUndefined();
+  });
+});
+
+describe("DELETE /v1/agents/:id", () => {
+  it("returns 401 when PAT is missing", async () => {
+    const agentId = generateUlid(1700200000000);
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("returns 404 when agent does not exist", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, agentUpdates, revocationInserts } = createFakeDb([
+      authRow,
+    ]);
+    const agentId = generateUlid(1700200000100);
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("AGENT_NOT_FOUND");
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
+  });
+
+  it("returns 404 when agent is owned by another human", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const foreignAgentId = generateUlid(1700200000200);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: foreignAgentId,
+          did: makeAgentDid(foreignAgentId),
+          ownerId: "human-2",
+          name: "foreign-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: generateUlid(1700200000201),
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${foreignAgentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("AGENT_NOT_FOUND");
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
+  });
+
+  it("revokes owned agent and inserts revocation record", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700200000300);
+    const agentJti = generateUlid(1700200000301);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: agentJti,
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(204);
+    expect(agentUpdates).toHaveLength(1);
+    expect(agentUpdates[0]).toMatchObject({
+      id: agentId,
+      status: "revoked",
+      updated_at: expect.any(String),
+    });
+    expect(revocationInserts).toHaveLength(1);
+    expect(revocationInserts[0]).toMatchObject({
+      agent_id: agentId,
+      jti: agentJti,
+      reason: null,
+      revoked_at: expect.any(String),
+    });
+  });
+
+  it("is idempotent for repeat revoke requests", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700200000400);
+    const agentJti = generateUlid(1700200000401);
+    const { database, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: agentJti,
+        },
+      ],
+    );
+
+    const first = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    const second = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(first.status).toBe(204);
+    expect(second.status).toBe(204);
+    expect(revocationInserts).toHaveLength(1);
+  });
+
+  it("returns 409 when owned agent has missing current_jti", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700200000500);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: null,
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_REVOKE_INVALID_STATE");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      currentJti: expect.any(Array),
+    });
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
   });
 });
 

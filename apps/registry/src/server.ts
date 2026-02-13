@@ -1,9 +1,11 @@
+import { generateUlid } from "@clawdentity/protocol";
 import {
   AppError,
   createHonoErrorHandler,
   createLogger,
   createRequestContextMiddleware,
   createRequestLoggingMiddleware,
+  nowIso,
   parseRegistryConfig,
   type RegistryConfig,
   shouldExposeVerboseErrors,
@@ -11,18 +13,23 @@ import {
 } from "@clawdentity/sdk";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { Hono } from "hono";
-import { mapAgentListRow, parseAgentListQuery } from "./agentList.js";
+import { mapAgentListRow, parseAgentListQuery } from "./agent-list.js";
 import {
   buildAgentRegistration,
   resolveRegistryIssuer,
-} from "./agentRegistration.js";
+} from "./agent-registration.js";
+import {
+  agentNotFoundError,
+  invalidAgentRevokeStateError,
+  parseAgentRevokePath,
+} from "./agent-revocation.js";
 import {
   type AuthenticatedHuman,
   createApiKeyAuth,
-} from "./auth/apiKeyAuth.js";
+} from "./auth/api-key-auth.js";
 import { createDb } from "./db/client.js";
-import { agents } from "./db/schema.js";
-import { resolveRegistrySigner } from "./registrySigner.js";
+import { agents, revocations } from "./db/schema.js";
+import { resolveRegistrySigner } from "./registry-signer.js";
 
 type Bindings = {
   DB: D1Database;
@@ -177,6 +184,69 @@ function createRegistryApp() {
     });
 
     return c.json({ agent: registration.agent, ait }, 201);
+  });
+
+  app.delete("/v1/agents/:id", createApiKeyAuth(), async (c) => {
+    const config = getConfig(c.env);
+    const agentId = parseAgentRevokePath({
+      id: c.req.param("id"),
+      environment: config.ENVIRONMENT,
+    });
+    const human = c.get("human");
+    const db = createDb(c.env.DB);
+
+    const matches = await db
+      .select({
+        id: agents.id,
+        status: agents.status,
+        current_jti: agents.current_jti,
+      })
+      .from(agents)
+      .where(and(eq(agents.owner_id, human.id), eq(agents.id, agentId)))
+      .limit(1);
+    const existingAgent = matches[0];
+
+    if (!existingAgent) {
+      throw agentNotFoundError();
+    }
+
+    if (existingAgent.status === "revoked") {
+      return c.body(null, 204);
+    }
+
+    const currentJti = existingAgent.current_jti;
+    if (typeof currentJti !== "string" || currentJti.length === 0) {
+      throw invalidAgentRevokeStateError({
+        environment: config.ENVIRONMENT,
+        reason: "agent.current_jti is required for revocation",
+      });
+    }
+
+    const revokedAt = nowIso();
+    await db.transaction(async (tx) => {
+      await tx
+        .update(agents)
+        .set({
+          status: "revoked",
+          updated_at: revokedAt,
+        })
+        .where(eq(agents.id, existingAgent.id));
+
+      await tx
+        .insert(revocations)
+        .values({
+          id: generateUlid(Date.now()),
+          jti: currentJti,
+          agent_id: existingAgent.id,
+          reason: null,
+          revoked_at: revokedAt,
+        })
+        .onConflictDoNothing({
+          target: revocations.jti,
+        });
+    });
+
+    return c.body(null, 204);
   });
 
   return app;
