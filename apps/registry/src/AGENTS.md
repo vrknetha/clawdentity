@@ -25,10 +25,20 @@
 - If no revocations exist yet, return `404 CRL_NOT_FOUND` instead of emitting an unsigned or schema-invalid empty snapshot.
 - Route tests should verify the returned CRL token using SDK `verifyCRL` and the published active keys from `/.well-known/claw-keys.json`.
 
+## GET /v1/resolve/:id Contract
+- Public endpoint: no PAT/auth required.
+- Validate `:id` as ULID via dedicated parser and return `400 AGENT_RESOLVE_INVALID_PATH` on invalid path input.
+- Rate-limit by client IP with a basic in-memory limiter and return `429 RATE_LIMIT_EXCEEDED` when over threshold.
+- Return only public fields: `{ did, name, framework, status, ownerDid }`.
+- Do not expose PII or internal fields (email, API key metadata, or private key material).
+- For unknown IDs, return `404 AGENT_NOT_FOUND` with no ownership-leak variants.
+- Keep framework output stable as a non-empty string for legacy rows missing `framework`.
+
 ## Validation
 - Run `pnpm -F @clawdentity/registry run test` after changing routes or config loading.
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.
-- When using fake D1 adapters in route tests, make select responses honor bound parameters so query-shape regressions are caught.
+- When using fake D1 adapters in route tests, make select responses honor bound parameters, selected-column projection, and join semantics so query-shape regressions are caught.
+- Fake D1 join emulation should drop rows when `innerJoin` targets are missing so tests catch missing/incorrect joins instead of masking them with stubbed values.
 
 ## GET /v1/agents Contract
 - Require PAT auth via `createApiKeyAuth`; only caller-owned agents may be returned.

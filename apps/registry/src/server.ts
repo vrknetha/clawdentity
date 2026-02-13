@@ -21,6 +21,11 @@ import {
   resolveRegistryIssuer,
 } from "./agent-registration.js";
 import {
+  agentResolveNotFoundError,
+  mapResolvedAgentRow,
+  parseAgentResolvePath,
+} from "./agent-resolve.js";
+import {
   agentNotFoundError,
   invalidAgentReissueStateError,
   invalidAgentRevokeStateError,
@@ -31,7 +36,12 @@ import {
   createApiKeyAuth,
 } from "./auth/api-key-auth.js";
 import { createDb } from "./db/client.js";
-import { agents, revocations } from "./db/schema.js";
+import { agents, humans, revocations } from "./db/schema.js";
+import {
+  createInMemoryRateLimit,
+  RESOLVE_RATE_LIMIT_MAX_REQUESTS,
+  RESOLVE_RATE_LIMIT_WINDOW_MS,
+} from "./rate-limit.js";
 import { resolveRegistrySigner } from "./registry-signer.js";
 
 type Bindings = {
@@ -231,6 +241,11 @@ function createRegistryApp() {
     Bindings: Bindings;
     Variables: { requestId: string; human: AuthenticatedHuman };
   }>();
+  const resolveRateLimit = createInMemoryRateLimit({
+    bucketKey: "resolve",
+    maxRequests: RESOLVE_RATE_LIMIT_MAX_REQUESTS,
+    windowMs: RESOLVE_RATE_LIMIT_WINDOW_MS,
+  });
 
   app.use("*", createRequestContextMiddleware());
   app.use("*", createRequestLoggingMiddleware(logger));
@@ -300,6 +315,35 @@ function createRegistryApp() {
     return c.json({ crl }, 200, {
       "Cache-Control": REGISTRY_CRL_CACHE_CONTROL,
     });
+  });
+
+  app.get("/v1/resolve/:id", resolveRateLimit, async (c) => {
+    const config = getConfig(c.env);
+    const id = parseAgentResolvePath({
+      id: c.req.param("id"),
+      environment: config.ENVIRONMENT,
+    });
+    const db = createDb(c.env.DB);
+
+    const rows = await db
+      .select({
+        did: agents.did,
+        name: agents.name,
+        framework: agents.framework,
+        status: agents.status,
+        owner_did: humans.did,
+      })
+      .from(agents)
+      .innerJoin(humans, eq(agents.owner_id, humans.id))
+      .where(eq(agents.id, id))
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      throw agentResolveNotFoundError();
+    }
+
+    return c.json(mapResolvedAgentRow(row));
   });
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {
