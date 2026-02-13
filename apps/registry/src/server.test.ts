@@ -68,19 +68,26 @@ type FakeAgentRow = {
   ownerId: string;
   name: string;
   framework: string | null;
+  publicKey?: string;
   status: "active" | "revoked";
   expiresAt: string | null;
   currentJti?: string | null;
+  createdAt?: string;
   updatedAt?: string;
 };
 
 type FakeAgentSelectRow = {
   id: string;
   did: string;
+  owner_id: string;
   name: string;
+  framework: string | null;
+  public_key: string;
   status: "active" | "revoked";
   expires_at: string | null;
   current_jti: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 function parseInsertColumns(query: string, tableName: string): string[] {
@@ -188,8 +195,17 @@ function getAgentSelectColumnValue(
   if (column === "did") {
     return row.did;
   }
+  if (column === "owner_id") {
+    return row.owner_id;
+  }
   if (column === "name") {
     return row.name;
+  }
+  if (column === "framework") {
+    return row.framework;
+  }
+  if (column === "public_key") {
+    return row.public_key;
   }
   if (column === "status") {
     return row.status;
@@ -199,6 +215,12 @@ function getAgentSelectColumnValue(
   }
   if (column === "current_jti") {
     return row.current_jti;
+  }
+  if (column === "created_at") {
+    return row.created_at;
+  }
+  if (column === "updated_at") {
+    return row.updated_at;
   }
   return undefined;
 }
@@ -272,10 +294,16 @@ function resolveAgentSelectRows(options: {
     .map((row) => ({
       id: row.id,
       did: row.did,
+      owner_id: row.ownerId,
       name: row.name,
+      framework: row.framework,
+      public_key:
+        row.publicKey ?? "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
       status: row.status,
       expires_at: row.expiresAt,
       current_jti: row.currentJti ?? null,
+      created_at: row.createdAt ?? "2026-01-01T00:00:00.000Z",
+      updated_at: row.updatedAt ?? "2026-01-01T00:00:00.000Z",
     }));
 
   return filteredRows;
@@ -447,6 +475,12 @@ function createFakeDb(rows: FakeD1Row[], agentRows: FakeAgentRow[] = []) {
                 nextValues.current_jti === null
               ) {
                 row.currentJti = nextValues.current_jti;
+              }
+              if (
+                typeof nextValues.expires_at === "string" ||
+                nextValues.expires_at === null
+              ) {
+                row.expiresAt = nextValues.expires_at;
               }
             }
 
@@ -1345,6 +1379,308 @@ describe("DELETE /v1/agents/:id", () => {
     });
     expect(agentUpdates).toHaveLength(0);
     expect(revocationInserts).toHaveLength(0);
+  });
+});
+
+describe("POST /v1/agents/:id/reissue", () => {
+  it("returns 401 when PAT is missing", async () => {
+    const agentId = generateUlid(1700300000000);
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}/reissue`,
+      {
+        method: "POST",
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("returns 404 when agent does not exist", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, agentUpdates, revocationInserts } = createFakeDb([
+      authRow,
+    ]);
+    const agentId = generateUlid(1700300000100);
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}/reissue`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("AGENT_NOT_FOUND");
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
+  });
+
+  it("returns 404 when agent is owned by another human", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const foreignAgentId = generateUlid(1700300000200);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: foreignAgentId,
+          did: makeAgentDid(foreignAgentId),
+          ownerId: "human-2",
+          name: "foreign-agent",
+          framework: "openclaw",
+          status: "active",
+          publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: generateUlid(1700300000201),
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${foreignAgentId}/reissue`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("AGENT_NOT_FOUND");
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
+  });
+
+  it("returns 409 when agent is revoked", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700300000300);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "revoked-agent",
+          framework: "openclaw",
+          status: "revoked",
+          publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: generateUlid(1700300000301),
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}/reissue`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_REISSUE_INVALID_STATE");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      status: expect.any(Array),
+    });
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
+  });
+
+  it("returns 409 when owned agent has missing current_jti", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700300000400);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          status: "active",
+          publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: null,
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}/reissue`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_REISSUE_INVALID_STATE");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      currentJti: expect.any(Array),
+    });
+    expect(agentUpdates).toHaveLength(0);
+    expect(revocationInserts).toHaveLength(0);
+  });
+
+  it("reissues owned agent, revokes old jti, and returns verifiable AIT", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700300000500);
+    const previousJti = generateUlid(1700300000501);
+    const signer = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const signingKeyset = JSON.stringify([
+      {
+        kid: "reg-key-1",
+        alg: "EdDSA",
+        crv: "Ed25519",
+        x: encodeBase64url(signer.publicKey),
+        status: "active",
+      },
+    ]);
+    const { database, agentUpdates, revocationInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: previousJti,
+        },
+      ],
+    );
+    const appInstance = createRegistryApp();
+
+    const res = await appInstance.request(
+      `/v1/agents/${agentId}/reissue`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: signingKeyset,
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      agent: {
+        id: string;
+        did: string;
+        ownerDid: string;
+        name: string;
+        framework: string;
+        publicKey: string;
+        currentJti: string;
+        status: string;
+        expiresAt: string;
+        updatedAt: string;
+      };
+      ait: string;
+    };
+    expect(body.agent.id).toBe(agentId);
+    expect(body.agent.did).toBe(makeAgentDid(agentId));
+    expect(body.agent.ownerDid).toBe(authRow.humanDid);
+    expect(body.agent.framework).toBe("openclaw");
+    expect(body.agent.publicKey).toBe(encodeBase64url(agentKeypair.publicKey));
+    expect(body.agent.currentJti).not.toBe(previousJti);
+    expect(body.agent.status).toBe("active");
+    expect(body.ait).toEqual(expect.any(String));
+
+    expect(agentUpdates).toHaveLength(1);
+    expect(agentUpdates[0]).toMatchObject({
+      id: agentId,
+      status: "active",
+      current_jti: body.agent.currentJti,
+      expires_at: body.agent.expiresAt,
+      updated_at: body.agent.updatedAt,
+    });
+
+    expect(revocationInserts).toHaveLength(1);
+    expect(revocationInserts[0]).toMatchObject({
+      agent_id: agentId,
+      jti: previousJti,
+      reason: "reissued",
+      revoked_at: expect.any(String),
+    });
+
+    const keysRes = await appInstance.request(
+      "/.well-known/claw-keys.json",
+      {},
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: signingKeyset,
+      },
+    );
+    const keysBody = (await keysRes.json()) as {
+      keys: Array<{
+        kid: string;
+        alg: "EdDSA";
+        crv: "Ed25519";
+        x: string;
+        status: "active" | "revoked";
+      }>;
+    };
+
+    const claims = await verifyAIT({
+      token: body.ait,
+      expectedIssuer: "https://dev.api.clawdentity.com",
+      registryKeys: keysBody.keys
+        .filter((key) => key.status === "active")
+        .map((key) => ({
+          kid: key.kid,
+          jwk: {
+            kty: "OKP" as const,
+            crv: key.crv,
+            x: key.x,
+          },
+        })),
+    });
+    expect(claims.sub).toBe(body.agent.did);
+    expect(claims.ownerDid).toBe(body.agent.ownerDid);
+    expect(claims.name).toBe(body.agent.name);
+    expect(claims.framework).toBe(body.agent.framework);
+    expect(claims.cnf.jwk.x).toBe(body.agent.publicKey);
+    expect(claims.jti).toBe(body.agent.currentJti);
+    expect(claims.jti).not.toBe(previousJti);
   });
 });
 

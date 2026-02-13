@@ -81,3 +81,25 @@ export function invalidAgentRevokeStateError(options: {
       : undefined,
   });
 }
+
+export function invalidAgentReissueStateError(options: {
+  environment: RegistryConfig["ENVIRONMENT"];
+  reason: string;
+  field?: "currentJti" | "status";
+}): AppError {
+  const exposeDetails = shouldExposeVerboseErrors(options.environment);
+  return new AppError({
+    code: "AGENT_REISSUE_INVALID_STATE",
+    message: exposeDetails
+      ? "Agent cannot be reissued"
+      : "Request could not be processed",
+    status: 409,
+    expose: exposeDetails,
+    details: exposeDetails
+      ? {
+          fieldErrors: { [options.field ?? "currentJti"]: [options.reason] },
+          formErrors: [],
+        }
+      : undefined,
+  });
+}
