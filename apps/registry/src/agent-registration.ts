@@ -335,12 +335,26 @@ export function buildAgentRegistration(input: {
   };
 }
 
-function resolveReissueTtlDays(input: {
+function resolveReissueExpiry(input: {
   previousExpiresAt: string | null;
+  issuedAt: string;
   issuedAtMs: number;
-}): number {
+  issuedAtSeconds: number;
+}): {
+  expiresAt: string;
+  exp: number;
+  ttlDays: number;
+} {
+  const defaultTtlSeconds = DEFAULT_AGENT_TTL_DAYS * DAY_IN_SECONDS;
+  const defaultExp = input.issuedAtSeconds + defaultTtlSeconds;
+  const defaultExpiry = addSeconds(input.issuedAt, defaultTtlSeconds);
+
   if (!input.previousExpiresAt) {
-    return DEFAULT_AGENT_TTL_DAYS;
+    return {
+      expiresAt: defaultExpiry,
+      exp: defaultExp,
+      ttlDays: DEFAULT_AGENT_TTL_DAYS,
+    };
   }
 
   const previousExpiryMs = Date.parse(input.previousExpiresAt);
@@ -348,17 +362,28 @@ function resolveReissueTtlDays(input: {
     !Number.isFinite(previousExpiryMs) ||
     previousExpiryMs <= input.issuedAtMs
   ) {
-    return DEFAULT_AGENT_TTL_DAYS;
+    return {
+      expiresAt: defaultExpiry,
+      exp: defaultExp,
+      ttlDays: DEFAULT_AGENT_TTL_DAYS,
+    };
   }
 
-  const remainingSeconds = Math.floor(
-    (previousExpiryMs - input.issuedAtMs) / 1000,
+  const previousExpirySeconds = Math.floor(previousExpiryMs / 1000);
+  const remainingSeconds = Math.max(
+    1,
+    previousExpirySeconds - input.issuedAtSeconds,
   );
-  const remainingDays = Math.ceil(remainingSeconds / DAY_IN_SECONDS);
-  return Math.min(
+  const ttlDays = Math.min(
     MAX_AGENT_TTL_DAYS,
-    Math.max(MIN_AGENT_TTL_DAYS, remainingDays),
+    Math.max(MIN_AGENT_TTL_DAYS, Math.ceil(remainingSeconds / DAY_IN_SECONDS)),
   );
+
+  return {
+    expiresAt: new Date(previousExpiryMs).toISOString(),
+    exp: previousExpirySeconds,
+    ttlDays,
+  };
 }
 
 export function buildAgentReissue(input: {
@@ -374,13 +399,13 @@ export function buildAgentReissue(input: {
   const issuedAt = nowIso();
   const issuedAtMs = Date.parse(issuedAt);
   const issuedAtSeconds = Math.floor(issuedAtMs / 1000);
-  const ttlDays = resolveReissueTtlDays({
+  const expiry = resolveReissueExpiry({
     previousExpiresAt: input.previousExpiresAt,
+    issuedAt,
     issuedAtMs,
+    issuedAtSeconds,
   });
-  const ttlSeconds = ttlDays * DAY_IN_SECONDS;
   const currentJti = generateUlid(issuedAtMs + 1);
-  const expiresAt = addSeconds(issuedAt, ttlSeconds);
   const framework = input.framework ?? DEFAULT_AGENT_FRAMEWORK;
 
   return {
@@ -392,9 +417,9 @@ export function buildAgentReissue(input: {
       framework,
       publicKey: input.publicKey,
       currentJti,
-      ttlDays,
+      ttlDays: expiry.ttlDays,
       status: "active",
-      expiresAt,
+      expiresAt: expiry.expiresAt,
       updatedAt: issuedAt,
     },
     claims: {
@@ -412,7 +437,7 @@ export function buildAgentReissue(input: {
       },
       iat: issuedAtSeconds,
       nbf: issuedAtSeconds,
-      exp: issuedAtSeconds + ttlSeconds,
+      exp: expiry.exp,
       jti: currentJti,
     },
   };

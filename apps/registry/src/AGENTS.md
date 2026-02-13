@@ -68,7 +68,12 @@
   - if agent status is `revoked`, return `409 AGENT_REISSUE_INVALID_STATE`
   - if owned active agent has no `current_jti`, return `409 AGENT_REISSUE_INVALID_STATE`
 - Keep one active token invariant in one DB transaction:
+  - update must be optimistic and state-guarded (`id` + expected `status=active` + expected previous `current_jti`) so concurrent revoke/reissue cannot mint multiple valid AITs
+  - fail with `409 AGENT_REISSUE_INVALID_STATE` when the guarded update matches zero rows (state changed concurrently)
   - update `agents.current_jti`, `agents.expires_at`, `agents.updated_at` (and keep status `active`)
   - insert revocation row for the previous `current_jti`
+- Reissue rotates token identity, not privileges:
+  - keep replacement AIT `exp` capped to prior `agents.expires_at` when that expiry is still in the future
+  - do not round near-expiry windows up to full days during rotation
 - Sign replacement AIT using existing registry signer/keyset flow and deterministic issuer mapping.
 - Response shape is `{ agent, ait }`; `agent.currentJti` must match the returned AIT `jti`.

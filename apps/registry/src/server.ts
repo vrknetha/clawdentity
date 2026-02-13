@@ -97,6 +97,30 @@ function isUnsupportedLocalTransactionError(error: unknown): boolean {
   );
 }
 
+function getMutationRowCount(result: unknown): number | undefined {
+  if (!result || typeof result !== "object") {
+    return undefined;
+  }
+
+  const directChanges = (result as { changes?: unknown }).changes;
+  if (typeof directChanges === "number") {
+    return directChanges;
+  }
+
+  const rowsAffected = (result as { rowsAffected?: unknown }).rowsAffected;
+  if (typeof rowsAffected === "number") {
+    return rowsAffected;
+  }
+
+  const metaChanges = (result as { meta?: { changes?: unknown } }).meta
+    ?.changes;
+  if (typeof metaChanges === "number") {
+    return metaChanges;
+  }
+
+  return undefined;
+}
+
 function createRegistryApp() {
   let cachedConfig: RegistryConfig | undefined;
 
@@ -368,7 +392,7 @@ function createRegistryApp() {
 
     const revokedAt = nowIso();
     const applyReissueMutation = async (executor: typeof db): Promise<void> => {
-      await executor
+      const updateResult = await executor
         .update(agents)
         .set({
           status: "active",
@@ -376,7 +400,22 @@ function createRegistryApp() {
           expires_at: reissue.agent.expiresAt,
           updated_at: reissue.agent.updatedAt,
         })
-        .where(eq(agents.id, existingAgent.id));
+        .where(
+          and(
+            eq(agents.id, existingAgent.id),
+            eq(agents.status, "active"),
+            eq(agents.current_jti, currentJti),
+          ),
+        );
+
+      const updatedRows = getMutationRowCount(updateResult);
+      if (updatedRows === 0) {
+        throw invalidAgentReissueStateError({
+          environment: config.ENVIRONMENT,
+          field: "currentJti",
+          reason: "agent state changed during reissue; retry request",
+        });
+      }
 
       await executor
         .insert(revocations)
