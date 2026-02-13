@@ -59,3 +59,21 @@
 - Perform state changes in one DB transaction:
   - update `agents.status` to `revoked` and `agents.updated_at` to `nowIso()`
   - insert `revocations` row using the previous `current_jti`
+
+## POST /v1/agents/:id/reissue Contract
+- Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be reissued.
+- Reuse `parseAgentRevokePath` for ULID path validation and preserve environment-aware error exposure.
+- Return `404 AGENT_NOT_FOUND` for unknown IDs or foreign-owned IDs (single not-found behavior to avoid ownership leaks).
+- Reissue only active agents:
+  - if agent status is `revoked`, return `409 AGENT_REISSUE_INVALID_STATE`
+  - if owned active agent has no `current_jti`, return `409 AGENT_REISSUE_INVALID_STATE`
+- Keep one active token invariant in one DB transaction:
+  - update must be optimistic and state-guarded (`id` + expected `status=active` + expected previous `current_jti`) so concurrent revoke/reissue cannot mint multiple valid AITs
+  - fail with `409 AGENT_REISSUE_INVALID_STATE` when the guarded update matches zero rows (state changed concurrently)
+  - update `agents.current_jti`, `agents.expires_at`, `agents.updated_at` (and keep status `active`)
+  - insert revocation row for the previous `current_jti`
+- Reissue rotates token identity, not privileges:
+  - keep replacement AIT `exp` capped to prior `agents.expires_at` when that expiry is still in the future
+  - do not round near-expiry windows up to full days during rotation
+- Sign replacement AIT using existing registry signer/keyset flow and deterministic issuer mapping.
+- Response shape is `{ agent, ait }`; `agent.currentJti` must match the returned AIT `jti`.

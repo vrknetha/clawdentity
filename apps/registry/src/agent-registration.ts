@@ -54,6 +54,23 @@ export type AgentRegistrationResult = {
   claims: AitClaims;
 };
 
+export type AgentReissueResult = {
+  agent: {
+    id: string;
+    did: string;
+    ownerDid: string;
+    name: string;
+    framework: string;
+    publicKey: string;
+    currentJti: string;
+    ttlDays: number;
+    status: "active";
+    expiresAt: string;
+    updatedAt: string;
+  };
+  claims: AitClaims;
+};
+
 function invalidRegistration(options: {
   environment: RegistryConfig["ENVIRONMENT"];
   details?: {
@@ -313,6 +330,114 @@ export function buildAgentRegistration(input: {
       iat: issuedAtSeconds,
       nbf: issuedAtSeconds,
       exp: issuedAtSeconds + ttlSeconds,
+      jti: currentJti,
+    },
+  };
+}
+
+function resolveReissueExpiry(input: {
+  previousExpiresAt: string | null;
+  issuedAt: string;
+  issuedAtMs: number;
+  issuedAtSeconds: number;
+}): {
+  expiresAt: string;
+  exp: number;
+  ttlDays: number;
+} {
+  const defaultTtlSeconds = DEFAULT_AGENT_TTL_DAYS * DAY_IN_SECONDS;
+  const defaultExp = input.issuedAtSeconds + defaultTtlSeconds;
+  const defaultExpiry = addSeconds(input.issuedAt, defaultTtlSeconds);
+
+  if (!input.previousExpiresAt) {
+    return {
+      expiresAt: defaultExpiry,
+      exp: defaultExp,
+      ttlDays: DEFAULT_AGENT_TTL_DAYS,
+    };
+  }
+
+  const previousExpiryMs = Date.parse(input.previousExpiresAt);
+  if (
+    !Number.isFinite(previousExpiryMs) ||
+    previousExpiryMs <= input.issuedAtMs
+  ) {
+    return {
+      expiresAt: defaultExpiry,
+      exp: defaultExp,
+      ttlDays: DEFAULT_AGENT_TTL_DAYS,
+    };
+  }
+
+  const previousExpirySeconds = Math.floor(previousExpiryMs / 1000);
+  const remainingSeconds = Math.max(
+    1,
+    previousExpirySeconds - input.issuedAtSeconds,
+  );
+  const ttlDays = Math.min(
+    MAX_AGENT_TTL_DAYS,
+    Math.max(MIN_AGENT_TTL_DAYS, Math.ceil(remainingSeconds / DAY_IN_SECONDS)),
+  );
+
+  return {
+    expiresAt: new Date(previousExpiryMs).toISOString(),
+    exp: previousExpirySeconds,
+    ttlDays,
+  };
+}
+
+export function buildAgentReissue(input: {
+  id: string;
+  did: string;
+  ownerDid: string;
+  name: string;
+  framework: string | null;
+  publicKey: string;
+  previousExpiresAt: string | null;
+  issuer: string;
+}): AgentReissueResult {
+  const issuedAt = nowIso();
+  const issuedAtMs = Date.parse(issuedAt);
+  const issuedAtSeconds = Math.floor(issuedAtMs / 1000);
+  const expiry = resolveReissueExpiry({
+    previousExpiresAt: input.previousExpiresAt,
+    issuedAt,
+    issuedAtMs,
+    issuedAtSeconds,
+  });
+  const currentJti = generateUlid(issuedAtMs + 1);
+  const framework = input.framework ?? DEFAULT_AGENT_FRAMEWORK;
+
+  return {
+    agent: {
+      id: input.id,
+      did: input.did,
+      ownerDid: input.ownerDid,
+      name: input.name,
+      framework,
+      publicKey: input.publicKey,
+      currentJti,
+      ttlDays: expiry.ttlDays,
+      status: "active",
+      expiresAt: expiry.expiresAt,
+      updatedAt: issuedAt,
+    },
+    claims: {
+      iss: input.issuer,
+      sub: input.did,
+      ownerDid: input.ownerDid,
+      name: input.name,
+      framework,
+      cnf: {
+        jwk: {
+          kty: "OKP",
+          crv: "Ed25519",
+          x: input.publicKey,
+        },
+      },
+      iat: issuedAtSeconds,
+      nbf: issuedAtSeconds,
+      exp: expiry.exp,
       jti: currentJti,
     },
   };
