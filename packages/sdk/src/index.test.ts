@@ -18,6 +18,7 @@ import {
   REQUEST_ID_HEADER,
   resolveRequestId,
   SDK_VERSION,
+  shouldExposeVerboseErrors,
   signAIT,
   signCRL,
   signEd25519,
@@ -41,6 +42,7 @@ describe("sdk", () => {
     expect(parseRegistryConfig({ ENVIRONMENT: "test" }).ENVIRONMENT).toBe(
       "test",
     );
+    expect(shouldExposeVerboseErrors("test")).toBe(true);
     expect(REQUEST_ID_HEADER).toBe("x-request-id");
     expect(AppError).toBeTypeOf("function");
   });

@@ -24,6 +24,7 @@
 - Avoid leaking secrets in logs and error payloads.
 - Keep all parse/validation errors explicit and deterministic.
 - Keep cryptography APIs byte-first (`Uint8Array`) and runtime-portable.
+- Derive Ed25519 public keys via `deriveEd25519PublicKey` (instead of ad-hoc noble calls) so key derivation behavior and validation stay centralized.
 - Reuse protocol base64url helpers as the single source of truth; do not duplicate encoding logic in SDK.
 - Keep CRL claim schema authority in `@clawdentity/protocol` (`crl.ts`); SDK JWT helpers should avoid duplicating claim-validation rules.
 - Never log secret keys or raw signature material.
@@ -39,6 +40,7 @@
 - Nonce cache must validate the top-level input shape before reading fields so invalid JS callers receive structured `AppError`s instead of runtime `TypeError`s.
 - Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
 - Registry keyset validation must reject duplicate `kid` values and malformed `x` key material (non-base64url or non-32-byte Ed25519) so verifier behavior cannot become order-dependent.
+- Use `RuntimeEnvironment` + `shouldExposeVerboseErrors` from `runtime-environment` for environment-based error-detail behavior; do not duplicate ad-hoc `NODE_ENV`/string checks.
 
 ## Testing Rules
 - Unit test each shared module.
@@ -49,3 +51,4 @@
 - HTTP signing tests must include sign/verify happy path and explicit failures when method, path, body, or timestamp are altered.
 - Nonce cache tests must include duplicate nonce rejection within TTL and acceptance after TTL expiry.
 - CRL cache tests must cover revoked lookup, refresh-on-stale, and stale-path behavior in both `fail-open` and `fail-closed` modes.
+- When new registry routes emit signed AITs (e.g., POST `/v1/agents`), tests should consume those tokens with the published `REGISTRY_SIGNING_KEYS` set (as returned by `/.well-known/claw-keys.json`) and assert that `verifyAIT` succeeds/fails exactly the same way the local `claw verify` workflow will, keeping the offline verification contract fully covered.
