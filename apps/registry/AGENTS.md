@@ -57,3 +57,10 @@
 - `GET /.well-known/claw-keys.json` is the canonical public key discovery endpoint for offline AIT verification.
 - Source key material from validated runtime config (`REGISTRY_SIGNING_KEYS` JSON) and return entries with `kid`, `alg`, `crv`, `x`, and `status`.
 - Keep cache headers explicit (`max-age=300` + `stale-while-revalidate`) to reduce client fetch load while allowing key rotation to propagate predictably.
+
+## Agent Registration Testing
+- POST `/v1/agents` coverage should stay offline/deterministic: reuse or extend the fake `D1Database` helper so Vitest can assert the exact SQL inserted into `agents` without touching a real D1 instance.
+- Validate every registration payload against the `packages/protocol` `aitClaimsSchema` expectations (agent DID format, name char set/length, base64url public key, `exp > nbf`, etc.) and expect a structured `AppError` when any field fails so new tests exercise each validation branch.
+- Reuse `createApiKeyAuth` tooling to prove `API_KEY_MISSING`, `API_KEY_INVALID`, `API_KEY_REVOKED`, and suspended-human failures before the handler even touches the DB; all auth tests should assert the matching error code/messages that will inform clients about misconfigured PATs.
+- Assert that an accepted registration call writes exactly one `agents` row (status `active`, correct `owner_id`, `public_key`, and `current_jti`) and does not leave partial state on failure. Tests should also ensure `gateway_hint`, `expires_at`, and `framework` values propagate when provided so the schema stays in sync.
+- When `REGISTRY_SIGNING_KEYS` exposes an active key, the handler must return a signed AIT whose `kid` matches the published key, and clients must be able to verify it via `verifyAIT`/`/.well-known/claw-keys.json`. Add a companion failure test that rejects registration when no valid signing key exists (missing `kid`, revoked status, or malformed `x`).

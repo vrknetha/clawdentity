@@ -1,8 +1,9 @@
 import { decodeBase64url } from "@clawdentity/protocol";
 import { z } from "zod";
 import { AppError } from "./exceptions.js";
+import { runtimeEnvironmentValues } from "./runtime-environment.js";
 
-const environmentSchema = z.enum(["development", "production", "test"]);
+const environmentSchema = z.enum(runtimeEnvironmentValues);
 const registrySigningKeyStatusSchema = z.enum(["active", "revoked"]);
 const ED25519_PUBLIC_KEY_LENGTH = 32;
 

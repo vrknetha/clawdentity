@@ -1,20 +1,31 @@
 import {
+  AppError,
   createHonoErrorHandler,
   createLogger,
   createRequestContextMiddleware,
   createRequestLoggingMiddleware,
   parseRegistryConfig,
   type RegistryConfig,
+  shouldExposeVerboseErrors,
+  signAIT,
 } from "@clawdentity/sdk";
 import { Hono } from "hono";
+import {
+  buildAgentRegistration,
+  resolveRegistryIssuer,
+} from "./agentRegistration.js";
 import {
   type AuthenticatedHuman,
   createApiKeyAuth,
 } from "./auth/apiKeyAuth.js";
+import { createDb } from "./db/client.js";
+import { agents } from "./db/schema.js";
+import { resolveRegistrySigner } from "./registrySigner.js";
 
 type Bindings = {
   DB: D1Database;
   ENVIRONMENT: string;
+  REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_KEYS?: string;
 };
 const logger = createLogger({ service: "registry" });
@@ -66,6 +77,56 @@ function createRegistryApp() {
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {
     return c.json({ human: c.get("human") });
+  });
+
+  app.post("/v1/agents", createApiKeyAuth(), async (c) => {
+    const config = getConfig(c.env);
+    const exposeDetails = shouldExposeVerboseErrors(config.ENVIRONMENT);
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      throw new AppError({
+        code: "AGENT_REGISTRATION_INVALID",
+        message: exposeDetails
+          ? "Request body must be valid JSON"
+          : "Request could not be processed",
+        status: 400,
+        expose: exposeDetails,
+      });
+    }
+
+    const human = c.get("human");
+    const registration = buildAgentRegistration({
+      payload,
+      ownerDid: human.did,
+      issuer: resolveRegistryIssuer(config.ENVIRONMENT),
+      environment: config.ENVIRONMENT,
+    });
+    const signer = await resolveRegistrySigner(config);
+    const ait = await signAIT({
+      claims: registration.claims,
+      signerKid: signer.signerKid,
+      signerKeypair: signer.signerKeypair,
+    });
+
+    const db = createDb(c.env.DB);
+    await db.insert(agents).values({
+      id: registration.agent.id,
+      did: registration.agent.did,
+      owner_id: human.id,
+      name: registration.agent.name,
+      framework: registration.agent.framework,
+      public_key: registration.agent.publicKey,
+      current_jti: registration.agent.currentJti,
+      status: registration.agent.status,
+      expires_at: registration.agent.expiresAt,
+      created_at: registration.agent.createdAt,
+      updated_at: registration.agent.updatedAt,
+    });
+
+    return c.json({ agent: registration.agent, ait }, 201);
   });
 
   return app;

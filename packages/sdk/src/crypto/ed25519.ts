@@ -26,6 +26,12 @@ export async function signEd25519(
   return ed25519.signAsync(message, secretKey);
 }
 
+export async function deriveEd25519PublicKey(
+  secretKey: Uint8Array,
+): Promise<Uint8Array> {
+  return ed25519.getPublicKeyAsync(secretKey);
+}
+
 export async function verifyEd25519(
   signature: Uint8Array,
   message: Uint8Array,

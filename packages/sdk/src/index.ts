@@ -21,6 +21,7 @@ export type {
 export {
   decodeEd25519KeypairBase64url,
   decodeEd25519SignatureBase64url,
+  deriveEd25519PublicKey,
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
@@ -63,6 +64,8 @@ export {
   REQUEST_ID_HEADER,
   resolveRequestId,
 } from "./request-context.js";
+export type { RuntimeEnvironment } from "./runtime-environment.js";
+export { shouldExposeVerboseErrors } from "./runtime-environment.js";
 export type {
   NonceCache,
   NonceCacheInput,

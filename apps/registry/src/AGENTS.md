@@ -20,3 +20,18 @@
 - Run `pnpm -F @clawdentity/registry run test` after changing routes or config loading.
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.
 - When using fake D1 adapters in route tests, make select responses honor bound parameters so query-shape regressions are caught.
+
+## POST /v1/agents Contract
+- Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
+- Validate request payload fields with explicit rules:
+  - `name`: protocol-compatible agent name validation.
+  - `framework`: optional; default to `openclaw` when omitted.
+  - `publicKey`: base64url Ed25519 key that decodes to 32 bytes.
+  - `ttlDays`: optional; default `30`; allow only integer range `1..90`.
+- Keep request parsing and validation in a reusable helper module (`agentRegistration.ts`) so future routes can share the same constraints without duplicating schema logic.
+- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `development`/`test` for debugging.
+- Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
+- Use shared SDK datetime helpers (`nowIso`, `addSeconds`) for issuance/expiry math instead of ad-hoc `Date.now()` arithmetic in route logic.
+- Resolve signing material through a reusable signer helper (`registrySigner.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
+- Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.api.clawdentity.com`, `production` -> `https://api.clawdentity.com`) rather than request-origin inference.
+- Response shape remains `{ agent, ait }`; the token must be verifiable with the public keyset returned by `/.well-known/claw-keys.json`.

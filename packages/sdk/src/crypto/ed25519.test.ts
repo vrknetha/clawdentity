@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decodeEd25519KeypairBase64url,
   decodeEd25519SignatureBase64url,
+  deriveEd25519PublicKey,
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
@@ -30,6 +31,13 @@ describe("ed25519 crypto helpers", () => {
     const isValid = await verifyEd25519(signature, message, keypair.publicKey);
 
     expect(isValid).toBe(true);
+  });
+
+  it("derives the same public key from the matching secret key", async () => {
+    const keypair = await generateEd25519Keypair();
+    const derivedPublicKey = await deriveEd25519PublicKey(keypair.secretKey);
+
+    expect(Array.from(derivedPublicKey)).toEqual(Array.from(keypair.publicKey));
   });
 
   it("fails verification with the wrong message", async () => {
@@ -106,5 +114,11 @@ describe("ed25519 crypto helpers", () => {
       expect(error).toBeInstanceOf(ProtocolParseError);
       expect((error as ProtocolParseError).code).toBe("INVALID_BASE64URL");
     }
+  });
+
+  it("rejects deriving a public key when the secret key length is invalid", async () => {
+    await expect(
+      deriveEd25519PublicKey(new Uint8Array(31)),
+    ).rejects.toThrowError();
   });
 });
