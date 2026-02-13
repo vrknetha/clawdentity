@@ -13,6 +13,7 @@
 - `crypto/ed25519`: byte-first keypair/sign/verify helpers for PoP and token workflows.
 - `jwt/ait-jwt`: AIT JWS signing and verification with strict header and issuer checks.
 - `jwt/crl-jwt`: CRL JWT helpers with EdDSA signing, header consistency checks, and tamper-detection test coverage.
+- `crl/cache`: in-memory CRL cache with periodic refresh, staleness reporting, and configurable stale behavior.
 - `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash.
 - `security/nonce-cache`: in-memory TTL nonce replay protection keyed by `agentDid + nonce`.
 - Tests should prove tamper cases (payload change, header kid swap, signature corruption).
@@ -23,16 +24,23 @@
 - Avoid leaking secrets in logs and error payloads.
 - Keep all parse/validation errors explicit and deterministic.
 - Keep cryptography APIs byte-first (`Uint8Array`) and runtime-portable.
+- Derive Ed25519 public keys via `deriveEd25519PublicKey` (instead of ad-hoc noble calls) so key derivation behavior and validation stay centralized.
 - Reuse protocol base64url helpers as the single source of truth; do not duplicate encoding logic in SDK.
 - Keep CRL claim schema authority in `@clawdentity/protocol` (`crl.ts`); SDK JWT helpers should avoid duplicating claim-validation rules.
 - Never log secret keys or raw signature material.
 - Enforce AIT JWT security invariants in verification: `alg=EdDSA`, `typ=AIT`, and `kid` lookup against registry keys.
 - Always parse CRL JWT payloads through protocol `parseCrlClaims` after signature verification so schema invariants (revocations non-empty, DID/ULID checks) are enforced.
+- CRL cache must parse fetched payloads through protocol `parseCrlClaims` before replacing cache state.
+- CRL cache stale behavior must be explicit and configurable (`fail-open` or `fail-closed`), with warnings surfaced on refresh failures.
+- CRL cache refresh throttling must not block stale recovery attempts; once stale, refresh should be attempted immediately.
 - For HTTP signing errors, keep user-facing messages static and send extra context through `AppError.details`.
 - Enforce Ed25519 key lengths at SDK boundaries (`secretKey` 32 bytes, `publicKey` 32 bytes) so misconfiguration returns stable `AppError` codes.
 - Treat any decoded PoP proof that is not 64 bytes as `HTTP_SIGNATURE_INVALID_PROOF`.
 - Nonce cache accept path must prune expired entries across all agent buckets to keep memory bounded under high-cardinality agent traffic.
 - Nonce cache must validate the top-level input shape before reading fields so invalid JS callers receive structured `AppError`s instead of runtime `TypeError`s.
+- Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
+- Registry keyset validation must reject duplicate `kid` values and malformed `x` key material (non-base64url or non-32-byte Ed25519) so verifier behavior cannot become order-dependent.
+- Use `RuntimeEnvironment` + `shouldExposeVerboseErrors` from `runtime-environment` for environment-based error-detail behavior; do not duplicate ad-hoc `NODE_ENV`/string checks.
 
 ## Testing Rules
 - Unit test each shared module.
@@ -42,3 +50,5 @@
 - JWT tests must include sign/verify happy path and failure paths for issuer mismatch and missing/unknown `kid`.
 - HTTP signing tests must include sign/verify happy path and explicit failures when method, path, body, or timestamp are altered.
 - Nonce cache tests must include duplicate nonce rejection within TTL and acceptance after TTL expiry.
+- CRL cache tests must cover revoked lookup, refresh-on-stale, and stale-path behavior in both `fail-open` and `fail-closed` modes.
+- When new registry routes emit signed AITs (e.g., POST `/v1/agents`), tests should consume those tokens with the published `REGISTRY_SIGNING_KEYS` set (as returned by `/.well-known/claw-keys.json`) and assert that `verifyAIT` succeeds/fails exactly the same way the local `claw verify` workflow will, keeping the offline verification contract fully covered.

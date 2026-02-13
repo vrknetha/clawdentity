@@ -4,7 +4,10 @@ import {
   AppError,
   addSeconds,
   CrlJwtError,
+  createCrlCache,
   createNonceCache,
+  DEFAULT_CRL_MAX_AGE_MS,
+  DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_NONCE_TTL_MS,
   decodeEd25519KeypairBase64url,
   decodeEd25519SignatureBase64url,
@@ -15,6 +18,7 @@ import {
   REQUEST_ID_HEADER,
   resolveRequestId,
   SDK_VERSION,
+  shouldExposeVerboseErrors,
   signAIT,
   signCRL,
   signEd25519,
@@ -38,6 +42,7 @@ describe("sdk", () => {
     expect(parseRegistryConfig({ ENVIRONMENT: "test" }).ENVIRONMENT).toBe(
       "test",
     );
+    expect(shouldExposeVerboseErrors("test")).toBe(true);
     expect(REQUEST_ID_HEADER).toBe("x-request-id");
     expect(AppError).toBeTypeOf("function");
   });
@@ -193,5 +198,34 @@ describe("sdk", () => {
       reason: "replay",
     });
     expect(DEFAULT_NONCE_TTL_MS).toBe(300000);
+  });
+
+  it("exports CRL cache helpers from package root", async () => {
+    const cache = createCrlCache({
+      fetchLatest: async () => ({
+        iss: "https://registry.clawdentity.dev",
+        jti: "01HF7YAT4TXP6AW5QNXA2Y9K43",
+        iat: 1700100000,
+        exp: 1700103600,
+        revocations: [
+          {
+            jti: "01HF7YAT31JZHSMW1CG6Q6MHB7",
+            agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            reason: "manual revoke",
+            revokedAt: 1700100010,
+          },
+        ],
+      }),
+      clock: () => 1_000,
+    });
+
+    await expect(cache.isRevoked("01HF7YAT31JZHSMW1CG6Q6MHB7")).resolves.toBe(
+      true,
+    );
+    await expect(cache.isRevoked("01HF7YAT5QJ4K3YVQJ6Q2F9M1N")).resolves.toBe(
+      false,
+    );
+    expect(DEFAULT_CRL_REFRESH_INTERVAL_MS).toBe(300000);
+    expect(DEFAULT_CRL_MAX_AGE_MS).toBe(900000);
   });
 });

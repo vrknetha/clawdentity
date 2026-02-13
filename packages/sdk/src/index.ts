@@ -3,12 +3,25 @@ export const SDK_VERSION = "0.0.0";
 export type { RegistryConfig } from "./config.js";
 export { parseRegistryConfig, registryConfigSchema } from "./config.js";
 export type {
+  CrlCache,
+  CrlCacheOptions,
+  CrlCacheRefreshResult,
+  CrlCacheStaleBehavior,
+  CrlCacheWarning,
+} from "./crl/cache.js";
+export {
+  createCrlCache,
+  DEFAULT_CRL_MAX_AGE_MS,
+  DEFAULT_CRL_REFRESH_INTERVAL_MS,
+} from "./crl/cache.js";
+export type {
   Ed25519KeypairBase64url,
   Ed25519KeypairBytes,
 } from "./crypto/ed25519.js";
 export {
   decodeEd25519KeypairBase64url,
   decodeEd25519SignatureBase64url,
+  deriveEd25519PublicKey,
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
@@ -51,6 +64,8 @@ export {
   REQUEST_ID_HEADER,
   resolveRequestId,
 } from "./request-context.js";
+export type { RuntimeEnvironment } from "./runtime-environment.js";
+export { shouldExposeVerboseErrors } from "./runtime-environment.js";
 export type {
   NonceCache,
   NonceCacheInput,
