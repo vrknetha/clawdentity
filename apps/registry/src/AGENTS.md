@@ -14,3 +14,4 @@
 ## Validation
 - Run `pnpm -F @clawdentity/registry run test` after changing routes or config loading.
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.
+- When using fake D1 adapters in route tests, make select responses honor bound parameters so query-shape regressions are caught.

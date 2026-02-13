@@ -16,6 +16,9 @@ type ApiKeyQueryRow = {
   human_status: "active" | "suspended";
 };
 
+const PAT_TOKEN_MARKER = "clw_pat_";
+const PAT_LOOKUP_ENTROPY_LENGTH = 8;
+
 export type AuthenticatedHuman = {
   id: string;
   did: string;
@@ -47,7 +50,16 @@ function parseBearerPat(authorization?: string): string {
     });
   }
 
-  if (!token.startsWith("clw_pat_")) {
+  if (!token.startsWith(PAT_TOKEN_MARKER)) {
+    throw new AppError({
+      code: "API_KEY_INVALID",
+      message: "Authorization must contain a PAT token",
+      status: 401,
+      expose: true,
+    });
+  }
+
+  if (token.length <= PAT_TOKEN_MARKER.length) {
     throw new AppError({
       code: "API_KEY_INVALID",
       message: "Authorization must contain a PAT token",
@@ -57,6 +69,15 @@ function parseBearerPat(authorization?: string): string {
   }
 
   return token;
+}
+
+export function deriveApiKeyLookupPrefix(token: string): string {
+  const entropyPrefix = token.slice(
+    PAT_TOKEN_MARKER.length,
+    PAT_TOKEN_MARKER.length + PAT_LOOKUP_ENTROPY_LENGTH,
+  );
+
+  return `${PAT_TOKEN_MARKER}${entropyPrefix}`;
 }
 
 function constantTimeEqual(left: string, right: string): boolean {
@@ -91,7 +112,7 @@ export function createApiKeyAuth() {
     const db = createDb(c.env.DB);
     const token = parseBearerPat(c.req.header("authorization"));
     const tokenHash = await hashApiKeyToken(token);
-    const tokenPrefix = token.slice(0, 8);
+    const tokenPrefix = deriveApiKeyLookupPrefix(token);
 
     const lookupResult = await db
       .select({

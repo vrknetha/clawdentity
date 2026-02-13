@@ -5,7 +5,9 @@
 
 ## API Key Auth Rules
 - Parse `Authorization` strictly as `Bearer <token>`.
+- Reject marker-only PATs (for example, `clw_pat_` without entropy).
 - Hash incoming PAT values with SHA-256 before lookup; never persist raw PATs.
+- Derive `api_keys.key_prefix` lookup keys from the PAT marker plus token entropy (not the static marker alone), and keep derivation logic in one shared helper.
 - Use constant-time comparison for hash matching.
 - Use Drizzle through `src/db/client.ts` for lookup/update queries so auth code stays schema-driven.
 - Only allow `api_keys.status = "active"` and `humans.status = "active"`.

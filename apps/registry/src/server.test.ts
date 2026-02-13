@@ -1,10 +1,14 @@
 import { REQUEST_ID_HEADER } from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
-import { hashApiKeyToken } from "./auth/apiKeyAuth.js";
+import {
+  deriveApiKeyLookupPrefix,
+  hashApiKeyToken,
+} from "./auth/apiKeyAuth.js";
 import app, { createRegistryApp } from "./server.js";
 
 type FakeD1Row = {
   apiKeyId: string;
+  keyPrefix: string;
   keyHash: string;
   apiKeyStatus: "active" | "revoked";
   apiKeyName: string;
@@ -33,8 +37,14 @@ function createFakeDb(rows: FakeD1Row[]) {
             normalizedQuery.includes('from "api_keys"') ||
             normalizedQuery.includes("from api_keys")
           ) {
+            const requestedKeyPrefix =
+              typeof params[0] === "string" ? params[0] : "";
+            const matchingRows = rows.filter(
+              (row) => row.keyPrefix === requestedKeyPrefix,
+            );
+
             return {
-              results: rows.map((row) => ({
+              results: matchingRows.map((row) => ({
                 api_key_id: row.apiKeyId,
                 key_hash: row.keyHash,
                 api_key_status: row.apiKeyStatus,
@@ -54,7 +64,13 @@ function createFakeDb(rows: FakeD1Row[]) {
             normalizedQuery.includes('from "api_keys"') ||
             normalizedQuery.includes("from api_keys")
           ) {
-            return rows.map((row) => [
+            const requestedKeyPrefix =
+              typeof params[0] === "string" ? params[0] : "";
+            const matchingRows = rows.filter(
+              (row) => row.keyPrefix === requestedKeyPrefix,
+            );
+
+            return matchingRows.map((row) => [
               row.apiKeyId,
               row.keyHash,
               row.apiKeyStatus,
@@ -141,6 +157,7 @@ describe("GET /v1/me", () => {
     const { database } = createFakeDb([
       {
         apiKeyId: "key-1",
+        keyPrefix: deriveApiKeyLookupPrefix(validToken),
         keyHash: validHash,
         apiKeyStatus: "active",
         apiKeyName: "ci",
@@ -167,12 +184,29 @@ describe("GET /v1/me", () => {
     expect(body.error.code).toBe("API_KEY_INVALID");
   });
 
+  it("returns 401 when PAT contains only marker", async () => {
+    const res = await createRegistryApp().request(
+      "/v1/me",
+      {
+        headers: { Authorization: "Bearer clw_pat_" },
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("API_KEY_INVALID");
+  });
+
   it("authenticates valid PAT and injects ctx.human", async () => {
     const validToken = "clw_pat_valid-token-value";
     const validHash = await hashApiKeyToken(validToken);
     const { database, updates } = createFakeDb([
       {
         apiKeyId: "key-1",
+        keyPrefix: deriveApiKeyLookupPrefix(validToken),
         keyHash: validHash,
         apiKeyStatus: "active",
         apiKeyName: "ci",
