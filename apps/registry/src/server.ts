@@ -9,7 +9,9 @@ import {
   shouldExposeVerboseErrors,
   signAIT,
 } from "@clawdentity/sdk";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { Hono } from "hono";
+import { mapAgentListRow, parseAgentListQuery } from "./agentList.js";
 import {
   buildAgentRegistration,
   resolveRegistryIssuer,
@@ -77,6 +79,54 @@ function createRegistryApp() {
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {
     return c.json({ human: c.get("human") });
+  });
+
+  app.get("/v1/agents", createApiKeyAuth(), async (c) => {
+    const config = getConfig(c.env);
+    const query = parseAgentListQuery({
+      query: c.req.query(),
+      environment: config.ENVIRONMENT,
+    });
+    const human = c.get("human");
+    const db = createDb(c.env.DB);
+
+    const filters = [eq(agents.owner_id, human.id)];
+    if (query.status) {
+      filters.push(eq(agents.status, query.status));
+    }
+    if (query.framework) {
+      filters.push(eq(agents.framework, query.framework));
+    }
+    if (query.cursor) {
+      filters.push(lt(agents.id, query.cursor));
+    }
+
+    const rows = await db
+      .select({
+        id: agents.id,
+        did: agents.did,
+        name: agents.name,
+        status: agents.status,
+        expires_at: agents.expires_at,
+      })
+      .from(agents)
+      .where(and(...filters))
+      .orderBy(desc(agents.id))
+      .limit(query.limit + 1);
+
+    const hasNextPage = rows.length > query.limit;
+    const pageRows = hasNextPage ? rows.slice(0, query.limit) : rows;
+    const nextCursor = hasNextPage
+      ? (pageRows[pageRows.length - 1]?.id ?? null)
+      : null;
+
+    return c.json({
+      agents: pageRows.map(mapAgentListRow),
+      pagination: {
+        limit: query.limit,
+        nextCursor,
+      },
+    });
   });
 
   app.post("/v1/agents", createApiKeyAuth(), async (c) => {
