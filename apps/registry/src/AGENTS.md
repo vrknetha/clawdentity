@@ -16,6 +16,15 @@
 - Return `keys[]` entries with `kid`, `alg`, `crv`, `x`, and `status` so SDK/offline verifiers can consume directly.
 - Keep cache headers explicit and short-lived (`max-age=300` + `stale-while-revalidate`) to balance key rotation with client efficiency.
 
+## CRL Snapshot Contract
+- `GET /v1/crl` is a public endpoint and must remain unauthenticated so SDK/proxy clients can refresh revocation state without PAT bootstrap dependencies.
+- Success response shape must remain `{ crl: <jwt> }` where `crl` is an EdDSA-signed token with `typ=CRL`.
+- Build CRL claims from the full `revocations` table (MVP full snapshot), joining each row to `agents.did` for `revocations[].agentDid`.
+- Keep CRL cache headers explicit and short-lived (`max-age=300` + `stale-while-revalidate`) for predictable revocation propagation.
+- Ensure CRL JWT `exp` exceeds the full cache serve window (`max-age + stale-while-revalidate`) with a small safety buffer so strict verifiers never see cache-valid but token-expired snapshots.
+- If no revocations exist yet, return `404 CRL_NOT_FOUND` instead of emitting an unsigned or schema-invalid empty snapshot.
+- Route tests should verify the returned CRL token using SDK `verifyCRL` and the published active keys from `/.well-known/claw-keys.json`.
+
 ## Validation
 - Run `pnpm -F @clawdentity/registry run test` after changing routes or config loading.
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.
