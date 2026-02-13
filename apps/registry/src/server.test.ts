@@ -10,6 +10,7 @@ import {
   REQUEST_ID_HEADER,
   signAIT,
   verifyAIT,
+  verifyCRL,
 } from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AGENT_LIST_LIMIT } from "./agent-list.js";
@@ -62,6 +63,13 @@ type FakeD1Row = {
 type FakeAgentInsertRow = Record<string, unknown>;
 type FakeAgentUpdateRow = Record<string, unknown>;
 type FakeRevocationInsertRow = Record<string, unknown>;
+type FakeRevocationRow = {
+  id: string;
+  jti: string;
+  agentId: string;
+  reason: string | null;
+  revokedAt: string;
+};
 type FakeAgentRow = {
   id: string;
   did: string;
@@ -92,6 +100,16 @@ type FakeAgentSelectRow = {
 
 type FakeDbOptions = {
   beforeFirstAgentUpdate?: (agentRows: FakeAgentRow[]) => void;
+  revocationRows?: FakeRevocationRow[];
+};
+
+type FakeCrlSelectRow = {
+  id: string;
+  jti: string;
+  reason: string | null;
+  revoked_at: string;
+  agent_did: string;
+  did: string;
 };
 
 function parseInsertColumns(query: string, tableName: string): string[] {
@@ -337,6 +355,66 @@ function resolveAgentSelectRows(options: {
   return filteredRows;
 }
 
+function getCrlSelectColumnValue(
+  row: FakeCrlSelectRow,
+  column: string,
+): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "jti") {
+    return row.jti;
+  }
+  if (column === "reason") {
+    return row.reason;
+  }
+  if (column === "revoked_at") {
+    return row.revoked_at;
+  }
+  if (column === "revokedat") {
+    return row.revoked_at;
+  }
+  if (column === "agent_did") {
+    return row.agent_did;
+  }
+  if (column === "agentdid" || column === "did") {
+    return row.did;
+  }
+  return undefined;
+}
+
+function resolveCrlSelectRows(options: {
+  agentRows: FakeAgentRow[];
+  revocationRows: FakeRevocationRow[];
+}): FakeCrlSelectRow[] {
+  return options.revocationRows
+    .map((row) => {
+      const agent = options.agentRows.find(
+        (agentRow) => agentRow.id === row.agentId,
+      );
+      if (!agent) {
+        return null;
+      }
+
+      return {
+        id: row.id,
+        jti: row.jti,
+        reason: row.reason,
+        revoked_at: row.revokedAt,
+        agent_did: agent.did,
+        did: agent.did,
+      };
+    })
+    .filter((row): row is FakeCrlSelectRow => row !== null)
+    .sort((left, right) => {
+      const timestampCompare = right.revoked_at.localeCompare(left.revoked_at);
+      if (timestampCompare !== 0) {
+        return timestampCompare;
+      }
+      return right.id.localeCompare(left.id);
+    });
+}
+
 function createFakeDb(
   rows: FakeD1Row[],
   agentRows: FakeAgentRow[] = [],
@@ -346,6 +424,7 @@ function createFakeDb(
   const agentInserts: FakeAgentInsertRow[] = [];
   const agentUpdates: FakeAgentUpdateRow[] = [];
   const revocationInserts: FakeRevocationInsertRow[] = [];
+  const revocationRows = [...(options.revocationRows ?? [])];
   let beforeFirstAgentUpdateApplied = false;
 
   const database: D1Database = {
@@ -397,6 +476,18 @@ function createFakeDb(
               }),
             };
           }
+          if (
+            (normalizedQuery.includes('from "revocations"') ||
+              normalizedQuery.includes("from revocations")) &&
+            normalizedQuery.includes("select")
+          ) {
+            return {
+              results: resolveCrlSelectRows({
+                agentRows,
+                revocationRows,
+              }),
+            };
+          }
           return { results: [] };
         },
         async raw() {
@@ -435,6 +526,21 @@ function createFakeDb(
             return resultRows.map((row) =>
               selectedColumns.map((column) =>
                 getAgentSelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
+            normalizedQuery.includes('from "revocations"') ||
+            normalizedQuery.includes("from revocations")
+          ) {
+            const resultRows = resolveCrlSelectRows({
+              agentRows,
+              revocationRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getCrlSelectColumnValue(row, column),
               ),
             );
           }
@@ -581,6 +687,20 @@ function createFakeDb(
               {},
             );
             revocationInserts.push(row);
+            if (
+              typeof row.id === "string" &&
+              typeof row.jti === "string" &&
+              typeof row.agent_id === "string" &&
+              typeof row.revoked_at === "string"
+            ) {
+              revocationRows.push({
+                id: row.id,
+                jti: row.jti,
+                agentId: row.agent_id,
+                reason: typeof row.reason === "string" ? row.reason : null,
+                revokedAt: row.revoked_at,
+              });
+            }
             changes = 1;
           }
           return { success: true, meta: { changes } } as D1Result;
@@ -819,6 +939,207 @@ describe("GET /.well-known/claw-keys.json", () => {
           })),
       }),
     ).rejects.toThrow(/kid/i);
+  });
+});
+
+describe("GET /v1/crl", () => {
+  it("returns signed CRL snapshot with cache headers", async () => {
+    const signer = await generateEd25519Keypair();
+    const appInstance = createRegistryApp();
+    const signingKeyset = JSON.stringify([
+      {
+        kid: "reg-key-1",
+        alg: "EdDSA",
+        crv: "Ed25519",
+        x: encodeBase64url(signer.publicKey),
+        status: "active",
+      },
+    ]);
+    const agentIdOne = generateUlid(1700400000000);
+    const agentIdTwo = generateUlid(1700400000100);
+    const revocationJtiOne = generateUlid(1700400000200);
+    const revocationJtiTwo = generateUlid(1700400000300);
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentIdOne,
+          did: makeAgentDid(agentIdOne),
+          ownerId: "human-1",
+          name: "revoked-one",
+          framework: "openclaw",
+          status: "revoked",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+        {
+          id: agentIdTwo,
+          did: makeAgentDid(agentIdTwo),
+          ownerId: "human-2",
+          name: "revoked-two",
+          framework: "langchain",
+          status: "revoked",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+      {
+        revocationRows: [
+          {
+            id: generateUlid(1700400000400),
+            jti: revocationJtiOne,
+            agentId: agentIdOne,
+            reason: null,
+            revokedAt: "2026-02-11T10:00:00.000Z",
+          },
+          {
+            id: generateUlid(1700400000500),
+            jti: revocationJtiTwo,
+            agentId: agentIdTwo,
+            reason: "manual revoke",
+            revokedAt: "2026-02-11T11:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    const response = await appInstance.request(
+      "/v1/crl",
+      {},
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: signingKeyset,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=300, s-maxage=300, stale-while-revalidate=60",
+    );
+    const body = (await response.json()) as { crl: string };
+    expect(body.crl).toEqual(expect.any(String));
+
+    const keysResponse = await appInstance.request(
+      "/.well-known/claw-keys.json",
+      {},
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: signingKeyset,
+      },
+    );
+    const keysBody = (await keysResponse.json()) as {
+      keys: Array<{
+        kid: string;
+        alg: "EdDSA";
+        crv: "Ed25519";
+        x: string;
+        status: "active" | "revoked";
+      }>;
+    };
+
+    const claims = await verifyCRL({
+      token: body.crl,
+      expectedIssuer: "https://dev.api.clawdentity.com",
+      registryKeys: keysBody.keys
+        .filter((key) => key.status === "active")
+        .map((key) => ({
+          kid: key.kid,
+          jwk: {
+            kty: "OKP" as const,
+            crv: key.crv,
+            x: key.x,
+          },
+        })),
+    });
+
+    expect(claims.revocations).toHaveLength(2);
+    expect(claims.revocations).toEqual(
+      expect.arrayContaining([
+        {
+          jti: revocationJtiOne,
+          agentDid: makeAgentDid(agentIdOne),
+          revokedAt: Math.floor(Date.parse("2026-02-11T10:00:00.000Z") / 1000),
+        },
+        {
+          jti: revocationJtiTwo,
+          agentDid: makeAgentDid(agentIdTwo),
+          reason: "manual revoke",
+          revokedAt: Math.floor(Date.parse("2026-02-11T11:00:00.000Z") / 1000),
+        },
+      ]),
+    );
+    expect(claims.exp).toBeGreaterThan(claims.iat);
+    expect(claims.exp - claims.iat).toBe(390);
+  });
+
+  it("returns 404 when no revocations are available", async () => {
+    const { database } = createFakeDb([]);
+    const response = await createRegistryApp().request(
+      "/v1/crl",
+      {},
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        message: string;
+      };
+    };
+    expect(body.error.code).toBe("CRL_NOT_FOUND");
+    expect(body.error.message).toBe("CRL snapshot is not available");
+  });
+
+  it("returns 500 when CRL signing configuration is missing", async () => {
+    const agentId = generateUlid(1700400000600);
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "revoked-agent",
+          framework: "openclaw",
+          status: "revoked",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+      {
+        revocationRows: [
+          {
+            id: generateUlid(1700400000700),
+            jti: generateUlid(1700400000800),
+            agentId,
+            reason: null,
+            revokedAt: "2026-02-11T12:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    const response = await createRegistryApp().request(
+      "/v1/crl",
+      {},
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        message: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("CONFIG_VALIDATION_FAILED");
+    expect(body.error.message).toBe("Registry configuration is invalid");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      REGISTRY_SIGNING_KEYS: expect.any(Array),
+    });
   });
 });
 

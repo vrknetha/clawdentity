@@ -10,6 +10,7 @@ import {
   type RegistryConfig,
   shouldExposeVerboseErrors,
   signAIT,
+  signCRL,
 } from "@clawdentity/sdk";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { Hono } from "hono";
@@ -41,8 +42,15 @@ type Bindings = {
   REGISTRY_SIGNING_KEYS?: string;
 };
 const logger = createLogger({ service: "registry" });
-const REGISTRY_KEY_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=300, stale-while-revalidate=60";
+const REGISTRY_CACHE_MAX_AGE_SECONDS = 300;
+const REGISTRY_CACHE_STALE_WHILE_REVALIDATE_SECONDS = 60;
+const REGISTRY_KEY_CACHE_CONTROL = `public, max-age=${REGISTRY_CACHE_MAX_AGE_SECONDS}, s-maxage=${REGISTRY_CACHE_MAX_AGE_SECONDS}, stale-while-revalidate=${REGISTRY_CACHE_STALE_WHILE_REVALIDATE_SECONDS}`;
+const REGISTRY_CRL_CACHE_CONTROL = `public, max-age=${REGISTRY_CACHE_MAX_AGE_SECONDS}, s-maxage=${REGISTRY_CACHE_MAX_AGE_SECONDS}, stale-while-revalidate=${REGISTRY_CACHE_STALE_WHILE_REVALIDATE_SECONDS}`;
+const CRL_EXPIRY_SAFETY_BUFFER_SECONDS = 30;
+const CRL_TTL_SECONDS =
+  REGISTRY_CACHE_MAX_AGE_SECONDS +
+  REGISTRY_CACHE_STALE_WHILE_REVALIDATE_SECONDS +
+  CRL_EXPIRY_SAFETY_BUFFER_SECONDS;
 
 type OwnedAgent = {
   id: string;
@@ -54,6 +62,92 @@ type OwnedAgent = {
   expires_at: string | null;
   current_jti: string | null;
 };
+
+type CrlSnapshotRow = {
+  id: string;
+  jti: string;
+  reason: string | null;
+  revoked_at: string;
+  agent_did: string;
+};
+
+function crlBuildError(options: {
+  environment: RegistryConfig["ENVIRONMENT"];
+  message: string;
+  details?: {
+    fieldErrors: Record<string, string[]>;
+    formErrors: string[];
+  };
+}): AppError {
+  const exposeDetails = shouldExposeVerboseErrors(options.environment);
+  return new AppError({
+    code: "CRL_BUILD_FAILED",
+    message: exposeDetails
+      ? options.message
+      : "CRL snapshot could not be generated",
+    status: 500,
+    expose: exposeDetails,
+    details: exposeDetails ? options.details : undefined,
+  });
+}
+
+function parseRevokedAtSeconds(options: {
+  environment: RegistryConfig["ENVIRONMENT"];
+  revocationId: string;
+  revokedAtIso: string;
+}): number {
+  const epochMillis = Date.parse(options.revokedAtIso);
+  if (!Number.isFinite(epochMillis)) {
+    throw crlBuildError({
+      environment: options.environment,
+      message: "CRL revocation timestamp is invalid",
+      details: {
+        fieldErrors: {
+          revokedAt: [
+            `revocation ${options.revocationId} has invalid revoked_at timestamp`,
+          ],
+        },
+        formErrors: [],
+      },
+    });
+  }
+
+  return Math.floor(epochMillis / 1000);
+}
+
+function buildCrlClaims(input: {
+  rows: CrlSnapshotRow[];
+  environment: RegistryConfig["ENVIRONMENT"];
+  issuer: string;
+  nowSeconds: number;
+}) {
+  return {
+    iss: input.issuer,
+    jti: generateUlid(Date.now()),
+    iat: input.nowSeconds,
+    exp: input.nowSeconds + CRL_TTL_SECONDS,
+    revocations: input.rows.map((row) => {
+      const base = {
+        jti: row.jti,
+        agentDid: row.agent_did,
+        revokedAt: parseRevokedAtSeconds({
+          environment: input.environment,
+          revocationId: row.id,
+          revokedAtIso: row.revoked_at,
+        }),
+      };
+
+      if (typeof row.reason === "string" && row.reason.length > 0) {
+        return {
+          ...base,
+          reason: row.reason,
+        };
+      }
+
+      return base;
+    }),
+  };
+}
 
 async function findOwnedAgent(input: {
   db: ReturnType<typeof createDb>;
@@ -162,6 +256,50 @@ function createRegistryApp() {
         "Cache-Control": REGISTRY_KEY_CACHE_CONTROL,
       },
     );
+  });
+
+  app.get("/v1/crl", async (c) => {
+    const config = getConfig(c.env);
+    const db = createDb(c.env.DB);
+
+    const rows = await db
+      .select({
+        id: revocations.id,
+        jti: revocations.jti,
+        reason: revocations.reason,
+        revoked_at: revocations.revoked_at,
+        agent_did: agents.did,
+      })
+      .from(revocations)
+      .innerJoin(agents, eq(revocations.agent_id, agents.id))
+      .orderBy(desc(revocations.revoked_at), desc(revocations.id));
+
+    if (rows.length === 0) {
+      throw new AppError({
+        code: "CRL_NOT_FOUND",
+        message: "CRL snapshot is not available",
+        status: 404,
+        expose: true,
+      });
+    }
+
+    const signer = await resolveRegistrySigner(config);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const claims = buildCrlClaims({
+      rows,
+      environment: config.ENVIRONMENT,
+      issuer: resolveRegistryIssuer(config.ENVIRONMENT),
+      nowSeconds,
+    });
+    const crl = await signCRL({
+      claims,
+      signerKid: signer.signerKid,
+      signerKeypair: signer.signerKeypair,
+    });
+
+    return c.json({ crl }, 200, {
+      "Cache-Control": REGISTRY_CRL_CACHE_CONTROL,
+    });
   });
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {
