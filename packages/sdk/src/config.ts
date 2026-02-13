@@ -88,6 +88,7 @@ const registrySigningKeysEnvSchema = z
 
 export const registryConfigSchema = z.object({
   ENVIRONMENT: environmentSchema,
+  APP_VERSION: z.string().min(1).optional(),
   BOOTSTRAP_SECRET: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEY: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEYS: registrySigningKeysEnvSchema.optional(),

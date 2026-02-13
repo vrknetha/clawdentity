@@ -22,6 +22,7 @@ Every `T*.md` file must include these sections in this order:
 - `Dependencies` must list only valid ticket IDs (`T00` format) that exist in this folder.
 - `Dependencies` must include a `Blockers` line.
 - Before marking an issue complete, validate that all blockers are resolved.
+- Run `pnpm issues:validate` before closing deployment-gate tickets (`T37`, `T38`) or changing dependency/wave metadata.
 - Do not reorder dependency logic without updating `EXECUTION_PLAN.md`.
 
 ## Deployment-First Rule
@@ -49,3 +50,4 @@ Every `T*.md` file must include these sections in this order:
 ## Audit Best Practices
 - Confirm each feature ticket (`T01`-`T36`) lists `T38` under `Dependencies` and in the `Blockers` line; document any gaps before capturing new wave assignments.
 - When sequencing or wave assignments evolve, update `EXECUTION_PLAN.md` in the same commit so the deployment-first narrative stays accurate and blockers remain visible to reviewers.
+- Use `pnpm issues:validate` as the final audit step after editing any `issues/T*.md` file.

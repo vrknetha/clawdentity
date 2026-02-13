@@ -27,6 +27,7 @@ import { resolveRegistrySigner } from "./registrySigner.js";
 type Bindings = {
   DB: D1Database;
   ENVIRONMENT: string;
+  APP_VERSION?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_KEYS?: string;
 };
@@ -59,7 +60,7 @@ function createRegistryApp() {
     const config = getConfig(c.env);
     return c.json({
       status: "ok",
-      version: "0.0.0",
+      version: config.APP_VERSION ?? "0.0.0",
       environment: config.ENVIRONMENT,
     });
   });

@@ -34,6 +34,31 @@ describe("config helpers", () => {
     ]);
   });
 
+  it("parses APP_VERSION when provided", () => {
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        APP_VERSION: "sha-abcdef123456",
+      }),
+    ).toEqual({
+      ENVIRONMENT: "development",
+      APP_VERSION: "sha-abcdef123456",
+    });
+  });
+
+  it("throws AppError when APP_VERSION is empty", () => {
+    try {
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        APP_VERSION: "",
+      });
+      throw new Error("expected parseRegistryConfig to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
+    }
+  });
+
   it("throws AppError on invalid registry config", () => {
     try {
       parseRegistryConfig({ ENVIRONMENT: "local" });

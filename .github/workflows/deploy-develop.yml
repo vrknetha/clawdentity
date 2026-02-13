@@ -21,6 +21,7 @@ jobs:
       CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      APP_VERSION: ${{ github.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,7 +31,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install pnpm
@@ -69,13 +70,16 @@ jobs:
           wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output artifacts/d1-dev-predeploy.sql
 
       - name: Apply dev migrations and deploy
-        run: pnpm --filter @clawdentity/registry run deploy:dev
+        run: |
+          wrangler --cwd apps/registry d1 migrations apply clawdentity-db-dev --remote --env dev
+          wrangler --cwd apps/registry deploy --env dev --var APP_VERSION:${APP_VERSION}
 
       - name: Verify health endpoint
         run: |
           python3 - <<'PY'
-          import json, sys, urllib.request, urllib.error
+          import json, os, sys, urllib.request, urllib.error
           url = "https://dev.api.clawdentity.com/health"
+          expected_version = os.environ.get("APP_VERSION", "")
           try:
               resp = urllib.request.urlopen(url, timeout=10)
           except urllib.error.HTTPError as exc:
@@ -84,6 +88,14 @@ jobs:
           data = json.load(resp)
           if data.get("status") != "ok" or data.get("environment") != "development":
               raise SystemExit(f"unexpected health payload: {data}")
+          if not expected_version:
+              raise SystemExit("APP_VERSION was not set in workflow environment")
+          if data.get("version") == "0.0.0":
+              raise SystemExit(f"unexpected placeholder version after deploy: {data}")
+          if data.get("version") != expected_version:
+              raise SystemExit(
+                  f"unexpected version: expected {expected_version}, got {data.get('version')}"
+              )
           print("healthcheck passed", data)
           PY
 

@@ -317,7 +317,7 @@ function makeValidPatContext(token = "clw_pat_valid-token-value") {
 }
 
 describe("GET /health", () => {
-  it("returns status ok", async () => {
+  it("returns status ok with fallback version", async () => {
     const res = await app.request(
       "/health",
       {},
@@ -331,6 +331,22 @@ describe("GET /health", () => {
       environment: "test",
     });
     expect(res.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
+  });
+
+  it("returns APP_VERSION when provided by runtime bindings", async () => {
+    const res = await createRegistryApp().request(
+      "/health",
+      {},
+      { DB: {}, ENVIRONMENT: "test", APP_VERSION: "sha-1234567890" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      status: "ok",
+      version: "sha-1234567890",
+      environment: "test",
+    });
   });
 
   it("returns config validation error for invalid environment", async () => {

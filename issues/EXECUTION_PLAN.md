@@ -36,6 +36,13 @@
 - UI/docs (`T32`, `T33`): `frontend-design`, `web-design-guidelines`, `hld-generator`
 
 ## Validation Scenarios
+0. Ticket-set validator (authoritative gate check):
+- Command:
+```bash
+pnpm issues:validate
+```
+- Expected output: `issues:validate passed (...)`
+
 1. Schema consistency:
 - Command:
 ```bash

@@ -31,6 +31,7 @@
 
 ## Health & Config Readiness
 - Treat `/health` as the release verification surface: return `status`, the build `version`, and the live `environment`. Prefer sourcing `version` from build metadata or an environment override rather than hard-coded `0.0.0` so deployments can be differentiated.
+- Use `APP_VERSION` runtime config as the deployment-time version signal. CI deploy workflows should inject a non-placeholder value (for example `${GITHUB_SHA}`) and assert `/health.version` matches it.
 - Rely on `parseRegistryConfig` early and cache it once per worker—fail-fast with `CONFIG_VALIDATION_FAILED` errors when the schema rejects the runtime bindings.
 - Cover both happy and failure paths in Vitest (status/headers plus config validation) so downstream tickets can rely on this contract without reintroducing regressions.
 

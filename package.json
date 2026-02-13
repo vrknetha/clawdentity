@@ -17,6 +17,7 @@
     "affected:typecheck:local": "nx affected -t typecheck --base=origin/main --head=HEAD",
     "affected:test:local": "nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD",
     "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD",
+    "issues:validate": "node issues/scripts/validate-ticket-set.mjs",
     "dev:registry:local": "pnpm -F @clawdentity/registry run dev:local"
   },
   "devDependencies": {
