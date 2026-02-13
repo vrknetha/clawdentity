@@ -39,6 +39,18 @@
 - Enforce per-actor authorization in handlers and queries (for example `owner_id`/`human_id` filters).
 - Fail closed when actor context is missing.
 
+## T10 Schema Contract
+- Source of truth for registry schema is `src/db/schema.ts`.
+- Baseline migration for T10 verification is `drizzle/0000_common_marrow.sql`.
+- T10 required tables: `humans`, `agents`, `revocations`, `api_keys`.
+- T10 required indexes:
+  - `idx_agents_owner_status` on `agents(owner_id, status)`
+  - revocations `jti` lookup index (`revocations_jti_unique` satisfies this as a unique index)
+- Keep schema, migration SQL, and `src/db/schema.contract.test.ts` synchronized in the same change.
+- Migration verification command path:
+  - local apply: `pnpm -F @clawdentity/registry run db:migrate:local`
+  - fresh local smoke (non-destructive): `pnpm -F @clawdentity/registry exec wrangler d1 migrations apply clawdentity-db-dev --local --env dev --persist-to .wrangler/t10-fresh-smoke`
+
 ## Rollback and Safety
 - For CI deploys, capture pre-deploy artifacts (deployments list, D1 time-travel marker, D1 export).
 - If deploy fails after migrations:
