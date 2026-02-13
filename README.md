@@ -275,6 +275,7 @@ No one shares keys/files between agents. Identity is presented per request.
 - **PRD:** see [`PRD.md`](./PRD.md) (MVP product requirements + execution plan)
 - **Issue execution plan:** see [`issues/EXECUTION_PLAN.md`](./issues/EXECUTION_PLAN.md) (deployment-first ordering + waves)
 - **Issue authoring rules:** see [`issues/AGENTS.md`](./issues/AGENTS.md) (required issue schema + blockers policy)
+- **Canonical ticket specs:** `issues/T00.md` through `issues/T38.md` are versioned in-repo and should be validated with `pnpm issues:validate` in local checks and CI.
 
 ---
 

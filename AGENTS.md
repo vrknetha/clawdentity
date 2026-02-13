@@ -18,6 +18,22 @@
 - Ticket schema and quality rules are maintained in `issues/AGENTS.md`.
 - Any dependency/wave changes must update both affected `T*.md` files and `issues/EXECUTION_PLAN.md` in the same change.
 
+## Ticket Lifecycle Workflow
+- Operate in a self-serve loop for ticket delivery: pick an issue, execute, and keep GitHub status accurate without waiting for manual reminders.
+- Standard sequence for every ticket:
+  - Select the target issue and confirm blockers from `issues/EXECUTION_PLAN.md` and `issues/T*.md`.
+  - Start from latest `develop`: `git checkout develop && git pull --ff-only`.
+  - Create a feature branch with `feature/` prefix scoped to the ticket.
+  - Implement the ticket with tests/docs updates required by the issue definition.
+  - Run required validations before pushing.
+  - Push branch and open a PR to `develop`.
+  - Update the issue with implementation summary, validation evidence, and PR link.
+  - Keep issue status aligned to reality:
+    - `OPEN` while implementation work is in progress.
+    - Close once implementation for the ticket is complete and evidence is posted, even if external operational follow-ups (for example missing CI secrets or environment access) remain.
+    - Track external blockers in a separate follow-up issue/comment and link it from the closed ticket.
+  - Inform the user after PR + issue update with links and any blockers needing action.
+
 ## Documentation Sync
 - `README.md` must reflect current execution model and links to issue governance.
 - `PRD.md` must reflect current rollout order, deployment gating, and verification strategy.
