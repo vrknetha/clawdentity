@@ -12,8 +12,14 @@ import {
   createApiKeyAuth,
 } from "./auth/apiKeyAuth.js";
 
-type Bindings = { DB: D1Database; ENVIRONMENT: string };
+type Bindings = {
+  DB: D1Database;
+  ENVIRONMENT: string;
+  REGISTRY_SIGNING_KEYS?: string;
+};
 const logger = createLogger({ service: "registry" });
+const REGISTRY_KEY_CACHE_CONTROL =
+  "public, max-age=300, s-maxage=300, stale-while-revalidate=60";
 
 function createRegistryApp() {
   let cachedConfig: RegistryConfig | undefined;
@@ -43,6 +49,19 @@ function createRegistryApp() {
       version: "0.0.0",
       environment: config.ENVIRONMENT,
     });
+  });
+
+  app.get("/.well-known/claw-keys.json", (c) => {
+    const config = getConfig(c.env);
+    return c.json(
+      {
+        keys: config.REGISTRY_SIGNING_KEYS ?? [],
+      },
+      200,
+      {
+        "Cache-Control": REGISTRY_KEY_CACHE_CONTROL,
+      },
+    );
   });
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {

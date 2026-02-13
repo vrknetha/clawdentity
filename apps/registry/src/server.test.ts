@@ -1,10 +1,45 @@
-import { REQUEST_ID_HEADER } from "@clawdentity/sdk";
+import {
+  type AitClaims,
+  encodeBase64url,
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
+import {
+  generateEd25519Keypair,
+  REQUEST_ID_HEADER,
+  signAIT,
+  verifyAIT,
+} from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
 import {
   deriveApiKeyLookupPrefix,
   hashApiKeyToken,
 } from "./auth/apiKeyAuth.js";
 import app, { createRegistryApp } from "./server.js";
+
+function makeAitClaims(publicKey: Uint8Array): AitClaims {
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    iss: "https://registry.clawdentity.dev",
+    sub: makeAgentDid(generateUlid(1700100000000)),
+    ownerDid: makeHumanDid(generateUlid(1700100001000)),
+    name: "agent-registry-01",
+    framework: "openclaw",
+    description: "registry key publishing verification path",
+    cnf: {
+      jwk: {
+        kty: "OKP",
+        crv: "Ed25519",
+        x: encodeBase64url(publicKey),
+      },
+    },
+    iat: now,
+    nbf: now - 5,
+    exp: now + 3600,
+    jti: generateUlid(1700100002000),
+  };
+}
 
 type FakeD1Row = {
   apiKeyId: string;
@@ -133,6 +168,162 @@ describe("GET /health", () => {
     };
     expect(body.error.code).toBe("CONFIG_VALIDATION_FAILED");
     expect(body.error.message).toBe("Registry configuration is invalid");
+  });
+});
+
+describe("GET /.well-known/claw-keys.json", () => {
+  it("returns configured registry signing keys with cache headers", async () => {
+    const res = await createRegistryApp().request(
+      "/.well-known/claw-keys.json",
+      {},
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe(
+      "public, max-age=300, s-maxage=300, stale-while-revalidate=60",
+    );
+
+    const body = (await res.json()) as {
+      keys: Array<{
+        kid: string;
+        alg: string;
+        crv: string;
+        x: string;
+        status: string;
+      }>;
+    };
+    expect(body.keys).toEqual([
+      {
+        kid: "reg-key-1",
+        alg: "EdDSA",
+        crv: "Ed25519",
+        x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+        status: "active",
+      },
+    ]);
+  });
+
+  it("supports fetch-and-verify AIT flow using published keys", async () => {
+    const signer = await generateEd25519Keypair();
+    const claims = makeAitClaims(signer.publicKey);
+    const token = await signAIT({
+      claims,
+      signerKid: "reg-key-1",
+      signerKeypair: signer,
+    });
+
+    const keysResponse = await createRegistryApp().request(
+      "/.well-known/claw-keys.json",
+      {},
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    const keysBody = (await keysResponse.json()) as {
+      keys: Array<{
+        kid: string;
+        alg: "EdDSA";
+        crv: "Ed25519";
+        x: string;
+        status: "active" | "revoked";
+      }>;
+    };
+
+    const verifiedClaims = await verifyAIT({
+      token,
+      expectedIssuer: claims.iss,
+      registryKeys: keysBody.keys
+        .filter((key) => key.status === "active")
+        .map((key) => ({
+          kid: key.kid,
+          jwk: {
+            kty: "OKP" as const,
+            crv: key.crv,
+            x: key.x,
+          },
+        })),
+    });
+
+    expect(verifiedClaims).toEqual(claims);
+  });
+
+  it("does not verify AIT when published key status is revoked", async () => {
+    const signer = await generateEd25519Keypair();
+    const claims = makeAitClaims(signer.publicKey);
+    const token = await signAIT({
+      claims,
+      signerKid: "reg-key-1",
+      signerKeypair: signer,
+    });
+
+    const keysResponse = await createRegistryApp().request(
+      "/.well-known/claw-keys.json",
+      {},
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+            status: "revoked",
+          },
+        ]),
+      },
+    );
+
+    const keysBody = (await keysResponse.json()) as {
+      keys: Array<{
+        kid: string;
+        alg: "EdDSA";
+        crv: "Ed25519";
+        x: string;
+        status: "active" | "revoked";
+      }>;
+    };
+
+    await expect(
+      verifyAIT({
+        token,
+        expectedIssuer: claims.iss,
+        registryKeys: keysBody.keys
+          .filter((key) => key.status === "active")
+          .map((key) => ({
+            kid: key.kid,
+            jwk: {
+              kty: "OKP" as const,
+              crv: key.crv,
+              x: key.x,
+            },
+          })),
+      }),
+    ).rejects.toThrow(/kid/i);
   });
 });
 
