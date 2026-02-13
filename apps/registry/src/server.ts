@@ -7,6 +7,10 @@ import {
   type RegistryConfig,
 } from "@clawdentity/sdk";
 import { Hono } from "hono";
+import {
+  type AuthenticatedHuman,
+  createApiKeyAuth,
+} from "./auth/apiKeyAuth.js";
 
 type Bindings = { DB: D1Database; ENVIRONMENT: string };
 const logger = createLogger({ service: "registry" });
@@ -25,7 +29,7 @@ function createRegistryApp() {
 
   const app = new Hono<{
     Bindings: Bindings;
-    Variables: { requestId: string };
+    Variables: { requestId: string; human: AuthenticatedHuman };
   }>();
 
   app.use("*", createRequestContextMiddleware());
@@ -39,6 +43,10 @@ function createRegistryApp() {
       version: "0.0.0",
       environment: config.ENVIRONMENT,
     });
+  });
+
+  app.get("/v1/me", createApiKeyAuth(), (c) => {
+    return c.json({ human: c.get("human") });
   });
 
   return app;
