@@ -12,6 +12,7 @@ import {
   verifyAIT,
 } from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
+import { DEFAULT_AGENT_LIST_LIMIT } from "./agentList.js";
 import {
   DEFAULT_AGENT_FRAMEWORK,
   DEFAULT_AGENT_TTL_DAYS,
@@ -59,6 +60,23 @@ type FakeD1Row = {
 };
 
 type FakeAgentInsertRow = Record<string, unknown>;
+type FakeAgentRow = {
+  id: string;
+  did: string;
+  ownerId: string;
+  name: string;
+  framework: string | null;
+  status: "active" | "revoked";
+  expiresAt: string | null;
+};
+
+type FakeAgentSelectRow = {
+  id: string;
+  did: string;
+  name: string;
+  status: "active" | "revoked";
+  expires_at: string | null;
+};
 
 function parseInsertColumns(query: string): string[] {
   const match = query.match(/insert\s+into\s+"?agents"?\s*\(([^)]+)\)/i);
@@ -70,7 +88,86 @@ function parseInsertColumns(query: string): string[] {
   return columns.map((column) => column.replace(/["`\s]/g, ""));
 }
 
-function createFakeDb(rows: FakeD1Row[]) {
+function extractWhereClause(query: string): string {
+  const normalized = query.toLowerCase();
+  const whereIndex = normalized.indexOf(" where ");
+  if (whereIndex < 0) {
+    return "";
+  }
+
+  const orderByIndex = normalized.indexOf(" order by ", whereIndex + 7);
+  const limitIndex = normalized.indexOf(" limit ", whereIndex + 7);
+  const endIndex =
+    orderByIndex >= 0
+      ? orderByIndex
+      : limitIndex >= 0
+        ? limitIndex
+        : normalized.length;
+
+  return normalized.slice(whereIndex, endIndex);
+}
+
+function resolveAgentSelectRows(options: {
+  query: string;
+  params: unknown[];
+  agentRows: FakeAgentRow[];
+}): FakeAgentSelectRow[] {
+  const whereClause = extractWhereClause(options.query);
+  const hasStatusFilter =
+    whereClause.includes("status") && whereClause.includes("= ?");
+  const hasFrameworkFilter =
+    whereClause.includes("framework") && whereClause.includes("= ?");
+  const hasCursorFilter =
+    whereClause.includes("id") && whereClause.includes("< ?");
+
+  let parameterIndex = 0;
+  const ownerId = String(options.params[parameterIndex] ?? "");
+  parameterIndex += 1;
+
+  const statusFilter = hasStatusFilter
+    ? String(options.params[parameterIndex] ?? "")
+    : undefined;
+  if (hasStatusFilter) {
+    parameterIndex += 1;
+  }
+
+  const frameworkFilter = hasFrameworkFilter
+    ? String(options.params[parameterIndex] ?? "")
+    : undefined;
+  if (hasFrameworkFilter) {
+    parameterIndex += 1;
+  }
+
+  const cursorFilter = hasCursorFilter
+    ? String(options.params[parameterIndex] ?? "")
+    : undefined;
+
+  const maybeLimit = Number(options.params[options.params.length - 1]);
+  const limit = Number.isFinite(maybeLimit)
+    ? maybeLimit
+    : options.agentRows.length;
+
+  const filteredRows = options.agentRows
+    .filter((row) => row.ownerId === ownerId)
+    .filter((row) => (statusFilter ? row.status === statusFilter : true))
+    .filter((row) =>
+      frameworkFilter ? row.framework === frameworkFilter : true,
+    )
+    .filter((row) => (cursorFilter ? row.id < cursorFilter : true))
+    .sort((left, right) => right.id.localeCompare(left.id))
+    .slice(0, limit)
+    .map((row) => ({
+      id: row.id,
+      did: row.did,
+      name: row.name,
+      status: row.status,
+      expires_at: row.expiresAt,
+    }));
+
+  return filteredRows;
+}
+
+function createFakeDb(rows: FakeD1Row[], agentRows: FakeAgentRow[] = []) {
   const updates: Array<{ lastUsedAt: string; apiKeyId: string }> = [];
   const agentInserts: FakeAgentInsertRow[] = [];
 
@@ -109,6 +206,20 @@ function createFakeDb(rows: FakeD1Row[]) {
               })),
             };
           }
+          if (
+            (normalizedQuery.includes('from "agents"') ||
+              normalizedQuery.includes("from agents")) &&
+            (normalizedQuery.includes("select") ||
+              normalizedQuery.includes("returning"))
+          ) {
+            return {
+              results: resolveAgentSelectRows({
+                query,
+                params,
+                agentRows,
+              }),
+            };
+          }
           return { results: [] };
         },
         async raw() {
@@ -132,6 +243,23 @@ function createFakeDb(rows: FakeD1Row[]) {
               row.humanDisplayName,
               row.humanRole,
               row.humanStatus,
+            ]);
+          }
+          if (
+            normalizedQuery.includes('from "agents"') ||
+            normalizedQuery.includes("from agents")
+          ) {
+            const resultRows = resolveAgentSelectRows({
+              query,
+              params,
+              agentRows,
+            });
+            return resultRows.map((row) => [
+              row.id,
+              row.did,
+              row.name,
+              row.status,
+              row.expires_at,
             ]);
           }
           return [];
@@ -461,6 +589,347 @@ describe("GET /v1/me", () => {
     });
     expect(updates).toHaveLength(1);
     expect(updates[0]?.apiKeyId).toBe("key-1");
+  });
+});
+
+describe("GET /v1/agents", () => {
+  it("returns 401 when PAT is missing", async () => {
+    const res = await createRegistryApp().request(
+      "/v1/agents",
+      {},
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("returns only caller-owned agents with minimal fields", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const ownerAgentNewId = generateUlid(1700100010000);
+    const ownerAgentOldId = generateUlid(1700100005000);
+    const foreignAgentId = generateUlid(1700100015000);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: ownerAgentNewId,
+          did: makeAgentDid(ownerAgentNewId),
+          ownerId: "human-1",
+          name: "owner-agent-new",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+        {
+          id: ownerAgentOldId,
+          did: makeAgentDid(ownerAgentOldId),
+          ownerId: "human-1",
+          name: "owner-agent-old",
+          framework: "langchain",
+          status: "revoked",
+          expiresAt: "2026-02-20T00:00:00.000Z",
+        },
+        {
+          id: foreignAgentId,
+          did: makeAgentDid(foreignAgentId),
+          ownerId: "human-2",
+          name: "foreign-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      "/v1/agents",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      agents: Array<{
+        id: string;
+        did: string;
+        name: string;
+        status: "active" | "revoked";
+        expires: string | null;
+      }>;
+      pagination: {
+        limit: number;
+        nextCursor: string | null;
+      };
+    };
+
+    expect(body.agents).toEqual([
+      {
+        id: ownerAgentNewId,
+        did: makeAgentDid(ownerAgentNewId),
+        name: "owner-agent-new",
+        status: "active",
+        expires: "2026-03-01T00:00:00.000Z",
+      },
+      {
+        id: ownerAgentOldId,
+        did: makeAgentDid(ownerAgentOldId),
+        name: "owner-agent-old",
+        status: "revoked",
+        expires: "2026-02-20T00:00:00.000Z",
+      },
+    ]);
+    expect(body.pagination).toEqual({
+      limit: DEFAULT_AGENT_LIST_LIMIT,
+      nextCursor: null,
+    });
+    expect(body.agents[0]).not.toHaveProperty("framework");
+    expect(body.agents[0]).not.toHaveProperty("ownerId");
+  });
+
+  it("applies status and framework filters", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentIdOne = generateUlid(1700100010000);
+    const agentIdTwo = generateUlid(1700100011000);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentIdOne,
+          did: makeAgentDid(agentIdOne),
+          ownerId: "human-1",
+          name: "owner-openclaw-active",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+        {
+          id: agentIdTwo,
+          did: makeAgentDid(agentIdTwo),
+          ownerId: "human-1",
+          name: "owner-langchain-revoked",
+          framework: "langchain",
+          status: "revoked",
+          expiresAt: "2026-03-05T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const statusRes = await createRegistryApp().request(
+      "/v1/agents?status=revoked",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(statusRes.status).toBe(200);
+    const statusBody = (await statusRes.json()) as {
+      agents: Array<{
+        id: string;
+        did: string;
+        name: string;
+        status: "active" | "revoked";
+        expires: string | null;
+      }>;
+    };
+    expect(statusBody.agents).toEqual([
+      {
+        id: agentIdTwo,
+        did: makeAgentDid(agentIdTwo),
+        name: "owner-langchain-revoked",
+        status: "revoked",
+        expires: "2026-03-05T00:00:00.000Z",
+      },
+    ]);
+
+    const frameworkRes = await createRegistryApp().request(
+      "/v1/agents?framework=openclaw",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(frameworkRes.status).toBe(200);
+    const frameworkBody = (await frameworkRes.json()) as {
+      agents: Array<{
+        id: string;
+        did: string;
+        name: string;
+        status: "active" | "revoked";
+        expires: string | null;
+      }>;
+    };
+    expect(frameworkBody.agents).toEqual([
+      {
+        id: agentIdOne,
+        did: makeAgentDid(agentIdOne),
+        name: "owner-openclaw-active",
+        status: "active",
+        expires: "2026-03-01T00:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("supports cursor pagination and returns nextCursor", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const newestId = generateUlid(1700100012000);
+    const olderId = generateUlid(1700100011000);
+    const oldestId = generateUlid(1700100010000);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: newestId,
+          did: makeAgentDid(newestId),
+          ownerId: "human-1",
+          name: "newest",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+        {
+          id: olderId,
+          did: makeAgentDid(olderId),
+          ownerId: "human-1",
+          name: "older",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-02-28T00:00:00.000Z",
+        },
+        {
+          id: oldestId,
+          did: makeAgentDid(oldestId),
+          ownerId: "human-1",
+          name: "oldest",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-02-27T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const firstPage = await createRegistryApp().request(
+      "/v1/agents?limit=1",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(firstPage.status).toBe(200);
+    const firstBody = (await firstPage.json()) as {
+      agents: Array<{
+        id: string;
+        did: string;
+        name: string;
+        status: "active" | "revoked";
+        expires: string | null;
+      }>;
+      pagination: { limit: number; nextCursor: string | null };
+    };
+    expect(firstBody.agents).toEqual([
+      {
+        id: newestId,
+        did: makeAgentDid(newestId),
+        name: "newest",
+        status: "active",
+        expires: "2026-03-01T00:00:00.000Z",
+      },
+    ]);
+    expect(firstBody.pagination).toEqual({
+      limit: 1,
+      nextCursor: newestId,
+    });
+
+    const secondPage = await createRegistryApp().request(
+      `/v1/agents?limit=1&cursor=${newestId}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(secondPage.status).toBe(200);
+    const secondBody = (await secondPage.json()) as {
+      agents: Array<{
+        id: string;
+        did: string;
+        name: string;
+        status: "active" | "revoked";
+        expires: string | null;
+      }>;
+      pagination: { limit: number; nextCursor: string | null };
+    };
+    expect(secondBody.agents).toEqual([
+      {
+        id: olderId,
+        did: makeAgentDid(olderId),
+        name: "older",
+        status: "active",
+        expires: "2026-02-28T00:00:00.000Z",
+      },
+    ]);
+    expect(secondBody.pagination).toEqual({
+      limit: 1,
+      nextCursor: olderId,
+    });
+  });
+
+  it("returns verbose query validation errors in non-production", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const res = await createRegistryApp().request(
+      "/v1/agents?status=invalid",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        message: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_LIST_INVALID_QUERY");
+    expect(body.error.message).toBe("Agent list query is invalid");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      status: expect.any(Array),
+    });
+  });
+
+  it("returns generic query validation errors in production", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const res = await createRegistryApp().request(
+      "/v1/agents?cursor=not-a-ulid",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "production" },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        message: string;
+        details?: Record<string, unknown>;
+      };
+    };
+    expect(body.error.code).toBe("AGENT_LIST_INVALID_QUERY");
+    expect(body.error.message).toBe("Request could not be processed");
+    expect(body.error.details).toBeUndefined();
   });
 });
 

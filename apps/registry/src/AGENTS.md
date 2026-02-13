@@ -21,6 +21,18 @@
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.
 - When using fake D1 adapters in route tests, make select responses honor bound parameters so query-shape regressions are caught.
 
+## GET /v1/agents Contract
+- Require PAT auth via `createApiKeyAuth`; only caller-owned agents may be returned.
+- Keep query parsing in `agentList.ts` to avoid duplicating validation rules in route handlers.
+- Supported optional filters:
+  - `status`: `active | revoked`
+  - `framework`: trimmed non-empty string, max 32 chars, no control chars
+  - `limit`: integer `1..100`, default `20`
+  - `cursor`: ULID (opaque page token)
+- Return minimal agent fields only: `{ id, did, name, status, expires }` plus pagination `{ limit, nextCursor }`.
+- Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
+- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
+
 ## POST /v1/agents Contract
 - Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
 - Validate request payload fields with explicit rules:
