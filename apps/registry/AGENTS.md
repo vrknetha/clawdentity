@@ -52,3 +52,8 @@
 - Use constant-time comparison when checking the header-derived hash against `api_keys.key_hash`, only allow `status = 'active'`, and surface failures through `AppError` codes such as `API_KEY_MISSING`, `API_KEY_INVALID`, or `API_KEY_REVOKED` so the shared SDK error handler can produce consistent envelopes.
 - Enrich the request context with `humanId`, `apiKeyId`, and `apiKeyName` for downstream handlers and update `last_used_at` as part of the auth middleware/handler so analytics and revocation tooling stay honest.
 - Keep the middleware reversible: a no-auth `GET /health` can stay open but any future `/v1/*` endpoints should extend this middleware so unauthorized access never reaches the DB layer.
+
+## Public Key Discovery
+- `GET /.well-known/claw-keys.json` is the canonical public key discovery endpoint for offline AIT verification.
+- Source key material from validated runtime config (`REGISTRY_SIGNING_KEYS` JSON) and return entries with `kid`, `alg`, `crv`, `x`, and `status`.
+- Keep cache headers explicit (`max-age=300` + `stale-while-revalidate`) to reduce client fetch load while allowing key rotation to propagate predictably.
