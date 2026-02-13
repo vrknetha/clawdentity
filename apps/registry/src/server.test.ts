@@ -22,6 +22,7 @@ import {
   deriveApiKeyLookupPrefix,
   hashApiKeyToken,
 } from "./auth/api-key-auth.js";
+import { RESOLVE_RATE_LIMIT_MAX_REQUESTS } from "./rate-limit.js";
 import app, { createRegistryApp } from "./server.js";
 
 function makeAitClaims(publicKey: Uint8Array): AitClaims {
@@ -88,6 +89,7 @@ type FakeAgentSelectRow = {
   id: string;
   did: string;
   owner_id: string;
+  owner_did: string;
   name: string;
   framework: string | null;
   public_key: string;
@@ -213,6 +215,21 @@ function parseSelectedColumns(query: string): string[] {
     .split(",")
     .map((column) => column.trim())
     .map((column) => {
+      const normalizedColumn = column.toLowerCase();
+      if (
+        normalizedColumn.includes(`"humans"."did"`) ||
+        normalizedColumn.includes("humans.did")
+      ) {
+        return "owner_did";
+      }
+
+      if (
+        normalizedColumn.includes(`"agents"."did"`) ||
+        normalizedColumn.includes("agents.did")
+      ) {
+        return "did";
+      }
+
       const aliasMatch = column.match(/\s+as\s+"?([a-zA-Z0-9_]+)"?\s*$/i);
       if (aliasMatch?.[1]) {
         return aliasMatch[1].toLowerCase();
@@ -233,6 +250,17 @@ function parseSelectedColumns(query: string): string[] {
     .filter((column) => column.length > 0);
 }
 
+function createFakePublicKey(agentId: string): string {
+  const seed = agentId.length > 0 ? agentId : "agent";
+  const bytes = new Uint8Array(32);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = seed.charCodeAt(index % seed.length) & 0xff;
+  }
+
+  return encodeBase64url(bytes);
+}
+
 function getAgentSelectColumnValue(
   row: FakeAgentSelectRow,
   column: string,
@@ -245,6 +273,9 @@ function getAgentSelectColumnValue(
   }
   if (column === "owner_id") {
     return row.owner_id;
+  }
+  if (column === "owner_did") {
+    return row.owner_did;
   }
   if (column === "name") {
     return row.name;
@@ -276,8 +307,10 @@ function getAgentSelectColumnValue(
 function resolveAgentSelectRows(options: {
   query: string;
   params: unknown[];
+  authRows: FakeD1Row[];
   agentRows: FakeAgentRow[];
 }): FakeAgentSelectRow[] {
+  const normalizedQuery = options.query.toLowerCase();
   const whereClause = extractWhereClause(options.query);
   const equalityParams = parseWhereEqualityParams({
     whereClause,
@@ -290,6 +323,9 @@ function resolveAgentSelectRows(options: {
   const hasCurrentJtiFilter = hasFilter(whereClause, "current_jti");
   const hasCursorFilter = hasFilter(whereClause, "id", "<");
   const hasLimitClause = options.query.toLowerCase().includes(" limit ");
+  const requiresHumanJoin =
+    normalizedQuery.includes('join "humans"') ||
+    normalizedQuery.includes("join humans");
 
   const ownerId =
     hasOwnerFilter && typeof equalityParams.values.owner_id?.[0] === "string"
@@ -336,21 +372,28 @@ function resolveAgentSelectRows(options: {
     )
     .filter((row) => (cursorFilter ? row.id < cursorFilter : true))
     .sort((left, right) => right.id.localeCompare(left.id))
-    .slice(0, limit)
-    .map((row) => ({
-      id: row.id,
-      did: row.did,
-      owner_id: row.ownerId,
-      name: row.name,
-      framework: row.framework,
-      public_key:
-        row.publicKey ?? "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
-      status: row.status,
-      expires_at: row.expiresAt,
-      current_jti: row.currentJti ?? null,
-      created_at: row.createdAt ?? "2026-01-01T00:00:00.000Z",
-      updated_at: row.updatedAt ?? "2026-01-01T00:00:00.000Z",
-    }));
+    .map((row) => {
+      const ownerDid = options.authRows.find(
+        (authRow) => authRow.humanId === row.ownerId,
+      )?.humanDid;
+
+      return {
+        id: row.id,
+        did: row.did,
+        owner_id: row.ownerId,
+        owner_did: ownerDid ?? "",
+        name: row.name,
+        framework: row.framework,
+        public_key: row.publicKey ?? createFakePublicKey(row.id),
+        status: row.status,
+        expires_at: row.expiresAt,
+        current_jti: row.currentJti ?? null,
+        created_at: row.createdAt ?? "2026-01-01T00:00:00.000Z",
+        updated_at: row.updatedAt ?? "2026-01-01T00:00:00.000Z",
+      };
+    })
+    .filter((row) => (requiresHumanJoin ? row.owner_did.length > 0 : true))
+    .slice(0, limit);
 
   return filteredRows;
 }
@@ -468,11 +511,27 @@ function createFakeDb(
             (normalizedQuery.includes("select") ||
               normalizedQuery.includes("returning"))
           ) {
+            const resultRows = resolveAgentSelectRows({
+              query,
+              params,
+              authRows: rows,
+              agentRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+
             return {
-              results: resolveAgentSelectRows({
-                query,
-                params,
-                agentRows,
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getAgentSelectColumnValue(row, column);
+                    return acc;
+                  },
+                  {},
+                );
               }),
             };
           }
@@ -520,6 +579,7 @@ function createFakeDb(
             const resultRows = resolveAgentSelectRows({
               query,
               params,
+              authRows: rows,
               agentRows,
             });
             const selectedColumns = parseSelectedColumns(query);
@@ -1140,6 +1200,166 @@ describe("GET /v1/crl", () => {
     expect(body.error.details?.fieldErrors).toMatchObject({
       REGISTRY_SIGNING_KEYS: expect.any(Array),
     });
+  });
+});
+
+describe("GET /v1/resolve/:id", () => {
+  it("returns public profile fields without requiring auth", async () => {
+    const { authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700500000000);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "resolve-me",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/resolve/${agentId}`,
+      {},
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      did: string;
+      name: string;
+      framework: string;
+      status: "active" | "revoked";
+      ownerDid: string;
+      email?: string;
+      displayName?: string;
+    };
+    expect(body).toEqual({
+      did: makeAgentDid(agentId),
+      name: "resolve-me",
+      framework: "openclaw",
+      status: "active",
+      ownerDid: authRow.humanDid,
+    });
+    expect(body).not.toHaveProperty("email");
+    expect(body).not.toHaveProperty("displayName");
+  });
+
+  it("falls back framework to openclaw when stored framework is null", async () => {
+    const { authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700500000100);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "legacy-framework-null",
+          framework: null,
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/resolve/${agentId}`,
+      {},
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { framework: string };
+    expect(body.framework).toBe("openclaw");
+  });
+
+  it("returns 400 for invalid id path", async () => {
+    const res = await createRegistryApp().request(
+      "/v1/resolve/not-a-ulid",
+      {},
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, string[]> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_RESOLVE_INVALID_PATH");
+    expect(body.error.details?.fieldErrors?.id).toEqual([
+      "id must be a valid ULID",
+    ]);
+  });
+
+  it("returns 404 when agent does not exist", async () => {
+    const { authRow } = await makeValidPatContext();
+    const missingAgentId = generateUlid(1700500000200);
+    const { database } = createFakeDb([authRow], []);
+
+    const res = await createRegistryApp().request(
+      `/v1/resolve/${missingAgentId}`,
+      {},
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_NOT_FOUND");
+  });
+
+  it("returns 429 when rate limit is exceeded for the same client", async () => {
+    const { authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700500000300);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(agentId),
+          ownerId: "human-1",
+          name: "rate-limited-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    );
+    const appInstance = createRegistryApp();
+
+    for (let index = 0; index < RESOLVE_RATE_LIMIT_MAX_REQUESTS; index += 1) {
+      const response = await appInstance.request(
+        `/v1/resolve/${agentId}`,
+        {
+          headers: {
+            "CF-Connecting-IP": "203.0.113.10",
+          },
+        },
+        { DB: database, ENVIRONMENT: "test" },
+      );
+
+      expect(response.status).toBe(200);
+    }
+
+    const rateLimited = await appInstance.request(
+      `/v1/resolve/${agentId}`,
+      {
+        headers: {
+          "CF-Connecting-IP": "203.0.113.10",
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(rateLimited.status).toBe(429);
+    const body = (await rateLimited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
 });
 
