@@ -1,0 +1,420 @@
+import {
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
+import {
+  encodeEd25519KeypairBase64url,
+  generateEd25519Keypair,
+  signAIT,
+  signCRL,
+  signHttpRequest,
+} from "@clawdentity/sdk";
+import { describe, expect, it, vi } from "vitest";
+import { parseProxyConfig } from "./config.js";
+import { createProxyApp } from "./server.js";
+
+const REGISTRY_KID = "registry-active-kid";
+const NOW_MS = Date.now();
+const NOW_SECONDS = Math.floor(NOW_MS / 1000);
+const ISSUER = "https://api.clawdentity.com";
+const BODY_JSON = JSON.stringify({ message: "hello" });
+
+type AuthHarnessOptions = {
+  expired?: boolean;
+  crlStaleBehavior?: "fail-open" | "fail-closed";
+  fetchCrlFails?: boolean;
+  fetchKeysFails?: boolean;
+  revoked?: boolean;
+};
+
+type AuthHarness = {
+  app: ReturnType<typeof createProxyApp>;
+  claims: Awaited<ReturnType<typeof buildAitClaims>>;
+  createSignedHeaders: (input?: {
+    body?: string;
+    nonce?: string;
+    pathWithQuery?: string;
+    timestampSeconds?: number;
+  }) => Promise<Record<string, string>>;
+};
+
+async function buildAitClaims(input: { agentPublicKeyX: string }): Promise<{
+  iss: string;
+  sub: string;
+  ownerDid: string;
+  name: string;
+  framework: string;
+  description: string;
+  cnf: {
+    jwk: {
+      kty: "OKP";
+      crv: "Ed25519";
+      x: string;
+    };
+  };
+  iat: number;
+  nbf: number;
+  exp: number;
+  jti: string;
+}> {
+  return {
+    iss: ISSUER,
+    sub: makeAgentDid(generateUlid(NOW_MS + 10)),
+    ownerDid: makeHumanDid(generateUlid(NOW_MS + 20)),
+    name: "Proxy Agent",
+    framework: "openclaw",
+    description: "test agent",
+    cnf: {
+      jwk: {
+        kty: "OKP",
+        crv: "Ed25519",
+        x: input.agentPublicKeyX,
+      },
+    },
+    iat: NOW_SECONDS - 10,
+    nbf: NOW_SECONDS - 10,
+    exp: NOW_SECONDS + 600,
+    jti: generateUlid(NOW_MS + 30),
+  };
+}
+
+function createFetchMock(input: {
+  crlToken: string;
+  fetchCrlFails?: boolean;
+  fetchKeysFails?: boolean;
+  registryPublicKeyX: string;
+}) {
+  return vi.fn(async (requestInput: unknown): Promise<Response> => {
+    const url = (() => {
+      if (typeof requestInput === "string") {
+        return requestInput;
+      }
+      if (requestInput instanceof URL) {
+        return requestInput.toString();
+      }
+      if (
+        typeof requestInput === "object" &&
+        requestInput !== null &&
+        "url" in requestInput &&
+        typeof (requestInput as { url?: unknown }).url === "string"
+      ) {
+        return (requestInput as { url: string }).url;
+      }
+
+      return "";
+    })();
+
+    if (url.endsWith("/.well-known/claw-keys.json")) {
+      if (input.fetchKeysFails) {
+        throw new Error("keys unavailable");
+      }
+
+      return new Response(
+        JSON.stringify({
+          keys: [
+            {
+              kid: REGISTRY_KID,
+              alg: "EdDSA",
+              crv: "Ed25519",
+              x: input.registryPublicKeyX,
+              status: "active",
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    }
+
+    if (url.endsWith("/v1/crl")) {
+      if (input.fetchCrlFails) {
+        throw new Error("crl unavailable");
+      }
+
+      return new Response(
+        JSON.stringify({
+          crl: input.crlToken,
+        }),
+        { status: 200 },
+      );
+    }
+
+    return new Response("not found", { status: 404 });
+  });
+}
+
+async function createAuthHarness(
+  options: AuthHarnessOptions = {},
+): Promise<AuthHarness> {
+  const registryKeypair = await generateEd25519Keypair();
+  const agentKeypair = await generateEd25519Keypair();
+  const encodedRegistry = encodeEd25519KeypairBase64url(registryKeypair);
+  const encodedAgent = encodeEd25519KeypairBase64url(agentKeypair);
+  const claims = await buildAitClaims({
+    agentPublicKeyX: encodedAgent.publicKey,
+  });
+  if (options.expired) {
+    claims.exp = NOW_SECONDS - 1;
+  }
+
+  const ait = await signAIT({
+    claims,
+    signerKid: REGISTRY_KID,
+    signerKeypair: registryKeypair,
+  });
+
+  const revocationJti = options.revoked
+    ? claims.jti
+    : generateUlid(NOW_MS + 40);
+  const crl = await signCRL({
+    claims: {
+      iss: ISSUER,
+      jti: generateUlid(NOW_MS + 50),
+      iat: NOW_SECONDS - 10,
+      exp: NOW_SECONDS + 600,
+      revocations: [
+        {
+          jti: revocationJti,
+          agentDid: claims.sub,
+          revokedAt: NOW_SECONDS - 5,
+          reason: "manual revoke",
+        },
+      ],
+    },
+    signerKid: REGISTRY_KID,
+    signerKeypair: registryKeypair,
+  });
+
+  const fetchMock = createFetchMock({
+    crlToken: crl,
+    fetchCrlFails: options.fetchCrlFails,
+    fetchKeysFails: options.fetchKeysFails,
+    registryPublicKeyX: encodedRegistry.publicKey,
+  });
+
+  const app = createProxyApp({
+    config: parseProxyConfig({
+      OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
+      ...(options.crlStaleBehavior
+        ? { CRL_STALE_BEHAVIOR: options.crlStaleBehavior }
+        : {}),
+    }),
+    auth: {
+      fetchImpl: fetchMock as typeof fetch,
+      clock: () => NOW_MS,
+    },
+    registerRoutes: (nextApp) => {
+      nextApp.post("/protected", (c) => {
+        const auth = c.get("auth");
+        return c.json({
+          ok: true,
+          auth,
+        });
+      });
+    },
+  });
+
+  return {
+    app,
+    claims,
+    createSignedHeaders: async (input = {}) => {
+      const body = input.body ?? BODY_JSON;
+      const nonce = input.nonce ?? "nonce-1";
+      const pathWithQuery = input.pathWithQuery ?? "/protected";
+      const timestampSeconds = input.timestampSeconds ?? NOW_SECONDS;
+
+      const signed = await signHttpRequest({
+        method: "POST",
+        pathWithQuery,
+        timestamp: String(timestampSeconds),
+        nonce,
+        body: new TextEncoder().encode(body),
+        secretKey: agentKeypair.secretKey,
+      });
+
+      return {
+        authorization: `Claw ${ait}`,
+        "content-type": "application/json",
+        ...signed.headers,
+      };
+    },
+  };
+}
+
+describe("proxy auth middleware", () => {
+  it("keeps /health open without auth headers", async () => {
+    const harness = await createAuthHarness();
+    const response = await harness.app.request("/health");
+
+    expect(response.status).toBe(200);
+  });
+
+  it("verifies inbound auth and exposes auth context to downstream handlers", async () => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders();
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      ok: boolean;
+      auth: {
+        agentDid: string;
+        ownerDid: string;
+        aitJti: string;
+      };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.auth.agentDid).toBe(harness.claims.sub);
+    expect(body.auth.ownerDid).toBe(harness.claims.ownerDid);
+    expect(body.auth.aitJti).toBe(harness.claims.jti);
+  });
+
+  it("rejects non-health route when Authorization scheme is not Claw", async () => {
+    const harness = await createAuthHarness();
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer token",
+      },
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_INVALID_SCHEME");
+  });
+
+  it("rejects replayed nonce for the same agent", async () => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-replay-1",
+    });
+
+    const first = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+    const second = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(401);
+    const body = (await second.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_REPLAY");
+  });
+
+  it("rejects requests outside the timestamp skew window", async () => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders({
+      timestampSeconds: NOW_SECONDS - 301,
+      nonce: "nonce-old",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_TIMESTAMP_SKEW");
+  });
+
+  it("rejects proof mismatches when body is tampered", async () => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders({
+      body: BODY_JSON,
+      nonce: "nonce-tampered",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ message: "tampered" }),
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_INVALID_PROOF");
+  });
+
+  it("rejects revoked AITs", async () => {
+    const harness = await createAuthHarness({
+      revoked: true,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-revoked",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_REVOKED");
+  });
+
+  it("rejects expired AITs", async () => {
+    const harness = await createAuthHarness({
+      expired: true,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-expired",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_INVALID_AIT");
+  });
+
+  it("returns 503 when registry signing keys are unavailable", async () => {
+    const harness = await createAuthHarness({
+      fetchKeysFails: true,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-keys-fail",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_DEPENDENCY_UNAVAILABLE");
+  });
+
+  it("returns 503 when CRL is unavailable in fail-closed mode", async () => {
+    const harness = await createAuthHarness({
+      fetchCrlFails: true,
+      crlStaleBehavior: "fail-closed",
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-crl-fail-closed",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_DEPENDENCY_UNAVAILABLE");
+  });
+});
