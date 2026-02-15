@@ -3,8 +3,10 @@
 ## Source Layout
 - Keep `index.ts` as runtime bootstrap surface and version export.
 - Keep runtime env parsing and defaults in `config.ts`; do not scatter `process.env` reads across handlers.
+- Keep HTTP app/startup concerns in `server.ts`; use `bin.ts` as process entrypoint for Node runtime startup.
 - Keep `.env` fallback loading and OpenClaw config (`hooks.token`) fallback logic inside `config.ts` so runtime behavior is deterministic.
 - Keep fallback semantics consistent across merge + parse stages: empty/whitespace env values are treated as missing, so non-empty `.env`/file values can be used.
+- Do not derive runtime environment from `NODE_ENV`; use validated `ENVIRONMENT` from proxy config.
 
 ## Config Error Handling
 - Convert parse failures to `ProxyConfigError` with code `CONFIG_VALIDATION_FAILED`.
@@ -13,3 +15,4 @@
 ## Maintainability
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
+- Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.

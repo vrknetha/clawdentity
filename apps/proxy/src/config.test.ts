@@ -6,6 +6,7 @@ import {
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_OPENCLAW_BASE_URL,
+  DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
   DEFAULT_REGISTRY_URL,
   loadProxyConfig,
@@ -26,6 +27,7 @@ describe("proxy config", () => {
       openclawBaseUrl: DEFAULT_OPENCLAW_BASE_URL,
       openclawHookToken: "super-secret-hook-token",
       registryUrl: DEFAULT_REGISTRY_URL,
+      environment: DEFAULT_PROXY_ENVIRONMENT,
       allowList: {
         owners: [],
         agents: [],
@@ -42,12 +44,14 @@ describe("proxy config", () => {
       PORT: "4100",
       OPENCLAW_HOOKS_TOKEN: "hooks-token",
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
+      ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
     });
 
     expect(config.listenPort).toBe(4100);
     expect(config.openclawHookToken).toBe("hooks-token");
     expect(config.registryUrl).toBe("https://registry.example.com");
+    expect(config.environment).toBe("local");
     expect(config.crlStaleBehavior).toBe("fail-closed");
   });
 
@@ -88,6 +92,15 @@ describe("proxy config", () => {
       parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "token",
         ALLOW_ALL_VERIFIED: "maybe",
+      }),
+    ).toThrow(ProxyConfigError);
+  });
+
+  it("throws on unsupported environment value", () => {
+    expect(() =>
+      parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+        ENVIRONMENT: "staging",
       }),
     ).toThrow(ProxyConfigError);
   });
