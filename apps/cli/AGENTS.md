@@ -8,20 +8,22 @@
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
-- Prefer shared helpers (for validation, output, and error handling) over repeating per-command logic.
+- Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
 - Use `process.exitCode` instead of `process.exit()`.
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
+- Keep user-facing command output on `writeStdoutLine` / `writeStderrLine`; reserve structured logger calls for diagnostic events.
 
 ## Config and Secrets
 - Local CLI config lives at `~/.clawdentity/config.json`.
+- Agent identities live at `~/.clawdentity/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
 - Keep API tokens masked in human-facing output (`show`, success logs, debug prints).
-- Write config with restrictive permissions (`0600`) and never commit secrets or generated local config.
+- Write config and identity artifacts with restrictive permissions (`0600`) and never commit secrets or generated local config.
 
 ## Testing Rules
 - Use Vitest for all tests.
 - Unit-test config I/O and precedence logic with mocked `node:fs/promises` and `node:os`.
-- Command tests should assert both behavior and output, using `vi.spyOn(console, ...)` where needed.
+- Command tests should assert both behavior and output by capturing `process.stdout.write` / `process.stderr.write`.
 - Cover invalid input and failure paths, not only happy paths.
 
 ## Validation Commands
