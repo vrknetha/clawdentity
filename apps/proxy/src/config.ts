@@ -260,7 +260,14 @@ function mergeMissingEnvValues(
   values: Record<string, string>,
 ): void {
   for (const [key, value] of Object.entries(values)) {
-    if (target[key] !== undefined) {
+    const existingValue = target[key];
+    if (existingValue !== undefined && existingValue !== null) {
+      if (typeof existingValue !== "string" || existingValue.trim() !== "") {
+        continue;
+      }
+    }
+
+    if (value.trim() === "") {
       continue;
     }
 

@@ -145,6 +145,30 @@ describe("proxy config loading", () => {
     }
   });
 
+  it("treats empty env variables as missing and accepts dotenv fallback", () => {
+    const sandbox = createSandbox();
+    try {
+      writeFileSync(
+        join(sandbox.cwd, ".env"),
+        "OPENCLAW_HOOK_TOKEN=from-cwd-dotenv",
+      );
+
+      const config = loadProxyConfig(
+        {
+          OPENCLAW_HOOK_TOKEN: "",
+        },
+        {
+          cwd: sandbox.cwd,
+          homeDir: sandbox.root,
+        },
+      );
+
+      expect(config.openclawHookToken).toBe("from-cwd-dotenv");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
   it("falls back to hooks.token from openclaw.json (JSON5) when env token is missing", () => {
     const sandbox = createSandbox();
     try {
