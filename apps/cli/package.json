@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "clawdentity": "./dist/bin.js"
+  },
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -20,6 +23,10 @@
   },
   "dependencies": {
     "@clawdentity/protocol": "workspace:*",
-    "@clawdentity/sdk": "workspace:*"
+    "@clawdentity/sdk": "workspace:*",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.11"
   }
 }
