@@ -392,6 +392,123 @@ describe("proxy auth middleware", () => {
     expect(keyFetchCount).toBe(2);
   });
 
+  it("refreshes keyset and verifies CRL after registry CRL key rotation", async () => {
+    const oldKid = "registry-old-kid";
+    const newKid = "registry-new-kid";
+    const oldRegistryKeypair = await generateEd25519Keypair();
+    const newRegistryKeypair = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const encodedOldRegistry =
+      encodeEd25519KeypairBase64url(oldRegistryKeypair);
+    const encodedNewRegistry =
+      encodeEd25519KeypairBase64url(newRegistryKeypair);
+    const encodedAgent = encodeEd25519KeypairBase64url(agentKeypair);
+
+    const claims = await buildAitClaims({
+      agentPublicKeyX: encodedAgent.publicKey,
+    });
+    const ait = await signAIT({
+      claims,
+      signerKid: oldKid,
+      signerKeypair: oldRegistryKeypair,
+    });
+    const crl = await signCRL({
+      claims: {
+        iss: ISSUER,
+        jti: generateUlid(NOW_MS + 90),
+        iat: NOW_SECONDS - 10,
+        exp: NOW_SECONDS + 600,
+        revocations: [
+          {
+            jti: generateUlid(NOW_MS + 100),
+            agentDid: claims.sub,
+            revokedAt: NOW_SECONDS - 5,
+            reason: "manual revoke",
+          },
+        ],
+      },
+      signerKid: newKid,
+      signerKeypair: newRegistryKeypair,
+    });
+
+    let keyFetchCount = 0;
+    const fetchMock = vi.fn(
+      async (requestInput: unknown): Promise<Response> => {
+        const url = resolveRequestUrl(requestInput);
+        if (url.endsWith("/.well-known/claw-keys.json")) {
+          keyFetchCount += 1;
+          const key =
+            keyFetchCount === 1
+              ? {
+                  kid: oldKid,
+                  alg: "EdDSA",
+                  crv: "Ed25519",
+                  x: encodedOldRegistry.publicKey,
+                  status: "active",
+                }
+              : {
+                  kid: newKid,
+                  alg: "EdDSA",
+                  crv: "Ed25519",
+                  x: encodedNewRegistry.publicKey,
+                  status: "active",
+                };
+          return new Response(
+            JSON.stringify({
+              keys: [key],
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (url.endsWith("/v1/crl")) {
+          return new Response(
+            JSON.stringify({
+              crl,
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response("not found", { status: 404 });
+      },
+    );
+
+    const app = createProxyApp({
+      config: parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
+      }),
+      auth: {
+        fetchImpl: fetchMock as typeof fetch,
+        clock: () => NOW_MS,
+      },
+      registerRoutes: (nextApp) => {
+        nextApp.post("/protected", (c) => c.json({ ok: true }));
+      },
+    });
+
+    const signed = await signHttpRequest({
+      method: "POST",
+      pathWithQuery: "/protected",
+      timestamp: String(NOW_SECONDS),
+      nonce: "nonce-crl-rotation",
+      body: new TextEncoder().encode(BODY_JSON),
+      secretKey: agentKeypair.secretKey,
+    });
+    const response = await app.request("/protected", {
+      method: "POST",
+      headers: {
+        authorization: `Claw ${ait}`,
+        "content-type": "application/json",
+        ...signed.headers,
+      },
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(200);
+    expect(keyFetchCount).toBe(2);
+  });
+
   it("rejects non-health route when Authorization scheme is not Claw", async () => {
     const harness = await createAuthHarness();
     const response = await harness.app.request("/protected", {

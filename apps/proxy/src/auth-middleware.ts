@@ -3,6 +3,7 @@ import {
   AitJwtError,
   AppError,
   type CrlCache,
+  CrlJwtError,
   createCrlCache,
   createNonceCache,
   type Logger,
@@ -325,8 +326,6 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
   }
 
   async function fetchLatestCrlClaims(): Promise<unknown> {
-    const verificationKeys = await getActiveRegistryKeys();
-
     let response: Response;
     try {
       response = await fetchImpl(toRegistryUrl(registryUrl, "/v1/crl"));
@@ -354,14 +353,35 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         message: "Registry CRL payload is invalid",
       });
     }
+    const crlToken = payload.crl;
 
-    try {
-      return await verifyCRL({
-        token: payload.crl,
-        registryKeys: verificationKeys,
+    const verifyWithKeys = async (registryKeys: VerificationKey[]) =>
+      verifyCRL({
+        token: crlToken,
+        registryKeys,
         expectedIssuer,
       });
+
+    try {
+      const verificationKeys = await getActiveRegistryKeys();
+      return await verifyWithKeys(verificationKeys);
     } catch (error) {
+      if (error instanceof CrlJwtError && error.code === "UNKNOWN_CRL_KID") {
+        try {
+          const refreshedKeys = await getActiveRegistryKeys({
+            forceRefresh: true,
+          });
+          return await verifyWithKeys(refreshedKeys);
+        } catch (refreshedError) {
+          throw dependencyUnavailableError({
+            message: "Registry CRL is invalid",
+            details: {
+              reason: toErrorMessage(refreshedError),
+            },
+          });
+        }
+      }
+
       throw dependencyUnavailableError({
         message: "Registry CRL is invalid",
         details: {

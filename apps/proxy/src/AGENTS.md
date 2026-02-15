@@ -19,3 +19,4 @@
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep AIT verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_AIT_KID` before rejecting.
+- Keep CRL verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_CRL_KID` before dependency-failure mapping.
