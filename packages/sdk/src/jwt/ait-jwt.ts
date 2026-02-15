@@ -1,7 +1,13 @@
 import type { AitClaims, AitCnfJwk } from "@clawdentity/protocol";
 import { parseAitClaims } from "@clawdentity/protocol";
 import type { JWTVerifyOptions } from "jose";
-import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT } from "jose";
+import {
+  decodeJwt,
+  decodeProtectedHeader,
+  importJWK,
+  jwtVerify,
+  SignJWT,
+} from "jose";
 import {
   type Ed25519KeypairBytes,
   encodeEd25519KeypairBase64url,
@@ -28,6 +34,17 @@ export type VerifyAitInput = {
   expectedIssuer?: string;
 };
 
+export type DecodedAitHeader = {
+  alg: "EdDSA";
+  typ: "AIT";
+  kid: string;
+};
+
+export type DecodedAit = {
+  header: DecodedAitHeader;
+  claims: AitClaims;
+};
+
 export class AitJwtError extends Error {
   readonly code: "INVALID_AIT_HEADER" | "UNKNOWN_AIT_KID";
 
@@ -44,6 +61,24 @@ function invalidAitHeader(message: string): AitJwtError {
 
 function unknownAitKid(kid: string): AitJwtError {
   return new AitJwtError("UNKNOWN_AIT_KID", `Unknown AIT signing kid: ${kid}`);
+}
+
+function ensureAitProtectedHeader(
+  header: ReturnType<typeof decodeProtectedHeader>,
+): DecodedAitHeader {
+  if (header.alg !== "EdDSA") {
+    throw invalidAitHeader("AIT token must use alg=EdDSA");
+  }
+
+  if (header.typ !== "AIT") {
+    throw invalidAitHeader("AIT token must use typ=AIT");
+  }
+
+  if (typeof header.kid !== "string" || header.kid.length === 0) {
+    throw invalidAitHeader("AIT token missing protected kid header");
+  }
+
+  return { alg: "EdDSA", typ: "AIT", kid: header.kid };
 }
 
 export async function signAIT(input: SignAitInput): Promise<string> {
@@ -67,18 +102,7 @@ export async function signAIT(input: SignAitInput): Promise<string> {
 }
 
 export async function verifyAIT(input: VerifyAitInput): Promise<AitClaims> {
-  const header = decodeProtectedHeader(input.token);
-  if (header.alg !== "EdDSA") {
-    throw invalidAitHeader("AIT token must use alg=EdDSA");
-  }
-
-  if (header.typ !== "AIT") {
-    throw invalidAitHeader("AIT token must use typ=AIT");
-  }
-
-  if (typeof header.kid !== "string" || header.kid.length === 0) {
-    throw invalidAitHeader("AIT token missing protected kid header");
-  }
+  const header = ensureAitProtectedHeader(decodeProtectedHeader(input.token));
 
   const key = input.registryKeys.find((item) => item.kid === header.kid);
   if (!key) {
@@ -97,4 +121,10 @@ export async function verifyAIT(input: VerifyAitInput): Promise<AitClaims> {
 
   const { payload } = await jwtVerify(input.token, publicKey, options);
   return parseAitClaims(payload);
+}
+
+export function decodeAIT(token: string): DecodedAit {
+  const header = ensureAitProtectedHeader(decodeProtectedHeader(token));
+  const payload = decodeJwt(token);
+  return { header, claims: parseAitClaims(payload) };
 }

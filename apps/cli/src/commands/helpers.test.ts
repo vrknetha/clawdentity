@@ -49,7 +49,7 @@ describe("withErrorHandling", () => {
   });
 
   it("passes through successful command execution", async () => {
-    const handler = vi.fn(async (name: string) => {});
+    const handler = vi.fn(async (_name: string) => {});
     const wrapped = withErrorHandling("agent create", handler);
 
     await wrapped("agent-01");

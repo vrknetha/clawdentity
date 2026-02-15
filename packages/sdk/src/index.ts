@@ -44,11 +44,13 @@ export type {
 } from "./http/types.js";
 export { verifyHttpRequest } from "./http/verify.js";
 export type {
+  DecodedAit,
+  DecodedAitHeader,
   RegistryAitVerificationKey,
   SignAitInput,
   VerifyAitInput,
 } from "./jwt/ait-jwt.js";
-export { AitJwtError, signAIT, verifyAIT } from "./jwt/ait-jwt.js";
+export { AitJwtError, decodeAIT, signAIT, verifyAIT } from "./jwt/ait-jwt.js";
 export type {
   CrlClaims,
   RegistryCrlVerificationKey,

@@ -11,7 +11,7 @@
 - `config`: schema-validated runtime config parsing.
 - `request-context`: request ID extraction/generation and propagation.
 - `crypto/ed25519`: byte-first keypair/sign/verify helpers for PoP and token workflows.
-- `jwt/ait-jwt`: AIT JWS signing and verification with strict header and issuer checks.
+- `jwt/ait-jwt`: AIT JWS signing, verification, and header-only inspection via `decodeAIT`; both helpers reuse the same protected-header guard so alg/typ/kid invariants stay aligned even when skipping signature validation.
 - `jwt/crl-jwt`: CRL JWT helpers with EdDSA signing, header consistency checks, and tamper-detection test coverage.
 - `crl/cache`: in-memory CRL cache with periodic refresh, staleness reporting, and configurable stale behavior.
 - `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash.
