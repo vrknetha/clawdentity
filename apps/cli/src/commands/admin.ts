@@ -33,6 +33,10 @@ type AdminBootstrapResponse = {
   };
 };
 
+export type AdminBootstrapResult = AdminBootstrapResponse & {
+  registryUrl: string;
+};
+
 type BootstrapErrorBody = {
   error?: {
     code?: string;
@@ -43,6 +47,9 @@ type BootstrapErrorBody = {
 type AdminBootstrapDependencies = {
   fetchImpl?: typeof fetch;
   resolveConfigImpl?: () => Promise<CliConfig>;
+};
+
+type AdminBootstrapPersistenceDependencies = {
   setConfigValueImpl?: typeof setConfigValue;
 };
 
@@ -156,7 +163,7 @@ function mapBootstrapFailureMessage(payload: BootstrapErrorBody): string {
 export async function bootstrapAdmin(
   options: AdminBootstrapOptions,
   dependencies: AdminBootstrapDependencies = {},
-): Promise<AdminBootstrapResponse> {
+): Promise<AdminBootstrapResult> {
   const bootstrapSecret = parseNonEmptyString(options.bootstrapSecret);
   if (bootstrapSecret.length === 0) {
     throw createCliError(
@@ -167,7 +174,6 @@ export async function bootstrapAdmin(
 
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const resolveConfigImpl = dependencies.resolveConfigImpl ?? resolveConfig;
-  const setConfigValueImpl = dependencies.setConfigValueImpl ?? setConfigValue;
   const config = await resolveConfigImpl();
   const registryUrl = resolveBootstrapRegistryUrl({
     overrideRegistryUrl: options.registryUrl,
@@ -216,10 +222,31 @@ export async function bootstrapAdmin(
 
   const parsed = parseBootstrapResponse(payload);
 
-  await setConfigValueImpl("registryUrl", registryUrl);
-  await setConfigValueImpl("apiKey", parsed.apiKey.token);
+  return {
+    ...parsed,
+    registryUrl,
+  };
+}
 
-  return parsed;
+export async function persistBootstrapConfig(
+  registryUrl: string,
+  apiKeyToken: string,
+  dependencies: AdminBootstrapPersistenceDependencies = {},
+): Promise<void> {
+  const setConfigValueImpl = dependencies.setConfigValueImpl ?? setConfigValue;
+
+  try {
+    await setConfigValueImpl("registryUrl", registryUrl);
+    await setConfigValueImpl("apiKey", apiKeyToken);
+  } catch (error) {
+    logger.warn("cli.admin_bootstrap_config_persist_failed", {
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+    throw createCliError(
+      "CLI_ADMIN_BOOTSTRAP_CONFIG_PERSISTENCE_FAILED",
+      "Failed to save admin credentials locally",
+    );
+  }
 }
 
 export const createAdminCommand = (): Command => {
@@ -245,9 +272,11 @@ export const createAdminCommand = (): Command => {
           writeStdoutLine("Admin bootstrap completed");
           writeStdoutLine(`Human DID: ${result.human.did}`);
           writeStdoutLine(`API key name: ${result.apiKey.name}`);
-          writeStdoutLine("API key saved to local config");
           writeStdoutLine("API key token (shown once):");
           writeStdoutLine(result.apiKey.token);
+
+          await persistBootstrapConfig(result.registryUrl, result.apiKey.token);
+          writeStdoutLine("API key saved to local config");
         },
       ),
     );

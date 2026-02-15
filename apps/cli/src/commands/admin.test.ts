@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { bootstrapAdmin } from "./admin.js";
+import { bootstrapAdmin, persistBootstrapConfig } from "./admin.js";
 
 describe("admin bootstrap helper", () => {
-  it("bootstraps admin and persists registryUrl + apiKey", async () => {
+  it("requests bootstrap and returns metadata", async () => {
     const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
       const requestBody = JSON.parse(String(init?.body)) as {
         displayName?: string;
@@ -29,7 +29,6 @@ describe("admin bootstrap helper", () => {
         { status: 201, headers: { "content-type": "application/json" } },
       );
     });
-    const setConfigValueMock = vi.fn(async () => {});
 
     const result = await bootstrapAdmin(
       {
@@ -42,12 +41,12 @@ describe("admin bootstrap helper", () => {
         resolveConfigImpl: async () => ({
           registryUrl: "https://api.example.com",
         }),
-        setConfigValueImpl: setConfigValueMock,
       },
     );
 
     expect(result.human.did).toBe("did:claw:human:00000000000000000000000000");
     expect(result.apiKey.token).toBe("clw_pat_testtoken");
+    expect(result.registryUrl).toBe("https://api.example.com/");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [calledInput, calledInit] = fetchMock.mock.calls[0] as [
       URL,
@@ -60,16 +59,6 @@ describe("admin bootstrap helper", () => {
     expect(
       (calledInit.headers as Record<string, string>)["x-bootstrap-secret"],
     ).toBe("bootstrap-secret");
-    expect(setConfigValueMock).toHaveBeenNthCalledWith(
-      1,
-      "registryUrl",
-      "https://api.example.com/",
-    );
-    expect(setConfigValueMock).toHaveBeenNthCalledWith(
-      2,
-      "apiKey",
-      "clw_pat_testtoken",
-    );
   });
 
   it("maps registry bootstrap conflict to stable CLI message", async () => {
@@ -95,7 +84,6 @@ describe("admin bootstrap helper", () => {
           resolveConfigImpl: async () => ({
             registryUrl: "https://api.example.com",
           }),
-          setConfigValueImpl: vi.fn(async () => {}),
         },
       ),
     ).rejects.toMatchObject({
@@ -122,12 +110,43 @@ describe("admin bootstrap helper", () => {
           resolveConfigImpl: async () => ({
             registryUrl: "https://api.example.com",
           }),
-          setConfigValueImpl: vi.fn(async () => {}),
         },
       ),
     ).rejects.toMatchObject({
       code: "CLI_ADMIN_BOOTSTRAP_INVALID_RESPONSE",
       message: "Bootstrap response is invalid",
+    });
+  });
+});
+
+describe("persist bootstrap config", () => {
+  it("saves registry url and api key sequentially", async () => {
+    const setConfigValueMock = vi.fn(async () => {});
+
+    await persistBootstrapConfig("https://api.example.com/", "token", {
+      setConfigValueImpl: setConfigValueMock,
+    });
+
+    expect(setConfigValueMock).toHaveBeenNthCalledWith(
+      1,
+      "registryUrl",
+      "https://api.example.com/",
+    );
+    expect(setConfigValueMock).toHaveBeenNthCalledWith(2, "apiKey", "token");
+  });
+
+  it("throws CLI error when persistence fails", async () => {
+    const setConfigValueMock = vi.fn(async () => {
+      throw new Error("disk-full");
+    });
+
+    await expect(
+      persistBootstrapConfig("https://api.example.com/", "token", {
+        setConfigValueImpl: setConfigValueMock,
+      }),
+    ).rejects.toMatchObject({
+      code: "CLI_ADMIN_BOOTSTRAP_CONFIG_PERSISTENCE_FAILED",
+      message: "Failed to save admin credentials locally",
     });
   });
 });

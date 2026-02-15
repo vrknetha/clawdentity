@@ -125,6 +125,8 @@ type FakeAgentSelectRow = {
 
 type FakeDbOptions = {
   beforeFirstAgentUpdate?: (agentRows: FakeAgentRow[]) => void;
+  failApiKeyInsertCount?: number;
+  failBeginTransaction?: boolean;
   revocationRows?: FakeRevocationRow[];
 };
 
@@ -593,6 +595,7 @@ function createFakeDb(
     lastUsedAt: null,
   }));
   let beforeFirstAgentUpdateApplied = false;
+  let remainingApiKeyInsertFailures = options.failApiKeyInsertCount ?? 0;
 
   const database: D1Database = {
     prepare(query: string) {
@@ -797,6 +800,13 @@ function createFakeDb(
           return [];
         },
         async run() {
+          if (
+            options.failBeginTransaction &&
+            normalizedQuery.trim() === "begin"
+          ) {
+            throw new Error("Failed query: begin");
+          }
+
           let changes = 0;
 
           if (
@@ -864,6 +874,11 @@ function createFakeDb(
             normalizedQuery.includes('insert into "api_keys"') ||
             normalizedQuery.includes("insert into api_keys")
           ) {
+            if (remainingApiKeyInsertFailures > 0) {
+              remainingApiKeyInsertFailures -= 1;
+              throw new Error("api key insert failed");
+            }
+
             const columns = parseInsertColumns(query, "api_keys");
             const row = columns.reduce<FakeApiKeyInsertRow>(
               (acc, column, index) => {
@@ -899,6 +914,35 @@ function createFakeDb(
             }
 
             changes = 1;
+          }
+          if (
+            normalizedQuery.includes('delete from "humans"') ||
+            normalizedQuery.includes("delete from humans")
+          ) {
+            const whereClause = extractWhereClause(query);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params,
+            });
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : "";
+
+            if (idFilter.length > 0) {
+              for (let index = humanRows.length - 1; index >= 0; index -= 1) {
+                if (humanRows[index]?.id === idFilter) {
+                  humanRows.splice(index, 1);
+                  changes += 1;
+                }
+              }
+
+              for (let index = apiKeyRows.length - 1; index >= 0; index -= 1) {
+                if (apiKeyRows[index]?.humanId === idFilter) {
+                  apiKeyRows.splice(index, 1);
+                }
+              }
+            }
           }
           if (
             normalizedQuery.includes('insert into "agents"') ||
@@ -1053,6 +1097,7 @@ function createFakeDb(
   return {
     database,
     updates,
+    humanRows,
     humanInserts,
     apiKeyInserts,
     agentInserts,
@@ -1337,6 +1382,89 @@ describe("POST /v1/admin/bootstrap", () => {
     expect(apiKeyInserts[0]?.key_hash).toBe(
       await hashApiKeyToken(body.apiKey.token),
     );
+  });
+
+  it("falls back to manual mutation when transactions are unavailable", async () => {
+    const { database, humanInserts, apiKeyInserts } = createFakeDb([], [], {
+      failBeginTransaction: true,
+    });
+
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(humanInserts).toHaveLength(1);
+    expect(apiKeyInserts).toHaveLength(1);
+  });
+
+  it("rolls back admin insert when fallback api key insert fails", async () => {
+    const { database, humanRows } = createFakeDb([], [], {
+      failBeginTransaction: true,
+      failApiKeyInsertCount: 1,
+    });
+
+    const firstResponse = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(firstResponse.status).toBe(500);
+    expect(humanRows).toHaveLength(0);
+
+    const secondResponse = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(secondResponse.status).toBe(201);
+    expect(humanRows).toHaveLength(1);
   });
 });
 

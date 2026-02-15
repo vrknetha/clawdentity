@@ -26,6 +26,7 @@
 - Treat bootstrap API key token as write-once secret: print once, persist via config manager, and never log token contents.
 - Normalize registry URL through URL parsing before requests; reject invalid URLs before network calls.
 - Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
+- Config persistence failures after successful bootstrap must not hide the returned PAT token; print token first, then surface recovery instructions.
 
 ## Testing Rules
 - Mock network and filesystem dependencies in command tests.

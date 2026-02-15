@@ -369,6 +369,7 @@ function createRegistryApp() {
 
     const applyBootstrapMutation = async (
       executor: typeof db,
+      options: { rollbackOnApiKeyFailure: boolean },
     ): Promise<void> => {
       const insertAdminResult = await executor
         .insert(humans)
@@ -390,28 +391,47 @@ function createRegistryApp() {
         throw adminBootstrapAlreadyCompletedError();
       }
 
-      await executor.insert(api_keys).values({
-        id: apiKeyId,
-        human_id: humanId,
-        key_hash: apiKeyHash,
-        key_prefix: apiKeyPrefix,
-        name: bootstrapPayload.apiKeyName,
-        status: "active",
-        created_at: createdAt,
-        last_used_at: null,
-      });
+      try {
+        await executor.insert(api_keys).values({
+          id: apiKeyId,
+          human_id: humanId,
+          key_hash: apiKeyHash,
+          key_prefix: apiKeyPrefix,
+          name: bootstrapPayload.apiKeyName,
+          status: "active",
+          created_at: createdAt,
+          last_used_at: null,
+        });
+      } catch (error) {
+        if (options.rollbackOnApiKeyFailure) {
+          try {
+            await executor.delete(humans).where(eq(humans.id, humanId));
+          } catch (rollbackError) {
+            logger.error("registry.admin_bootstrap_rollback_failed", {
+              rollbackErrorName:
+                rollbackError instanceof Error ? rollbackError.name : "unknown",
+            });
+          }
+        }
+
+        throw error;
+      }
     };
 
     try {
       await db.transaction(async (tx) => {
-        await applyBootstrapMutation(tx as unknown as typeof db);
+        await applyBootstrapMutation(tx as unknown as typeof db, {
+          rollbackOnApiKeyFailure: false,
+        });
       });
     } catch (error) {
       if (!isUnsupportedLocalTransactionError(error)) {
         throw error;
       }
 
-      await applyBootstrapMutation(db);
+      await applyBootstrapMutation(db, {
+        rollbackOnApiKeyFailure: true,
+      });
     }
 
     return c.json(
