@@ -35,16 +35,16 @@ importers:
 
   apps/cli:
     dependencies:
+      commander:
+        specifier: ^13.1.0
+        version: 13.1.0
+    devDependencies:
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
       '@clawdentity/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
-      commander:
-        specifier: ^13.1.0
-        version: 13.1.0
-    devDependencies:
       '@types/node':
         specifier: ^22.18.11
         version: 22.19.11
