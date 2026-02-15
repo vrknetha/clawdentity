@@ -18,6 +18,14 @@ describe("cli", () => {
     expect(hasConfigCommand).toBe(true);
   });
 
+  it("registers the agent command", () => {
+    const hasAgentCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("agent");
+
+    expect(hasAgentCommand).toBe(true);
+  });
+
   it("prints version output", async () => {
     const output: string[] = [];
     const program = createProgram();

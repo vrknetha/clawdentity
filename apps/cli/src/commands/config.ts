@@ -12,6 +12,7 @@ import {
   writeConfig,
 } from "../config/manager.js";
 import { writeStderrLine, writeStdoutLine } from "../io.js";
+import { withErrorHandling } from "./helpers.js";
 
 const logger = createLogger({ service: "cli", module: "config" });
 
@@ -19,26 +20,6 @@ const VALID_KEYS = [
   "registryUrl",
   "apiKey",
 ] as const satisfies readonly CliConfigKey[];
-
-const withErrorHandling = <T extends unknown[]>(
-  command: string,
-  handler: (...args: T) => Promise<void>,
-) => {
-  return async (...args: T) => {
-    try {
-      await handler(...args);
-    } catch (error) {
-      process.exitCode = 1;
-      const message = error instanceof Error ? error.message : String(error);
-
-      logger.error("cli.command_failed", {
-        command,
-        errorMessage: message,
-      });
-      writeStderrLine(message);
-    }
-  };
-};
 
 const isValidConfigKey = (value: string): value is CliConfigKey => {
   return VALID_KEYS.includes(value as CliConfigKey);
