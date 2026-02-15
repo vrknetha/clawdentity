@@ -25,6 +25,8 @@ type AuthHarnessOptions = {
   crlStaleBehavior?: "fail-open" | "fail-closed";
   fetchCrlFails?: boolean;
   fetchKeysFails?: boolean;
+  allowCurrentAgent?: boolean;
+  allowCurrentOwner?: boolean;
   revoked?: boolean;
 };
 
@@ -195,9 +197,19 @@ async function createAuthHarness(
     registryPublicKeyX: encodedRegistry.publicKey,
   });
 
+  const allowListAgents =
+    options.allowCurrentAgent === false ? [] : [claims.sub];
+  const allowListOwners = options.allowCurrentOwner ? [claims.ownerDid] : [];
+
   const app = createProxyApp({
     config: parseProxyConfig({
       OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
+      ...(allowListAgents.length > 0
+        ? { ALLOWLIST_AGENTS: allowListAgents.join(",") }
+        : {}),
+      ...(allowListOwners.length > 0
+        ? { ALLOWLIST_OWNERS: allowListOwners.join(",") }
+        : {}),
       ...(options.crlStaleBehavior
         ? { CRL_STALE_BEHAVIOR: options.crlStaleBehavior }
         : {}),
@@ -275,6 +287,43 @@ describe("proxy auth middleware", () => {
     expect(body.auth.agentDid).toBe(harness.claims.sub);
     expect(body.auth.ownerDid).toBe(harness.claims.ownerDid);
     expect(body.auth.aitJti).toBe(harness.claims.jti);
+  });
+
+  it("returns 403 when a verified caller is not allowlisted by agent DID", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-not-allowlisted",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
+  });
+
+  it("returns 403 when only owner DID is allowlisted", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+      allowCurrentOwner: true,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-owner-only-allowlisted",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
   });
 
   it("refreshes keyset and accepts valid AIT after registry key rotation", async () => {
@@ -362,6 +411,7 @@ describe("proxy auth middleware", () => {
     const app = createProxyApp({
       config: parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
+        ALLOWLIST_AGENTS: claims.sub,
       }),
       auth: {
         fetchImpl: fetchMock as typeof fetch,
@@ -479,6 +529,7 @@ describe("proxy auth middleware", () => {
     const app = createProxyApp({
       config: parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
+        ALLOWLIST_AGENTS: claims.sub,
       }),
       auth: {
         fetchImpl: fetchMock as typeof fetch,

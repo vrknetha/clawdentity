@@ -122,6 +122,24 @@ function dependencyUnavailableError(options: {
   });
 }
 
+function forbiddenError(options: {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}): AppError {
+  return new AppError({
+    code: options.code,
+    message: options.message,
+    status: 403,
+    details: options.details,
+    expose: true,
+  });
+}
+
+function isAgentDidAllowed(config: ProxyConfig, agentDid: string): boolean {
+  return config.allowList.agents.includes(agentDid);
+}
+
 export function parseClawAuthorizationHeader(authorization?: string): string {
   if (typeof authorization !== "string" || authorization.trim().length === 0) {
     throw unauthorizedError({
@@ -556,6 +574,16 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         throw unauthorizedError({
           code: "PROXY_AUTH_REVOKED",
           message: "AIT has been revoked",
+        });
+      }
+
+      if (!isAgentDidAllowed(options.config, claims.sub)) {
+        throw forbiddenError({
+          code: "PROXY_AUTH_FORBIDDEN",
+          message: "Verified caller is not allowlisted",
+          details: {
+            agentDid: claims.sub,
+          },
         });
       }
 
