@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { validateAgentName } from "@clawdentity/protocol";
+import { parseDid, validateAgentName } from "@clawdentity/protocol";
 import {
   createLogger,
   type DecodedAit,
@@ -17,6 +17,7 @@ const logger = createLogger({ service: "cli", module: "agent" });
 
 const AGENTS_DIR_NAME = "agents";
 const AIT_FILE_NAME = "ait.jwt";
+const IDENTITY_FILE_NAME = "identity.json";
 const RESERVED_AGENT_NAMES = new Set([".", ".."]);
 const FILE_MODE = 0o600;
 
@@ -35,6 +36,10 @@ type AgentRegistrationResponse = {
   ait: string;
 };
 
+type LocalAgentIdentity = {
+  did: string;
+};
+
 type RegistryErrorEnvelope = {
   error?: {
     message?: string;
@@ -51,6 +56,10 @@ const getAgentDirectory = (name: string): string => {
 
 const getAgentAitPath = (name: string): string => {
   return join(getAgentDirectory(name), AIT_FILE_NAME);
+};
+
+const getAgentIdentityPath = (name: string): string => {
+  return join(getAgentDirectory(name), IDENTITY_FILE_NAME);
 };
 
 const readAgentAitToken = async (agentName: string): Promise<string> => {
@@ -74,6 +83,63 @@ const readAgentAitToken = async (agentName: string): Promise<string> => {
   }
 
   return token;
+};
+
+const readAgentIdentity = async (
+  agentName: string,
+): Promise<LocalAgentIdentity> => {
+  const identityPath = getAgentIdentityPath(agentName);
+
+  let rawIdentity: string;
+  try {
+    rawIdentity = await readFile(identityPath, "utf-8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      throw new Error(`Agent "${agentName}" not found (${identityPath})`);
+    }
+
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawIdentity);
+  } catch {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} (must be valid JSON)`,
+    );
+  }
+
+  if (!isRecord(parsed) || typeof parsed.did !== "string") {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} (missing did)`,
+    );
+  }
+
+  const did = parsed.did.trim();
+  if (did.length === 0) {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} (missing did)`,
+    );
+  }
+
+  return { did };
+};
+
+const parseAgentIdFromDid = (agentName: string, did: string): string => {
+  try {
+    const parsedDid = parseDid(did);
+    if (parsedDid.kind !== "agent") {
+      throw new Error("DID is not an agent DID");
+    }
+
+    return parsedDid.ulid;
+  } catch {
+    throw new Error(
+      `Agent "${agentName}" has invalid did in ${IDENTITY_FILE_NAME}: ${did}`,
+    );
+  }
 };
 
 const formatExpiresAt = (expires: number): string => {
@@ -146,12 +212,19 @@ const parseJsonResponse = async (response: Response): Promise<unknown> => {
   }
 };
 
-const toRegistryRequestUrl = (registryUrl: string): string => {
+const toRegistryAgentsRequestUrl = (
+  registryUrl: string,
+  agentId?: string,
+): string => {
   const normalizedBaseUrl = registryUrl.endsWith("/")
     ? registryUrl
     : `${registryUrl}/`;
 
-  return new URL("v1/agents", normalizedBaseUrl).toString();
+  const path = agentId
+    ? `v1/agents/${encodeURIComponent(agentId)}`
+    : "v1/agents";
+
+  return new URL(path, normalizedBaseUrl).toString();
 };
 
 const toHttpErrorMessage = (status: number, responseBody: unknown): string => {
@@ -328,7 +401,7 @@ const registerAgent = async (input: {
 
   let response: Response;
   try {
-    response = await fetch(toRegistryRequestUrl(input.registryUrl), {
+    response = await fetch(toRegistryAgentsRequestUrl(input.registryUrl), {
       method: "POST",
       headers: {
         authorization: `Bearer ${input.apiKey}`,
@@ -349,6 +422,70 @@ const registerAgent = async (input: {
   }
 
   return parseAgentRegistrationResponse(responseBody);
+};
+
+const toRevokeHttpErrorMessage = (
+  status: number,
+  responseBody: unknown,
+): string => {
+  const registryMessage = extractRegistryErrorMessage(responseBody);
+
+  if (status === 401) {
+    return registryMessage
+      ? `Registry authentication failed (401): ${registryMessage}`
+      : "Registry authentication failed (401). Check your API key.";
+  }
+
+  if (status === 404) {
+    return registryMessage
+      ? `Agent not found (404): ${registryMessage}`
+      : "Agent not found in the registry (404).";
+  }
+
+  if (status === 409) {
+    return registryMessage
+      ? `Agent cannot be revoked (409): ${registryMessage}`
+      : "Agent cannot be revoked (409).";
+  }
+
+  if (status >= 500) {
+    return `Registry server error (${status}). Try again later.`;
+  }
+
+  if (registryMessage) {
+    return `Registry request failed (${status}): ${registryMessage}`;
+  }
+
+  return `Registry request failed (${status})`;
+};
+
+const revokeAgent = async (input: {
+  apiKey: string;
+  registryUrl: string;
+  agentId: string;
+}): Promise<void> => {
+  let response: Response;
+  try {
+    response = await fetch(
+      toRegistryAgentsRequestUrl(input.registryUrl, input.agentId),
+      {
+        method: "DELETE",
+        headers: {
+          authorization: `Bearer ${input.apiKey}`,
+        },
+      },
+    );
+  } catch {
+    throw new Error(
+      "Unable to connect to the registry. Check network access and registryUrl.",
+    );
+  }
+
+  const responseBody = await parseJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(toRevokeHttpErrorMessage(response.status, responseBody));
+  }
 };
 
 const printAgentInspect = (decoded: DecodedAit): void => {
@@ -445,6 +582,40 @@ export const createAgentCommand = (): Command => {
     .action(
       withErrorHandling("agent inspect", async (name: string) => {
         await printAgentInspectCommand(name);
+      }),
+    );
+
+  agentCommand
+    .command("revoke <name>")
+    .description("Revoke a local agent identity via the registry")
+    .action(
+      withErrorHandling("agent revoke", async (name: string) => {
+        const config = await resolveConfig();
+        if (!config.apiKey) {
+          throw new Error(
+            "API key is not configured. Run `clawdentity config set apiKey <token>` or set CLAWDENTITY_API_KEY.",
+          );
+        }
+
+        const agentName = assertValidAgentName(name);
+        const identity = await readAgentIdentity(agentName);
+        const agentId = parseAgentIdFromDid(agentName, identity.did);
+
+        await revokeAgent({
+          apiKey: config.apiKey,
+          registryUrl: config.registryUrl,
+          agentId,
+        });
+
+        logger.info("cli.agent_revoked", {
+          name: agentName,
+          did: identity.did,
+          agentId,
+          registryUrl: config.registryUrl,
+        });
+
+        writeStdoutLine(`Agent revoked: ${agentName} (${identity.did})`);
+        writeStdoutLine("CRL visibility depends on verifier refresh interval.");
       }),
     );
 
