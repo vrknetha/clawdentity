@@ -35,6 +35,7 @@ type AuthHarness = {
     body?: string;
     nonce?: string;
     pathWithQuery?: string;
+    timestamp?: string;
     timestampSeconds?: number;
   }) => Promise<Record<string, string>>;
 };
@@ -223,12 +224,13 @@ async function createAuthHarness(
       const body = input.body ?? BODY_JSON;
       const nonce = input.nonce ?? "nonce-1";
       const pathWithQuery = input.pathWithQuery ?? "/protected";
-      const timestampSeconds = input.timestampSeconds ?? NOW_SECONDS;
+      const timestamp =
+        input.timestamp ?? String(input.timestampSeconds ?? NOW_SECONDS);
 
       const signed = await signHttpRequest({
         method: "POST",
         pathWithQuery,
-        timestamp: String(timestampSeconds),
+        timestamp,
         nonce,
         body: new TextEncoder().encode(body),
         secretKey: agentKeypair.secretKey,
@@ -581,6 +583,26 @@ describe("proxy auth middleware", () => {
     expect(response.status).toBe(401);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_AUTH_TIMESTAMP_SKEW");
+  });
+
+  it.each([
+    `${NOW_SECONDS}abc`,
+    `${NOW_SECONDS}.5`,
+  ])("rejects malformed X-Claw-Timestamp header: %s", async (malformedTimestamp) => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders({
+      timestamp: malformedTimestamp,
+      nonce: "nonce-invalid-timestamp",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_INVALID_TIMESTAMP");
   });
 
   it("rejects proof mismatches when body is tampered", async () => {

@@ -205,6 +205,13 @@ function toVerificationKeys(keys: RegistrySigningKey[]): VerificationKey[] {
 }
 
 function parseUnixTimestamp(headerValue: string): number {
+  if (!/^\d+$/.test(headerValue)) {
+    throw unauthorizedError({
+      code: "PROXY_AUTH_INVALID_TIMESTAMP",
+      message: "X-Claw-Timestamp must be a unix seconds integer",
+    });
+  }
+
   const timestamp = Number.parseInt(headerValue, 10);
   if (!Number.isInteger(timestamp) || timestamp < 0) {
     throw unauthorizedError({

@@ -34,6 +34,7 @@
 - Keep `GET /health` unauthenticated for probes and deployment checks.
 - Parse inbound identity token strictly as `Authorization: Claw <AIT>`; do not accept Bearer or alternate token headers.
 - Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
+- Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
 - When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
