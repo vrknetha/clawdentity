@@ -29,6 +29,18 @@
 - Allow bootstrap from `ALLOW_LIST` JSON with optional explicit overrides (`ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`, `ALLOW_ALL_VERIFIED`).
 - Keep allowlist parsing deterministic and reject malformed input with structured config errors.
 
+## Auth Verification
+- Protect all non-health routes with Clawdentity auth verification middleware.
+- Keep `GET /health` unauthenticated for probes and deployment checks.
+- Parse inbound identity token strictly as `Authorization: Claw <AIT>`; do not accept Bearer or alternate token headers.
+- Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
+- Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
+- Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
+- When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
+- When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
+- Return `401` for invalid/expired/replayed/revoked/invalid-proof requests.
+- Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
+
 ## CRL Policy
 - Keep CRL timing defaults explicit in `src/config.ts` (`5m` refresh, `15m` max age) unless explicitly overridden.
 - Keep stale policy explicit (`fail-open` or `fail-closed`) and configurable from env.

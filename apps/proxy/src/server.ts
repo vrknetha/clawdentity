@@ -1,20 +1,34 @@
 import {
+  type CrlCache,
   createHonoErrorHandler,
   createLogger,
   createRequestContextMiddleware,
   createRequestLoggingMiddleware,
   type Logger,
-  type RequestContextVariables,
+  type NonceCache,
 } from "@clawdentity/sdk";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
+import {
+  createProxyAuthMiddleware,
+  type ProxyRequestVariables,
+} from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
 import { loadProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
 
+type ProxyAuthRuntimeOptions = {
+  fetchImpl?: typeof fetch;
+  clock?: () => number;
+  nonceCache?: NonceCache;
+  crlCache?: CrlCache;
+};
+
 type CreateProxyAppOptions = {
   config: ProxyConfig;
   logger?: Logger;
+  registerRoutes?: (app: ProxyApp) => void;
+  auth?: ProxyAuthRuntimeOptions;
 };
 
 type StartProxyServerOptions = {
@@ -25,7 +39,7 @@ type StartProxyServerOptions = {
 };
 
 export type ProxyApp = Hono<{
-  Variables: RequestContextVariables;
+  Variables: ProxyRequestVariables;
 }>;
 
 export type StartedProxyServer = {
@@ -42,11 +56,19 @@ function resolveLogger(logger?: Logger): Logger {
 export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
   const logger = resolveLogger(options.logger);
   const app = new Hono<{
-    Variables: RequestContextVariables;
+    Variables: ProxyRequestVariables;
   }>();
 
   app.use("*", createRequestContextMiddleware());
   app.use("*", createRequestLoggingMiddleware(logger));
+  app.use(
+    "*",
+    createProxyAuthMiddleware({
+      config: options.config,
+      logger,
+      ...options.auth,
+    }),
+  );
   app.onError(createHonoErrorHandler(logger));
 
   app.get("/health", (c) =>
@@ -56,6 +78,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
       environment: options.config.environment,
     }),
   );
+  options.registerRoutes?.(app);
 
   return app;
 }
