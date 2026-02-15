@@ -61,7 +61,30 @@ type FakeD1Row = {
   humanStatus: "active" | "suspended";
 };
 
+type FakeHumanRow = {
+  id: string;
+  did: string;
+  displayName: string;
+  role: "admin" | "user";
+  status: "active" | "suspended";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type FakeApiKeyRow = {
+  id: string;
+  humanId: string;
+  keyHash: string;
+  keyPrefix: string;
+  name: string;
+  status: "active" | "revoked";
+  createdAt: string;
+  lastUsedAt: string | null;
+};
+
 type FakeAgentInsertRow = Record<string, unknown>;
+type FakeHumanInsertRow = Record<string, unknown>;
+type FakeApiKeyInsertRow = Record<string, unknown>;
 type FakeAgentUpdateRow = Record<string, unknown>;
 type FakeRevocationInsertRow = Record<string, unknown>;
 type FakeRevocationRow = {
@@ -174,6 +197,10 @@ function hasFilter(
     `\\b${escapedColumn}\\b\\s*${escapedOperator}\\s*\\?`,
   );
   return quotedPattern.test(whereClause) || barePattern.test(whereClause);
+}
+
+function isDefined<T>(value: T | undefined): value is T {
+  return value !== undefined;
 }
 
 function parseWhereEqualityParams(options: {
@@ -302,6 +329,75 @@ function getAgentSelectColumnValue(
     return row.updated_at;
   }
   return undefined;
+}
+
+function getHumanSelectColumnValue(row: FakeHumanRow, column: string): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "did") {
+    return row.did;
+  }
+  if (column === "display_name") {
+    return row.displayName;
+  }
+  if (column === "role") {
+    return row.role;
+  }
+  if (column === "status") {
+    return row.status;
+  }
+  if (column === "created_at") {
+    return row.createdAt;
+  }
+  if (column === "updated_at") {
+    return row.updatedAt;
+  }
+  return undefined;
+}
+
+function resolveHumanSelectRows(options: {
+  query: string;
+  params: unknown[];
+  humanRows: FakeHumanRow[];
+}): FakeHumanRow[] {
+  const whereClause = extractWhereClause(options.query);
+  const equalityParams = parseWhereEqualityParams({
+    whereClause,
+    params: options.params,
+  });
+
+  const roleFilter =
+    typeof equalityParams.values.role?.[0] === "string"
+      ? String(equalityParams.values.role[0])
+      : undefined;
+  const statusFilter =
+    typeof equalityParams.values.status?.[0] === "string"
+      ? String(equalityParams.values.status[0])
+      : undefined;
+  const idFilter =
+    typeof equalityParams.values.id?.[0] === "string"
+      ? String(equalityParams.values.id[0])
+      : undefined;
+  const didFilter =
+    typeof equalityParams.values.did?.[0] === "string"
+      ? String(equalityParams.values.did[0])
+      : undefined;
+
+  const hasLimitClause = options.query.toLowerCase().includes(" limit ");
+  const maybeLimit = hasLimitClause
+    ? Number(options.params[options.params.length - 1])
+    : Number.NaN;
+  const limit = Number.isFinite(maybeLimit)
+    ? maybeLimit
+    : options.humanRows.length;
+
+  return options.humanRows
+    .filter((row) => (roleFilter ? row.role === roleFilter : true))
+    .filter((row) => (statusFilter ? row.status === statusFilter : true))
+    .filter((row) => (idFilter ? row.id === idFilter : true))
+    .filter((row) => (didFilter ? row.did === didFilter : true))
+    .slice(0, limit);
 }
 
 function resolveAgentSelectRows(options: {
@@ -464,10 +560,38 @@ function createFakeDb(
   options: FakeDbOptions = {},
 ) {
   const updates: Array<{ lastUsedAt: string; apiKeyId: string }> = [];
+  const humanInserts: FakeHumanInsertRow[] = [];
+  const apiKeyInserts: FakeApiKeyInsertRow[] = [];
   const agentInserts: FakeAgentInsertRow[] = [];
   const agentUpdates: FakeAgentUpdateRow[] = [];
   const revocationInserts: FakeRevocationInsertRow[] = [];
   const revocationRows = [...(options.revocationRows ?? [])];
+  const humanRows = rows.reduce<FakeHumanRow[]>((acc, row) => {
+    if (acc.some((item) => item.id === row.humanId)) {
+      return acc;
+    }
+
+    acc.push({
+      id: row.humanId,
+      did: row.humanDid,
+      displayName: row.humanDisplayName,
+      role: row.humanRole,
+      status: row.humanStatus,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    return acc;
+  }, []);
+  const apiKeyRows: FakeApiKeyRow[] = rows.map((row) => ({
+    id: row.apiKeyId,
+    humanId: row.humanId,
+    keyHash: row.keyHash,
+    keyPrefix: row.keyPrefix,
+    name: row.apiKeyName,
+    status: row.apiKeyStatus,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    lastUsedAt: null,
+  }));
   let beforeFirstAgentUpdateApplied = false;
 
   const database: D1Database = {
@@ -487,22 +611,61 @@ function createFakeDb(
           ) {
             const requestedKeyPrefix =
               typeof params[0] === "string" ? params[0] : "";
-            const matchingRows = rows.filter(
+            const matchingRows = apiKeyRows.filter(
               (row) => row.keyPrefix === requestedKeyPrefix,
             );
 
             return {
-              results: matchingRows.map((row) => ({
-                api_key_id: row.apiKeyId,
-                key_hash: row.keyHash,
-                api_key_status: row.apiKeyStatus,
-                api_key_name: row.apiKeyName,
-                human_id: row.humanId,
-                human_did: row.humanDid,
-                human_display_name: row.humanDisplayName,
-                human_role: row.humanRole,
-                human_status: row.humanStatus,
-              })),
+              results: matchingRows
+                .map((row) => {
+                  const human = humanRows.find(
+                    (humanRow) => humanRow.id === row.humanId,
+                  );
+                  if (!human) {
+                    return undefined;
+                  }
+
+                  return {
+                    api_key_id: row.id,
+                    key_hash: row.keyHash,
+                    api_key_status: row.status,
+                    api_key_name: row.name,
+                    human_id: human.id,
+                    human_did: human.did,
+                    human_display_name: human.displayName,
+                    human_role: human.role,
+                    human_status: human.status,
+                  };
+                })
+                .filter(isDefined),
+            };
+          }
+          if (
+            (normalizedQuery.includes('from "humans"') ||
+              normalizedQuery.includes("from humans")) &&
+            normalizedQuery.includes("select")
+          ) {
+            const resultRows = resolveHumanSelectRows({
+              query,
+              params,
+              humanRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getHumanSelectColumnValue(row, column);
+                    return acc;
+                  },
+                  {},
+                );
+              }),
             };
           }
           if (
@@ -556,21 +719,48 @@ function createFakeDb(
           ) {
             const requestedKeyPrefix =
               typeof params[0] === "string" ? params[0] : "";
-            const matchingRows = rows.filter(
+            const matchingRows = apiKeyRows.filter(
               (row) => row.keyPrefix === requestedKeyPrefix,
             );
 
-            return matchingRows.map((row) => [
-              row.apiKeyId,
-              row.keyHash,
-              row.apiKeyStatus,
-              row.apiKeyName,
-              row.humanId,
-              row.humanDid,
-              row.humanDisplayName,
-              row.humanRole,
-              row.humanStatus,
-            ]);
+            return matchingRows
+              .map((row) => {
+                const human = humanRows.find(
+                  (humanRow) => humanRow.id === row.humanId,
+                );
+                if (!human) {
+                  return undefined;
+                }
+
+                return [
+                  row.id,
+                  row.keyHash,
+                  row.status,
+                  row.name,
+                  human.id,
+                  human.did,
+                  human.displayName,
+                  human.role,
+                  human.status,
+                ];
+              })
+              .filter(isDefined);
+          }
+          if (
+            normalizedQuery.includes('from "humans"') ||
+            normalizedQuery.includes("from humans")
+          ) {
+            const resultRows = resolveHumanSelectRows({
+              query,
+              params,
+              humanRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getHumanSelectColumnValue(row, column),
+              ),
+            );
           }
           if (
             normalizedQuery.includes('from "agents"') ||
@@ -617,6 +807,97 @@ function createFakeDb(
               lastUsedAt: String(params[0] ?? ""),
               apiKeyId: String(params[1] ?? ""),
             });
+            const apiKey = apiKeyRows.find(
+              (row) => row.id === String(params[1]),
+            );
+            if (apiKey) {
+              apiKey.lastUsedAt = String(params[0] ?? "");
+            }
+            changes = 1;
+          }
+          if (
+            normalizedQuery.includes('insert into "humans"') ||
+            normalizedQuery.includes("insert into humans")
+          ) {
+            const columns = parseInsertColumns(query, "humans");
+            const row = columns.reduce<FakeHumanInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            humanInserts.push(row);
+
+            const nextHumanId = typeof row.id === "string" ? row.id : "";
+            const nextHumanDid = typeof row.did === "string" ? row.did : "";
+            const conflict = humanRows.some(
+              (humanRow) =>
+                humanRow.id === nextHumanId || humanRow.did === nextHumanDid,
+            );
+
+            if (!conflict) {
+              if (
+                (row.role === "admin" || row.role === "user") &&
+                (row.status === "active" || row.status === "suspended") &&
+                typeof row.display_name === "string" &&
+                typeof row.created_at === "string" &&
+                typeof row.updated_at === "string"
+              ) {
+                humanRows.push({
+                  id: nextHumanId,
+                  did: nextHumanDid,
+                  displayName: row.display_name,
+                  role: row.role,
+                  status: row.status,
+                  createdAt: row.created_at,
+                  updatedAt: row.updated_at,
+                });
+              }
+
+              changes = 1;
+            } else {
+              changes = 0;
+            }
+          }
+          if (
+            normalizedQuery.includes('insert into "api_keys"') ||
+            normalizedQuery.includes("insert into api_keys")
+          ) {
+            const columns = parseInsertColumns(query, "api_keys");
+            const row = columns.reduce<FakeApiKeyInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            apiKeyInserts.push(row);
+
+            if (
+              typeof row.id === "string" &&
+              typeof row.human_id === "string" &&
+              typeof row.key_hash === "string" &&
+              typeof row.key_prefix === "string" &&
+              typeof row.name === "string" &&
+              (row.status === "active" || row.status === "revoked") &&
+              typeof row.created_at === "string"
+            ) {
+              apiKeyRows.push({
+                id: row.id,
+                humanId: row.human_id,
+                keyHash: row.key_hash,
+                keyPrefix: row.key_prefix,
+                name: row.name,
+                status: row.status,
+                createdAt: row.created_at,
+                lastUsedAt:
+                  typeof row.last_used_at === "string"
+                    ? row.last_used_at
+                    : null,
+              });
+            }
+
             changes = 1;
           }
           if (
@@ -772,6 +1053,8 @@ function createFakeDb(
   return {
     database,
     updates,
+    humanInserts,
+    apiKeyInserts,
     agentInserts,
     agentUpdates,
     revocationInserts,
@@ -843,6 +1126,217 @@ describe("GET /health", () => {
     };
     expect(body.error.code).toBe("CONFIG_VALIDATION_FAILED");
     expect(body.error.message).toBe("Registry configuration is invalid");
+  });
+});
+
+describe("POST /v1/admin/bootstrap", () => {
+  it("returns 503 when bootstrap secret is not configured", async () => {
+    const { database } = createFakeDb([]);
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({}),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+      },
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        message: string;
+      };
+    };
+    expect(body.error.code).toBe("ADMIN_BOOTSTRAP_DISABLED");
+    expect(body.error.message).toBe("Admin bootstrap is disabled");
+  });
+
+  it("returns 401 when bootstrap secret header is missing", async () => {
+    const { database } = createFakeDb([]);
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("ADMIN_BOOTSTRAP_UNAUTHORIZED");
+  });
+
+  it("returns 401 when bootstrap secret is invalid", async () => {
+    const { database } = createFakeDb([]);
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "wrong-secret",
+        },
+        body: JSON.stringify({}),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("ADMIN_BOOTSTRAP_UNAUTHORIZED");
+  });
+
+  it("returns 400 when payload is not valid JSON", async () => {
+    const { database } = createFakeDb([]);
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: "{not-valid-json",
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("ADMIN_BOOTSTRAP_INVALID");
+  });
+
+  it("returns 400 when payload fields are invalid", async () => {
+    const { database } = createFakeDb([]);
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: 123,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("ADMIN_BOOTSTRAP_INVALID");
+  });
+
+  it("returns 409 when an admin already exists", async () => {
+    const { authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({}),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("ADMIN_BOOTSTRAP_ALREADY_COMPLETED");
+  });
+
+  it("creates admin human and PAT token once", async () => {
+    const { database, humanInserts, apiKeyInserts } = createFakeDb([]);
+
+    const response = await createRegistryApp().request(
+      "/v1/admin/bootstrap",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(201);
+
+    const body = (await response.json()) as {
+      human: {
+        id: string;
+        did: string;
+        displayName: string;
+        role: string;
+        status: string;
+      };
+      apiKey: {
+        id: string;
+        name: string;
+        token: string;
+      };
+    };
+
+    expect(body.human.id).toBe("00000000000000000000000000");
+    expect(body.human.did).toBe("did:claw:human:00000000000000000000000000");
+    expect(body.human.displayName).toBe("Primary Admin");
+    expect(body.human.role).toBe("admin");
+    expect(body.human.status).toBe("active");
+    expect(body.apiKey.name).toBe("prod-admin-key");
+    expect(body.apiKey.token.startsWith("clw_pat_")).toBe(true);
+
+    expect(humanInserts).toHaveLength(1);
+    expect(apiKeyInserts).toHaveLength(1);
+    expect(apiKeyInserts[0]?.key_prefix).toBe(
+      deriveApiKeyLookupPrefix(body.apiKey.token),
+    );
+    expect(apiKeyInserts[0]?.key_hash).toBe(
+      await hashApiKeyToken(body.apiKey.token),
+    );
   });
 });
 

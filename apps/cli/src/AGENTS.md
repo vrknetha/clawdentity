@@ -8,6 +8,7 @@
 - Reuse shared command wrappers (`withErrorHandling`) and IO helpers (`writeStdoutLine`, `writeStderrLine`) instead of inline process writes.
 - Prefer explicit error-to-reason mapping for operator-facing failures rather than generic stack traces.
 - Prefer SDK shared primitives (`AppError`, `nowIso`) for new command error/date logic instead of ad-hoc equivalents.
+- Admin bootstrap command logic should stay in `commands/admin.ts` and remain side-effect-safe: only mutate config after a validated successful registry response.
 
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.

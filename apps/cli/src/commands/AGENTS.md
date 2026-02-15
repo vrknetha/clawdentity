@@ -21,6 +21,12 @@
 - `openclaw setup` must be idempotent for relay mapping updates and peer map writes.
 - Keep error messages static (no interpolated runtime values); include variable context only in error details/log fields.
 
+## Admin Command Rules
+- `admin bootstrap` must call registry `/v1/admin/bootstrap` with `x-bootstrap-secret` and fail with stable CLI error codes/messages.
+- Treat bootstrap API key token as write-once secret: print once, persist via config manager, and never log token contents.
+- Normalize registry URL through URL parsing before requests; reject invalid URLs before network calls.
+- Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
+
 ## Testing Rules
 - Mock network and filesystem dependencies in command tests.
 - Include success and failure scenarios for external calls, parsing, and cache behavior.

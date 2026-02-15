@@ -1,4 +1,4 @@
-import { generateUlid } from "@clawdentity/protocol";
+import { generateUlid, makeHumanDid } from "@clawdentity/protocol";
 import {
   AppError,
   createHonoErrorHandler,
@@ -14,6 +14,7 @@ import {
 } from "@clawdentity/sdk";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { Hono } from "hono";
+import { parseAdminBootstrapPayload } from "./admin-bootstrap.js";
 import { mapAgentListRow, parseAgentListQuery } from "./agent-list.js";
 import {
   buildAgentRegistration,
@@ -35,8 +36,14 @@ import {
   type AuthenticatedHuman,
   createApiKeyAuth,
 } from "./auth/api-key-auth.js";
+import {
+  constantTimeEqual,
+  deriveApiKeyLookupPrefix,
+  generateApiKeyToken,
+  hashApiKeyToken,
+} from "./auth/api-key-token.js";
 import { createDb } from "./db/client.js";
-import { agents, humans, revocations } from "./db/schema.js";
+import { agents, api_keys, humans, revocations } from "./db/schema.js";
 import {
   createInMemoryRateLimit,
   RESOLVE_RATE_LIMIT_MAX_REQUESTS,
@@ -48,6 +55,7 @@ type Bindings = {
   DB: D1Database;
   ENVIRONMENT: string;
   APP_VERSION?: string;
+  BOOTSTRAP_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_KEYS?: string;
 };
@@ -61,6 +69,8 @@ const CRL_TTL_SECONDS =
   REGISTRY_CACHE_MAX_AGE_SECONDS +
   REGISTRY_CACHE_STALE_WHILE_REVALIDATE_SECONDS +
   CRL_EXPIRY_SAFETY_BUFFER_SECONDS;
+// Deterministic bootstrap identity guarantees one-time admin creation under races.
+const BOOTSTRAP_ADMIN_HUMAN_ID = "00000000000000000000000000";
 
 type OwnedAgent = {
   id: string;
@@ -225,6 +235,55 @@ function getMutationRowCount(result: unknown): number | undefined {
   return undefined;
 }
 
+function requireBootstrapSecret(bootstrapSecret: string | undefined): string {
+  if (typeof bootstrapSecret === "string" && bootstrapSecret.length > 0) {
+    return bootstrapSecret;
+  }
+
+  throw new AppError({
+    code: "ADMIN_BOOTSTRAP_DISABLED",
+    message: "Admin bootstrap is disabled",
+    status: 503,
+    expose: true,
+  });
+}
+
+function parseBootstrapSecretHeader(headerValue: string | undefined): string {
+  if (typeof headerValue !== "string" || headerValue.trim().length === 0) {
+    throw new AppError({
+      code: "ADMIN_BOOTSTRAP_UNAUTHORIZED",
+      message: "Bootstrap secret is required",
+      status: 401,
+      expose: true,
+    });
+  }
+
+  return headerValue.trim();
+}
+
+function assertBootstrapSecretAuthorized(input: {
+  provided: string;
+  expected: string;
+}): void {
+  if (!constantTimeEqual(input.provided, input.expected)) {
+    throw new AppError({
+      code: "ADMIN_BOOTSTRAP_UNAUTHORIZED",
+      message: "Bootstrap secret is invalid",
+      status: 401,
+      expose: true,
+    });
+  }
+}
+
+function adminBootstrapAlreadyCompletedError(): AppError {
+  return new AppError({
+    code: "ADMIN_BOOTSTRAP_ALREADY_COMPLETED",
+    message: "Admin bootstrap has already completed",
+    status: 409,
+    expose: true,
+  });
+}
+
 function createRegistryApp() {
   let cachedConfig: RegistryConfig | undefined;
 
@@ -258,6 +317,120 @@ function createRegistryApp() {
       version: config.APP_VERSION ?? "0.0.0",
       environment: config.ENVIRONMENT,
     });
+  });
+
+  app.post("/v1/admin/bootstrap", async (c) => {
+    const config = getConfig(c.env);
+    const expectedBootstrapSecret = requireBootstrapSecret(
+      config.BOOTSTRAP_SECRET,
+    );
+    const providedBootstrapSecret = parseBootstrapSecretHeader(
+      c.req.header("x-bootstrap-secret"),
+    );
+    assertBootstrapSecretAuthorized({
+      provided: providedBootstrapSecret,
+      expected: expectedBootstrapSecret,
+    });
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      throw new AppError({
+        code: "ADMIN_BOOTSTRAP_INVALID",
+        message: "Request body must be valid JSON",
+        status: 400,
+        expose: true,
+      });
+    }
+
+    const bootstrapPayload = parseAdminBootstrapPayload({
+      payload,
+      environment: config.ENVIRONMENT,
+    });
+
+    const db = createDb(c.env.DB);
+    const activeAdminRows = await db
+      .select({ id: humans.id })
+      .from(humans)
+      .where(eq(humans.role, "admin"))
+      .limit(1);
+    if (activeAdminRows.length > 0) {
+      throw adminBootstrapAlreadyCompletedError();
+    }
+
+    const humanId = BOOTSTRAP_ADMIN_HUMAN_ID;
+    const humanDid = makeHumanDid(humanId);
+    const apiKeyToken = generateApiKeyToken();
+    const apiKeyHash = await hashApiKeyToken(apiKeyToken);
+    const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);
+    const apiKeyId = generateUlid(Date.now() + 1);
+    const createdAt = nowIso();
+
+    const applyBootstrapMutation = async (
+      executor: typeof db,
+    ): Promise<void> => {
+      const insertAdminResult = await executor
+        .insert(humans)
+        .values({
+          id: humanId,
+          did: humanDid,
+          display_name: bootstrapPayload.displayName,
+          role: "admin",
+          status: "active",
+          created_at: createdAt,
+          updated_at: createdAt,
+        })
+        .onConflictDoNothing({
+          target: humans.id,
+        });
+
+      const insertedRows = getMutationRowCount(insertAdminResult);
+      if (insertedRows === 0) {
+        throw adminBootstrapAlreadyCompletedError();
+      }
+
+      await executor.insert(api_keys).values({
+        id: apiKeyId,
+        human_id: humanId,
+        key_hash: apiKeyHash,
+        key_prefix: apiKeyPrefix,
+        name: bootstrapPayload.apiKeyName,
+        status: "active",
+        created_at: createdAt,
+        last_used_at: null,
+      });
+    };
+
+    try {
+      await db.transaction(async (tx) => {
+        await applyBootstrapMutation(tx as unknown as typeof db);
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+
+      await applyBootstrapMutation(db);
+    }
+
+    return c.json(
+      {
+        human: {
+          id: humanId,
+          did: humanDid,
+          displayName: bootstrapPayload.displayName,
+          role: "admin",
+          status: "active",
+        },
+        apiKey: {
+          id: apiKeyId,
+          name: bootstrapPayload.apiKeyName,
+          token: apiKeyToken,
+        },
+      },
+      201,
+    );
   });
 
   app.get("/.well-known/claw-keys.json", (c) => {
