@@ -79,6 +79,25 @@ async function buildAitClaims(input: { agentPublicKeyX: string }): Promise<{
   };
 }
 
+function resolveRequestUrl(requestInput: unknown): string {
+  if (typeof requestInput === "string") {
+    return requestInput;
+  }
+  if (requestInput instanceof URL) {
+    return requestInput.toString();
+  }
+  if (
+    typeof requestInput === "object" &&
+    requestInput !== null &&
+    "url" in requestInput &&
+    typeof (requestInput as { url?: unknown }).url === "string"
+  ) {
+    return (requestInput as { url: string }).url;
+  }
+
+  return "";
+}
+
 function createFetchMock(input: {
   crlToken: string;
   fetchCrlFails?: boolean;
@@ -86,24 +105,7 @@ function createFetchMock(input: {
   registryPublicKeyX: string;
 }) {
   return vi.fn(async (requestInput: unknown): Promise<Response> => {
-    const url = (() => {
-      if (typeof requestInput === "string") {
-        return requestInput;
-      }
-      if (requestInput instanceof URL) {
-        return requestInput.toString();
-      }
-      if (
-        typeof requestInput === "object" &&
-        requestInput !== null &&
-        "url" in requestInput &&
-        typeof (requestInput as { url?: unknown }).url === "string"
-      ) {
-        return (requestInput as { url: string }).url;
-      }
-
-      return "";
-    })();
+    const url = resolveRequestUrl(requestInput);
 
     if (url.endsWith("/.well-known/claw-keys.json")) {
       if (input.fetchKeysFails) {
@@ -273,12 +275,148 @@ describe("proxy auth middleware", () => {
     expect(body.auth.aitJti).toBe(harness.claims.jti);
   });
 
+  it("refreshes keyset and accepts valid AIT after registry key rotation", async () => {
+    const oldKid = "registry-old-kid";
+    const newKid = "registry-new-kid";
+    const oldRegistryKeypair = await generateEd25519Keypair();
+    const newRegistryKeypair = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const encodedOldRegistry =
+      encodeEd25519KeypairBase64url(oldRegistryKeypair);
+    const encodedNewRegistry =
+      encodeEd25519KeypairBase64url(newRegistryKeypair);
+    const encodedAgent = encodeEd25519KeypairBase64url(agentKeypair);
+
+    const claims = await buildAitClaims({
+      agentPublicKeyX: encodedAgent.publicKey,
+    });
+    const ait = await signAIT({
+      claims,
+      signerKid: newKid,
+      signerKeypair: newRegistryKeypair,
+    });
+    const crl = await signCRL({
+      claims: {
+        iss: ISSUER,
+        jti: generateUlid(NOW_MS + 70),
+        iat: NOW_SECONDS - 10,
+        exp: NOW_SECONDS + 600,
+        revocations: [
+          {
+            jti: generateUlid(NOW_MS + 80),
+            agentDid: claims.sub,
+            revokedAt: NOW_SECONDS - 5,
+            reason: "manual revoke",
+          },
+        ],
+      },
+      signerKid: newKid,
+      signerKeypair: newRegistryKeypair,
+    });
+
+    let keyFetchCount = 0;
+    const fetchMock = vi.fn(
+      async (requestInput: unknown): Promise<Response> => {
+        const url = resolveRequestUrl(requestInput);
+        if (url.endsWith("/.well-known/claw-keys.json")) {
+          keyFetchCount += 1;
+          const key =
+            keyFetchCount === 1
+              ? {
+                  kid: oldKid,
+                  alg: "EdDSA",
+                  crv: "Ed25519",
+                  x: encodedOldRegistry.publicKey,
+                  status: "active",
+                }
+              : {
+                  kid: newKid,
+                  alg: "EdDSA",
+                  crv: "Ed25519",
+                  x: encodedNewRegistry.publicKey,
+                  status: "active",
+                };
+          return new Response(
+            JSON.stringify({
+              keys: [key],
+            }),
+            { status: 200 },
+          );
+        }
+
+        if (url.endsWith("/v1/crl")) {
+          return new Response(
+            JSON.stringify({
+              crl,
+            }),
+            { status: 200 },
+          );
+        }
+
+        return new Response("not found", { status: 404 });
+      },
+    );
+
+    const app = createProxyApp({
+      config: parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
+      }),
+      auth: {
+        fetchImpl: fetchMock as typeof fetch,
+        clock: () => NOW_MS,
+      },
+      registerRoutes: (nextApp) => {
+        nextApp.post("/protected", (c) => c.json({ ok: true }));
+      },
+    });
+
+    const signed = await signHttpRequest({
+      method: "POST",
+      pathWithQuery: "/protected",
+      timestamp: String(NOW_SECONDS),
+      nonce: "nonce-rotation",
+      body: new TextEncoder().encode(BODY_JSON),
+      secretKey: agentKeypair.secretKey,
+    });
+    const response = await app.request("/protected", {
+      method: "POST",
+      headers: {
+        authorization: `Claw ${ait}`,
+        "content-type": "application/json",
+        ...signed.headers,
+      },
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(200);
+    expect(keyFetchCount).toBe(2);
+  });
+
   it("rejects non-health route when Authorization scheme is not Claw", async () => {
     const harness = await createAuthHarness();
     const response = await harness.app.request("/protected", {
       method: "POST",
       headers: {
         authorization: "Bearer token",
+      },
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_INVALID_SCHEME");
+  });
+
+  it("rejects Authorization headers with extra segments", async () => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-auth-extra",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers: {
+        ...headers,
+        authorization: `${headers.authorization} extra`,
       },
       body: BODY_JSON,
     });

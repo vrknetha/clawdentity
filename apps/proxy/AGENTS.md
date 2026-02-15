@@ -33,7 +33,9 @@
 - Protect all non-health routes with Clawdentity auth verification middleware.
 - Keep `GET /health` unauthenticated for probes and deployment checks.
 - Parse inbound identity token strictly as `Authorization: Claw <AIT>`; do not accept Bearer or alternate token headers.
+- Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
+- When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - Return `401` for invalid/expired/replayed/revoked/invalid-proof requests.
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 

@@ -18,3 +18,4 @@
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
+- Keep AIT verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_AIT_KID` before rejecting.

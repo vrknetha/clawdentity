@@ -1,5 +1,6 @@
 import { decodeBase64url } from "@clawdentity/protocol";
 import {
+  AitJwtError,
   AppError,
   type CrlCache,
   createCrlCache,
@@ -128,15 +129,15 @@ export function parseClawAuthorizationHeader(authorization?: string): string {
     });
   }
 
-  const [scheme, token] = authorization.trim().split(/\s+/, 2);
-  if (scheme !== "Claw" || !token || token.trim().length === 0) {
+  const parsed = authorization.trim().match(/^Claw\s+(\S+)$/);
+  if (!parsed || parsed[1].trim().length === 0) {
     throw unauthorizedError({
       code: "PROXY_AUTH_INVALID_SCHEME",
       message: "Authorization must be in the format 'Claw <ait>'",
     });
   }
 
-  return token.trim();
+  return parsed[1].trim();
 }
 
 export function resolveExpectedIssuer(registryUrl: string): string | undefined {
@@ -270,8 +271,12 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
 
   let registryKeysCache: RegistryKeysCache | undefined;
 
-  async function getActiveRegistryKeys(): Promise<VerificationKey[]> {
+  async function getActiveRegistryKeys(input?: {
+    forceRefresh?: boolean;
+  }): Promise<VerificationKey[]> {
+    const forceRefresh = input?.forceRefresh === true;
     if (
+      !forceRefresh &&
       registryKeysCache &&
       clock() - registryKeysCache.fetchedAtMs <= registryKeysCacheTtlMs
     ) {
@@ -376,6 +381,45 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       clock,
     });
 
+  async function verifyAitClaims(token: string) {
+    const verifyWithKeys = async (registryKeys: VerificationKey[]) =>
+      verifyAIT({
+        token,
+        registryKeys,
+        expectedIssuer,
+      });
+
+    const verificationKeys = await getActiveRegistryKeys();
+    try {
+      return await verifyWithKeys(verificationKeys);
+    } catch (error) {
+      if (error instanceof AitJwtError && error.code === "UNKNOWN_AIT_KID") {
+        const refreshedKeys = await getActiveRegistryKeys({
+          forceRefresh: true,
+        });
+        try {
+          return await verifyWithKeys(refreshedKeys);
+        } catch (refreshedError) {
+          throw unauthorizedError({
+            code: "PROXY_AUTH_INVALID_AIT",
+            message: "AIT verification failed",
+            details: {
+              reason: toErrorMessage(refreshedError),
+            },
+          });
+        }
+      }
+
+      throw unauthorizedError({
+        code: "PROXY_AUTH_INVALID_AIT",
+        message: "AIT verification failed",
+        details: {
+          reason: toErrorMessage(error),
+        },
+      });
+    }
+  }
+
   return createMiddleware<{ Variables: ProxyRequestVariables }>(
     async (c, next) => {
       if (c.req.path === "/health") {
@@ -384,25 +428,7 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       }
 
       const token = parseClawAuthorizationHeader(c.req.header("authorization"));
-      const verificationKeys = await getActiveRegistryKeys();
-
-      const claims = await (async () => {
-        try {
-          return await verifyAIT({
-            token,
-            registryKeys: verificationKeys,
-            expectedIssuer,
-          });
-        } catch (error) {
-          throw unauthorizedError({
-            code: "PROXY_AUTH_INVALID_AIT",
-            message: "AIT verification failed",
-            details: {
-              reason: toErrorMessage(error),
-            },
-          });
-        }
-      })();
+      const claims = await verifyAitClaims(token);
 
       const timestampHeader = c.req.header("x-claw-timestamp");
       if (typeof timestampHeader !== "string") {
