@@ -6,6 +6,13 @@ import JSON5 from "json5";
 import { z } from "zod";
 
 export type ProxyCrlStaleBehavior = "fail-open" | "fail-closed";
+export const proxyEnvironmentValues = [
+  "local",
+  "development",
+  "production",
+  "test",
+] as const;
+export type ProxyEnvironment = (typeof proxyEnvironmentValues)[number];
 
 export type ProxyConfigLoadOptions = {
   cwd?: string;
@@ -15,6 +22,7 @@ export type ProxyConfigLoadOptions = {
 export const DEFAULT_PROXY_LISTEN_PORT = 4000;
 export const DEFAULT_OPENCLAW_BASE_URL = "http://127.0.0.1:18789";
 export const DEFAULT_REGISTRY_URL = "https://api.clawdentity.com";
+export const DEFAULT_PROXY_ENVIRONMENT: ProxyEnvironment = "development";
 export const DEFAULT_CRL_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_CRL_MAX_AGE_MS = 15 * 60 * 1000;
 export const DEFAULT_CRL_STALE_BEHAVIOR: ProxyCrlStaleBehavior = "fail-open";
@@ -47,6 +55,9 @@ const proxyRuntimeEnvSchema = z.object({
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
   OPENCLAW_HOOK_TOKEN: z.string().trim().min(1),
   REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
+  ENVIRONMENT: z
+    .enum(proxyEnvironmentValues)
+    .default(DEFAULT_PROXY_ENVIRONMENT),
   ALLOW_LIST: z.string().optional(),
   ALLOWLIST_OWNERS: z.string().optional(),
   ALLOWLIST_AGENTS: z.string().optional(),
@@ -77,6 +88,7 @@ export const proxyConfigSchema = z.object({
   openclawBaseUrl: z.string().url(),
   openclawHookToken: z.string().min(1),
   registryUrl: z.string().url(),
+  environment: z.enum(proxyEnvironmentValues),
   allowList: proxyAllowListSchema,
   crlRefreshIntervalMs: z.number().int().positive(),
   crlMaxAgeMs: z.number().int().positive(),
@@ -94,6 +106,7 @@ type RuntimeEnvInput = {
   OPENCLAW_HOOKS_TOKEN?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
+  ENVIRONMENT?: unknown;
   ALLOW_LIST?: unknown;
   ALLOWLIST_OWNERS?: unknown;
   ALLOWLIST_AGENTS?: unknown;
@@ -379,6 +392,7 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",
     ]),
+    ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
     ALLOW_LIST: firstNonEmpty(env, ["ALLOW_LIST"]),
     ALLOWLIST_OWNERS: firstNonEmpty(env, ["ALLOWLIST_OWNERS"]),
     ALLOWLIST_AGENTS: firstNonEmpty(env, ["ALLOWLIST_AGENTS"]),
@@ -517,6 +531,7 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     openclawBaseUrl: parsedRuntimeEnv.data.OPENCLAW_BASE_URL,
     openclawHookToken: parsedRuntimeEnv.data.OPENCLAW_HOOK_TOKEN,
     registryUrl: parsedRuntimeEnv.data.REGISTRY_URL,
+    environment: parsedRuntimeEnv.data.ENVIRONMENT,
     allowList: parseAllowList(parsedRuntimeEnv.data),
     crlRefreshIntervalMs: parsedRuntimeEnv.data.CRL_REFRESH_INTERVAL_MS,
     crlMaxAgeMs: parsedRuntimeEnv.data.CRL_MAX_AGE_MS,

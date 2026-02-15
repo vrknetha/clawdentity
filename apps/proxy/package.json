@@ -9,19 +9,26 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
     }
   },
   "scripts": {
     "build": "tsup",
     "format": "biome format .",
     "lint": "biome lint .",
+    "start": "node ./dist/bin.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.6",
     "@clawdentity/protocol": "workspace:*",
     "@clawdentity/sdk": "workspace:*",
     "dotenv": "^17.2.3",
+    "hono": "^4.11.9",
     "json5": "^2.2.3",
     "zod": "^4.1.12"
   }
