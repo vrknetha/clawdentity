@@ -8,12 +8,18 @@
 - Keep command handlers focused on orchestration; move reusable logic into local helpers.
 - Use `withErrorHandling` for command actions unless a command has a documented reason not to.
 - Route all user-facing messages through `writeStdoutLine`/`writeStderrLine`.
+- For new command-domain errors, use SDK `AppError` with stable `code` values.
 
 ## Verification Command Rules
 - `verify` must preserve the `✅`/`❌` output contract with explicit reasons.
 - Token argument can be either a raw token or file path; missing file paths should fall back to raw token mode.
 - Signature and CRL validation must use SDK helpers (`verifyAIT`, `verifyCRL`), not local JWT cryptography code.
 - Cache usage must enforce TTL and registry URL matching before reuse.
+
+## OpenClaw Command Rules
+- `openclaw invite` must generate self-contained invite code from admin-provided DID + proxy URL.
+- `openclaw setup` must be idempotent for relay mapping updates and peer map writes.
+- Keep error messages static (no interpolated runtime values); include variable context only in error details/log fields.
 
 ## Testing Rules
 - Mock network and filesystem dependencies in command tests.

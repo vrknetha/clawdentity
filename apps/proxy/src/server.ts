@@ -10,6 +10,10 @@ import {
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
+  type AgentHookRuntimeOptions,
+  createAgentHookHandler,
+} from "./agent-hook-route.js";
+import {
   createProxyAuthMiddleware,
   type ProxyRequestVariables,
 } from "./auth-middleware.js";
@@ -29,6 +33,7 @@ type CreateProxyAppOptions = {
   logger?: Logger;
   registerRoutes?: (app: ProxyApp) => void;
   auth?: ProxyAuthRuntimeOptions;
+  hooks?: AgentHookRuntimeOptions;
 };
 
 type StartProxyServerOptions = {
@@ -76,6 +81,15 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
       status: "ok",
       version: PROXY_VERSION,
       environment: options.config.environment,
+    }),
+  );
+  app.post(
+    "/hooks/agent",
+    createAgentHookHandler({
+      logger,
+      openclawBaseUrl: options.config.openclawBaseUrl,
+      openclawHookToken: options.config.openclawHookToken,
+      ...options.hooks,
     }),
   );
   options.registerRoutes?.(app);

@@ -7,6 +7,7 @@
 - Keep each command implementation in `commands/<name>.ts` with one exported factory (`create<Name>Command`).
 - Reuse shared command wrappers (`withErrorHandling`) and IO helpers (`writeStdoutLine`, `writeStderrLine`) instead of inline process writes.
 - Prefer explicit error-to-reason mapping for operator-facing failures rather than generic stack traces.
+- Prefer SDK shared primitives (`AppError`, `nowIso`) for new command error/date logic instead of ad-hoc equivalents.
 
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.
@@ -22,4 +23,5 @@
 ## Testing Rules
 - Command tests must capture `stdout`/`stderr` and assert exit-code behavior.
 - Include success, revoked, invalid token, keyset failure, CRL failure, and cache-hit scenarios for `verify`.
+- For OpenClaw invite/setup flow, cover invite encode/decode, config patch idempotency, and missing-file validation.
 - Keep tests deterministic by mocking network and filesystem dependencies.

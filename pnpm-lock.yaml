@@ -49,6 +49,19 @@ importers:
         specifier: ^22.18.11
         version: 22.19.11
 
+  apps/openclaw-skill:
+    dependencies:
+      '@clawdentity/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      '@clawdentity/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.11
+        version: 22.19.11
+
   apps/proxy:
     dependencies:
       '@clawdentity/protocol':

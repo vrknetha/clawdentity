@@ -1,6 +1,6 @@
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parseDid, validateAgentName } from "@clawdentity/protocol";
+import { parseDid } from "@clawdentity/protocol";
 import {
   createLogger,
   type DecodedAit,
@@ -11,6 +11,7 @@ import {
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
 import { writeStdoutLine } from "../io.js";
+import { assertValidAgentName } from "./agent-name.js";
 import { withErrorHandling } from "./helpers.js";
 
 const logger = createLogger({ service: "cli", module: "agent" });
@@ -18,7 +19,6 @@ const logger = createLogger({ service: "cli", module: "agent" });
 const AGENTS_DIR_NAME = "agents";
 const AIT_FILE_NAME = "ait.jwt";
 const IDENTITY_FILE_NAME = "identity.json";
-const RESERVED_AGENT_NAMES = new Set([".", ".."]);
 const FILE_MODE = 0o600;
 
 type AgentCreateOptions = {
@@ -144,22 +144,6 @@ const parseAgentIdFromDid = (agentName: string, did: string): string => {
 
 const formatExpiresAt = (expires: number): string => {
   return new Date(expires * 1000).toISOString();
-};
-
-const assertValidAgentName = (name: string): string => {
-  const normalizedName = name.trim();
-
-  if (RESERVED_AGENT_NAMES.has(normalizedName)) {
-    throw new Error('Agent name must not be "." or "..".');
-  }
-
-  if (!validateAgentName(normalizedName)) {
-    throw new Error(
-      "Agent name contains invalid characters, reserved path segments, or length. Use 1-64 chars: a-z, A-Z, 0-9, ., _, -",
-    );
-  }
-
-  return normalizedName;
 };
 
 const resolveFramework = (

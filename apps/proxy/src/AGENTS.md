@@ -17,7 +17,10 @@
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
+- Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep `X-Claw-Timestamp` parsing strict: accept digit-only unix-seconds strings and reject mixed/decimal formats.
 - Keep AIT verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_AIT_KID` before rejecting.
 - Keep CRL verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_CRL_KID` before dependency-failure mapping.
+- Keep `/hooks/agent` input contract strict: require `Content-Type: application/json` and reject malformed JSON with explicit client errors.
+- Keep `/hooks/agent` upstream failure mapping explicit: timeout errors -> `504`, network errors -> `502`, and never log `openclawHookToken` or request payload.

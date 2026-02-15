@@ -34,6 +34,14 @@ describe("cli", () => {
     expect(hasVerifyCommand).toBe(true);
   });
 
+  it("registers the openclaw command", () => {
+    const hasOpenclawCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("openclaw");
+
+    expect(hasOpenclawCommand).toBe(true);
+  });
+
   it("prints version output", async () => {
     const output: string[] = [];
     const program = createProgram();
