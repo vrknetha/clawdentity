@@ -22,11 +22,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@clawdentity/protocol": "workspace:*",
-    "@clawdentity/sdk": "workspace:*",
     "commander": "^13.1.0"
   },
   "devDependencies": {
+    "@clawdentity/protocol": "workspace:*",
+    "@clawdentity/sdk": "workspace:*",
     "@types/node": "^22.18.11"
   }
 }

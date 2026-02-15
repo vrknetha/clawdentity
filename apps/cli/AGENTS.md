@@ -15,6 +15,7 @@
 - Keep user-facing command output on `writeStdoutLine` / `writeStderrLine`; reserve structured logger calls for diagnostic events.
 - Prefer `@clawdentity/sdk` helpers (`decodeAIT`) when surfacing agent metadata instead of parsing JWTs manually.
 - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
+- Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
 
 ## Config and Secrets
 - Local CLI config lives at `~/.clawdentity/config.json`.
@@ -49,6 +50,13 @@
 - Verify flow must use SDK primitives (`verifyAIT`, `verifyCRL`) and registry endpoints (`/.well-known/claw-keys.json`, `/v1/crl`) instead of local JWT parsing.
 - Keep user output explicit and command-like: successful checks print `✅ ...`; failed checks print `❌ <reason>` and set non-zero exit code.
 - Cache files (`registry-keys.json`, `crl-claims.json`) should include source registry URL + fetch timestamp so stale or cross-environment cache reuse is avoided.
+
+## Adding new commands
+- Keep `src/index.ts` as the only place wiring command builders (`createAgentCommand`, `createConfigCommand`, etc.); register a future `createOpenClawCommand()` there so the CLI surface stays predictable for automation/docs.
+- Implement invite/setup behavior inside `src/commands/openclaw.ts` and reuse `withErrorHandling` from `src/commands/helpers.ts` for every subcommand. Pull shared config/paths from `../config/manager.js` to preserve the existing precedence and secrets handling semantics.
+- Any logic shared between invite and setup (validation, payload construction, output formatting) should live in a dedicated helper module such as `src/commands/openclaw/helpers.ts` or exported helpers inside `helpers.ts`, not duplicated in multiple `.ts` files.
+- Mimic the test pattern in `src/commands/agent.test.ts`: mock `node:fs/promises`, `@clawdentity/sdk`, `resolveConfig()`, and `fetch`, register the command under a root `Command`, and capture `stdout`/`stderr` so you can assert visible output plus exit codes for success/failure paths.
+- Favor exporting pure helper functions so invite/setup logic can be unit-tested without needing to run the full CLI parse flow if you need tighter coverage.
 
 ## Validation Commands
 - `pnpm -F @clawdentity/cli lint`

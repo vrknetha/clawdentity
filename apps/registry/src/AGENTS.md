@@ -11,6 +11,15 @@
 - `/health` must return HTTP 200 with `{ status, version, environment }` on valid config.
 - Invalid runtime config must fail through the shared error handler and return `CONFIG_VALIDATION_FAILED`.
 
+## Admin Bootstrap Contract
+- `POST /v1/admin/bootstrap` is a one-time bootstrap endpoint gated by `BOOTSTRAP_SECRET`.
+- Require `x-bootstrap-secret` header and compare with constant-time semantics; invalid/missing secret must return `401 ADMIN_BOOTSTRAP_UNAUTHORIZED`.
+- If `BOOTSTRAP_SECRET` is not configured, return `503 ADMIN_BOOTSTRAP_DISABLED`.
+- If any admin human already exists, return `409 ADMIN_BOOTSTRAP_ALREADY_COMPLETED`.
+- Success response must include `{ human, apiKey }` and return the PAT token only in bootstrap response.
+- Persist admin bootstrap atomically where supported (transaction). When falling back because transactions are unavailable, run the manual mutation with rollback-on-api-key-failure so that no admin human exists without the new API key even if part of the bootstrap fails.
+- Fallback path must be compensation-safe: if API key insert fails after admin insert, delete the inserted admin row before returning failure so retry remains possible.
+
 ## Registry Keyset Contract
 - `/.well-known/claw-keys.json` is a public endpoint and must remain unauthenticated.
 - Return `keys[]` entries with `kid`, `alg`, `crv`, `x`, and `status` so SDK/offline verifiers can consume directly.

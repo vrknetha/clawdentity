@@ -3,6 +3,11 @@ import { defineConfig } from "tsup";
 export default defineConfig({
   entry: ["src/index.ts", "src/bin.ts"],
   format: ["esm"],
+  bundle: true,
+  splitting: false,
+  noExternal: ["@clawdentity/protocol", "@clawdentity/sdk"],
+  platform: "node",
+  target: "node22",
   dts: true,
   clean: true,
   banner: {

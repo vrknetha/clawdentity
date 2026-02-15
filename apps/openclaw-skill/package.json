@@ -1,0 +1,20 @@
+{
+  "name": "@clawdentity/openclaw-skill",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "format": "biome format .",
+    "lint": "biome lint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clawdentity/protocol": "workspace:*",
+    "@clawdentity/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.11"
+  }
+}

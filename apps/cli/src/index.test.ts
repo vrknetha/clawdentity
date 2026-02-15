@@ -26,12 +26,28 @@ describe("cli", () => {
     expect(hasAgentCommand).toBe(true);
   });
 
+  it("registers the admin command", () => {
+    const hasAdminCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("admin");
+
+    expect(hasAdminCommand).toBe(true);
+  });
+
   it("registers the verify command", () => {
     const hasVerifyCommand = createProgram()
       .commands.map((command) => command.name())
       .includes("verify");
 
     expect(hasVerifyCommand).toBe(true);
+  });
+
+  it("registers the openclaw command", () => {
+    const hasOpenclawCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("openclaw");
+
+    expect(hasOpenclawCommand).toBe(true);
   });
 
   it("prints version output", async () => {
