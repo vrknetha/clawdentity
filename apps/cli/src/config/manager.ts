@@ -13,6 +13,8 @@ export type CliConfigKey = keyof CliConfig;
 
 const CONFIG_DIR = ".clawdentity";
 const CONFIG_FILE = "config.json";
+const CACHE_DIR = "cache";
+const FILE_MODE = 0o600;
 
 const ENV_KEY_MAP: Record<CliConfigKey, string> = {
   registryUrl: "CLAWDENTITY_REGISTRY_URL",
@@ -52,6 +54,18 @@ export const getConfigDir = (): string => join(homedir(), CONFIG_DIR);
 export const getConfigFilePath = (): string =>
   join(getConfigDir(), CONFIG_FILE);
 
+export const getCacheDir = (): string => join(getConfigDir(), CACHE_DIR);
+
+export const getCacheFilePath = (fileName: string): string =>
+  join(getCacheDir(), fileName);
+
+const writeSecureFile = async (filePath: string, value: string) => {
+  const targetDirectory = dirname(filePath);
+  await mkdir(targetDirectory, { recursive: true });
+  await writeFile(filePath, value, "utf-8");
+  await chmod(filePath, FILE_MODE);
+};
+
 export const readConfig = async (): Promise<CliConfig> => {
   try {
     const configContents = await readFile(getConfigFilePath(), "utf-8");
@@ -82,16 +96,10 @@ export const resolveConfig = async (): Promise<CliConfig> => {
 };
 
 export const writeConfig = async (config: CliConfig): Promise<void> => {
-  const configFilePath = getConfigFilePath();
-  const configDirectory = dirname(configFilePath);
-
-  await mkdir(configDirectory, { recursive: true });
-  await writeFile(
-    configFilePath,
+  await writeSecureFile(
+    getConfigFilePath(),
     `${JSON.stringify(config, null, 2)}\n`,
-    "utf-8",
   );
-  await chmod(configFilePath, 0o600);
 };
 
 export const getConfigValue = async <K extends CliConfigKey>(
@@ -111,4 +119,26 @@ export const setConfigValue = async <K extends CliConfigKey>(
     ...currentConfig,
     [key]: value,
   });
+};
+
+export const readCacheFile = async (
+  fileName: string,
+): Promise<string | undefined> => {
+  try {
+    return await readFile(getCacheFilePath(fileName), "utf-8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+};
+
+export const writeCacheFile = async (
+  fileName: string,
+  value: string,
+): Promise<void> => {
+  await writeSecureFile(getCacheFilePath(fileName), value);
 };

@@ -15,12 +15,16 @@ vi.mock("node:fs/promises", () => ({
 
 import {
   DEFAULT_REGISTRY_URL,
+  getCacheDir,
+  getCacheFilePath,
   getConfigDir,
   getConfigFilePath,
   getConfigValue,
+  readCacheFile,
   readConfig,
   resolveConfig,
   setConfigValue,
+  writeCacheFile,
   writeConfig,
 } from "./manager.js";
 
@@ -137,5 +141,40 @@ describe("config manager", () => {
   it("exposes config location helpers", () => {
     expect(getConfigDir()).toBe("/mock-home/.clawdentity");
     expect(getConfigFilePath()).toBe("/mock-home/.clawdentity/config.json");
+    expect(getCacheDir()).toBe("/mock-home/.clawdentity/cache");
+    expect(getCacheFilePath("registry-keys.json")).toBe(
+      "/mock-home/.clawdentity/cache/registry-keys.json",
+    );
+  });
+
+  it("returns undefined when cache file does not exist", async () => {
+    mockedReadFile.mockRejectedValueOnce(buildErrnoError("ENOENT"));
+
+    await expect(readCacheFile("registry-keys.json")).resolves.toBeUndefined();
+  });
+
+  it("reads cache file contents", async () => {
+    mockedReadFile.mockResolvedValueOnce("cached-value");
+
+    await expect(readCacheFile("crl-claims.json")).resolves.toBe(
+      "cached-value",
+    );
+  });
+
+  it("writes cache file and secures file permissions", async () => {
+    await writeCacheFile("registry-keys.json", '{\n  "ok": true\n}\n');
+
+    expect(mockedMkdir).toHaveBeenCalledWith("/mock-home/.clawdentity/cache", {
+      recursive: true,
+    });
+    expect(mockedWriteFile).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/cache/registry-keys.json",
+      '{\n  "ok": true\n}\n',
+      "utf-8",
+    );
+    expect(mockedChmod).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/cache/registry-keys.json",
+      0o600,
+    );
   });
 });
