@@ -8,6 +8,7 @@
 - Keep runtime config centralized in `src/config.ts`.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
+- Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
 - Require hook token input via env (`OPENCLAW_HOOK_TOKEN` or OpenClaw-compatible alias `OPENCLAW_HOOKS_TOKEN`) and never log the token value.
 - Load env files with OpenClaw precedence and no overrides:
@@ -42,6 +43,7 @@
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
 - Return `401` for invalid/expired/replayed/revoked/invalid-proof requests.
 - Return `403` when requests are verified but agent DID is not allowlisted.
+- Return `429` with `PROXY_RATE_LIMIT_EXCEEDED` when an allowlisted verified agent DID exceeds its request budget within the configured window.
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 
 ## CRL Policy
@@ -56,6 +58,6 @@
 
 ## Server Runtime
 - Keep `src/server.ts` as the HTTP app/runtime entry.
-- Keep middleware order stable: request context -> request logging -> error handler.
+- Keep middleware order stable: request context -> request logging -> auth verification -> agent DID rate limit -> error handler.
 - Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200.
 - Log startup and request completion with structured JSON logs; never log secrets or tokens.

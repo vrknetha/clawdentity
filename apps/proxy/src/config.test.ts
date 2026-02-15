@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+  DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_OPENCLAW_BASE_URL,
@@ -35,6 +37,9 @@ describe("proxy config", () => {
       crlRefreshIntervalMs: DEFAULT_CRL_REFRESH_INTERVAL_MS,
       crlMaxAgeMs: DEFAULT_CRL_MAX_AGE_MS,
       crlStaleBehavior: "fail-open",
+      agentRateLimitRequestsPerMinute:
+        DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+      agentRateLimitWindowMs: DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS,
     });
   });
 
@@ -45,6 +50,8 @@ describe("proxy config", () => {
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
       ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
+      AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: "75",
+      AGENT_RATE_LIMIT_WINDOW_MS: "90000",
     });
 
     expect(config.listenPort).toBe(4100);
@@ -52,6 +59,8 @@ describe("proxy config", () => {
     expect(config.registryUrl).toBe("https://registry.example.com");
     expect(config.environment).toBe("local");
     expect(config.crlStaleBehavior).toBe("fail-closed");
+    expect(config.agentRateLimitRequestsPerMinute).toBe(75);
+    expect(config.agentRateLimitWindowMs).toBe(90000);
   });
 
   it("parses allow list object and override env lists", () => {
@@ -110,6 +119,21 @@ describe("proxy config", () => {
       parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "token",
         ENVIRONMENT: "staging",
+      }),
+    ).toThrow(ProxyConfigError);
+  });
+
+  it("throws on invalid agent DID rate-limit values", () => {
+    expect(() =>
+      parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+        AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: "0",
+      }),
+    ).toThrow(ProxyConfigError);
+    expect(() =>
+      parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+        AGENT_RATE_LIMIT_WINDOW_MS: "-1",
       }),
     ).toThrow(ProxyConfigError);
   });

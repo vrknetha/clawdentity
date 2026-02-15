@@ -26,6 +26,8 @@ export const DEFAULT_PROXY_ENVIRONMENT: ProxyEnvironment = "development";
 export const DEFAULT_CRL_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_CRL_MAX_AGE_MS = 15 * 60 * 1000;
 export const DEFAULT_CRL_STALE_BEHAVIOR: ProxyCrlStaleBehavior = "fail-open";
+export const DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE = 60;
+export const DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
 export class ProxyConfigError extends Error {
   readonly code = "CONFIG_VALIDATION_FAILED";
@@ -72,6 +74,16 @@ const proxyRuntimeEnvSchema = z.object({
   CRL_STALE_BEHAVIOR: z
     .enum(["fail-open", "fail-closed"])
     .default(DEFAULT_CRL_STALE_BEHAVIOR),
+  AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE),
+  AGENT_RATE_LIMIT_WINDOW_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS),
 });
 
 const proxyAllowListSchema = z
@@ -91,6 +103,8 @@ export const proxyConfigSchema = z.object({
   crlRefreshIntervalMs: z.number().int().positive(),
   crlMaxAgeMs: z.number().int().positive(),
   crlStaleBehavior: z.enum(["fail-open", "fail-closed"]),
+  agentRateLimitRequestsPerMinute: z.number().int().positive(),
+  agentRateLimitWindowMs: z.number().int().positive(),
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
@@ -112,6 +126,8 @@ type RuntimeEnvInput = {
   CRL_REFRESH_INTERVAL_MS?: unknown;
   CRL_MAX_AGE_MS?: unknown;
   CRL_STALE_BEHAVIOR?: unknown;
+  AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE?: unknown;
+  AGENT_RATE_LIMIT_WINDOW_MS?: unknown;
   OPENCLAW_STATE_DIR?: unknown;
   CLAWDBOT_STATE_DIR?: unknown;
   OPENCLAW_CONFIG_PATH?: unknown;
@@ -397,6 +413,12 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
     CRL_MAX_AGE_MS: firstNonEmpty(env, ["CRL_MAX_AGE_MS"]),
     CRL_STALE_BEHAVIOR: firstNonEmpty(env, ["CRL_STALE_BEHAVIOR"]),
+    AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: firstNonEmpty(env, [
+      "AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE",
+    ]),
+    AGENT_RATE_LIMIT_WINDOW_MS: firstNonEmpty(env, [
+      "AGENT_RATE_LIMIT_WINDOW_MS",
+    ]),
   };
 }
 
@@ -522,6 +544,9 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     crlRefreshIntervalMs: parsedRuntimeEnv.data.CRL_REFRESH_INTERVAL_MS,
     crlMaxAgeMs: parsedRuntimeEnv.data.CRL_MAX_AGE_MS,
     crlStaleBehavior: parsedRuntimeEnv.data.CRL_STALE_BEHAVIOR,
+    agentRateLimitRequestsPerMinute:
+      parsedRuntimeEnv.data.AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+    agentRateLimitWindowMs: parsedRuntimeEnv.data.AGENT_RATE_LIMIT_WINDOW_MS,
   };
 
   const parsedConfig = proxyConfigSchema.safeParse(candidateConfig);
