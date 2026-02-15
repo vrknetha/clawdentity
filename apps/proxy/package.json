@@ -20,6 +20,9 @@
   },
   "dependencies": {
     "@clawdentity/protocol": "workspace:*",
-    "@clawdentity/sdk": "workspace:*"
+    "@clawdentity/sdk": "workspace:*",
+    "dotenv": "^17.2.3",
+    "json5": "^2.2.3",
+    "zod": "^4.1.12"
   }
 }
