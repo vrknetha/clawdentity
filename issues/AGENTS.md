@@ -36,6 +36,7 @@ Every `T*.md` file must include these sections in this order:
 - Add at least one refactor opportunity, or explicitly state `None`.
 - Add concrete validation commands with expected outcomes.
 - Keep scope narrow: one issue should represent one coherent unit of delivery.
+- For CLI deliverables, argument placeholders must match supported identifier semantics (for example `<name>` for local filesystem lookups) and avoid ambiguous `<ref>` unless resolution rules are explicitly defined.
 
 ## Skill Rules
 - Every issue must declare required skills.

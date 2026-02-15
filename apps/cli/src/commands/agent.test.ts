@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +6,7 @@ vi.mock("node:fs/promises", () => ({
   access: vi.fn(),
   chmod: vi.fn(),
   mkdir: vi.fn(),
+  readFile: vi.fn(),
   writeFile: vi.fn(),
 }));
 
@@ -22,11 +23,14 @@ vi.mock("@clawdentity/sdk", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   })),
+  decodeAIT: vi.fn(),
   encodeEd25519KeypairBase64url: vi.fn(),
   generateEd25519Keypair: vi.fn(),
 }));
 
 import {
+  type DecodedAit,
+  decodeAIT,
   encodeEd25519KeypairBase64url,
   generateEd25519Keypair,
 } from "@clawdentity/sdk";
@@ -36,12 +40,14 @@ import { createAgentCommand } from "./agent.js";
 const mockedAccess = vi.mocked(access);
 const mockedChmod = vi.mocked(chmod);
 const mockedMkdir = vi.mocked(mkdir);
+const mockedReadFile = vi.mocked(readFile);
 const mockedWriteFile = vi.mocked(writeFile);
 const mockedResolveConfig = vi.mocked(resolveConfig);
 const mockedGenerateEd25519Keypair = vi.mocked(generateEd25519Keypair);
 const mockedEncodeEd25519KeypairBase64url = vi.mocked(
   encodeEd25519KeypairBase64url,
 );
+const mockedDecodeAIT = vi.mocked(decodeAIT);
 
 const mockFetch = vi.fn<typeof fetch>();
 
@@ -296,5 +302,137 @@ describe("agent create command", () => {
 
     expect(requestBody.framework).toBe("langgraph");
     expect(requestBody.ttlDays).toBe(45);
+  });
+
+  it("rejects dot-segment agent names before hitting the filesystem", async () => {
+    const result = await runAgentCommand(["create", "."]);
+
+    expect(result.stderr).toContain('Agent name must not be "." or "..".');
+    expect(result.exitCode).toBe(1);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockedMkdir).not.toHaveBeenCalled();
+    expect(mockedWriteFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent inspect command", () => {
+  const decodedAit: DecodedAit = {
+    header: {
+      alg: "EdDSA",
+      typ: "AIT",
+      kid: "key-01",
+    },
+    claims: {
+      iss: "https://registry.clawdentity.dev",
+      sub: "did:claw:agent:abc",
+      ownerDid: "did:claw:human:def",
+      name: "agent-01",
+      framework: "openclaw",
+      cnf: {
+        jwk: {
+          kty: "OKP",
+          crv: "Ed25519",
+          x: "pub-key",
+        },
+      },
+      iat: 1672531100,
+      nbf: 1672531100,
+      exp: 1672531200,
+      jti: "01HF7YAT00W6W7CM7N3W5FDXT4",
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedReadFile.mockResolvedValue("mock-ait-token");
+    mockedDecodeAIT.mockReturnValue(decodedAit);
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+  });
+
+  it("displays all six decoded AIT fields", async () => {
+    const result = await runAgentCommand(["inspect", "agent-01"]);
+
+    expect(result.stdout).toContain("DID: did:claw:agent:abc");
+    expect(result.stdout).toContain("Owner: did:claw:human:def");
+    expect(result.stdout).toContain("Expires: 2023-01-01T00:00:00.000Z");
+    expect(result.stdout).toContain("Key ID: key-01");
+    expect(result.stdout).toContain("Public Key: pub-key");
+    expect(result.stdout).toContain("Framework: openclaw");
+    expect(result.exitCode).toBeUndefined();
+  });
+
+  it("reads AIT from the expected local file path", async () => {
+    await runAgentCommand(["inspect", "agent-01"]);
+
+    expect(mockedReadFile).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/agents/agent-01/ait.jwt",
+      "utf-8",
+    );
+    expect(mockedDecodeAIT).toHaveBeenCalledWith("mock-ait-token");
+  });
+
+  it("fails when the AIT file is missing", async () => {
+    mockedReadFile.mockRejectedValueOnce(buildErrnoError("ENOENT"));
+
+    const result = await runAgentCommand(["inspect", "agent-01"]);
+
+    expect(result.stderr).toContain("not found");
+    expect(result.stderr).toContain("ait.jwt");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("rejects dot-segment agent names before resolving the AIT path", async () => {
+    const result = await runAgentCommand(["inspect", ".."]);
+
+    expect(result.stderr).toContain('Agent name must not be "." or "..".');
+    expect(result.exitCode).toBe(1);
+    expect(mockedReadFile).not.toHaveBeenCalled();
+  });
+
+  it("fails when the AIT file is empty", async () => {
+    mockedReadFile.mockResolvedValueOnce("  \n");
+
+    const result = await runAgentCommand(["inspect", "agent-01"]);
+
+    expect(result.stderr).toContain("empty");
+    expect(result.stderr).toContain("ait.jwt");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("fails when AIT decoding fails", async () => {
+    mockedDecodeAIT.mockImplementationOnce(() => {
+      throw new Error("Invalid AIT payload");
+    });
+
+    const result = await runAgentCommand(["inspect", "agent-01"]);
+
+    expect(result.stderr).toContain("Invalid AIT payload");
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("fails on invalid agent names", async () => {
+    const result = await runAgentCommand(["inspect", "agent/../../etc"]);
+
+    expect(result.stderr).toContain("invalid characters");
+    expect(mockedReadFile).not.toHaveBeenCalled();
+    expect(result.exitCode).toBe(1);
+  });
+
+  it("formats exp as ISO-8601", async () => {
+    mockedDecodeAIT.mockReturnValueOnce({
+      ...decodedAit,
+      claims: {
+        ...decodedAit.claims,
+        exp: 1893456000,
+      },
+    });
+
+    const result = await runAgentCommand(["inspect", "agent-01"]);
+
+    expect(result.stdout).toContain("Expires: 2030-01-01T00:00:00.000Z");
+    expect(result.exitCode).toBeUndefined();
   });
 });

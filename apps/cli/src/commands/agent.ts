@@ -1,8 +1,10 @@
-import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { validateAgentName } from "@clawdentity/protocol";
 import {
   createLogger,
+  type DecodedAit,
+  decodeAIT,
   encodeEd25519KeypairBase64url,
   generateEd25519Keypair,
 } from "@clawdentity/sdk";
@@ -14,6 +16,8 @@ import { withErrorHandling } from "./helpers.js";
 const logger = createLogger({ service: "cli", module: "agent" });
 
 const AGENTS_DIR_NAME = "agents";
+const AIT_FILE_NAME = "ait.jwt";
+const RESERVED_AGENT_NAMES = new Set([".", ".."]);
 const FILE_MODE = 0o600;
 
 type AgentCreateOptions = {
@@ -45,12 +49,47 @@ const getAgentDirectory = (name: string): string => {
   return join(getConfigDir(), AGENTS_DIR_NAME, name);
 };
 
+const getAgentAitPath = (name: string): string => {
+  return join(getAgentDirectory(name), AIT_FILE_NAME);
+};
+
+const readAgentAitToken = async (agentName: string): Promise<string> => {
+  const aitPath = getAgentAitPath(agentName);
+
+  let rawToken: string;
+  try {
+    rawToken = await readFile(aitPath, "utf-8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      throw new Error(`Agent "${agentName}" not found (${aitPath})`);
+    }
+
+    throw error;
+  }
+
+  const token = rawToken.trim();
+  if (token.length === 0) {
+    throw new Error(`Agent "${agentName}" has an empty ${AIT_FILE_NAME}`);
+  }
+
+  return token;
+};
+
+const formatExpiresAt = (expires: number): string => {
+  return new Date(expires * 1000).toISOString();
+};
+
 const assertValidAgentName = (name: string): string => {
   const normalizedName = name.trim();
 
+  if (RESERVED_AGENT_NAMES.has(normalizedName)) {
+    throw new Error('Agent name must not be "." or "..".');
+  }
+
   if (!validateAgentName(normalizedName)) {
     throw new Error(
-      "Agent name contains invalid characters or length. Use 1-64 chars: a-z, A-Z, 0-9, ., _, -",
+      "Agent name contains invalid characters, reserved path segments, or length. Use 1-64 chars: a-z, A-Z, 0-9, ., _, -",
     );
   }
 
@@ -312,6 +351,23 @@ const registerAgent = async (input: {
   return parseAgentRegistrationResponse(responseBody);
 };
 
+const printAgentInspect = (decoded: DecodedAit): void => {
+  writeStdoutLine(`DID: ${decoded.claims.sub}`);
+  writeStdoutLine(`Owner: ${decoded.claims.ownerDid}`);
+  writeStdoutLine(`Expires: ${formatExpiresAt(decoded.claims.exp)}`);
+  writeStdoutLine(`Key ID: ${decoded.header.kid}`);
+  writeStdoutLine(`Public Key: ${decoded.claims.cnf.jwk.x}`);
+  writeStdoutLine(`Framework: ${decoded.claims.framework}`);
+};
+
+const printAgentInspectCommand = async (name: string): Promise<void> => {
+  const normalizedName = assertValidAgentName(name);
+  const aitToken = await readAgentAitToken(normalizedName);
+  const decoded = decodeAIT(aitToken);
+
+  printAgentInspect(decoded);
+};
+
 export const createAgentCommand = (): Command => {
   const agentCommand = new Command("agent").description(
     "Manage local agent identities",
@@ -381,6 +437,15 @@ export const createAgentCommand = (): Command => {
           writeStdoutLine(`Expires At: ${registration.agent.expiresAt}`);
         },
       ),
+    );
+
+  agentCommand
+    .command("inspect <name>")
+    .description("Decode and show metadata from an agent's stored AIT")
+    .action(
+      withErrorHandling("agent inspect", async (name: string) => {
+        await printAgentInspectCommand(name);
+      }),
     );
 
   return agentCommand;
