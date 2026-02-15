@@ -13,6 +13,7 @@ import {
   type AgentHookRuntimeOptions,
   createAgentHookHandler,
 } from "./agent-hook-route.js";
+import { createAgentRateLimitMiddleware } from "./agent-rate-limit-middleware.js";
 import {
   createProxyAuthMiddleware,
   type ProxyRequestVariables,
@@ -28,11 +29,16 @@ type ProxyAuthRuntimeOptions = {
   crlCache?: CrlCache;
 };
 
+type ProxyRateLimitRuntimeOptions = {
+  nowMs?: () => number;
+};
+
 type CreateProxyAppOptions = {
   config: ProxyConfig;
   logger?: Logger;
   registerRoutes?: (app: ProxyApp) => void;
   auth?: ProxyAuthRuntimeOptions;
+  rateLimit?: ProxyRateLimitRuntimeOptions;
   hooks?: AgentHookRuntimeOptions;
 };
 
@@ -72,6 +78,14 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
       config: options.config,
       logger,
       ...options.auth,
+    }),
+  );
+  app.use(
+    "*",
+    createAgentRateLimitMiddleware({
+      config: options.config,
+      logger,
+      ...options.rateLimit,
     }),
   );
   app.onError(createHonoErrorHandler(logger));
