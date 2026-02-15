@@ -75,7 +75,7 @@ Because OpenClaw requires `hooks.token` and expects Bearer/token auth for `/hook
 
 - **Proxy**
   - Verify inbound Clawdentity headers
-  - Enforce allowlist rules (by owner DID and/or agent DID)
+  - Enforce allowlist rules (agent DID only in current phase; owner DID support deferred)
   - Rate-limit per verified agent DID
   - Forward to OpenClaw `/hooks/agent` with `x-openclaw-token`
 

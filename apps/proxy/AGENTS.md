@@ -25,9 +25,10 @@
   - state/config path aliases: `OPENCLAW_STATE_DIR`/`CLAWDBOT_STATE_DIR`, `OPENCLAW_CONFIG_PATH`/`CLAWDBOT_CONFIG_PATH`
 
 ## Allowlist and Access
-- Keep allowlist shape as `{ owners: string[], agents: string[], allowAllVerified: boolean }`.
-- Allow bootstrap from `ALLOW_LIST` JSON with optional explicit overrides (`ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`, `ALLOW_ALL_VERIFIED`).
+- Keep allowlist shape as `{ owners: string[], agents: string[] }`.
+- Allow bootstrap from `ALLOW_LIST` JSON with optional explicit overrides (`ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`).
 - Keep allowlist parsing deterministic and reject malformed input with structured config errors.
+- Reject deprecated `ALLOW_ALL_VERIFIED` at startup; never provide a global allow-all bypass for verified callers.
 
 ## Auth Verification
 - Protect all non-health routes with Clawdentity auth verification middleware.
@@ -36,9 +37,11 @@
 - Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
 - Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
+- Enforce proxy access by explicit agent DID allowlist after auth verification; owner DID-only entries do not grant access.
 - When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
 - Return `401` for invalid/expired/replayed/revoked/invalid-proof requests.
+- Return `403` when requests are verified but agent DID is not allowlisted.
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 
 ## CRL Policy

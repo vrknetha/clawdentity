@@ -40,8 +40,6 @@ export class ProxyConfigError extends Error {
   }
 }
 
-const BOOLEAN_TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
-const BOOLEAN_FALSE_VALUES = new Set(["0", "false", "no", "off"]);
 const OPENCLAW_CONFIG_FILENAME = "openclaw.json";
 const LEGACY_STATE_DIR_NAMES = [".clawdbot", ".moldbot", ".moltbot"] as const;
 
@@ -61,7 +59,6 @@ const proxyRuntimeEnvSchema = z.object({
   ALLOW_LIST: z.string().optional(),
   ALLOWLIST_OWNERS: z.string().optional(),
   ALLOWLIST_AGENTS: z.string().optional(),
-  ALLOW_ALL_VERIFIED: z.string().optional(),
   CRL_REFRESH_INTERVAL_MS: z.coerce
     .number()
     .int()
@@ -77,11 +74,12 @@ const proxyRuntimeEnvSchema = z.object({
     .default(DEFAULT_CRL_STALE_BEHAVIOR),
 });
 
-const proxyAllowListSchema = z.object({
-  owners: z.array(z.string().trim().min(1)).default([]),
-  agents: z.array(z.string().trim().min(1)).default([]),
-  allowAllVerified: z.boolean().default(false),
-});
+const proxyAllowListSchema = z
+  .object({
+    owners: z.array(z.string().trim().min(1)).default([]),
+    agents: z.array(z.string().trim().min(1)).default([]),
+  })
+  .strict();
 
 export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
@@ -396,7 +394,6 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
     ALLOW_LIST: firstNonEmpty(env, ["ALLOW_LIST"]),
     ALLOWLIST_OWNERS: firstNonEmpty(env, ["ALLOWLIST_OWNERS"]),
     ALLOWLIST_AGENTS: firstNonEmpty(env, ["ALLOWLIST_AGENTS"]),
-    ALLOW_ALL_VERIFIED: firstNonEmpty(env, ["ALLOW_ALL_VERIFIED"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
     CRL_MAX_AGE_MS: firstNonEmpty(env, ["CRL_MAX_AGE_MS"]),
     CRL_STALE_BEHAVIOR: firstNonEmpty(env, ["CRL_STALE_BEHAVIOR"]),
@@ -416,38 +413,12 @@ function parseDidList(input: string): string[] {
   );
 }
 
-function parseOptionalBoolean(
-  value: string | undefined,
-  field: string,
-): boolean | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (BOOLEAN_TRUE_VALUES.has(normalized)) {
-    return true;
-  }
-
-  if (BOOLEAN_FALSE_VALUES.has(normalized)) {
-    return false;
-  }
-
-  throw toConfigValidationError({
-    fieldErrors: {
-      [field]: ["Expected one of true/false/1/0/yes/no/on/off"],
-    },
-    formErrors: [],
-  });
-}
-
 function parseAllowList(
   env: z.infer<typeof proxyRuntimeEnvSchema>,
 ): ProxyAllowList {
   let allowList: ProxyAllowList = {
     owners: [],
     agents: [],
-    allowAllVerified: false,
   };
 
   if (env.ALLOW_LIST !== undefined) {
@@ -482,15 +453,27 @@ function parseAllowList(
     allowList = { ...allowList, agents: parseDidList(env.ALLOWLIST_AGENTS) };
   }
 
-  const allowAllVerified = parseOptionalBoolean(
-    env.ALLOW_ALL_VERIFIED,
-    "ALLOW_ALL_VERIFIED",
-  );
-  if (allowAllVerified !== undefined) {
-    allowList = { ...allowList, allowAllVerified };
+  return allowList;
+}
+
+function assertNoDeprecatedAllowAllVerified(env: RuntimeEnvInput): void {
+  const value = env.ALLOW_ALL_VERIFIED;
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" && value.trim().length === 0)
+  ) {
+    return;
   }
 
-  return allowList;
+  throw toConfigValidationError({
+    fieldErrors: {
+      ALLOW_ALL_VERIFIED: [
+        "ALLOW_ALL_VERIFIED is no longer supported. Use ALLOWLIST_AGENTS.",
+      ],
+    },
+    formErrors: [],
+  });
 }
 
 function loadHookTokenFromFallback(
@@ -516,8 +499,11 @@ function loadHookTokenFromFallback(
 }
 
 export function parseProxyConfig(env: unknown): ProxyConfig {
+  const inputEnv: RuntimeEnvInput = isRuntimeEnvInput(env) ? env : {};
+  assertNoDeprecatedAllowAllVerified(inputEnv);
+
   const parsedRuntimeEnv = proxyRuntimeEnvSchema.safeParse(
-    normalizeRuntimeEnv(env),
+    normalizeRuntimeEnv(inputEnv),
   );
   if (!parsedRuntimeEnv.success) {
     throw toConfigValidationError({

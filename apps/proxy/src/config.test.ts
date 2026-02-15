@@ -31,7 +31,6 @@ describe("proxy config", () => {
       allowList: {
         owners: [],
         agents: [],
-        allowAllVerified: false,
       },
       crlRefreshIntervalMs: DEFAULT_CRL_REFRESH_INTERVAL_MS,
       crlMaxAgeMs: DEFAULT_CRL_MAX_AGE_MS,
@@ -55,22 +54,19 @@ describe("proxy config", () => {
     expect(config.crlStaleBehavior).toBe("fail-closed");
   });
 
-  it("parses allow list object and override env flags", () => {
+  it("parses allow list object and override env lists", () => {
     const config = parseProxyConfig({
       OPENCLAW_HOOK_TOKEN: "token",
       ALLOW_LIST: JSON.stringify({
         owners: ["did:claw:owner:1"],
         agents: ["did:claw:agent:1"],
-        allowAllVerified: false,
       }),
       ALLOWLIST_OWNERS: "did:claw:owner:2,did:claw:owner:3",
-      ALLOW_ALL_VERIFIED: "true",
     });
 
     expect(config.allowList).toEqual({
       owners: ["did:claw:owner:2", "did:claw:owner:3"],
       agents: ["did:claw:agent:1"],
-      allowAllVerified: true,
     });
   });
 
@@ -87,11 +83,24 @@ describe("proxy config", () => {
     ).toThrow(ProxyConfigError);
   });
 
-  it("throws on invalid boolean override", () => {
+  it("throws when deprecated ALLOW_ALL_VERIFIED is set", () => {
     expect(() =>
       parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "token",
-        ALLOW_ALL_VERIFIED: "maybe",
+        ALLOW_ALL_VERIFIED: "true",
+      }),
+    ).toThrow(ProxyConfigError);
+  });
+
+  it("throws when ALLOW_LIST includes unknown keys", () => {
+    expect(() =>
+      parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+        ALLOW_LIST: JSON.stringify({
+          owners: [],
+          agents: [],
+          allowAllVerified: true,
+        }),
       }),
     ).toThrow(ProxyConfigError);
   });
