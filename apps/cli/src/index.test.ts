@@ -26,6 +26,14 @@ describe("cli", () => {
     expect(hasAgentCommand).toBe(true);
   });
 
+  it("registers the verify command", () => {
+    const hasVerifyCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("verify");
+
+    expect(hasVerifyCommand).toBe(true);
+  });
+
   it("prints version output", async () => {
     const output: string[] = [];
     const program = createProgram();

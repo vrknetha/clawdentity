@@ -8,6 +8,7 @@
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
+- Keep top-level command contracts stable (`config`, `agent`, `verify`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
 - Use `process.exitCode` instead of `process.exit()`.
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
@@ -17,6 +18,7 @@
 
 ## Config and Secrets
 - Local CLI config lives at `~/.clawdentity/config.json`.
+- CLI verification caches live under `~/.clawdentity/cache/` and must never include private keys or PATs.
 - Agent identities live at `~/.clawdentity/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
 - Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/agents/`.
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
@@ -40,6 +42,13 @@
 - Use registry `DELETE /v1/agents/:id` with PAT auth, and print human-readable confirmation that includes agent name + DID.
 - Keep error messaging explicit for missing/malformed `identity.json`, invalid DID data, missing API key, and registry/network failures.
 - Tests for revoke must cover success/idempotent `204`, auth/config failures, missing/invalid identity metadata, and HTTP error mapping for `401/404/409`.
+
+## Token Verification
+- `verify <tokenOrFile>` accepts either a raw AIT token or a filesystem path to a file containing one token.
+- Verification is fail-closed for revocation checks: if CRL cannot be fetched/validated and no fresh cache is available, command must fail.
+- Verify flow must use SDK primitives (`verifyAIT`, `verifyCRL`) and registry endpoints (`/.well-known/claw-keys.json`, `/v1/crl`) instead of local JWT parsing.
+- Keep user output explicit and command-like: successful checks print `✅ ...`; failed checks print `❌ <reason>` and set non-zero exit code.
+- Cache files (`registry-keys.json`, `crl-claims.json`) should include source registry URL + fetch timestamp so stale or cross-environment cache reuse is avoided.
 
 ## Validation Commands
 - `pnpm -F @clawdentity/cli lint`
