@@ -2,7 +2,7 @@ import { AppError, type Logger } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 
-const AGENT_HOOK_PATH = "/hooks/agent";
+const AGENT_HOOK_PATH = "hooks/agent";
 export const DEFAULT_AGENT_HOOK_TIMEOUT_MS = 10_000;
 
 export type AgentHookRuntimeOptions = {

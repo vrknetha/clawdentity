@@ -17,10 +17,11 @@ import { createProxyApp } from "./server.js";
 function createHookRouteApp(input: {
   fetchImpl: typeof fetch;
   timeoutMs?: number;
+  openclawBaseUrl?: string;
 }) {
   return createProxyApp({
     config: parseProxyConfig({
-      OPENCLAW_BASE_URL: "http://openclaw.local",
+      OPENCLAW_BASE_URL: input.openclawBaseUrl ?? "http://openclaw.local",
       OPENCLAW_HOOK_TOKEN: "openclaw-secret",
     }),
     hooks: {
@@ -106,6 +107,29 @@ describe("POST /hooks/agent", () => {
     };
     expect(body.accepted).toBe(true);
     expect(body.echoedBody).toBe(JSON.stringify({ event: "agent.started" }));
+  });
+
+  it("preserves OpenClaw base path prefixes when building hook URL", async () => {
+    let forwardedUrl = "";
+    const fetchMock = vi.fn(async (input: unknown) => {
+      forwardedUrl = resolveRequestUrl(input);
+      return new Response("{}", { status: 202 });
+    });
+    const app = createHookRouteApp({
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      openclawBaseUrl: "http://openclaw.local/api",
+    });
+
+    await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(forwardedUrl).toBe("http://openclaw.local/api/hooks/agent");
   });
 
   it("rejects non-json content types", async () => {
