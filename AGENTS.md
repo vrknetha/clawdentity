@@ -93,11 +93,17 @@
 - Validate onboarding and relay flows as a real user path, not as manual local shortcuts.
 - Start backend services locally with Wrangler (registry/proxy) using the expected environment before E2E checks.
 - Run OpenClaw agents in Docker and test through agent skills only; do not pre-configure relay files by hand.
+- Keep two dedicated containers for relay verification: Alpha (sender) and Beta (receiver). Use stable names and document them in the test run notes.
+- Keep Alpha and Beta isolated with separate HOME volumes so `~/.clawdentity` and `~/.openclaw` state never leaks between agents.
+- Ensure both containers run with required model API credentials; onboarding tests must not depend on host-level credentials.
 - Install via npm + skill entrypoint (`npm install clawdentity --skill`) and let the skill perform remaining setup.
 - Use invite-code onboarding exactly as production intent: admin creates invite code, agent asks its human for the code, then agent completes setup.
 - Verify resulting agent filesystem/config artifacts are created by the skill in the expected locations.
 - Confirm end-to-end communication between at least two agents after setup (for example alpha <-> beta relay path).
 - If a skill-run test fails because of partial/dirty skill-created state, clean/revert only skill-generated setup and rerun from a fresh user-like starting point.
+- Reset for rerun must remove only skill-created artifacts first: `~/.clawdentity/peers.json`, `~/.clawdentity/openclaw-agent-name`, `~/.openclaw/hooks/transforms/relay-to-peer.mjs`, and `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/`.
+- Use a full reset only when required for identity reprovisioning, and then also clear `~/.clawdentity/agents/<agent-name>/` before re-onboarding.
+- Skill-only policy: no direct `clawdentity openclaw setup` execution by humans during E2E validation; the agent must run the skill flow and prompt the human only for missing invite code or confirmations.
 
 ## T00 Scaffold Best Practices
 - Start T00 by confirming the deployment-first order (`T00 -> T37 -> T38`) and reviewing README/PRD/`issues/EXECUTION_PLAN.md` so documentation mirrors the execution model.
