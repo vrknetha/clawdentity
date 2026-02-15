@@ -13,6 +13,9 @@
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`, with legacy fallback to existing `~/.clawdbot` / `~/.moldbot` / `~/.moltbot`)
   - existing environment variables always win over `.env` values.
+- Treat blank env values as unset for fallback resolution:
+  - empty/whitespace values (and null-like values) in inherited env must not block `.env` or config-file fallbacks
+  - dotenv merge semantics must match parser semantics (non-empty value wins).
 - If hook token env vars are missing, resolve fallback token from `hooks.token` in `openclaw.json` (`OPENCLAW_CONFIG_PATH`/`CLAWDBOT_CONFIG_PATH`, default `$OPENCLAW_STATE_DIR/openclaw.json`).
 - Keep env alias support stable for operator UX:
   - `LISTEN_PORT` or `PORT`
