@@ -13,7 +13,7 @@
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
 - Keep user-facing command output on `writeStdoutLine` / `writeStderrLine`; reserve structured logger calls for diagnostic events.
 - Prefer `@clawdentity/sdk` helpers (`decodeAIT`) when surfacing agent metadata instead of parsing JWTs manually.
- - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
+- Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
 
 ## Config and Secrets
 - Local CLI config lives at `~/.clawdentity/config.json`.
@@ -33,6 +33,13 @@
 - `agent inspect <name>` reads `~/.clawdentity/agents/<name>/ait.jwt`, decodes it with `decodeAIT`, and prints DID, Owner, Expires, Key ID, Public Key, and Framework so operators can audit metadata offline.
 - Surface user-friendly errors when the JWT is missing or cannot be decoded, mentioning `ait.jwt` explicitly and defaulting to the normalized agent name when validating input.
 - Tests for new inspection behavior must mock `node:fs/promises.readFile` and `@clawdentity/sdk.decodeAIT`, assert the visible output, and confirm missing-file handling covers `ENOENT`.
+
+## Agent Revocation
+- `agent revoke <name>` accepts local agent name only, then resolves `~/.clawdentity/agents/<name>/identity.json` to load the DID and derive the registry ULID path parameter.
+- Keep revoke flow name-first and filesystem-backed; do not require operators to pass raw ULIDs for locally managed identities.
+- Use registry `DELETE /v1/agents/:id` with PAT auth, and print human-readable confirmation that includes agent name + DID.
+- Keep error messaging explicit for missing/malformed `identity.json`, invalid DID data, missing API key, and registry/network failures.
+- Tests for revoke must cover success/idempotent `204`, auth/config failures, missing/invalid identity metadata, and HTTP error mapping for `401/404/409`.
 
 ## Validation Commands
 - `pnpm -F @clawdentity/cli lint`
