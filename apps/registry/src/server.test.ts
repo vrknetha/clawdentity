@@ -1,15 +1,19 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
+  AGENT_REGISTRATION_CHALLENGE_PATH,
   type AitClaims,
+  canonicalizeAgentRegistrationProof,
   encodeBase64url,
   generateUlid,
   makeAgentDid,
   makeHumanDid,
 } from "@clawdentity/protocol";
 import {
+  encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
   REQUEST_ID_HEADER,
   signAIT,
+  signEd25519,
   verifyAIT,
   verifyCRL,
 } from "@clawdentity/sdk";
@@ -88,6 +92,8 @@ type FakeHumanInsertRow = Record<string, unknown>;
 type FakeApiKeyInsertRow = Record<string, unknown>;
 type FakeAgentUpdateRow = Record<string, unknown>;
 type FakeRevocationInsertRow = Record<string, unknown>;
+type FakeAgentRegistrationChallengeInsertRow = Record<string, unknown>;
+type FakeAgentRegistrationChallengeUpdateRow = Record<string, unknown>;
 type FakeRevocationRow = {
   id: string;
   jti: string;
@@ -107,6 +113,17 @@ type FakeAgentRow = {
   currentJti?: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+type FakeAgentRegistrationChallengeRow = {
+  id: string;
+  ownerId: string;
+  publicKey: string;
+  nonce: string;
+  status: "pending" | "used";
+  expiresAt: string;
+  usedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type FakeAgentSelectRow = {
@@ -129,6 +146,7 @@ type FakeDbOptions = {
   failApiKeyInsertCount?: number;
   failBeginTransaction?: boolean;
   revocationRows?: FakeRevocationRow[];
+  registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
 };
 
 type FakeCrlSelectRow = {
@@ -334,6 +352,40 @@ function getAgentSelectColumnValue(
   return undefined;
 }
 
+function getAgentRegistrationChallengeSelectColumnValue(
+  row: FakeAgentRegistrationChallengeRow,
+  column: string,
+): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "owner_id") {
+    return row.ownerId;
+  }
+  if (column === "public_key") {
+    return row.publicKey;
+  }
+  if (column === "nonce") {
+    return row.nonce;
+  }
+  if (column === "status") {
+    return row.status;
+  }
+  if (column === "expires_at") {
+    return row.expiresAt;
+  }
+  if (column === "used_at") {
+    return row.usedAt;
+  }
+  if (column === "created_at") {
+    return row.createdAt;
+  }
+  if (column === "updated_at") {
+    return row.updatedAt;
+  }
+  return undefined;
+}
+
 function getHumanSelectColumnValue(row: FakeHumanRow, column: string): unknown {
   if (column === "id") {
     return row.id;
@@ -497,6 +549,48 @@ function resolveAgentSelectRows(options: {
   return filteredRows;
 }
 
+function resolveAgentRegistrationChallengeSelectRows(options: {
+  query: string;
+  params: unknown[];
+  challengeRows: FakeAgentRegistrationChallengeRow[];
+}): FakeAgentRegistrationChallengeRow[] {
+  const whereClause = extractWhereClause(options.query);
+  const equalityParams = parseWhereEqualityParams({
+    whereClause,
+    params: options.params,
+  });
+  const hasOwnerFilter = hasFilter(whereClause, "owner_id");
+  const hasChallengeIdFilter = hasFilter(whereClause, "id");
+  const hasStatusFilter = hasFilter(whereClause, "status");
+  const hasLimitClause = options.query.toLowerCase().includes(" limit ");
+
+  const ownerId =
+    hasOwnerFilter && typeof equalityParams.values.owner_id?.[0] === "string"
+      ? String(equalityParams.values.owner_id[0])
+      : undefined;
+  const challengeId =
+    hasChallengeIdFilter && typeof equalityParams.values.id?.[0] === "string"
+      ? String(equalityParams.values.id[0])
+      : undefined;
+  const status =
+    hasStatusFilter && typeof equalityParams.values.status?.[0] === "string"
+      ? String(equalityParams.values.status[0])
+      : undefined;
+
+  const maybeLimit = hasLimitClause
+    ? Number(options.params[options.params.length - 1])
+    : Number.NaN;
+  const limit = Number.isFinite(maybeLimit)
+    ? maybeLimit
+    : options.challengeRows.length;
+
+  return options.challengeRows
+    .filter((row) => (ownerId ? row.ownerId === ownerId : true))
+    .filter((row) => (challengeId ? row.id === challengeId : true))
+    .filter((row) => (status ? row.status === status : true))
+    .slice(0, limit);
+}
+
 function getCrlSelectColumnValue(
   row: FakeCrlSelectRow,
   column: string,
@@ -568,7 +662,14 @@ function createFakeDb(
   const agentInserts: FakeAgentInsertRow[] = [];
   const agentUpdates: FakeAgentUpdateRow[] = [];
   const revocationInserts: FakeRevocationInsertRow[] = [];
+  const agentRegistrationChallengeInserts: FakeAgentRegistrationChallengeInsertRow[] =
+    [];
+  const agentRegistrationChallengeUpdates: FakeAgentRegistrationChallengeUpdateRow[] =
+    [];
   const revocationRows = [...(options.revocationRows ?? [])];
+  const registrationChallengeRows = [
+    ...(options.registrationChallengeRows ?? []),
+  ];
   const humanRows = rows.reduce<FakeHumanRow[]>((acc, row) => {
     if (acc.some((item) => item.id === row.humanId)) {
       return acc;
@@ -703,6 +804,39 @@ function createFakeDb(
             };
           }
           if (
+            (normalizedQuery.includes('from "agent_registration_challenges"') ||
+              normalizedQuery.includes("from agent_registration_challenges")) &&
+            (normalizedQuery.includes("select") ||
+              normalizedQuery.includes("returning"))
+          ) {
+            const resultRows = resolveAgentRegistrationChallengeSelectRows({
+              query,
+              params,
+              challengeRows: registrationChallengeRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] =
+                      getAgentRegistrationChallengeSelectColumnValue(
+                        row,
+                        column,
+                      );
+                    return acc;
+                  },
+                  {},
+                );
+              }),
+            };
+          }
+          if (
             (normalizedQuery.includes('from "revocations"') ||
               normalizedQuery.includes("from revocations")) &&
             normalizedQuery.includes("select")
@@ -780,6 +914,22 @@ function createFakeDb(
             return resultRows.map((row) =>
               selectedColumns.map((column) =>
                 getAgentSelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
+            normalizedQuery.includes('from "agent_registration_challenges"') ||
+            normalizedQuery.includes("from agent_registration_challenges")
+          ) {
+            const resultRows = resolveAgentRegistrationChallengeSelectRows({
+              query,
+              params,
+              challengeRows: registrationChallengeRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getAgentRegistrationChallengeSelectColumnValue(row, column),
               ),
             );
           }
@@ -961,6 +1111,128 @@ function createFakeDb(
             changes = 1;
           }
           if (
+            normalizedQuery.includes(
+              'insert into "agent_registration_challenges"',
+            ) ||
+            normalizedQuery.includes(
+              "insert into agent_registration_challenges",
+            )
+          ) {
+            const columns = parseInsertColumns(
+              query,
+              "agent_registration_challenges",
+            );
+            const row = columns.reduce<FakeAgentRegistrationChallengeInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            agentRegistrationChallengeInserts.push(row);
+
+            if (
+              typeof row.id === "string" &&
+              typeof row.owner_id === "string" &&
+              typeof row.public_key === "string" &&
+              typeof row.nonce === "string" &&
+              (row.status === "pending" || row.status === "used") &&
+              typeof row.expires_at === "string" &&
+              typeof row.created_at === "string" &&
+              typeof row.updated_at === "string"
+            ) {
+              registrationChallengeRows.push({
+                id: row.id,
+                ownerId: row.owner_id,
+                publicKey: row.public_key,
+                nonce: row.nonce,
+                status: row.status,
+                expiresAt: row.expires_at,
+                usedAt:
+                  typeof row.used_at === "string" ? String(row.used_at) : null,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+              });
+            }
+
+            changes = 1;
+          }
+          if (
+            normalizedQuery.includes(
+              'update "agent_registration_challenges"',
+            ) ||
+            normalizedQuery.includes("update agent_registration_challenges")
+          ) {
+            const setColumns = parseUpdateSetColumns(
+              query,
+              "agent_registration_challenges",
+            );
+            const nextValues = setColumns.reduce<Record<string, unknown>>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            const whereClause = extractWhereClause(query);
+            const whereParams = params.slice(setColumns.length);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params: whereParams,
+            });
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : undefined;
+            const ownerFilter =
+              typeof equalityParams.values.owner_id?.[0] === "string"
+                ? String(equalityParams.values.owner_id[0])
+                : undefined;
+            const statusFilter =
+              typeof equalityParams.values.status?.[0] === "string"
+                ? String(equalityParams.values.status[0])
+                : undefined;
+
+            let matchedRows = 0;
+            for (const row of registrationChallengeRows) {
+              if (idFilter && row.id !== idFilter) {
+                continue;
+              }
+              if (ownerFilter && row.ownerId !== ownerFilter) {
+                continue;
+              }
+              if (statusFilter && row.status !== statusFilter) {
+                continue;
+              }
+
+              matchedRows += 1;
+              if (
+                nextValues.status === "pending" ||
+                nextValues.status === "used"
+              ) {
+                row.status = nextValues.status;
+              }
+              if (
+                typeof nextValues.used_at === "string" ||
+                nextValues.used_at === null
+              ) {
+                row.usedAt = nextValues.used_at;
+              }
+              if (typeof nextValues.updated_at === "string") {
+                row.updatedAt = nextValues.updated_at;
+              }
+            }
+
+            agentRegistrationChallengeUpdates.push({
+              ...nextValues,
+              id: idFilter,
+              owner_id: ownerFilter,
+              status_where: statusFilter,
+              matched_rows: matchedRows,
+            });
+            changes = matchedRows;
+          }
+          if (
             normalizedQuery.includes('update "agents"') ||
             normalizedQuery.includes("update agents")
           ) {
@@ -1103,7 +1375,10 @@ function createFakeDb(
     apiKeyInserts,
     agentInserts,
     agentUpdates,
+    agentRegistrationChallengeInserts,
+    agentRegistrationChallengeUpdates,
     revocationInserts,
+    registrationChallengeRows,
   };
 }
 
@@ -1124,6 +1399,32 @@ function makeValidPatContext(token = "clw_pat_valid-token-value") {
 
     return { token, authRow };
   });
+}
+
+async function signRegistrationChallenge(options: {
+  challengeId: string;
+  nonce: string;
+  ownerDid: string;
+  publicKey: string;
+  name: string;
+  secretKey: Uint8Array;
+  framework?: string;
+  ttlDays?: number;
+}): Promise<string> {
+  const canonical = canonicalizeAgentRegistrationProof({
+    challengeId: options.challengeId,
+    nonce: options.nonce,
+    ownerDid: options.ownerDid,
+    publicKey: options.publicKey,
+    name: options.name,
+    framework: options.framework,
+    ttlDays: options.ttlDays,
+  });
+  const signature = await signEd25519(
+    new TextEncoder().encode(canonical),
+    options.secretKey,
+  );
+  return encodeEd25519SignatureBase64url(signature);
 }
 
 describe("GET /health", () => {
@@ -3165,6 +3466,109 @@ describe("POST /v1/agents/:id/reissue", () => {
   });
 });
 
+describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
+  it("returns 401 when PAT is missing", async () => {
+    const res = await createRegistryApp().request(
+      AGENT_REGISTRATION_CHALLENGE_PATH,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+        }),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("returns 400 when payload is invalid", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const res = await createRegistryApp().request(
+      AGENT_REGISTRATION_CHALLENGE_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          publicKey: "not-base64url",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_REGISTRATION_CHALLENGE_INVALID");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      publicKey: expect.any(Array),
+    });
+  });
+
+  it("creates and persists challenge for authenticated owner", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, agentRegistrationChallengeInserts } = createFakeDb([
+      authRow,
+    ]);
+    const agentKeypair = await generateEd25519Keypair();
+
+    const res = await createRegistryApp().request(
+      AGENT_REGISTRATION_CHALLENGE_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      challengeId: string;
+      nonce: string;
+      ownerDid: string;
+      expiresAt: string;
+      algorithm: string;
+      messageTemplate: string;
+    };
+    expect(body.challengeId).toEqual(expect.any(String));
+    expect(body.nonce).toEqual(expect.any(String));
+    expect(body.ownerDid).toBe(authRow.humanDid);
+    expect(body.algorithm).toBe("Ed25519");
+    expect(body.messageTemplate).toContain("challengeId:{challengeId}");
+    expect(Date.parse(body.expiresAt)).toBeGreaterThan(Date.now());
+
+    expect(agentRegistrationChallengeInserts).toHaveLength(1);
+    expect(agentRegistrationChallengeInserts[0]).toMatchObject({
+      id: body.challengeId,
+      owner_id: "human-1",
+      public_key: encodeBase64url(agentKeypair.publicKey),
+      nonce: body.nonce,
+      status: "pending",
+      used_at: null,
+    });
+  });
+});
+
 describe("POST /v1/agents", () => {
   it("returns 401 when PAT is missing", async () => {
     const res = await createRegistryApp().request(
@@ -3238,6 +3642,8 @@ describe("POST /v1/agents", () => {
       framework: expect.any(Array),
       publicKey: expect.any(Array),
       ttlDays: expect.any(Array),
+      challengeId: expect.any(Array),
+      challengeSignature: expect.any(Array),
     });
   });
 
@@ -3354,11 +3760,14 @@ describe("POST /v1/agents", () => {
     expect(body.error.details).toBeUndefined();
   });
 
-  it("creates an agent, defaults framework/ttl, and persists current_jti + expires_at", async () => {
+  it("returns 400 when registration challenge is missing", async () => {
     const { token, authRow } = await makeValidPatContext();
-    const { database, agentInserts } = createFakeDb([authRow]);
+    const { database } = createFakeDb([authRow]);
     const signer = await generateEd25519Keypair();
     const agentKeypair = await generateEd25519Keypair();
+    const challengeSignature = encodeEd25519SignatureBase64url(
+      Uint8Array.from({ length: 64 }, (_, index) => index + 1),
+    );
 
     const res = await createRegistryApp().request(
       "/v1/agents",
@@ -3369,8 +3778,231 @@ describe("POST /v1/agents", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
+          name: "agent-missing-challenge",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          challengeId: generateUlid(1700000000000),
+          challengeSignature,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_REGISTRATION_CHALLENGE_NOT_FOUND");
+  });
+
+  it("returns 400 when challenge signature is invalid", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const signer = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const challengeId = generateUlid(1700000010000);
+    const challengeNonce = encodeBase64url(
+      Uint8Array.from({ length: 24 }, (_, index) => index + 3),
+    );
+    const { database } = createFakeDb([authRow], [], {
+      registrationChallengeRows: [
+        {
+          id: challengeId,
+          ownerId: "human-1",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          nonce: challengeNonce,
+          status: "pending",
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          usedAt: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const invalidSignature = await signRegistrationChallenge({
+      challengeId,
+      nonce: challengeNonce,
+      ownerDid: authRow.humanDid,
+      publicKey: encodeBase64url(agentKeypair.publicKey),
+      name: "wrong-name",
+      secretKey: agentKeypair.secretKey,
+    });
+
+    const res = await createRegistryApp().request(
+      "/v1/agents",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "agent-proof-invalid",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          challengeId,
+          challengeSignature: invalidSignature,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_REGISTRATION_PROOF_INVALID");
+  });
+
+  it("returns 400 when challenge has already been used", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const signer = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const challengeId = generateUlid(1700000011000);
+    const challengeNonce = encodeBase64url(
+      Uint8Array.from({ length: 24 }, (_, index) => index + 5),
+    );
+    const { database } = createFakeDb([authRow], [], {
+      registrationChallengeRows: [
+        {
+          id: challengeId,
+          ownerId: "human-1",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          nonce: challengeNonce,
+          status: "used",
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+          usedAt: new Date(Date.now() - 60 * 1000).toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const signature = await signRegistrationChallenge({
+      challengeId,
+      nonce: challengeNonce,
+      ownerDid: authRow.humanDid,
+      publicKey: encodeBase64url(agentKeypair.publicKey),
+      name: "agent-challenge-replayed",
+      secretKey: agentKeypair.secretKey,
+    });
+
+    const res = await createRegistryApp().request(
+      "/v1/agents",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "agent-challenge-replayed",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          challengeId,
+          challengeSignature: signature,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_REGISTRATION_CHALLENGE_REPLAYED");
+  });
+
+  it("creates an agent, defaults framework/ttl, and persists current_jti + expires_at", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, agentInserts } = createFakeDb([authRow]);
+    const signer = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const appInstance = createRegistryApp();
+
+    const challengeResponse = await appInstance.request(
+      AGENT_REGISTRATION_CHALLENGE_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+    expect(challengeResponse.status).toBe(201);
+    const challengeBody = (await challengeResponse.json()) as {
+      challengeId: string;
+      nonce: string;
+      ownerDid: string;
+    };
+    const challengeSignature = await signRegistrationChallenge({
+      challengeId: challengeBody.challengeId,
+      nonce: challengeBody.nonce,
+      ownerDid: challengeBody.ownerDid,
+      publicKey: encodeBase64url(agentKeypair.publicKey),
+      name: "agent-01",
+      secretKey: agentKeypair.secretKey,
+    });
+
+    const res = await appInstance.request(
+      "/v1/agents",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
           name: "agent-01",
           publicKey: encodeBase64url(agentKeypair.publicKey),
+          challengeId: challengeBody.challengeId,
+          challengeSignature,
         }),
       },
       {
@@ -3441,6 +4073,42 @@ describe("POST /v1/agents", () => {
       },
     ]);
 
+    const challengeResponse = await appInstance.request(
+      AGENT_REGISTRATION_CHALLENGE_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: signingKeyset,
+      },
+    );
+    expect(challengeResponse.status).toBe(201);
+    const challengeBody = (await challengeResponse.json()) as {
+      challengeId: string;
+      nonce: string;
+      ownerDid: string;
+    };
+    const challengeSignature = await signRegistrationChallenge({
+      challengeId: challengeBody.challengeId,
+      nonce: challengeBody.nonce,
+      ownerDid: challengeBody.ownerDid,
+      publicKey: encodeBase64url(agentKeypair.publicKey),
+      name: "agent-registry-verify",
+      framework: "openclaw",
+      ttlDays: 10,
+      secretKey: agentKeypair.secretKey,
+    });
+
     const registerResponse = await appInstance.request(
       "/v1/agents",
       {
@@ -3454,6 +4122,8 @@ describe("POST /v1/agents", () => {
           framework: "openclaw",
           ttlDays: 10,
           publicKey: encodeBase64url(agentKeypair.publicKey),
+          challengeId: challengeBody.challengeId,
+          challengeSignature,
         }),
       },
       {
@@ -3527,8 +4197,41 @@ describe("POST /v1/agents", () => {
     const signer = await generateEd25519Keypair();
     const wrongPublishedKey = await generateEd25519Keypair();
     const agentKeypair = await generateEd25519Keypair();
+    const appInstance = createRegistryApp();
 
-    const res = await createRegistryApp().request(
+    const challengeResponse = await appInstance.request(
+      AGENT_REGISTRATION_CHALLENGE_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+      },
+    );
+    expect(challengeResponse.status).toBe(201);
+    const challengeBody = (await challengeResponse.json()) as {
+      challengeId: string;
+      nonce: string;
+      ownerDid: string;
+    };
+    const challengeSignature = await signRegistrationChallenge({
+      challengeId: challengeBody.challengeId,
+      nonce: challengeBody.nonce,
+      ownerDid: challengeBody.ownerDid,
+      publicKey: encodeBase64url(agentKeypair.publicKey),
+      name: "agent-signer-mismatch",
+      secretKey: agentKeypair.secretKey,
+    });
+
+    const res = await appInstance.request(
       "/v1/agents",
       {
         method: "POST",
@@ -3539,6 +4242,8 @@ describe("POST /v1/agents", () => {
         body: JSON.stringify({
           name: "agent-signer-mismatch",
           publicKey: encodeBase64url(agentKeypair.publicKey),
+          challengeId: challengeBody.challengeId,
+          challengeSignature,
         }),
       },
       {

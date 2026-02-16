@@ -24,15 +24,19 @@ vi.mock("@clawdentity/sdk", () => ({
     error: vi.fn(),
   })),
   decodeAIT: vi.fn(),
+  encodeEd25519SignatureBase64url: vi.fn(),
   encodeEd25519KeypairBase64url: vi.fn(),
   generateEd25519Keypair: vi.fn(),
+  signEd25519: vi.fn(),
 }));
 
 import {
   type DecodedAit,
   decodeAIT,
   encodeEd25519KeypairBase64url,
+  encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
+  signEd25519,
 } from "@clawdentity/sdk";
 import { resolveConfig } from "../config/manager.js";
 import { createAgentCommand } from "./agent.js";
@@ -44,6 +48,10 @@ const mockedReadFile = vi.mocked(readFile);
 const mockedWriteFile = vi.mocked(writeFile);
 const mockedResolveConfig = vi.mocked(resolveConfig);
 const mockedGenerateEd25519Keypair = vi.mocked(generateEd25519Keypair);
+const mockedSignEd25519 = vi.mocked(signEd25519);
+const mockedEncodeEd25519SignatureBase64url = vi.mocked(
+  encodeEd25519SignatureBase64url,
+);
 const mockedEncodeEd25519KeypairBase64url = vi.mocked(
   encodeEd25519KeypairBase64url,
 );
@@ -115,6 +123,7 @@ const runAgentCommand = async (args: string[]) => {
 describe("agent create command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockReset();
     vi.stubGlobal("fetch", mockFetch);
 
     mockedResolveConfig.mockResolvedValue({
@@ -137,8 +146,23 @@ describe("agent create command", () => {
       secretKey: "secret-key-b64url",
     });
 
-    mockFetch.mockResolvedValue(
-      createJsonResponse(201, {
+    mockedSignEd25519.mockResolvedValue(Uint8Array.from([1, 2, 3]));
+    mockedEncodeEd25519SignatureBase64url.mockReturnValue(
+      "challenge-signature-b64url",
+    );
+
+    mockFetch.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/v1/agents/challenge")) {
+        return createJsonResponse(201, {
+          challengeId: "01JCHALLENGEID1234567890ABC",
+          nonce: "challenge-nonce-b64url",
+          ownerDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          expiresAt: "2030-01-01T00:05:00.000Z",
+        });
+      }
+
+      return createJsonResponse(201, {
         agent: {
           did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
           name: "agent-01",
@@ -146,8 +170,8 @@ describe("agent create command", () => {
           expiresAt: "2030-01-01T00:00:00.000Z",
         },
         ait: "ait.jwt.value",
-      }),
-    );
+      });
+    });
   });
 
   afterEach(() => {
@@ -159,6 +183,23 @@ describe("agent create command", () => {
     const result = await runAgentCommand(["create", "agent-01"]);
 
     expect(mockedGenerateEd25519Keypair).toHaveBeenCalled();
+    expect(mockedSignEd25519).toHaveBeenCalledWith(
+      expect.any(Uint8Array),
+      expect.any(Uint8Array),
+    );
+    expect(mockedEncodeEd25519SignatureBase64url).toHaveBeenCalledWith(
+      Uint8Array.from([1, 2, 3]),
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.clawdentity.com/v1/agents/challenge",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Bearer pat_123",
+          "content-type": "application/json",
+        }),
+      }),
+    );
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.clawdentity.com/v1/agents",
       expect.objectContaining({
@@ -294,14 +335,18 @@ describe("agent create command", () => {
       "45",
     ]);
 
-    const request = mockFetch.mock.calls[0] as [string, RequestInit];
+    const request = mockFetch.mock.calls[1] as [string, RequestInit];
     const requestBody = JSON.parse(String(request[1]?.body)) as {
       framework?: string;
       ttlDays?: number;
+      challengeId?: string;
+      challengeSignature?: string;
     };
 
     expect(requestBody.framework).toBe("langgraph");
     expect(requestBody.ttlDays).toBe(45);
+    expect(requestBody.challengeId).toBe("01JCHALLENGEID1234567890ABC");
+    expect(requestBody.challengeSignature).toBe("challenge-signature-b64url");
   });
 
   it("rejects dot-segment agent names before hitting the filesystem", async () => {
@@ -321,6 +366,7 @@ describe("agent revoke command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockReset();
     vi.stubGlobal("fetch", mockFetch);
 
     mockedResolveConfig.mockResolvedValue({
@@ -525,6 +571,7 @@ describe("agent inspect command", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockReset();
     mockedReadFile.mockResolvedValue("mock-ait-token");
     mockedDecodeAIT.mockReturnValue(decodedAit);
   });

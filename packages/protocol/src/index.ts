@@ -1,5 +1,11 @@
 export const PROTOCOL_VERSION = "0.0.0";
 
+export type { AgentRegistrationProofMessageInput } from "./agent-registration-proof.js";
+export {
+  AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,
+  AGENT_REGISTRATION_PROOF_VERSION,
+  canonicalizeAgentRegistrationProof,
+} from "./agent-registration-proof.js";
 export type { AitClaims, AitCnfJwk } from "./ait.js";
 export {
   AGENT_NAME_REGEX,
@@ -14,7 +20,10 @@ export type { CrlClaims } from "./crl.js";
 export { crlClaimsSchema, parseCrlClaims } from "./crl.js";
 export type { ClawDidKind } from "./did.js";
 export { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
-export { ADMIN_BOOTSTRAP_PATH } from "./endpoints.js";
+export {
+  ADMIN_BOOTSTRAP_PATH,
+  AGENT_REGISTRATION_CHALLENGE_PATH,
+} from "./endpoints.js";
 export type { ProtocolParseErrorCode } from "./errors.js";
 export { ProtocolParseError } from "./errors.js";
 export type { CanonicalRequestInput } from "./http-signing.js";

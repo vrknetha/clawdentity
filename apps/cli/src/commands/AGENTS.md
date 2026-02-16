@@ -31,6 +31,12 @@
 - Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
 - Config persistence failures after successful bootstrap must not hide the returned PAT token; print token first, then surface recovery instructions.
 
+## Agent Command Rules
+- `agent create` must use a two-step registration handshake: request challenge from registry, sign canonical challenge message locally with agent private key, then submit registration with `challengeId` + `challengeSignature`.
+- Never send or log agent private keys; only send public key and proof signature.
+- Keep proof canonicalization sourced from `@clawdentity/protocol` helper exports to avoid CLI/registry signature drift.
+- Keep registry error mapping stable for both challenge and register requests so users receive deterministic remediation output.
+
 ## Testing Rules
 - Mock network and filesystem dependencies in command tests.
 - Include success and failure scenarios for external calls, parsing, and cache behavior.

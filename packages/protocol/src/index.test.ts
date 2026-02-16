@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   ADMIN_BOOTSTRAP_PATH,
   AGENT_NAME_REGEX,
+  AGENT_REGISTRATION_CHALLENGE_PATH,
+  AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,
+  AGENT_REGISTRATION_PROOF_VERSION,
   aitClaimsSchema,
   CLAW_PROOF_CANONICAL_VERSION,
+  canonicalizeAgentRegistrationProof,
   canonicalizeRequest,
   crlClaimsSchema,
   decodeBase64url,
@@ -29,6 +33,7 @@ describe("protocol", () => {
 
   it("exports shared endpoint constants", () => {
     expect(ADMIN_BOOTSTRAP_PATH).toBe("/v1/admin/bootstrap");
+    expect(AGENT_REGISTRATION_CHALLENGE_PATH).toBe("/v1/agents/challenge");
   });
 
   it("exports helpers from package root", () => {
@@ -63,6 +68,33 @@ describe("protocol", () => {
         "1739364000",
         "nonce_abc123",
         "47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      ].join("\n"),
+    );
+  });
+
+  it("exports agent registration proof canonicalization helpers", () => {
+    const canonical = canonicalizeAgentRegistrationProof({
+      challengeId: "01JCHALLENGEABC",
+      nonce: "nonce123",
+      ownerDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+      name: "agent_01",
+    });
+
+    expect(AGENT_REGISTRATION_PROOF_VERSION).toBe("clawdentity.register.v1");
+    expect(AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE).toContain(
+      "challengeId:{challengeId}",
+    );
+    expect(canonical).toBe(
+      [
+        "clawdentity.register.v1",
+        "challengeId:01JCHALLENGEABC",
+        "nonce:nonce123",
+        "ownerDid:did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        "publicKey:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+        "name:agent_01",
+        "framework:",
+        "ttlDays:",
       ].join("\n"),
     );
   });
