@@ -42,7 +42,7 @@
 ## Validation Baseline
 - Run and pass: `pnpm lint`, `pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build` for implementation changes.
 - Lint runs at root (`pnpm lint` via `biome check .`), not per-package.
-- For planning/doc changes, run dependency/order consistency checks in `issues/EXECUTION_PLAN.md`.
+- For planning/doc changes, verify dependency/order consistency against the current execution source of truth (the in-repo execution plan if present, otherwise the active issue tracker plan).
 
 ## Cloudflare Worker & Wrangler Conventions
 - Registry is a **Hono** app deployed as a Cloudflare Worker. Wrangler handles bundling — tsup is only for type generation and local build validation.

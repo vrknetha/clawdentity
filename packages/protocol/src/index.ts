@@ -14,6 +14,7 @@ export type { CrlClaims } from "./crl.js";
 export { crlClaimsSchema, parseCrlClaims } from "./crl.js";
 export type { ClawDidKind } from "./did.js";
 export { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
+export { ADMIN_BOOTSTRAP_PATH } from "./endpoints.js";
 export type { ProtocolParseErrorCode } from "./errors.js";
 export { ProtocolParseError } from "./errors.js";
 export type { CanonicalRequestInput } from "./http-signing.js";

@@ -1,3 +1,4 @@
+import { ADMIN_BOOTSTRAP_PATH } from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { bootstrapAdmin, persistBootstrapConfig } from "./admin.js";
 
@@ -53,7 +54,7 @@ describe("admin bootstrap helper", () => {
       RequestInit,
     ];
     expect(calledInput.toString()).toBe(
-      "https://api.example.com/v1/admin/bootstrap",
+      `https://api.example.com${ADMIN_BOOTSTRAP_PATH}`,
     );
     expect(calledInit.method).toBe("POST");
     expect(

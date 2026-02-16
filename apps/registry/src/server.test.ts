@@ -1,4 +1,5 @@
 import {
+  ADMIN_BOOTSTRAP_PATH,
   type AitClaims,
   encodeBase64url,
   generateUlid,
@@ -1174,11 +1175,11 @@ describe("GET /health", () => {
   });
 });
 
-describe("POST /v1/admin/bootstrap", () => {
+describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   it("returns 503 when bootstrap secret is not configured", async () => {
     const { database } = createFakeDb([]);
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1207,7 +1208,7 @@ describe("POST /v1/admin/bootstrap", () => {
   it("returns 401 when bootstrap secret header is missing", async () => {
     const { database } = createFakeDb([]);
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1230,7 +1231,7 @@ describe("POST /v1/admin/bootstrap", () => {
   it("returns 401 when bootstrap secret is invalid", async () => {
     const { database } = createFakeDb([]);
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1254,7 +1255,7 @@ describe("POST /v1/admin/bootstrap", () => {
   it("returns 400 when payload is not valid JSON", async () => {
     const { database } = createFakeDb([]);
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1278,7 +1279,7 @@ describe("POST /v1/admin/bootstrap", () => {
   it("returns 400 when payload fields are invalid", async () => {
     const { database } = createFakeDb([]);
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1305,7 +1306,7 @@ describe("POST /v1/admin/bootstrap", () => {
     const { authRow } = await makeValidPatContext();
     const { database } = createFakeDb([authRow]);
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1330,7 +1331,7 @@ describe("POST /v1/admin/bootstrap", () => {
     const { database, humanInserts, apiKeyInserts } = createFakeDb([]);
 
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1384,13 +1385,90 @@ describe("POST /v1/admin/bootstrap", () => {
     );
   });
 
+  it("returns PAT that authenticates GET /v1/me on same app and database", async () => {
+    const { database } = createFakeDb([]);
+    const appInstance = createRegistryApp();
+
+    const bootstrapResponse = await appInstance.request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(bootstrapResponse.status).toBe(201);
+    const bootstrapBody = (await bootstrapResponse.json()) as {
+      human: {
+        id: string;
+        did: string;
+        displayName: string;
+        role: string;
+      };
+      apiKey: {
+        id: string;
+        name: string;
+        token: string;
+      };
+    };
+
+    const meResponse = await appInstance.request(
+      "/v1/me",
+      {
+        headers: {
+          Authorization: `Bearer ${bootstrapBody.apiKey.token}`,
+        },
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+      },
+    );
+
+    expect(meResponse.status).toBe(200);
+    const meBody = (await meResponse.json()) as {
+      human: {
+        id: string;
+        did: string;
+        displayName: string;
+        role: string;
+        apiKey: {
+          id: string;
+          name: string;
+        };
+      };
+    };
+    expect(meBody.human).toEqual({
+      id: bootstrapBody.human.id,
+      did: bootstrapBody.human.did,
+      displayName: bootstrapBody.human.displayName,
+      role: bootstrapBody.human.role,
+      apiKey: {
+        id: bootstrapBody.apiKey.id,
+        name: bootstrapBody.apiKey.name,
+      },
+    });
+  });
+
   it("falls back to manual mutation when transactions are unavailable", async () => {
     const { database, humanInserts, apiKeyInserts } = createFakeDb([], [], {
       failBeginTransaction: true,
     });
 
     const response = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1421,7 +1499,7 @@ describe("POST /v1/admin/bootstrap", () => {
     });
 
     const firstResponse = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
@@ -1444,7 +1522,7 @@ describe("POST /v1/admin/bootstrap", () => {
     expect(humanRows).toHaveLength(0);
 
     const secondResponse = await createRegistryApp().request(
-      "/v1/admin/bootstrap",
+      ADMIN_BOOTSTRAP_PATH,
       {
         method: "POST",
         headers: {
