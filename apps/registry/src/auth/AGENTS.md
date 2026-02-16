@@ -25,3 +25,8 @@
 - Enforce issuer + keyset-based AIT verification against active registry signing keys only.
 - Validate `X-Claw-Timestamp` skew and fail closed on malformed/expired signatures.
 - Never log or persist plaintext refresh/access tokens server-side; persist only hash/prefix material.
+
+## Agent Access Validation Rules
+- Keep access-token parsing (`clw_agt_`) centralized in `agent-auth-token.ts`; do not duplicate marker/format checks in route handlers.
+- `POST /v1/agents/auth/validate` must fail closed with `401` for missing/invalid/expired/revoked credentials.
+- Access validation must compare hashed token material with constant-time semantics and update `access_last_used_at` on successful validation.

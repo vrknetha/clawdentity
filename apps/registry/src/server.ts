@@ -1,6 +1,7 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
   AGENT_AUTH_REFRESH_PATH,
+  AGENT_AUTH_VALIDATE_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   generateUlid,
   INVITES_PATH,
@@ -58,8 +59,10 @@ import {
   parseApiKeyRevokePath,
 } from "./api-key-lifecycle.js";
 import {
+  deriveAccessTokenLookupPrefix,
   deriveRefreshTokenLookupPrefix,
   hashAgentToken,
+  parseAccessToken,
 } from "./auth/agent-auth-token.js";
 import { verifyAgentClawRequest } from "./auth/agent-claw-auth.js";
 import {
@@ -422,6 +425,52 @@ function isIsoExpired(expiresAtIso: string, nowMillis: number): boolean {
   }
 
   return parsed <= nowMillis;
+}
+
+function parseAgentAuthValidatePayload(payload: unknown): {
+  agentDid: string;
+  aitJti: string;
+} {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new AppError({
+      code: "AGENT_AUTH_VALIDATE_INVALID",
+      message: "Validation payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const value = payload as Record<string, unknown>;
+  const agentDid =
+    typeof value.agentDid === "string" ? value.agentDid.trim() : "";
+  const aitJti = typeof value.aitJti === "string" ? value.aitJti.trim() : "";
+
+  if (agentDid.length === 0 || aitJti.length === 0) {
+    throw new AppError({
+      code: "AGENT_AUTH_VALIDATE_INVALID",
+      message: "Validation payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return {
+    agentDid,
+    aitJti,
+  };
+}
+
+function parseAgentAccessHeaderToken(token: string | undefined): string {
+  try {
+    return parseAccessToken(token);
+  } catch {
+    throw new AppError({
+      code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
+      message: "Agent access token is invalid",
+      status: 401,
+      expose: true,
+    });
+  }
 }
 
 async function insertAgentAuthEvent(input: {
@@ -1661,6 +1710,107 @@ function createRegistryApp() {
         refreshExpiresAt: rotatedAuth.refreshExpiresAt,
       }),
     });
+  });
+
+  app.post(AGENT_AUTH_VALIDATE_PATH, async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      throw new AppError({
+        code: "AGENT_AUTH_VALIDATE_INVALID",
+        message: "Validation payload is invalid",
+        status: 400,
+        expose: true,
+      });
+    }
+
+    const parsedPayload = parseAgentAuthValidatePayload(payload);
+    const accessToken = parseAgentAccessHeaderToken(
+      c.req.header("x-claw-agent-access"),
+    );
+
+    const db = createDb(c.env.DB);
+    const existingAgent = await findOwnedAgentByDid({
+      db,
+      did: parsedPayload.agentDid,
+    });
+    if (
+      !existingAgent ||
+      existingAgent.status !== "active" ||
+      existingAgent.current_jti !== parsedPayload.aitJti
+    ) {
+      throw new AppError({
+        code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
+        message: "Agent access token is invalid",
+        status: 401,
+        expose: true,
+      });
+    }
+
+    const existingSession = await findAgentAuthSessionByAgentId({
+      db,
+      agentId: existingAgent.id,
+    });
+    if (!existingSession || existingSession.status !== "active") {
+      throw new AppError({
+        code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
+        message: "Agent access token is invalid",
+        status: 401,
+        expose: true,
+      });
+    }
+
+    const nowMillis = Date.now();
+    if (isIsoExpired(existingSession.access_expires_at, nowMillis)) {
+      throw new AppError({
+        code: "AGENT_AUTH_VALIDATE_EXPIRED",
+        message: "Agent access token is expired",
+        status: 401,
+        expose: true,
+      });
+    }
+
+    const accessTokenPrefix = deriveAccessTokenLookupPrefix(accessToken);
+    const accessTokenHash = await hashAgentToken(accessToken);
+    const accessTokenMatches =
+      existingSession.access_key_prefix === accessTokenPrefix &&
+      constantTimeEqual(existingSession.access_key_hash, accessTokenHash);
+    if (!accessTokenMatches) {
+      throw new AppError({
+        code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
+        message: "Agent access token is invalid",
+        status: 401,
+        expose: true,
+      });
+    }
+
+    const accessLastUsedAt = nowIso();
+    const updateResult = await db
+      .update(agent_auth_sessions)
+      .set({
+        access_last_used_at: accessLastUsedAt,
+        updated_at: accessLastUsedAt,
+      })
+      .where(
+        and(
+          eq(agent_auth_sessions.id, existingSession.id),
+          eq(agent_auth_sessions.status, "active"),
+          eq(agent_auth_sessions.access_key_hash, accessTokenHash),
+        ),
+      );
+
+    const updatedRows = getMutationRowCount(updateResult);
+    if (updatedRows === 0) {
+      throw new AppError({
+        code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
+        message: "Agent access token is invalid",
+        status: 401,
+        expose: true,
+      });
+    }
+
+    return c.body(null, 204);
   });
 
   app.delete("/v1/agents/:id/auth/revoke", createApiKeyAuth(), async (c) => {

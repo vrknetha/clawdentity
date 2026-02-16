@@ -9,11 +9,9 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  AGENT_AUTH_REFRESH_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   canonicalizeAgentRegistrationProof,
   decodeBase64url,
-  encodeBase64url,
   parseDid,
 } from "@clawdentity/protocol";
 import {
@@ -23,8 +21,8 @@ import {
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
+  refreshAgentAuthWithClawProof,
   signEd25519,
-  signHttpRequest,
 } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
@@ -351,22 +349,6 @@ const toRegistryAgentChallengeRequestUrl = (registryUrl: string): string => {
     AGENT_REGISTRATION_CHALLENGE_PATH.slice(1),
     normalizedBaseUrl,
   ).toString();
-};
-
-const toRegistryAgentAuthRefreshRequestUrl = (registryUrl: string): string => {
-  const normalizedBaseUrl = registryUrl.endsWith("/")
-    ? registryUrl
-    : `${registryUrl}/`;
-
-  return new URL(
-    AGENT_AUTH_REFRESH_PATH.slice(1),
-    normalizedBaseUrl,
-  ).toString();
-};
-
-const toPathWithQuery = (requestUrl: string): string => {
-  const parsed = new URL(requestUrl);
-  return `${parsed.pathname}${parsed.search}`;
 };
 
 const toHttpErrorMessage = (status: number, responseBody: unknown): string => {
@@ -765,49 +747,6 @@ const toRevokeHttpErrorMessage = (
   return `Registry request failed (${status})`;
 };
 
-const toRefreshHttpErrorMessage = (
-  status: number,
-  responseBody: unknown,
-): string => {
-  const registryMessage = extractRegistryErrorMessage(responseBody);
-
-  if (status === 400) {
-    return registryMessage
-      ? `Refresh request is invalid (400): ${registryMessage}`
-      : "Refresh request is invalid (400).";
-  }
-
-  if (status === 401) {
-    return registryMessage
-      ? `Refresh rejected (401): ${registryMessage}`
-      : "Refresh rejected (401). Agent credentials are invalid, revoked, or expired.";
-  }
-
-  if (status === 409) {
-    return registryMessage
-      ? `Refresh conflict (409): ${registryMessage}`
-      : "Refresh conflict (409). Retry the command.";
-  }
-
-  if (status >= 500) {
-    return `Registry server error (${status}). Try again later.`;
-  }
-
-  if (registryMessage) {
-    return `Registry request failed (${status}): ${registryMessage}`;
-  }
-
-  return `Registry request failed (${status})`;
-};
-
-const parseAgentAuthRefreshResponse = (payload: unknown): AgentAuthBundle => {
-  if (!isRecord(payload) || !isRecord(payload.agentAuth)) {
-    throw new Error("Registry returned an invalid response payload");
-  }
-
-  return parseAgentAuthBundle(payload.agentAuth);
-};
-
 const refreshAgentAuth = async (input: {
   agentName: string;
 }): Promise<{
@@ -826,46 +765,16 @@ const refreshAgentAuth = async (input: {
     );
   }
 
-  const refreshBody = JSON.stringify({
+  const agentAuth = await refreshAgentAuthWithClawProof({
+    registryUrl,
+    ait,
+    secretKey,
     refreshToken: localAuth.refreshToken,
   });
-  const refreshUrl = toRegistryAgentAuthRefreshRequestUrl(registryUrl);
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const nonce = encodeBase64url(crypto.getRandomValues(new Uint8Array(16)));
-  const signed = await signHttpRequest({
-    method: "POST",
-    pathWithQuery: toPathWithQuery(refreshUrl),
-    timestamp,
-    nonce,
-    body: new TextEncoder().encode(refreshBody),
-    secretKey,
-  });
-
-  let response: Response;
-  try {
-    response = await fetch(refreshUrl, {
-      method: "POST",
-      headers: {
-        authorization: `Claw ${ait}`,
-        "content-type": "application/json",
-        ...signed.headers,
-      },
-      body: refreshBody,
-    });
-  } catch {
-    throw new Error(
-      "Unable to connect to the registry. Check network access and registryUrl.",
-    );
-  }
-
-  const responseBody = await parseJsonResponse(response);
-  if (!response.ok) {
-    throw new Error(toRefreshHttpErrorMessage(response.status, responseBody));
-  }
 
   return {
     registryUrl,
-    agentAuth: parseAgentAuthRefreshResponse(responseBody),
+    agentAuth,
   };
 };
 

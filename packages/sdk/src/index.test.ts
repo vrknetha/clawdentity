@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AgentAuthBundle,
   AitJwtError,
   AppError,
   addSeconds,
@@ -13,6 +14,7 @@ import {
   decodeEd25519SignatureBase64url,
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
+  executeWithAgentAuthRefreshRetry,
   generateEd25519Keypair,
   parseRegistryConfig,
   REQUEST_ID_HEADER,
@@ -45,6 +47,46 @@ describe("sdk", () => {
     expect(shouldExposeVerboseErrors("test")).toBe(true);
     expect(REQUEST_ID_HEADER).toBe("x-request-id");
     expect(AppError).toBeTypeOf("function");
+  });
+
+  it("exports agent auth refresh retry helpers", async () => {
+    const stale: AgentAuthBundle = {
+      tokenType: "Bearer",
+      accessToken: "clw_agt_old",
+      accessExpiresAt: "2030-01-01T00:00:00.000Z",
+      refreshToken: "clw_rft_old",
+      refreshExpiresAt: "2030-02-01T00:00:00.000Z",
+    };
+    const fresh: AgentAuthBundle = {
+      tokenType: "Bearer",
+      accessToken: "clw_agt_new",
+      accessExpiresAt: "2030-03-01T00:00:00.000Z",
+      refreshToken: "clw_rft_new",
+      refreshExpiresAt: "2030-04-01T00:00:00.000Z",
+    };
+    let current = stale;
+
+    const result = await executeWithAgentAuthRefreshRetry({
+      key: "sdk-root-export",
+      getAuth: async () => current,
+      refreshAuth: async () => fresh,
+      persistAuth: async (next) => {
+        current = next;
+      },
+      perform: async (auth) => {
+        if (auth.accessToken === stale.accessToken) {
+          throw new AppError({
+            code: "AUTH_EXPIRED",
+            message: "expired",
+            status: 401,
+            expose: true,
+          });
+        }
+        return auth.accessToken;
+      },
+    });
+
+    expect(result).toBe("clw_agt_new");
   });
 
   it("exports Ed25519 helpers from package root", async () => {

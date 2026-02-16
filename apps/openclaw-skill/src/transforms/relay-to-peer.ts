@@ -3,19 +3,32 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { decodeBase64url, encodeBase64url } from "@clawdentity/protocol";
-import { signHttpRequest } from "@clawdentity/sdk";
+import {
+  type AgentAuthBundle,
+  AppError,
+  executeWithAgentAuthRefreshRetry,
+  refreshAgentAuthWithClawProof,
+  signHttpRequest,
+} from "@clawdentity/sdk";
 import {
   loadPeersConfig,
   type PeersConfigPathOptions,
 } from "./peers-config.js";
+import {
+  readAgentRegistryAuth,
+  withAgentRegistryAuthLock,
+  writeAgentRegistryAuthAtomic,
+} from "./registry-auth.js";
 
 const CLAWDENTITY_DIR = ".clawdentity";
 const AGENTS_DIR = "agents";
 const SECRET_KEY_FILENAME = "secret.key";
 const AIT_FILENAME = "ait.jwt";
+const IDENTITY_FILENAME = "identity.json";
 const AGENT_NAME_ENV = "CLAWDENTITY_AGENT_NAME";
 const OPENCLAW_AGENT_NAME_FILENAME = "openclaw-agent-name";
 const NONCE_SIZE = 16;
+const AGENT_ACCESS_HEADER = "x-claw-agent-access";
 
 const textEncoder = new TextEncoder();
 
@@ -53,6 +66,26 @@ function parseRequiredString(value: unknown): string {
   }
 
   return trimmed;
+}
+
+function parseIdentityRegistryUrl(
+  payload: unknown,
+  options: { agentName: string },
+): string {
+  if (!isRecord(payload) || typeof payload.registryUrl !== "string") {
+    throw new Error(
+      `Agent "${options.agentName}" has invalid ${IDENTITY_FILENAME} (missing registryUrl)`,
+    );
+  }
+
+  const registryUrl = payload.registryUrl.trim();
+  if (registryUrl.length === 0) {
+    throw new Error(
+      `Agent "${options.agentName}" has invalid ${IDENTITY_FILENAME} (missing registryUrl)`,
+    );
+  }
+
+  return registryUrl;
 }
 
 function resolvePathWithQuery(url: URL): string {
@@ -166,7 +199,7 @@ async function resolveAgentName(input: {
 async function readAgentCredentials(input: {
   agentName: string;
   homeDir: string;
-}): Promise<{ ait: string; secretKey: Uint8Array }> {
+}): Promise<{ ait: string; secretKey: Uint8Array; registryUrl: string }> {
   const agentDir = join(
     input.homeDir,
     CLAWDENTITY_DIR,
@@ -175,9 +208,13 @@ async function readAgentCredentials(input: {
   );
   const secretPath = join(agentDir, SECRET_KEY_FILENAME);
   const aitPath = join(agentDir, AIT_FILENAME);
+  const identityPath = join(agentDir, IDENTITY_FILENAME);
 
-  const encodedSecret = await readTrimmedFile(secretPath, SECRET_KEY_FILENAME);
-  const ait = await readTrimmedFile(aitPath, AIT_FILENAME);
+  const [encodedSecret, ait, rawIdentity] = await Promise.all([
+    readTrimmedFile(secretPath, SECRET_KEY_FILENAME),
+    readTrimmedFile(aitPath, AIT_FILENAME),
+    readTrimmedFile(identityPath, IDENTITY_FILENAME),
+  ]);
 
   let secretKey: Uint8Array;
   try {
@@ -186,9 +223,22 @@ async function readAgentCredentials(input: {
     throw new Error("Agent secret key is invalid");
   }
 
+  let parsedIdentity: unknown;
+  try {
+    parsedIdentity = JSON.parse(rawIdentity);
+  } catch {
+    throw new Error(
+      `Agent "${input.agentName}" has invalid ${IDENTITY_FILENAME} (must be valid JSON)`,
+    );
+  }
+  const registryUrl = parseIdentityRegistryUrl(parsedIdentity, {
+    agentName: input.agentName,
+  });
+
   return {
     ait,
     secretKey,
+    registryUrl,
   };
 }
 
@@ -204,6 +254,21 @@ function removePeerField(
   }
 
   return outbound;
+}
+
+function isRetryableRelayAuthError(error: unknown): boolean {
+  return (
+    error instanceof AppError &&
+    error.code === "OPENCLAW_RELAY_AGENT_AUTH_REJECTED" &&
+    error.status === 401
+  );
+}
+
+function buildRefreshSingleFlightKey(input: {
+  homeDir: string;
+  agentName: string;
+}): string {
+  return `${input.homeDir}:${input.agentName}`;
 }
 
 export async function relayPayloadToPeer(
@@ -235,48 +300,121 @@ export async function relayPayloadToPeer(
     overrideName: options.agentName,
     homeDir: home,
   });
-  const { ait, secretKey } = await readAgentCredentials({
+  const { ait, secretKey, registryUrl } = await readAgentCredentials({
     agentName,
     homeDir: home,
   });
 
   const outboundPayload = removePeerField(payload);
   const body = JSON.stringify(outboundPayload);
-
   const peerUrl = new URL(peerEntry.proxyUrl);
-  const unixSeconds = Math.floor(
-    (options.clock ?? Date.now)() / 1000,
-  ).toString();
-  const nonce = encodeBase64url(
-    (options.randomBytesImpl ?? randomBytes)(NONCE_SIZE),
-  );
-  const signed = await signHttpRequest({
-    method: "POST",
-    pathWithQuery: resolvePathWithQuery(peerUrl),
-    timestamp: unixSeconds,
-    nonce,
-    body: textEncoder.encode(body),
-    secretKey,
+  const fetchImpl = resolveRelayFetch(options.fetchImpl);
+  const refreshSingleFlightKey = buildRefreshSingleFlightKey({
+    homeDir: home,
+    agentName,
   });
 
-  const response = await resolveRelayFetch(options.fetchImpl)(
-    peerUrl.toString(),
-    {
+  const sendRelayRequest = async (auth: AgentAuthBundle): Promise<Response> => {
+    const unixSeconds = Math.floor(
+      (options.clock ?? Date.now)() / 1000,
+    ).toString();
+    const nonce = encodeBase64url(
+      (options.randomBytesImpl ?? randomBytes)(NONCE_SIZE),
+    );
+    const signed = await signHttpRequest({
+      method: "POST",
+      pathWithQuery: resolvePathWithQuery(peerUrl),
+      timestamp: unixSeconds,
+      nonce,
+      body: textEncoder.encode(body),
+      secretKey,
+    });
+
+    return fetchImpl(peerUrl.toString(), {
       method: "POST",
       headers: {
         Authorization: `Claw ${ait}`,
         "Content-Type": "application/json",
+        [AGENT_ACCESS_HEADER]: auth.accessToken,
         ...signed.headers,
       },
       body,
-    },
-  );
+    });
+  };
 
-  if (!response.ok) {
-    throw new Error("Peer relay request failed");
-  }
+  const performRelay = async (auth: AgentAuthBundle): Promise<null> => {
+    const response = await sendRelayRequest(auth);
+    if (!response.ok) {
+      if (response.status === 401) {
+        throw new AppError({
+          code: "OPENCLAW_RELAY_AGENT_AUTH_REJECTED",
+          message: "Peer relay rejected agent auth credentials",
+          status: 401,
+          expose: true,
+        });
+      }
 
-  return null;
+      throw new Error("Peer relay request failed");
+    }
+
+    return null;
+  };
+
+  const result = await executeWithAgentAuthRefreshRetry({
+    key: refreshSingleFlightKey,
+    shouldRetry: isRetryableRelayAuthError,
+    getAuth: async () =>
+      readAgentRegistryAuth({
+        homeDir: home,
+        agentName,
+      }),
+    persistAuth: async () => {},
+    refreshAuth: async (currentAuth) =>
+      withAgentRegistryAuthLock({
+        homeDir: home,
+        agentName,
+        operation: async () => {
+          const latestAuth = await readAgentRegistryAuth({
+            homeDir: home,
+            agentName,
+          });
+          if (latestAuth.refreshToken !== currentAuth.refreshToken) {
+            return latestAuth;
+          }
+
+          let refreshedAuth: AgentAuthBundle;
+          try {
+            refreshedAuth = await refreshAgentAuthWithClawProof({
+              registryUrl,
+              ait,
+              secretKey,
+              refreshToken: latestAuth.refreshToken,
+              fetchImpl,
+            });
+          } catch (error) {
+            const afterFailureAuth = await readAgentRegistryAuth({
+              homeDir: home,
+              agentName,
+            });
+            if (afterFailureAuth.refreshToken !== latestAuth.refreshToken) {
+              return afterFailureAuth;
+            }
+
+            throw error;
+          }
+          await writeAgentRegistryAuthAtomic({
+            homeDir: home,
+            agentName,
+            auth: refreshedAuth,
+          });
+
+          return refreshedAuth;
+        },
+      }),
+    perform: performRelay,
+  });
+
+  return result;
 }
 
 export default async function relayToPeer(

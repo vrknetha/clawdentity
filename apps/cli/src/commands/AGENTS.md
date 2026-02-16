@@ -48,6 +48,7 @@
 - `agent create` must use a two-step registration handshake: request challenge from registry, sign canonical challenge message locally with agent private key, then submit registration with `challengeId` + `challengeSignature`.
 - `agent create` must persist returned `agentAuth` bootstrap credentials to `registry-auth.json` alongside `identity.json`, `secret.key`, `public.key`, and `ait.jwt`.
 - `agent auth refresh` must call `AGENT_AUTH_REFRESH_PATH` from `@clawdentity/protocol` using Claw + PoP headers and local refresh token payload, and PoP signing must use the resolved request path (including any registry base path prefix).
+- `agent auth refresh` should call the shared SDK refresh client (`refreshAgentAuthWithClawProof`) so refresh request signing/error mapping stays consistent with runtime integrations.
 - `agent auth refresh` must rewrite `registry-auth.json` atomically on success and keep error mapping stable for `400`, `401`, `409`, and `5xx`.
 - Never send or log agent private keys; only send public key and proof signature.
 - Keep proof canonicalization sourced from `@clawdentity/protocol` helper exports to avoid CLI/registry signature drift.
