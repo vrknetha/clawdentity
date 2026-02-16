@@ -5,6 +5,7 @@ import {
   canonicalizeAgentRegistrationProof,
   encodeBase64url,
   generateUlid,
+  ME_API_KEYS_PATH,
   makeAgentDid,
   makeHumanDid,
 } from "@clawdentity/protocol";
@@ -85,6 +86,16 @@ type FakeApiKeyRow = {
   status: "active" | "revoked";
   createdAt: string;
   lastUsedAt: string | null;
+};
+type FakeApiKeySelectRow = {
+  id: string;
+  human_id: string;
+  key_hash: string;
+  key_prefix: string;
+  name: string;
+  status: "active" | "revoked";
+  created_at: string;
+  last_used_at: string | null;
 };
 
 type FakeAgentInsertRow = Record<string, unknown>;
@@ -455,6 +466,110 @@ function resolveHumanSelectRows(options: {
     .slice(0, limit);
 }
 
+function getApiKeySelectColumnValue(
+  row: FakeApiKeySelectRow,
+  column: string,
+): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "human_id") {
+    return row.human_id;
+  }
+  if (column === "key_hash") {
+    return row.key_hash;
+  }
+  if (column === "key_prefix") {
+    return row.key_prefix;
+  }
+  if (column === "name") {
+    return row.name;
+  }
+  if (column === "status") {
+    return row.status;
+  }
+  if (column === "created_at") {
+    return row.created_at;
+  }
+  if (column === "last_used_at") {
+    return row.last_used_at;
+  }
+  return undefined;
+}
+
+function resolveApiKeySelectRows(options: {
+  query: string;
+  params: unknown[];
+  apiKeyRows: FakeApiKeyRow[];
+}): FakeApiKeySelectRow[] {
+  const whereClause = extractWhereClause(options.query);
+  const equalityParams = parseWhereEqualityParams({
+    whereClause,
+    params: options.params,
+  });
+  const hasHumanIdFilter = hasFilter(whereClause, "human_id");
+  const hasIdFilter = hasFilter(whereClause, "id");
+  const hasStatusFilter = hasFilter(whereClause, "status");
+  const hasPrefixFilter = hasFilter(whereClause, "key_prefix");
+  const hasLimitClause = options.query.toLowerCase().includes(" limit ");
+  const orderByCreatedAtDesc =
+    options.query.toLowerCase().includes("order by") &&
+    options.query.toLowerCase().includes("created_at") &&
+    options.query.toLowerCase().includes("desc");
+
+  const humanId =
+    hasHumanIdFilter && typeof equalityParams.values.human_id?.[0] === "string"
+      ? String(equalityParams.values.human_id[0])
+      : undefined;
+  const id =
+    hasIdFilter && typeof equalityParams.values.id?.[0] === "string"
+      ? String(equalityParams.values.id[0])
+      : undefined;
+  const status =
+    hasStatusFilter && typeof equalityParams.values.status?.[0] === "string"
+      ? String(equalityParams.values.status[0])
+      : undefined;
+  const keyPrefix =
+    hasPrefixFilter && typeof equalityParams.values.key_prefix?.[0] === "string"
+      ? String(equalityParams.values.key_prefix[0])
+      : undefined;
+
+  const maybeLimit = hasLimitClause
+    ? Number(options.params[options.params.length - 1])
+    : Number.NaN;
+  const limit = Number.isFinite(maybeLimit)
+    ? maybeLimit
+    : options.apiKeyRows.length;
+
+  const rows = options.apiKeyRows
+    .filter((row) => (humanId ? row.humanId === humanId : true))
+    .filter((row) => (id ? row.id === id : true))
+    .filter((row) => (status ? row.status === status : true))
+    .filter((row) => (keyPrefix ? row.keyPrefix === keyPrefix : true))
+    .map((row) => ({
+      id: row.id,
+      human_id: row.humanId,
+      key_hash: row.keyHash,
+      key_prefix: row.keyPrefix,
+      name: row.name,
+      status: row.status,
+      created_at: row.createdAt,
+      last_used_at: row.lastUsedAt,
+    }));
+
+  if (orderByCreatedAtDesc) {
+    rows.sort((left, right) => {
+      const createdAtCompare = right.created_at.localeCompare(left.created_at);
+      if (createdAtCompare !== 0) {
+        return createdAtCompare;
+      }
+      return right.id.localeCompare(left.id);
+    });
+  }
+
+  return rows.slice(0, limit);
+}
+
 function resolveAgentSelectRows(options: {
   query: string;
   params: unknown[];
@@ -714,35 +829,63 @@ function createFakeDb(
             normalizedQuery.includes('from "api_keys"') ||
             normalizedQuery.includes("from api_keys")
           ) {
-            const requestedKeyPrefix =
-              typeof params[0] === "string" ? params[0] : "";
-            const matchingRows = apiKeyRows.filter(
-              (row) => row.keyPrefix === requestedKeyPrefix,
-            );
+            const requiresHumanJoin =
+              normalizedQuery.includes('join "humans"') ||
+              normalizedQuery.includes("join humans");
 
+            if (requiresHumanJoin) {
+              const requestedKeyPrefix =
+                typeof params[0] === "string" ? params[0] : "";
+              const matchingRows = apiKeyRows.filter(
+                (row) => row.keyPrefix === requestedKeyPrefix,
+              );
+
+              return {
+                results: matchingRows
+                  .map((row) => {
+                    const human = humanRows.find(
+                      (humanRow) => humanRow.id === row.humanId,
+                    );
+                    if (!human) {
+                      return undefined;
+                    }
+
+                    return {
+                      api_key_id: row.id,
+                      key_hash: row.keyHash,
+                      api_key_status: row.status,
+                      api_key_name: row.name,
+                      human_id: human.id,
+                      human_did: human.did,
+                      human_display_name: human.displayName,
+                      human_role: human.role,
+                      human_status: human.status,
+                    };
+                  })
+                  .filter(isDefined),
+              };
+            }
+
+            const resultRows = resolveApiKeySelectRows({
+              query,
+              params,
+              apiKeyRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
             return {
-              results: matchingRows
-                .map((row) => {
-                  const human = humanRows.find(
-                    (humanRow) => humanRow.id === row.humanId,
-                  );
-                  if (!human) {
-                    return undefined;
-                  }
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
 
-                  return {
-                    api_key_id: row.id,
-                    key_hash: row.keyHash,
-                    api_key_status: row.status,
-                    api_key_name: row.name,
-                    human_id: human.id,
-                    human_did: human.did,
-                    human_display_name: human.displayName,
-                    human_role: human.role,
-                    human_status: human.status,
-                  };
-                })
-                .filter(isDefined),
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getApiKeySelectColumnValue(row, column);
+                    return acc;
+                  },
+                  {},
+                );
+              }),
             };
           }
           if (
@@ -855,34 +998,52 @@ function createFakeDb(
             normalizedQuery.includes('from "api_keys"') ||
             normalizedQuery.includes("from api_keys")
           ) {
-            const requestedKeyPrefix =
-              typeof params[0] === "string" ? params[0] : "";
-            const matchingRows = apiKeyRows.filter(
-              (row) => row.keyPrefix === requestedKeyPrefix,
+            const requiresHumanJoin =
+              normalizedQuery.includes('join "humans"') ||
+              normalizedQuery.includes("join humans");
+
+            if (requiresHumanJoin) {
+              const requestedKeyPrefix =
+                typeof params[0] === "string" ? params[0] : "";
+              const matchingRows = apiKeyRows.filter(
+                (row) => row.keyPrefix === requestedKeyPrefix,
+              );
+
+              return matchingRows
+                .map((row) => {
+                  const human = humanRows.find(
+                    (humanRow) => humanRow.id === row.humanId,
+                  );
+                  if (!human) {
+                    return undefined;
+                  }
+
+                  return [
+                    row.id,
+                    row.keyHash,
+                    row.status,
+                    row.name,
+                    human.id,
+                    human.did,
+                    human.displayName,
+                    human.role,
+                    human.status,
+                  ];
+                })
+                .filter(isDefined);
+            }
+
+            const resultRows = resolveApiKeySelectRows({
+              query,
+              params,
+              apiKeyRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getApiKeySelectColumnValue(row, column),
+              ),
             );
-
-            return matchingRows
-              .map((row) => {
-                const human = humanRows.find(
-                  (humanRow) => humanRow.id === row.humanId,
-                );
-                if (!human) {
-                  return undefined;
-                }
-
-                return [
-                  row.id,
-                  row.keyHash,
-                  row.status,
-                  row.name,
-                  human.id,
-                  human.did,
-                  human.displayName,
-                  human.role,
-                  human.status,
-                ];
-              })
-              .filter(isDefined);
           }
           if (
             normalizedQuery.includes('from "humans"') ||
@@ -964,17 +1125,67 @@ function createFakeDb(
             normalizedQuery.includes('update "api_keys"') ||
             normalizedQuery.includes("update api_keys")
           ) {
-            updates.push({
-              lastUsedAt: String(params[0] ?? ""),
-              apiKeyId: String(params[1] ?? ""),
-            });
-            const apiKey = apiKeyRows.find(
-              (row) => row.id === String(params[1]),
+            const setColumns = parseUpdateSetColumns(query, "api_keys");
+            const nextValues = setColumns.reduce<Record<string, unknown>>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
             );
-            if (apiKey) {
-              apiKey.lastUsedAt = String(params[0] ?? "");
+            const whereClause = extractWhereClause(query);
+            const whereParams = params.slice(setColumns.length);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params: whereParams,
+            });
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : undefined;
+            const humanIdFilter =
+              typeof equalityParams.values.human_id?.[0] === "string"
+                ? String(equalityParams.values.human_id[0])
+                : undefined;
+            const statusFilter =
+              typeof equalityParams.values.status?.[0] === "string"
+                ? String(equalityParams.values.status[0])
+                : undefined;
+
+            let matchedRows = 0;
+            for (const row of apiKeyRows) {
+              if (idFilter && row.id !== idFilter) {
+                continue;
+              }
+              if (humanIdFilter && row.humanId !== humanIdFilter) {
+                continue;
+              }
+              if (statusFilter && row.status !== statusFilter) {
+                continue;
+              }
+
+              matchedRows += 1;
+              if (
+                nextValues.status === "active" ||
+                nextValues.status === "revoked"
+              ) {
+                row.status = nextValues.status;
+              }
+              if (
+                typeof nextValues.last_used_at === "string" ||
+                nextValues.last_used_at === null
+              ) {
+                row.lastUsedAt = nextValues.last_used_at;
+              }
             }
-            changes = 1;
+
+            if (typeof nextValues.last_used_at === "string" && idFilter) {
+              updates.push({
+                lastUsedAt: nextValues.last_used_at,
+                apiKeyId: idFilter,
+              });
+            }
+            changes = matchedRows;
           }
           if (
             normalizedQuery.includes('insert into "humans"') ||
@@ -2448,6 +2659,353 @@ describe("GET /v1/me", () => {
     });
     expect(updates).toHaveLength(1);
     expect(updates[0]?.apiKeyId).toBe("key-1");
+  });
+});
+
+describe(`POST ${ME_API_KEYS_PATH}`, () => {
+  it("returns 401 when PAT is missing", async () => {
+    const response = await createRegistryApp().request(
+      ME_API_KEYS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ name: "workstation" }),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("creates key and returns plaintext token once", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, apiKeyInserts } = createFakeDb([authRow]);
+
+    const response = await createRegistryApp().request(
+      ME_API_KEYS_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "workstation",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      apiKey: {
+        id: string;
+        name: string;
+        status: "active" | "revoked";
+        createdAt: string;
+        lastUsedAt: string | null;
+        token: string;
+      };
+    };
+    expect(body.apiKey.name).toBe("workstation");
+    expect(body.apiKey.status).toBe("active");
+    expect(body.apiKey.token).toMatch(/^clw_pat_/);
+    expect(body.apiKey.lastUsedAt).toBeNull();
+
+    expect(apiKeyInserts).toHaveLength(1);
+    expect(apiKeyInserts[0]?.name).toBe("workstation");
+    expect(apiKeyInserts[0]?.key_hash).not.toBe(body.apiKey.token);
+    expect(apiKeyInserts[0]?.key_prefix).toBe(
+      deriveApiKeyLookupPrefix(body.apiKey.token),
+    );
+  });
+
+  it("accepts empty body and uses default key name", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, apiKeyInserts } = createFakeDb([authRow]);
+
+    const response = await createRegistryApp().request(
+      ME_API_KEYS_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      apiKey: {
+        name: string;
+        token: string;
+      };
+    };
+    expect(body.apiKey.name).toBe("api-key");
+    expect(body.apiKey.token).toMatch(/^clw_pat_/);
+    expect(apiKeyInserts).toHaveLength(1);
+    expect(apiKeyInserts[0]?.name).toBe("api-key");
+  });
+});
+
+describe(`GET ${ME_API_KEYS_PATH}`, () => {
+  it("returns metadata for caller-owned keys only", async () => {
+    const authToken = "clw_pat_valid-token-value";
+    const authTokenHash = await hashApiKeyToken(authToken);
+    const revokedToken = "clw_pat_revoked-token-value";
+    const revokedTokenHash = await hashApiKeyToken(revokedToken);
+    const foreignToken = "clw_pat_foreign-token-value";
+    const foreignTokenHash = await hashApiKeyToken(foreignToken);
+
+    const authRow: FakeD1Row = {
+      apiKeyId: "01KJ0000000000000000000001",
+      keyPrefix: deriveApiKeyLookupPrefix(authToken),
+      keyHash: authTokenHash,
+      apiKeyStatus: "active",
+      apiKeyName: "primary",
+      humanId: "human-1",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDisplayName: "Ravi",
+      humanRole: "admin",
+      humanStatus: "active",
+    };
+    const revokedOwnedRow: FakeD1Row = {
+      apiKeyId: "01KJ0000000000000000000002",
+      keyPrefix: deriveApiKeyLookupPrefix(revokedToken),
+      keyHash: revokedTokenHash,
+      apiKeyStatus: "revoked",
+      apiKeyName: "old-laptop",
+      humanId: "human-1",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDisplayName: "Ravi",
+      humanRole: "admin",
+      humanStatus: "active",
+    };
+    const foreignRow: FakeD1Row = {
+      apiKeyId: "01KJ0000000000000000000003",
+      keyPrefix: deriveApiKeyLookupPrefix(foreignToken),
+      keyHash: foreignTokenHash,
+      apiKeyStatus: "active",
+      apiKeyName: "foreign",
+      humanId: "human-2",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB8",
+      humanDisplayName: "Ira",
+      humanRole: "user",
+      humanStatus: "active",
+    };
+    const { database } = createFakeDb([authRow, revokedOwnedRow, foreignRow]);
+
+    const response = await createRegistryApp().request(
+      ME_API_KEYS_PATH,
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      apiKeys: Array<{
+        id: string;
+        name: string;
+        status: "active" | "revoked";
+        createdAt: string;
+        lastUsedAt: string | null;
+        token?: string;
+        keyHash?: string;
+        keyPrefix?: string;
+      }>;
+    };
+    expect(body.apiKeys).toEqual([
+      {
+        id: "01KJ0000000000000000000002",
+        name: "old-laptop",
+        status: "revoked",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        lastUsedAt: null,
+      },
+      {
+        id: "01KJ0000000000000000000001",
+        name: "primary",
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        lastUsedAt: expect.any(String),
+      },
+    ]);
+    for (const apiKey of body.apiKeys) {
+      expect(apiKey).not.toHaveProperty("token");
+      expect(apiKey).not.toHaveProperty("keyHash");
+      expect(apiKey).not.toHaveProperty("keyPrefix");
+    }
+  });
+});
+
+describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
+  it("returns 400 for invalid id path", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const response = await createRegistryApp().request(
+      `${ME_API_KEYS_PATH}/invalid-id`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("API_KEY_REVOKE_INVALID_PATH");
+  });
+
+  it("returns 404 when key is not found for owner", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const response = await createRegistryApp().request(
+      `${ME_API_KEYS_PATH}/${generateUlid(1700300000000)}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("API_KEY_NOT_FOUND");
+  });
+
+  it("revokes target key but keeps unrelated key active", async () => {
+    const authToken = "clw_pat_valid-token-value";
+    const authTokenHash = await hashApiKeyToken(authToken);
+    const rotateToken = "clw_pat_rotation-token-value";
+    const rotateTokenHash = await hashApiKeyToken(rotateToken);
+    const targetApiKeyId = generateUlid(1700300000000);
+
+    const authRow: FakeD1Row = {
+      apiKeyId: "01KJ0000000000000000001001",
+      keyPrefix: deriveApiKeyLookupPrefix(authToken),
+      keyHash: authTokenHash,
+      apiKeyStatus: "active",
+      apiKeyName: "primary",
+      humanId: "human-1",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDisplayName: "Ravi",
+      humanRole: "admin",
+      humanStatus: "active",
+    };
+    const revokableRow: FakeD1Row = {
+      apiKeyId: targetApiKeyId,
+      keyPrefix: deriveApiKeyLookupPrefix(rotateToken),
+      keyHash: rotateTokenHash,
+      apiKeyStatus: "active",
+      apiKeyName: "rotate-me",
+      humanId: "human-1",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDisplayName: "Ravi",
+      humanRole: "admin",
+      humanStatus: "active",
+    };
+    const { database } = createFakeDb([authRow, revokableRow]);
+    const appInstance = createRegistryApp();
+
+    const revokeResponse = await appInstance.request(
+      `${ME_API_KEYS_PATH}/${targetApiKeyId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(revokeResponse.status).toBe(204);
+
+    const revokedAuth = await appInstance.request(
+      "/v1/me",
+      {
+        headers: {
+          Authorization: `Bearer ${rotateToken}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(revokedAuth.status).toBe(401);
+    const revokedBody = (await revokedAuth.json()) as {
+      error: { code: string };
+    };
+    expect(revokedBody.error.code).toBe("API_KEY_REVOKED");
+
+    const activeAuth = await appInstance.request(
+      "/v1/me",
+      {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(activeAuth.status).toBe(200);
+  });
+
+  it("returns 204 when key is already revoked", async () => {
+    const authToken = "clw_pat_valid-token-value";
+    const authTokenHash = await hashApiKeyToken(authToken);
+    const revokedToken = "clw_pat_already-revoked-token-value";
+    const revokedTokenHash = await hashApiKeyToken(revokedToken);
+    const targetApiKeyId = generateUlid(1700300000100);
+
+    const authRow: FakeD1Row = {
+      apiKeyId: "01KJ0000000000000000002001",
+      keyPrefix: deriveApiKeyLookupPrefix(authToken),
+      keyHash: authTokenHash,
+      apiKeyStatus: "active",
+      apiKeyName: "primary",
+      humanId: "human-1",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDisplayName: "Ravi",
+      humanRole: "admin",
+      humanStatus: "active",
+    };
+    const alreadyRevokedRow: FakeD1Row = {
+      apiKeyId: targetApiKeyId,
+      keyPrefix: deriveApiKeyLookupPrefix(revokedToken),
+      keyHash: revokedTokenHash,
+      apiKeyStatus: "revoked",
+      apiKeyName: "already-revoked",
+      humanId: "human-1",
+      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDisplayName: "Ravi",
+      humanRole: "admin",
+      humanStatus: "active",
+    };
+    const { database } = createFakeDb([authRow, alreadyRevokedRow]);
+
+    const response = await createRegistryApp().request(
+      `${ME_API_KEYS_PATH}/${targetApiKeyId}`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(204);
   });
 });
 

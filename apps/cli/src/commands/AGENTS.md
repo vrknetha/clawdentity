@@ -31,6 +31,12 @@
 - Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
 - Config persistence failures after successful bootstrap must not hide the returned PAT token; print token first, then surface recovery instructions.
 
+## API Key Command Rules
+- `api-key create` must call registry `POST /v1/me/api-keys` and print the plaintext PAT token once without persisting it into local config automatically.
+- `api-key list` must call registry `GET /v1/me/api-keys` and print metadata only (`id`, `name`, `status`, `createdAt`, `lastUsedAt`), never token/hash/prefix values.
+- `api-key revoke` must call registry `DELETE /v1/me/api-keys/:id` using ULID path validation before network calls.
+- Keep API-key command error mapping stable for `401`, `400`, `404`, and `5xx` responses so rotation workflows are deterministic for operators.
+
 ## Agent Command Rules
 - `agent create` must use a two-step registration handshake: request challenge from registry, sign canonical challenge message locally with agent private key, then submit registration with `challengeId` + `challengeSignature`.
 - Never send or log agent private keys; only send public key and proof signature.

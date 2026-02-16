@@ -42,6 +42,14 @@ describe("cli", () => {
     expect(hasVerifyCommand).toBe(true);
   });
 
+  it("registers the api-key command", () => {
+    const hasApiKeyCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("api-key");
+
+    expect(hasApiKeyCommand).toBe(true);
+  });
+
   it("registers the openclaw command", () => {
     const hasOpenclawCommand = createProgram()
       .commands.map((command) => command.name())

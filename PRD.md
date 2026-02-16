@@ -71,6 +71,7 @@ Because OpenClaw requires `hooks.token` and expects Bearer/token auth for `/hook
   - Revoke agent (`claw agent revoke`)
   - Inspect token (`claw agent inspect`)
   - Verify token (`claw verify`)
+  - Personal PAT lifecycle (`clawdentity api-key create|list|revoke`)
   - Share contact card (`claw share`)
 
 - **Proxy**
@@ -145,6 +146,15 @@ Verifier must enforce:
 - Registration requires a valid invite code
 - One invite maps to one agent slot
 - Admin may suspend a human, which triggers agent revocation flow
+
+### 6.7 Personal PAT lifecycle (post-bootstrap)
+- Authenticated humans can mint additional PATs for safe key rotation.
+- Registry exposes:
+  - `POST /v1/me/api-keys` (create, plaintext token returned once)
+  - `GET /v1/me/api-keys` (metadata only)
+  - `DELETE /v1/me/api-keys/:id` (revoke)
+- Revoked PATs must fail auth with `401 API_KEY_REVOKED`.
+- Unrelated active PATs must continue to authenticate after targeted key revocation.
 
 ---
 

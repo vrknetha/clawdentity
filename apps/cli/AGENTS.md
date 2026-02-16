@@ -8,7 +8,7 @@
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
-- Keep top-level command contracts stable (`config`, `agent`, `verify`) so automation and docs do not drift.
+- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `verify`, `openclaw`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
 - Use `process.exitCode` instead of `process.exit()`.
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
@@ -26,6 +26,7 @@
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
 - Keep API tokens masked in human-facing output (`show`, success logs, debug prints).
 - Write config and identity artifacts with restrictive permissions (`0600`) and never commit secrets or generated local config.
+- API-key lifecycle commands must print plaintext PATs only at creation time and never persist newly-created tokens automatically without explicit user action.
 
 ## Testing Rules
 - Use Vitest for all tests.
