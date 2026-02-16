@@ -179,40 +179,23 @@ Verifier must enforce:
 
 ## 9) Rollout plan
 
-1) **Scaffold baseline (`T00`)**
-2) **Define deployment scaffolding (`T37`)**
-3) **Deploy and verify baseline (`T38`)**
-4) Implement feature backlog (`T01`-`T36`) after deploy gate passes
-5) Execute Phase 2/3 enhancements from HLD after MVP stability
+1) Establish workspace and deployment baseline
+2) Deploy and verify baseline environments and health checks
+3) Execute MVP feature backlog after the deployment gate passes
+4) Execute Phase 2/3 enhancements from HLD after MVP stability
 
 ---
 
 ## 10) Execution plan
 
-Execution plan is defined in [`issues/EXECUTION_PLAN.md`](./issues/EXECUTION_PLAN.md).
+Execution sequencing, dependency management, and wave planning are maintained in the GitHub issue tracker.
 
-### Canonical sequential order
-`T00 -> T37 -> T38 -> T01 -> T02 -> T03 -> T04 -> T05 -> T06 -> T07 -> T08 -> T09 -> T10 -> T11 -> T12 -> T13 -> T14 -> T15 -> T16 -> T17 -> T18 -> T19 -> T20 -> T21 -> T22 -> T23 -> T24 -> T25 -> T26 -> T27 -> T28 -> T29 -> T30 -> T31 -> T32 -> T33 -> T34 -> T35 -> T36`
+Primary tracker: https://github.com/vrknetha/clawdentity/issues/74.
 
-### Parallel waves (after deployment gate)
-- Wave 0: `T00`
-- Wave 1: `T37`
-- Wave 2: `T38`
-- Wave 3: `T01, T10, T20, T25`
-- Wave 4: `T02, T03, T04, T11, T26`
-- Wave 5: `T05, T06, T07, T12, T13, T19`
-- Wave 6: `T08, T09, T14, T15, T22`
-- Wave 7: `T16, T21, T24, T27, T34`
-- Wave 8: `T17, T18, T23, T28, T30, T31, T32, T35`
-- Wave 9: `T29, T36`
-- Wave 10: `T33`
-
-### Issue governance
-Issue authoring and quality rules are enforced in [`issues/AGENTS.md`](./issues/AGENTS.md):
-- standardized schema for each ticket
-- dependency blockers line required
-- refactor opportunities required
-- validation commands required
+Governance rules:
+- Treat GitHub issues as the source of truth for rollout order and blockers.
+- Record dependency or wave changes in tracker issues at the time of change.
+- Keep this PRD and `README.md` aligned with tracker-level execution decisions.
 
 ---
 

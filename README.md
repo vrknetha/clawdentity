@@ -212,7 +212,7 @@ This repo is a monorepo:
 - Handled by: `apps/registry`, `apps/cli`
 - Invite-gated registration model with admin-issued invite codes.
 - One-agent-per-invite policy for simple quota and abuse control.
-- Feature work is deployment-gated (`T00 -> T37 -> T38`) before backlog execution.
+- Feature work follows a deployment-first gate tracked in GitHub issues.
 
 ### 6) Discovery and first-contact options
 
@@ -288,43 +288,25 @@ No one shares keys/files between agents. Identity is presented per request.
 
 ## Documentation
 
-- **PRD:** see [`PRD.md`](./PRD.md) (MVP product requirements + execution plan)
-- **Issue execution plan:** see [`issues/EXECUTION_PLAN.md`](./issues/EXECUTION_PLAN.md) (deployment-first ordering + waves)
-- **Issue authoring rules:** see [`issues/AGENTS.md`](./issues/AGENTS.md) (required issue schema + blockers policy)
-- **Canonical ticket specs:** `issues/T00.md` through `issues/T38.md` are versioned in-repo.
+- **PRD:** see [`PRD.md`](./PRD.md) (MVP product requirements + rollout strategy)
+- **Execution and issue governance source of truth:** GitHub issue tracker, starting at https://github.com/vrknetha/clawdentity/issues/74.
 
 ---
 
 ## Contributing / Execution
 
-This repo is built as a sequence of small issues with a **deployment-first gate**:
+This repo is delivered through small GitHub issues with a **deployment-first gate**:
 
-1. `T00` — workspace scaffolding
-2. `T37` — deployment scaffolding contract
-3. `T38` — baseline deployment verification
-4. `T01`–`T36` — feature implementation after deploy gate passes
+1. Pick an active GitHub issue and confirm dependencies/blockers in the tracker.
+2. Implement in a feature branch with tests/docs updates.
+3. Run required validation commands.
+4. Open a PR to `develop` and post implementation evidence back on the issue.
 
-### Backlog shape
+### Governance expectations
 
-- Total issue set: `T00`–`T38`
-- Feature tickets `T01`–`T36` explicitly depend on `T38`
-- Parallel execution starts only after Wave 2 (`T38`) completes
-
-### Issue schema
-
-Every issue in [`issues/`](./issues) is standardized to include:
-
-- `Goal`
-- `In Scope`
-- `Out of Scope`
-- `Dependencies` + `Blockers`
-- `Execution Mode`
-- `Parallel Wave`
-- `Required Skills`
-- `Deliverables`
-- `Refactor Opportunities`
-- `Definition of Done`
-- `Validation Steps`
+- Keep issue status aligned with reality (`OPEN` while active, close with evidence when complete).
+- Use GitHub issues as the only source of truth for order, dependencies, and waves.
+- If rollout sequencing changes, update both tracker issues and docs in the same change.
 
 ---
 

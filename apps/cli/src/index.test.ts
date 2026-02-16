@@ -58,6 +58,14 @@ describe("cli", () => {
     expect(hasOpenclawCommand).toBe(true);
   });
 
+  it("registers the invite command", () => {
+    const hasInviteCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("invite");
+
+    expect(hasInviteCommand).toBe(true);
+  });
+
   it("prints version output", async () => {
     const output: string[] = [];
     const program = createProgram();

@@ -2,26 +2,22 @@
 
 ## Purpose
 - Define repository-wide engineering and documentation guardrails for Clawdentity.
-- Keep product docs, issue specs, and execution order in sync.
+- Keep product docs and issue governance in sync with the active GitHub tracker.
 
 ## Core Rules
 - Ship maintainable, non-duplicative changes.
 - Prefer small, testable increments tied to explicit issue IDs.
 - If a simplification/refactor is obvious, include it in the plan and ticket notes.
 
-## Deployment-First Execution
-- Enforce `T00 -> T37 -> T38` before feature implementation.
-- Feature tickets `T01`-`T36` must not proceed until `T38` is complete.
-- Source of truth for sequencing: `issues/EXECUTION_PLAN.md`.
-
-## Issue Governance
-- Ticket schema and quality rules are maintained in `issues/AGENTS.md`.
-- Any dependency/wave changes must update both affected `T*.md` files and `issues/EXECUTION_PLAN.md` in the same change.
+## Execution Governance
+- GitHub issues are the source of truth for sequencing, blockers, and rollout updates.
+- Primary execution tracker: https://github.com/vrknetha/clawdentity/issues/74.
+- Do not use local execution-order files as governance source.
 
 ## Ticket Lifecycle Workflow
 - Operate in a self-serve loop for ticket delivery: pick an issue, execute, and keep GitHub status accurate without waiting for manual reminders.
 - Standard sequence for every ticket:
-  - Select the target issue and confirm blockers from `issues/EXECUTION_PLAN.md` and `issues/T*.md`.
+  - Select the target issue and confirm blockers from the GitHub issue tracker.
   - Start from latest `develop`: `git checkout develop && git pull --ff-only`.
   - Create a feature branch with `feature/` prefix scoped to the ticket.
   - Implement the ticket with tests/docs updates required by the issue definition.
@@ -37,12 +33,12 @@
 ## Documentation Sync
 - `README.md` must reflect current execution model and links to issue governance.
 - `PRD.md` must reflect current rollout order, deployment gating, and verification strategy.
-- If backlog shape changes (`Txx` additions/removals), update README + PRD + execution plan together.
+- If backlog shape changes, update README + PRD + the relevant GitHub issue threads in the same change.
 
 ## Validation Baseline
 - Run and pass: `pnpm lint`, `pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build` for implementation changes.
 - Lint runs at root (`pnpm lint` via `biome check .`), not per-package.
-- For planning/doc changes, verify dependency/order consistency against the current execution source of truth (the in-repo execution plan if present, otherwise the active issue tracker plan).
+- For planning/doc changes, verify dependency/order consistency against the active GitHub issue tracker.
 
 ## Cloudflare Worker & Wrangler Conventions
 - Registry is a **Hono** app deployed as a Cloudflare Worker. Wrangler handles bundling — tsup is only for type generation and local build validation.
@@ -105,13 +101,13 @@
 - Use a full reset only when required for identity reprovisioning, and then also clear `~/.clawdentity/agents/<agent-name>/` before re-onboarding.
 - Skill-only policy: no direct `clawdentity openclaw setup` execution by humans during E2E validation; the agent must run the skill flow and prompt the human only for missing invite code or confirmations.
 
-## T00 Scaffold Best Practices
-- Start T00 by confirming the deployment-first order (`T00 -> T37 -> T38`) and reviewing README/PRD/`issues/EXECUTION_PLAN.md` so documentation mirrors the execution model.
+## Scaffold Best Practices
+- Start by reviewing README, PRD, and the active execution tracker issue so documentation mirrors the execution model.
 - Define the workspace layout now: `apps/registry`, `apps/proxy`, `apps/cli`, `packages/sdk`, and `packages/protocol` (with shared tooling such as `pnpm-workspace.yaml`, `tsconfig.base.json`, and `biome.json`) so downstream tickets have a known structure.
 - Declare placeholder scripts for lint/test/build (e.g., `pnpm -r lint`, `pnpm -r test`, `pnpm -r build`) and identify the expected toolchain (Biome, Vitest, tsup, etc.) so future work can fill implementations without duplication.
-- Document the CI entrypoints (GitHub Actions or another pipeline) that will run the above scripts, so deployment scaffolding (T37/T38) can wire the baseline checks without guessing what belongs in T00.
+- Document the CI entrypoints (GitHub Actions or another pipeline) that will run the above scripts, so deployment scaffolding can wire the baseline checks without guessing what belongs in initial setup.
 
-## T37/T38 Deployment Scaffold Best Practices
+## Deployment Scaffold Best Practices
 - Always separate dev and production via wrangler environments — never use a single top-level D1 binding.
 - Keep `wrangler.jsonc` database IDs in version control (they are not secrets). Secrets go via `wrangler secret put`.
 - Deploy scripts should always run migrations before deploy (`db:migrate:remote && wrangler deploy`) for atomic one-touch deploys.

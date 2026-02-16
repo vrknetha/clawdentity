@@ -5,6 +5,8 @@ import {
   canonicalizeAgentRegistrationProof,
   encodeBase64url,
   generateUlid,
+  INVITES_PATH,
+  INVITES_REDEEM_PATH,
   ME_API_KEYS_PATH,
   makeAgentDid,
   makeHumanDid,
@@ -105,6 +107,8 @@ type FakeAgentUpdateRow = Record<string, unknown>;
 type FakeRevocationInsertRow = Record<string, unknown>;
 type FakeAgentRegistrationChallengeInsertRow = Record<string, unknown>;
 type FakeAgentRegistrationChallengeUpdateRow = Record<string, unknown>;
+type FakeInviteInsertRow = Record<string, unknown>;
+type FakeInviteUpdateRow = Record<string, unknown>;
 type FakeRevocationRow = {
   id: string;
   jti: string;
@@ -136,6 +140,15 @@ type FakeAgentRegistrationChallengeRow = {
   createdAt: string;
   updatedAt: string;
 };
+type FakeInviteRow = {
+  id: string;
+  code: string;
+  createdBy: string;
+  redeemedBy: string | null;
+  agentId: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+};
 
 type FakeAgentSelectRow = {
   id: string;
@@ -156,6 +169,7 @@ type FakeDbOptions = {
   beforeFirstAgentUpdate?: (agentRows: FakeAgentRow[]) => void;
   failApiKeyInsertCount?: number;
   failBeginTransaction?: boolean;
+  inviteRows?: FakeInviteRow[];
   revocationRows?: FakeRevocationRow[];
   registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
 };
@@ -706,6 +720,83 @@ function resolveAgentRegistrationChallengeSelectRows(options: {
     .slice(0, limit);
 }
 
+function getInviteSelectColumnValue(
+  row: FakeInviteRow,
+  column: string,
+): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "code") {
+    return row.code;
+  }
+  if (column === "created_by") {
+    return row.createdBy;
+  }
+  if (column === "redeemed_by") {
+    return row.redeemedBy;
+  }
+  if (column === "agent_id") {
+    return row.agentId;
+  }
+  if (column === "expires_at") {
+    return row.expiresAt;
+  }
+  if (column === "created_at") {
+    return row.createdAt;
+  }
+  return undefined;
+}
+
+function resolveInviteSelectRows(options: {
+  query: string;
+  params: unknown[];
+  inviteRows: FakeInviteRow[];
+}): FakeInviteRow[] {
+  const whereClause = extractWhereClause(options.query);
+  const equalityParams = parseWhereEqualityParams({
+    whereClause,
+    params: options.params,
+  });
+  const hasCodeFilter = hasFilter(whereClause, "code");
+  const hasIdFilter = hasFilter(whereClause, "id");
+  const hasRedeemedByFilter = hasFilter(whereClause, "redeemed_by");
+  const hasLimitClause = options.query.toLowerCase().includes(" limit ");
+
+  const codeFilter =
+    hasCodeFilter && typeof equalityParams.values.code?.[0] === "string"
+      ? String(equalityParams.values.code[0])
+      : undefined;
+  const idFilter =
+    hasIdFilter && typeof equalityParams.values.id?.[0] === "string"
+      ? String(equalityParams.values.id[0])
+      : undefined;
+  const redeemedByFilter = hasRedeemedByFilter
+    ? (equalityParams.values.redeemed_by?.[0] as string | null | undefined)
+    : undefined;
+
+  const requiresRedeemedByNull =
+    whereClause.includes("redeemed_by") && whereClause.includes("is null");
+
+  const maybeLimit = hasLimitClause
+    ? Number(options.params[options.params.length - 1])
+    : Number.NaN;
+  const limit = Number.isFinite(maybeLimit)
+    ? maybeLimit
+    : options.inviteRows.length;
+
+  return options.inviteRows
+    .filter((row) => (codeFilter ? row.code === codeFilter : true))
+    .filter((row) => (idFilter ? row.id === idFilter : true))
+    .filter((row) =>
+      redeemedByFilter !== undefined
+        ? row.redeemedBy === redeemedByFilter
+        : true,
+    )
+    .filter((row) => (requiresRedeemedByNull ? row.redeemedBy === null : true))
+    .slice(0, limit);
+}
+
 function getCrlSelectColumnValue(
   row: FakeCrlSelectRow,
   column: string,
@@ -781,10 +872,13 @@ function createFakeDb(
     [];
   const agentRegistrationChallengeUpdates: FakeAgentRegistrationChallengeUpdateRow[] =
     [];
+  const inviteInserts: FakeInviteInsertRow[] = [];
+  const inviteUpdates: FakeInviteUpdateRow[] = [];
   const revocationRows = [...(options.revocationRows ?? [])];
   const registrationChallengeRows = [
     ...(options.registrationChallengeRows ?? []),
   ];
+  const inviteRows = [...(options.inviteRows ?? [])];
   const humanRows = rows.reduce<FakeHumanRow[]>((acc, row) => {
     if (acc.some((item) => item.id === row.humanId)) {
       return acc;
@@ -980,6 +1074,35 @@ function createFakeDb(
             };
           }
           if (
+            (normalizedQuery.includes('from "invites"') ||
+              normalizedQuery.includes("from invites")) &&
+            (normalizedQuery.includes("select") ||
+              normalizedQuery.includes("returning"))
+          ) {
+            const resultRows = resolveInviteSelectRows({
+              query,
+              params,
+              inviteRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getInviteSelectColumnValue(row, column);
+                    return acc;
+                  },
+                  {},
+                );
+              }),
+            };
+          }
+          if (
             (normalizedQuery.includes('from "revocations"') ||
               normalizedQuery.includes("from revocations")) &&
             normalizedQuery.includes("select")
@@ -1091,6 +1214,22 @@ function createFakeDb(
             return resultRows.map((row) =>
               selectedColumns.map((column) =>
                 getAgentRegistrationChallengeSelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
+            normalizedQuery.includes('from "invites"') ||
+            normalizedQuery.includes("from invites")
+          ) {
+            const resultRows = resolveInviteSelectRows({
+              query,
+              params,
+              inviteRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getInviteSelectColumnValue(row, column),
               ),
             );
           }
@@ -1276,6 +1415,107 @@ function createFakeDb(
             }
 
             changes = 1;
+          }
+          if (
+            normalizedQuery.includes('insert into "invites"') ||
+            normalizedQuery.includes("insert into invites")
+          ) {
+            const columns = parseInsertColumns(query, "invites");
+            const row = columns.reduce<FakeInviteInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            inviteInserts.push(row);
+
+            if (
+              typeof row.id === "string" &&
+              typeof row.code === "string" &&
+              typeof row.created_by === "string" &&
+              typeof row.created_at === "string"
+            ) {
+              inviteRows.push({
+                id: row.id,
+                code: row.code,
+                createdBy: row.created_by,
+                redeemedBy:
+                  typeof row.redeemed_by === "string" ? row.redeemed_by : null,
+                agentId: typeof row.agent_id === "string" ? row.agent_id : null,
+                expiresAt:
+                  typeof row.expires_at === "string" ? row.expires_at : null,
+                createdAt: row.created_at,
+              });
+            }
+
+            changes = 1;
+          }
+          if (
+            normalizedQuery.includes('update "invites"') ||
+            normalizedQuery.includes("update invites")
+          ) {
+            const setColumns = parseUpdateSetColumns(query, "invites");
+            const nextValues = setColumns.reduce<Record<string, unknown>>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            const whereClause = extractWhereClause(query);
+            const whereParams = params.slice(setColumns.length);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params: whereParams,
+            });
+
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : undefined;
+            const redeemedByFilter = hasFilter(whereClause, "redeemed_by")
+              ? (equalityParams.values.redeemed_by?.[0] as
+                  | string
+                  | null
+                  | undefined)
+              : undefined;
+            const requiresRedeemedByNull =
+              whereClause.includes("redeemed_by") &&
+              whereClause.includes("is null");
+
+            let matchedRows = 0;
+            for (const row of inviteRows) {
+              if (idFilter && row.id !== idFilter) {
+                continue;
+              }
+              if (requiresRedeemedByNull && row.redeemedBy !== null) {
+                continue;
+              }
+              if (
+                redeemedByFilter !== undefined &&
+                row.redeemedBy !== redeemedByFilter
+              ) {
+                continue;
+              }
+
+              matchedRows += 1;
+              if (
+                typeof nextValues.redeemed_by === "string" ||
+                nextValues.redeemed_by === null
+              ) {
+                row.redeemedBy = nextValues.redeemed_by;
+              }
+            }
+
+            inviteUpdates.push({
+              ...nextValues,
+              id: idFilter,
+              redeemed_by_where: redeemedByFilter,
+              redeemed_by_is_null_where: requiresRedeemedByNull,
+              matched_rows: matchedRows,
+            });
+            changes = matchedRows;
           }
           if (
             normalizedQuery.includes('delete from "humans"') ||
@@ -1588,6 +1828,9 @@ function createFakeDb(
     agentUpdates,
     agentRegistrationChallengeInserts,
     agentRegistrationChallengeUpdates,
+    inviteInserts,
+    inviteUpdates,
+    inviteRows,
     revocationInserts,
     registrationChallengeRows,
   };
@@ -2659,6 +2902,388 @@ describe("GET /v1/me", () => {
     });
     expect(updates).toHaveLength(1);
     expect(updates[0]?.apiKeyId).toBe("key-1");
+  });
+});
+
+describe(`POST ${INVITES_PATH}`, () => {
+  it("returns 401 when PAT is missing", async () => {
+    const response = await createRegistryApp().request(
+      INVITES_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("returns 403 when PAT owner is not an admin", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([
+      {
+        ...authRow,
+        humanRole: "user",
+      },
+    ]);
+
+    const response = await createRegistryApp().request(
+      INVITES_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("INVITE_CREATE_FORBIDDEN");
+  });
+
+  it("returns 400 when payload is invalid", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const response = await createRegistryApp().request(
+      INVITES_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          expiresAt: "not-an-iso-date",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, string[]> };
+      };
+    };
+    expect(body.error.code).toBe("INVITE_CREATE_INVALID");
+    expect(body.error.details?.fieldErrors?.expiresAt).toEqual([
+      "expiresAt must be a valid ISO-8601 datetime",
+    ]);
+  });
+
+  it("creates invite code and persists invite row", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database, inviteInserts } = createFakeDb([authRow]);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    const response = await createRegistryApp().request(
+      INVITES_PATH,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          expiresAt,
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      invite: {
+        id: string;
+        code: string;
+        createdBy: string;
+        expiresAt: string | null;
+        createdAt: string;
+      };
+    };
+    expect(body.invite.code.startsWith("clw_inv_")).toBe(true);
+    expect(body.invite.createdBy).toBe("human-1");
+    expect(body.invite.expiresAt).toBe(expiresAt);
+    expect(body.invite.createdAt).toEqual(expect.any(String));
+
+    expect(inviteInserts).toHaveLength(1);
+    expect(inviteInserts[0]?.id).toBe(body.invite.id);
+    expect(inviteInserts[0]?.code).toBe(body.invite.code);
+    expect(inviteInserts[0]?.created_by).toBe("human-1");
+    expect(inviteInserts[0]?.expires_at).toBe(expiresAt);
+  });
+});
+
+describe(`POST ${INVITES_REDEEM_PATH}`, () => {
+  it("returns 400 when payload is invalid", async () => {
+    const response = await createRegistryApp().request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        details?: { fieldErrors?: Record<string, string[]> };
+      };
+    };
+    expect(body.error.code).toBe("INVITE_REDEEM_INVALID");
+    expect(body.error.details?.fieldErrors?.code).toEqual(["code is required"]);
+  });
+
+  it("returns 400 when invite code does not exist", async () => {
+    const { database } = createFakeDb([]);
+
+    const response = await createRegistryApp().request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: "clw_inv_missing",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("INVITE_REDEEM_CODE_INVALID");
+  });
+
+  it("returns 400 when invite is expired", async () => {
+    const { authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow], [], {
+      inviteRows: [
+        {
+          id: generateUlid(1700700000000),
+          code: "clw_inv_expired",
+          createdBy: "human-1",
+          redeemedBy: null,
+          agentId: null,
+          expiresAt: new Date(Date.now() - 60 * 1000).toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const response = await createRegistryApp().request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: "clw_inv_expired",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("INVITE_REDEEM_EXPIRED");
+  });
+
+  it("returns 409 when invite is already redeemed", async () => {
+    const { authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow], [], {
+      inviteRows: [
+        {
+          id: generateUlid(1700700001000),
+          code: "clw_inv_redeemed",
+          createdBy: "human-1",
+          redeemedBy: "human-2",
+          agentId: null,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const response = await createRegistryApp().request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: "clw_inv_redeemed",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(response.status).toBe(409);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("INVITE_REDEEM_ALREADY_USED");
+  });
+
+  it("redeems invite and returns PAT that authenticates /v1/me", async () => {
+    const { authRow } = await makeValidPatContext();
+    const inviteCode = "clw_inv_redeem_success";
+    const { database, humanInserts, apiKeyInserts, inviteRows, inviteUpdates } =
+      createFakeDb([authRow], [], {
+        inviteRows: [
+          {
+            id: generateUlid(1700700002000),
+            code: inviteCode,
+            createdBy: "human-1",
+            redeemedBy: null,
+            agentId: null,
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      });
+    const appInstance = createRegistryApp();
+
+    const redeemResponse = await appInstance.request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: inviteCode,
+          displayName: "Invitee Alpha",
+          apiKeyName: "primary-invite-key",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(redeemResponse.status).toBe(201);
+    const redeemBody = (await redeemResponse.json()) as {
+      human: {
+        id: string;
+        did: string;
+        displayName: string;
+        role: "admin" | "user";
+        status: "active" | "suspended";
+      };
+      apiKey: {
+        id: string;
+        name: string;
+        token: string;
+      };
+    };
+    expect(redeemBody.human.displayName).toBe("Invitee Alpha");
+    expect(redeemBody.human.role).toBe("user");
+    expect(redeemBody.apiKey.name).toBe("primary-invite-key");
+    expect(redeemBody.apiKey.token.startsWith("clw_pat_")).toBe(true);
+
+    expect(humanInserts).toHaveLength(1);
+    expect(apiKeyInserts).toHaveLength(1);
+    expect(apiKeyInserts[0]?.human_id).toBe(redeemBody.human.id);
+    expect(inviteUpdates).toHaveLength(1);
+    expect(inviteRows[0]?.redeemedBy).toBe(redeemBody.human.id);
+
+    const meResponse = await appInstance.request(
+      "/v1/me",
+      {
+        headers: {
+          Authorization: `Bearer ${redeemBody.apiKey.token}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(meResponse.status).toBe(200);
+    const meBody = (await meResponse.json()) as {
+      human: {
+        id: string;
+        displayName: string;
+        role: "admin" | "user";
+      };
+    };
+    expect(meBody.human.id).toBe(redeemBody.human.id);
+    expect(meBody.human.displayName).toBe("Invitee Alpha");
+    expect(meBody.human.role).toBe("user");
+  });
+
+  it("rolls back fallback mutations when api key insert fails", async () => {
+    const { authRow } = await makeValidPatContext();
+    const inviteCode = "clw_inv_fallback_rollback";
+    const { database, humanRows, inviteRows } = createFakeDb([authRow], [], {
+      failBeginTransaction: true,
+      failApiKeyInsertCount: 1,
+      inviteRows: [
+        {
+          id: generateUlid(1700700003000),
+          code: inviteCode,
+          createdBy: "human-1",
+          redeemedBy: null,
+          agentId: null,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const appInstance = createRegistryApp();
+
+    const firstResponse = await appInstance.request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: inviteCode,
+          displayName: "Fallback Invitee",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(firstResponse.status).toBe(500);
+    expect(humanRows).toHaveLength(1);
+    expect(inviteRows[0]?.redeemedBy).toBeNull();
+
+    const secondResponse = await appInstance.request(
+      INVITES_REDEEM_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          code: inviteCode,
+          displayName: "Fallback Invitee",
+        }),
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(secondResponse.status).toBe(201);
+    expect(humanRows).toHaveLength(2);
+    expect(inviteRows[0]?.redeemedBy).toEqual(expect.any(String));
   });
 });
 
