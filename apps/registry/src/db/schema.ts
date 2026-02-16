@@ -1,4 +1,4 @@
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const humans = sqliteTable("humans", {
   id: text("id").primaryKey(),
@@ -95,6 +95,72 @@ export const agent_registration_challenges = sqliteTable(
       table.status,
     ),
     index("idx_agent_registration_challenges_expires_at").on(table.expires_at),
+  ],
+);
+
+export const agent_auth_sessions = sqliteTable(
+  "agent_auth_sessions",
+  {
+    id: text("id").primaryKey(),
+    agent_id: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    refresh_key_hash: text("refresh_key_hash").notNull(),
+    refresh_key_prefix: text("refresh_key_prefix").notNull(),
+    refresh_issued_at: text("refresh_issued_at").notNull(),
+    refresh_expires_at: text("refresh_expires_at").notNull(),
+    refresh_last_used_at: text("refresh_last_used_at"),
+    access_key_hash: text("access_key_hash").notNull(),
+    access_key_prefix: text("access_key_prefix").notNull(),
+    access_issued_at: text("access_issued_at").notNull(),
+    access_expires_at: text("access_expires_at").notNull(),
+    access_last_used_at: text("access_last_used_at"),
+    status: text("status", { enum: ["active", "revoked"] })
+      .notNull()
+      .default("active"),
+    revoked_at: text("revoked_at"),
+    created_at: text("created_at").notNull(),
+    updated_at: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("agent_auth_sessions_agent_id_unique").on(table.agent_id),
+    index("idx_agent_auth_sessions_agent_status").on(
+      table.agent_id,
+      table.status,
+    ),
+    index("idx_agent_auth_sessions_refresh_prefix").on(
+      table.refresh_key_prefix,
+    ),
+    index("idx_agent_auth_sessions_access_prefix").on(table.access_key_prefix),
+  ],
+);
+
+export const agent_auth_events = sqliteTable(
+  "agent_auth_events",
+  {
+    id: text("id").primaryKey(),
+    agent_id: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    session_id: text("session_id")
+      .notNull()
+      .references(() => agent_auth_sessions.id),
+    event_type: text("event_type", {
+      enum: ["issued", "refreshed", "revoked", "refresh_rejected"],
+    }).notNull(),
+    reason: text("reason"),
+    metadata_json: text("metadata_json"),
+    created_at: text("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_agent_auth_events_agent_created").on(
+      table.agent_id,
+      table.created_at,
+    ),
+    index("idx_agent_auth_events_session_created").on(
+      table.session_id,
+      table.created_at,
+    ),
   ],
 );
 

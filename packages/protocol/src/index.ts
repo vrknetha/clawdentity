@@ -22,6 +22,7 @@ export type { ClawDidKind } from "./did.js";
 export { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
 export {
   ADMIN_BOOTSTRAP_PATH,
+  AGENT_AUTH_REFRESH_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   INVITES_PATH,
   INVITES_REDEEM_PATH,

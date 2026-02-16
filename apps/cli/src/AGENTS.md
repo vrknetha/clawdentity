@@ -14,6 +14,8 @@
 - Registry invite lifecycle command logic should stay in `commands/invite.ts`; keep it strictly scoped to registry onboarding invites and separate from `commands/openclaw.ts` peer-relay invite codes.
 - `invite redeem` must print the returned PAT once, then persist config in deterministic order (`registryUrl`, then `apiKey`) so bootstrap/onboarding state is predictable.
 - `invite` command routes must use endpoint constants from `@clawdentity/protocol` (`INVITES_PATH`, `INVITES_REDEEM_PATH`) instead of inline path literals.
+- Agent auth refresh state is stored per-agent at `~/.clawdentity/agents/<name>/registry-auth.json` and must be written with secure file permissions.
+- `agent auth refresh` must use `Authorization: Claw <AIT>` + PoP headers from local agent keys and must not require PAT config.
 
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.

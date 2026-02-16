@@ -18,3 +18,10 @@
 ## Verification
 - Cover valid, invalid, and missing PAT paths in `server.test.ts`.
 - Verify middleware updates `api_keys.last_used_at` on successful auth.
+
+## Agent Auth Refresh Rules
+- Keep agent refresh token helpers (`clw_rft_`, `clw_agt_`, prefix derivation, hashing, token generation) centralized in `agent-auth-token.ts`.
+- Verify agent-authenticated refresh requests using `Authorization: Claw <AIT>` and PoP headers; never trust refresh payload without AIT + PoP verification.
+- Enforce issuer + keyset-based AIT verification against active registry signing keys only.
+- Validate `X-Claw-Timestamp` skew and fail closed on malformed/expired signatures.
+- Never log or persist plaintext refresh/access tokens server-side; persist only hash/prefix material.

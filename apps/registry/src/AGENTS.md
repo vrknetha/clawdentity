@@ -122,7 +122,20 @@
 - Use shared SDK datetime helpers (`nowIso`, `addSeconds`) for issuance/expiry math instead of ad-hoc `Date.now()` arithmetic in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
 - Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.api.clawdentity.com`, `production` -> `https://api.clawdentity.com`) rather than request-origin inference.
-- Response shape remains `{ agent, ait }`; the token must be verifiable with the public keyset returned by `/.well-known/claw-keys.json`.
+- Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.
+- Response shape is `{ agent, ait, agentAuth }` where `agentAuth` returns short-lived access credentials and rotating refresh credentials.
+
+## POST /v1/agents/auth/refresh Contract
+- Public endpoint (no PAT): auth is agent-scoped via `Authorization: Claw <AIT>` + PoP headers + refresh token payload.
+- Verify AIT against active registry signing keys and enforce deterministic issuer mapping for environment.
+- Verify PoP using canonical request inputs and public key from AIT `cnf`.
+- Enforce timestamp skew checks for replay-window reduction.
+- Require payload `{ refreshToken }` and validate marker format (`clw_rft_`).
+- Enforce single-active-session rotation semantics:
+  - refresh token must match current active session hash/prefix
+  - expired refresh token transitions session to `revoked`
+  - successful refresh rotates both refresh/access credentials with a guarded update
+- Insert audit events in `agent_auth_events` for `refreshed`, `revoked`, and `refresh_rejected`.
 
 ## DELETE /v1/agents/:id Contract
 - Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be revoked.
@@ -133,8 +146,16 @@
   - return `204` after first successful revoke
 - If an owned active agent has no `current_jti`, fail with `409 AGENT_REVOKE_INVALID_STATE` rather than writing a partial revocation.
 - Perform state changes in one DB transaction:
-  - update `agents.status` to `revoked` and `agents.updated_at` to `nowIso()`
-  - insert `revocations` row using the previous `current_jti`
+- update `agents.status` to `revoked` and `agents.updated_at` to `nowIso()`
+- insert `revocations` row using the previous `current_jti`
+- revoke active `agent_auth_sessions` row for the same agent and write `agent_auth_events` entry with reason `agent_revoked`.
+
+## DELETE /v1/agents/:id/auth/revoke Contract
+- Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be targeted.
+- Validate `:id` with the same ULID path parser used by revoke/reissue flows.
+- Return `404 AGENT_NOT_FOUND` for unknown/foreign agents.
+- Revoke active `agent_auth_sessions` rows idempotently (`204` if already revoked/missing).
+- Write `agent_auth_events` entry with reason `owner_auth_revoke` on first successful revoke.
 
 ## POST /v1/agents/:id/reissue Contract
 - Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be reissued.
