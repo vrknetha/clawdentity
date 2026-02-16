@@ -13,6 +13,8 @@ import {
   decodeBase64url,
   encodeBase64url,
   generateUlid,
+  INVITES_PATH,
+  INVITES_REDEEM_PATH,
   MAX_AGENT_DESCRIPTION_LENGTH,
   MAX_AGENT_NAME_LENGTH,
   ME_API_KEYS_PATH,
@@ -35,6 +37,8 @@ describe("protocol", () => {
   it("exports shared endpoint constants", () => {
     expect(ADMIN_BOOTSTRAP_PATH).toBe("/v1/admin/bootstrap");
     expect(AGENT_REGISTRATION_CHALLENGE_PATH).toBe("/v1/agents/challenge");
+    expect(INVITES_PATH).toBe("/v1/invites");
+    expect(INVITES_REDEEM_PATH).toBe("/v1/invites/redeem");
     expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");
   });
 

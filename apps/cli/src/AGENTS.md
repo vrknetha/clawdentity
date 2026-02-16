@@ -11,6 +11,9 @@
 - Admin bootstrap command logic should stay in `commands/admin.ts` and remain side-effect-safe: only mutate config after a validated successful registry response.
 - Admin bootstrap must print the one-time PAT before attempting to persist it and depend on `persistBootstrapConfig` so config write failures are surfaced via CLI errors while the operator still sees the PAT.
 - API-key lifecycle command logic should stay in `commands/api-key.ts`; keep create/list/revoke request mapping explicit and keep token exposure limited to create output only.
+- Registry invite lifecycle command logic should stay in `commands/invite.ts`; keep it strictly scoped to registry onboarding invites and separate from `commands/openclaw.ts` peer-relay invite codes.
+- `invite redeem` must print the returned PAT once, then persist config in deterministic order (`registryUrl`, then `apiKey`) so bootstrap/onboarding state is predictable.
+- `invite` command routes must use endpoint constants from `@clawdentity/protocol` (`INVITES_PATH`, `INVITES_REDEEM_PATH`) instead of inline path literals.
 
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.
@@ -27,4 +30,5 @@
 - Command tests must capture `stdout`/`stderr` and assert exit-code behavior.
 - Include success, revoked, invalid token, keyset failure, CRL failure, and cache-hit scenarios for `verify`.
 - For OpenClaw invite/setup flow, cover invite encode/decode, config patch idempotency, and missing-file validation.
+- For registry invite flow, cover admin-auth create path, public redeem path, config persistence failures, and command exit-code behavior.
 - Keep tests deterministic by mocking network and filesystem dependencies.

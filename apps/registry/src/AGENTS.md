@@ -62,6 +62,21 @@
 - Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
 
+## POST /v1/invites Contract
+- Require PAT auth via `createApiKeyAuth`.
+- Enforce admin-only access with explicit `403 INVITE_CREATE_FORBIDDEN` for authenticated non-admin callers.
+- Validate payload in a dedicated helper module (`invite-lifecycle.ts`) and keep malformed-json handling environment-aware (`INVITE_CREATE_INVALID`).
+- Generate invite codes server-side only; never accept client-supplied codes for create.
+- Persist one invite row per request in `invites` with `redeemed_by = null` and optional `expires_at`.
+
+## POST /v1/invites/redeem Contract
+- Public endpoint: no PAT required.
+- Validate payload in `invite-lifecycle.ts` with explicit error code `INVITE_REDEEM_INVALID`.
+- One-time semantics are enforced by guarded update (`redeemed_by IS NULL`); repeated redeem attempts must return explicit invite lifecycle errors.
+- Expired invites must be rejected with `INVITE_REDEEM_EXPIRED` before token issuance.
+- Successful redeem must create a new active user human and mint a PAT in the same mutation unit as invite consumption.
+- Keep mutation flow transaction-first; on local fallback (no transaction support), apply compensation rollback so failed redeem attempts do not leave partially-created humans or consumed invites.
+
 ## POST /v1/me/api-keys Contract
 - Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
 - Accept optional `{ name }`; default to `api-key` when omitted.

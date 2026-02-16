@@ -23,6 +23,13 @@
 - `openclaw setup --openclaw-base-url` should only be needed when OpenClaw is not reachable on the default `http://127.0.0.1:18789`.
 - Keep error messages static (no interpolated runtime values); include variable context only in error details/log fields.
 
+## Registry Invite Command Rules
+- `invite create` is for registry onboarding invites only (admin-authenticated), not peer-relay invite-code generation.
+- `invite create` must call `INVITES_PATH` from `@clawdentity/protocol` and include PAT bearer auth from resolved CLI config.
+- `invite redeem` must call `INVITES_REDEEM_PATH` from `@clawdentity/protocol` without PAT auth and must persist returned PAT to local config.
+- `invite redeem` must print the plaintext PAT token once before config persistence so operators can recover from local write failures.
+- Keep registry invite error mapping stable for `400`, `401`, `403`, `404`, `409`, and `5xx` responses.
+
 ## Admin Command Rules
 - `admin bootstrap` must call registry `/v1/admin/bootstrap` with `x-bootstrap-secret` and fail with stable CLI error codes/messages.
 - `admin bootstrap` must import `ADMIN_BOOTSTRAP_PATH` from `@clawdentity/protocol` instead of duplicating endpoint literals in command code/tests.
