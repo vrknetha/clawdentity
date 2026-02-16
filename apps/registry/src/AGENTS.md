@@ -13,6 +13,7 @@
 
 ## Admin Bootstrap Contract
 - `POST /v1/admin/bootstrap` is a one-time bootstrap endpoint gated by `BOOTSTRAP_SECRET`.
+- Use `ADMIN_BOOTSTRAP_PATH` from `@clawdentity/protocol` for route registration and test requests; do not hardcode bootstrap path literals in registry code.
 - Require `x-bootstrap-secret` header and compare with constant-time semantics; invalid/missing secret must return `401 ADMIN_BOOTSTRAP_UNAUTHORIZED`.
 - If `BOOTSTRAP_SECRET` is not configured, return `503 ADMIN_BOOTSTRAP_DISABLED`.
 - If any admin human already exists, return `409 ADMIN_BOOTSTRAP_ALREADY_COMPLETED`.

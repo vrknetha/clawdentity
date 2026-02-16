@@ -17,6 +17,7 @@
 - Reuse cross-module helpers (e.g., `text.ts`’s `hasControlChars`) so control-character checks stay consistent across AIT and CRL validation.
 - Share header names/values via protocol exports so SDK/Proxy layers import a single source of truth (e.g., `X-Claw-Timestamp`, `X-Claw-Nonce`, `X-Claw-Body-SHA256`, and `X-Claw-Proof`).
 - Keep T02 canonicalization minimal and deterministic; replay/skew/nonce policy enforcement is handled in later tickets (`T07`, `T08`, `T09`).
+- Define shared API route fragments in protocol exports (for example `ADMIN_BOOTSTRAP_PATH`) so CLI/SDK/apps avoid hardcoded duplicate endpoint literals.
 
 ## Testing
 - Add focused Vitest tests per helper module and one root export test in `src/index.test.ts`.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ADMIN_BOOTSTRAP_PATH,
   AGENT_NAME_REGEX,
   aitClaimsSchema,
   CLAW_PROOF_CANONICAL_VERSION,
@@ -24,6 +25,10 @@ import {
 describe("protocol", () => {
   it("exports PROTOCOL_VERSION", () => {
     expect(PROTOCOL_VERSION).toBe("0.0.0");
+  });
+
+  it("exports shared endpoint constants", () => {
+    expect(ADMIN_BOOTSTRAP_PATH).toBe("/v1/admin/bootstrap");
   });
 
   it("exports helpers from package root", () => {

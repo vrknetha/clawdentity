@@ -1,3 +1,4 @@
+import { ADMIN_BOOTSTRAP_PATH } from "@clawdentity/protocol";
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
 import {
@@ -9,7 +10,6 @@ import { writeStdoutLine } from "../io.js";
 import { withErrorHandling } from "./helpers.js";
 
 const logger = createLogger({ service: "cli", module: "admin" });
-const ADMIN_BOOTSTRAP_PATH = "/v1/admin/bootstrap";
 
 type AdminBootstrapOptions = {
   bootstrapSecret: string;

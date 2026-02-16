@@ -1,4 +1,8 @@
-import { generateUlid, makeHumanDid } from "@clawdentity/protocol";
+import {
+  ADMIN_BOOTSTRAP_PATH,
+  generateUlid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
 import {
   AppError,
   createHonoErrorHandler,
@@ -319,7 +323,7 @@ function createRegistryApp() {
     });
   });
 
-  app.post("/v1/admin/bootstrap", async (c) => {
+  app.post(ADMIN_BOOTSTRAP_PATH, async (c) => {
     const config = getConfig(c.env);
     const expectedBootstrapSecret = requireBootstrapSecret(
       config.BOOTSTRAP_SECRET,
