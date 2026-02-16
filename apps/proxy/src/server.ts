@@ -7,7 +7,6 @@ import {
   type Logger,
   type NonceCache,
 } from "@clawdentity/sdk";
-import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
   type AgentHookRuntimeOptions,
@@ -19,7 +18,6 @@ import {
   type ProxyRequestVariables,
 } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
-import { loadProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
 
 type ProxyAuthRuntimeOptions = {
@@ -42,23 +40,9 @@ type CreateProxyAppOptions = {
   hooks?: AgentHookRuntimeOptions;
 };
 
-type StartProxyServerOptions = {
-  env?: unknown;
-  config?: ProxyConfig;
-  logger?: Logger;
-  port?: number;
-};
-
 export type ProxyApp = Hono<{
   Variables: ProxyRequestVariables;
 }>;
-
-export type StartedProxyServer = {
-  app: ProxyApp;
-  config: ProxyConfig;
-  port: number;
-  server: ReturnType<typeof serve>;
-};
 
 function resolveLogger(logger?: Logger): Logger {
   return logger ?? createLogger({ service: "proxy" });
@@ -103,39 +87,11 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
       logger,
       openclawBaseUrl: options.config.openclawBaseUrl,
       openclawHookToken: options.config.openclawHookToken,
+      injectIdentityIntoMessage: options.config.injectIdentityIntoMessage,
       ...options.hooks,
     }),
   );
   options.registerRoutes?.(app);
 
   return app;
-}
-
-export function startProxyServer(
-  options: StartProxyServerOptions = {},
-): StartedProxyServer {
-  const config = options.config ?? loadProxyConfig(options.env);
-  const logger = resolveLogger(options.logger);
-  const app = createProxyApp({
-    config,
-    logger,
-  });
-  const port = options.port ?? config.listenPort;
-  const server = serve({
-    fetch: app.fetch,
-    port,
-  });
-
-  logger.info("proxy.server_started", {
-    port,
-    version: PROXY_VERSION,
-    environment: config.environment,
-  });
-
-  return {
-    app,
-    config,
-    port,
-    server,
-  };
 }

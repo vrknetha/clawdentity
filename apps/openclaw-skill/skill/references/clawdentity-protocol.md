@@ -17,6 +17,7 @@ Define the exact runtime contract used by `relay-to-peer.mjs`.
 - `~/.clawdentity/agents/<agent-name>/ait.jwt`
 - `~/.clawdentity/peers.json`
 - `~/.clawdentity/openclaw-agent-name`
+- `~/.clawdentity/openclaw-relay.json`
 
 ## Invite Code Contract
 
@@ -82,6 +83,22 @@ Relay resolves local agent name in this order:
 2. `CLAWDENTITY_AGENT_NAME`
 3. `~/.clawdentity/openclaw-agent-name`
 4. single local agent fallback from `~/.clawdentity/agents/`
+
+## Local OpenClaw Base URL Contract
+
+`~/.clawdentity/openclaw-relay.json` stores the OpenClaw upstream base URL used by local proxy runtime fallback:
+
+```json
+{
+  "openclawBaseUrl": "http://127.0.0.1:18789",
+  "updatedAt": "2026-02-15T20:00:00.000Z"
+}
+```
+
+Rules:
+- `openclawBaseUrl` must be absolute `http` or `https`.
+- `updatedAt` is ISO-8601 UTC timestamp.
+- Proxy runtime precedence is: `OPENCLAW_BASE_URL` env first, then `openclaw-relay.json`, then built-in default.
 
 ## Outbound Auth Contract
 

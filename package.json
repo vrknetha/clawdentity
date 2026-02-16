@@ -18,7 +18,10 @@
     "affected:test:local": "nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD",
     "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD",
     "issues:validate": "node issues/scripts/validate-ticket-set.mjs",
-    "dev:registry:local": "pnpm -F @clawdentity/registry run dev:local"
+    "dev:registry:local": "pnpm -F @clawdentity/registry run dev:local",
+    "dev:proxy": "pnpm -F @clawdentity/proxy run dev",
+    "dev:proxy:development": "pnpm -F @clawdentity/proxy run dev:development",
+    "dev:proxy:fresh": "pnpm -F @clawdentity/proxy run dev:fresh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",

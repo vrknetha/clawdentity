@@ -150,7 +150,7 @@ OpenClaw Gateway  (normal /hooks/agent handling)
 This repo is a monorepo:
 
 - `apps/registry` — issues AITs, serves CRL + public keys (Worker config: `apps/registry/wrangler.jsonc`)
-- `apps/proxy` — verifies Clawdentity headers then forwards to OpenClaw hooks
+- `apps/proxy` — verifies Clawdentity headers then forwards to OpenClaw hooks (Worker config: `apps/proxy/wrangler.jsonc`)
 - `apps/cli` — operator workflow (`claw create`, `claw revoke`, `claw share`)
 - `packages/sdk` — TS SDK (sign + verify + CRL cache)
 - `packages/protocol` — shared types + canonical signing rules
@@ -180,10 +180,21 @@ This repo is a monorepo:
 ### 3) Proxy enforcement before OpenClaw
 
 - Handled by: `apps/proxy`
-- Sidecar proxy verifies AIT + CRL + PoP before forwarding to OpenClaw.
+- Proxy Worker verifies AIT + CRL + PoP before forwarding to OpenClaw.
 - Enforces caller allowlist policy by DID.
 - Applies per-agent rate limiting.
 - Keeps `hooks.token` private and only injects it internally during forward.
+- Optional: set `INJECT_IDENTITY_INTO_MESSAGE=true` to prepend a sanitized identity block
+  (`agentDid`, `ownerDid`, `issuer`, `aitJti`) into `/hooks/agent` payload `message`.
+  Default is `false`, which keeps payloads unchanged.
+
+### Proxy Worker local runs
+
+- Local env (`ENVIRONMENT=local`): `pnpm dev:proxy`
+- Development env (`ENVIRONMENT=development`): `pnpm dev:proxy:development`
+- Fresh deploy-like env: `pnpm dev:proxy:fresh`
+- Production deploy command: `pnpm -F @clawdentity/proxy run deploy:production`
+- Environment intent: `local` is local Wrangler development only; `development` and `production` are cloud deployment environments.
 
 ### 4) Operator lifecycle tooling (CLI)
 

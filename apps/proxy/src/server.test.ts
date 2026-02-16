@@ -5,7 +5,8 @@ import {
   parseProxyConfig,
 } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
-import { createProxyApp, startProxyServer } from "./server.js";
+import { startProxyServer } from "./node-server.js";
+import { createProxyApp } from "./server.js";
 
 describe("proxy server", () => {
   it("returns health response with status, version, and environment", async () => {

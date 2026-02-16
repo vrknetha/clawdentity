@@ -34,6 +34,7 @@ Use this skill when any of the following are requested:
 - Agent AIT token: `~/.clawdentity/agents/<agent-name>/ait.jwt`
 - Peer map: `~/.clawdentity/peers.json`
 - Local selected agent marker: `~/.clawdentity/openclaw-agent-name`
+- Relay runtime config: `~/.clawdentity/openclaw-relay.json`
 
 ## Operator Split
 
@@ -52,6 +53,7 @@ Follow this order. Do not skip steps.
 - Confirm `clawdentity` CLI is installed and runnable.
 - Confirm API key exists for this agent (if missing, ask the human for it).
 - Confirm OpenClaw state directory path if non-default.
+- Confirm OpenClaw base URL if local endpoint is non-default.
 
 2. Confirm skill artifact exists in workspace skills directory.
 - Ensure `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/relay-to-peer.mjs` exists.
@@ -71,6 +73,7 @@ Follow this order. Do not skip steps.
 - Execute:
   `clawdentity openclaw setup <agent-name> --invite-code <invite-code>`
 - Use `--openclaw-dir <path>` when state directory is non-default.
+- Use `--openclaw-base-url <url>` when local OpenClaw HTTP endpoint is non-default.
 - Use `--peer-alias <alias>` only when alias override is required.
 
 6. Verify setup outputs.
@@ -79,6 +82,8 @@ Follow this order. Do not skip steps.
   - peer DID
   - updated OpenClaw config path
   - installed transform path
+  - OpenClaw base URL
+  - relay runtime config path
 - Confirm `~/.clawdentity/openclaw-agent-name` is set to the local agent name.
 
 7. Validate with user-style relay test.
@@ -92,6 +97,7 @@ Follow this order. Do not skip steps.
 Ask the human only when required inputs are missing:
 - Missing Clawdentity API key.
 - Unclear OpenClaw state directory.
+- Non-default OpenClaw base URL.
 - Missing invite code.
 
 ## Failure Handling

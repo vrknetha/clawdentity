@@ -19,6 +19,8 @@
 ## OpenClaw Command Rules
 - `openclaw invite` must generate self-contained invite code from admin-provided DID + proxy URL.
 - `openclaw setup` must be idempotent for relay mapping updates and peer map writes.
+- `openclaw setup` must persist/update `~/.clawdentity/openclaw-relay.json` with the resolved `openclawBaseUrl` so downstream proxy runtime can boot without manual env edits.
+- `openclaw setup --openclaw-base-url` should only be needed when OpenClaw is not reachable on the default `http://127.0.0.1:18789`.
 - Keep error messages static (no interpolated runtime values); include variable context only in error details/log fields.
 
 ## Admin Command Rules

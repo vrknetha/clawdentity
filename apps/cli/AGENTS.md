@@ -21,6 +21,7 @@
 - Local CLI config lives at `~/.clawdentity/config.json`.
 - CLI verification caches live under `~/.clawdentity/cache/` and must never include private keys or PATs.
 - Agent identities live at `~/.clawdentity/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
+- OpenClaw setup runtime hint lives at `~/.clawdentity/openclaw-relay.json` and stores `openclawBaseUrl` for proxy fallback.
 - Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/agents/`.
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
 - Keep API tokens masked in human-facing output (`show`, success logs, debug prints).
