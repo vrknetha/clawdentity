@@ -23,6 +23,7 @@ export { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
 export {
   ADMIN_BOOTSTRAP_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
+  ME_API_KEYS_PATH,
 } from "./endpoints.js";
 export type { ProtocolParseErrorCode } from "./errors.js";
 export { ProtocolParseError } from "./errors.js";

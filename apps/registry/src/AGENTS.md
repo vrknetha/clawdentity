@@ -62,6 +62,26 @@
 - Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
 
+## POST /v1/me/api-keys Contract
+- Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
+- Accept optional `{ name }`; default to `api-key` when omitted.
+- Validate `name` as trimmed, non-empty when provided, max 64 chars, and free of control characters.
+- Return plaintext token only in create response; never persist plaintext token in DB.
+- Persist only hashed lookup materials (`key_hash`, `key_prefix`) with `status=active` and `last_used_at=null`.
+
+## GET /v1/me/api-keys Contract
+- Require PAT auth via `createApiKeyAuth`.
+- Return caller-owned key metadata for both active and revoked keys.
+- Response must include only `{ id, name, status, createdAt, lastUsedAt }`.
+- Never expose `key_hash`, `key_prefix`, or plaintext token in list responses.
+
+## DELETE /v1/me/api-keys/:id Contract
+- Require PAT auth via `createApiKeyAuth`.
+- Validate `:id` as ULID and return `400 API_KEY_REVOKE_INVALID_PATH` for invalid path input.
+- Enforce owner scoping: unknown or foreign key IDs must return `404 API_KEY_NOT_FOUND`.
+- Revoke by setting `status=revoked`; return `204` for successful revoke and already-revoked owned keys.
+- Revoked PATs must fail subsequent auth with `401 API_KEY_REVOKED`, while unrelated active PATs continue to authenticate.
+
 ## POST /v1/agents/challenge Contract
 - Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
 - Accept only `{ publicKey }` and validate it as base64url Ed25519 (32-byte decode).

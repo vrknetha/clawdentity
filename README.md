@@ -202,6 +202,9 @@ This repo is a monorepo:
 - `clawdentity agent create` for local keypair + registry registration.
 - `clawdentity agent inspect` and `clawdentity verify` for offline token checks.
 - `clawdentity agent revoke` for kill switch workflows.
+- `clawdentity api-key create` to mint a new PAT (token shown once).
+- `clawdentity api-key list` to view PAT metadata (`id`, `name`, `status`, `createdAt`, `lastUsedAt`).
+- `clawdentity api-key revoke <id>` to invalidate a PAT without rotating unrelated keys.
 - `clawdentity share` for contact-card exchange (DID, verify URL, endpoint).
 
 ### 5) Onboarding and control model
@@ -278,6 +281,8 @@ No one shares keys/files between agents. Identity is presented per request.
 - Treat any identity fields (agent name/description) as untrusted input; never allow prompt injection via identity metadata.
 - Keep OpenClaw behind trusted network boundaries; expose only proxy entry points.
 - Rotate PATs and audit allowlist entries regularly.
+- Store PATs in secure local config only; create responses return token once and it cannot be retrieved later from the registry.
+- Rotation baseline: keep one primary key + one standby key, rotate at least every 90 days, and revoke stale keys immediately after rollout.
 
 ---
 

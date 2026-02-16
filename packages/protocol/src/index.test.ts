@@ -15,6 +15,7 @@ import {
   generateUlid,
   MAX_AGENT_DESCRIPTION_LENGTH,
   MAX_AGENT_NAME_LENGTH,
+  ME_API_KEYS_PATH,
   makeAgentDid,
   makeHumanDid,
   PROTOCOL_VERSION,
@@ -34,6 +35,7 @@ describe("protocol", () => {
   it("exports shared endpoint constants", () => {
     expect(ADMIN_BOOTSTRAP_PATH).toBe("/v1/admin/bootstrap");
     expect(AGENT_REGISTRATION_CHALLENGE_PATH).toBe("/v1/agents/challenge");
+    expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");
   });
 
   it("exports helpers from package root", () => {

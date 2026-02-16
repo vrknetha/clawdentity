@@ -66,6 +66,10 @@
 - Use constant-time comparison when checking the header-derived hash against `api_keys.key_hash`, only allow `status = 'active'`, and surface failures through `AppError` codes such as `API_KEY_MISSING`, `API_KEY_INVALID`, or `API_KEY_REVOKED` so the shared SDK error handler can produce consistent envelopes.
 - Enrich the request context with `humanId`, `apiKeyId`, and `apiKeyName` for downstream handlers and update `last_used_at` as part of the auth middleware/handler so analytics and revocation tooling stay honest.
 - Keep the middleware reversible: a no-auth `GET /health` can stay open but any future `/v1/*` endpoints should extend this middleware so unauthorized access never reaches the DB layer.
+- PAT lifecycle endpoints live under `/v1/me/api-keys`:
+  - `POST` creates a key and returns plaintext token once,
+  - `GET` returns metadata only,
+  - `DELETE /:id` revokes owner-scoped keys with idempotent `204` for already-revoked owned rows.
 
 ## Public Key Discovery
 - `GET /.well-known/claw-keys.json` is the canonical public key discovery endpoint for offline AIT verification.
