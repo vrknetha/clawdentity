@@ -82,8 +82,17 @@ describe("protocol", () => {
     });
 
     expect(AGENT_REGISTRATION_PROOF_VERSION).toBe("clawdentity.register.v1");
-    expect(AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE).toContain(
-      "challengeId:{challengeId}",
+    expect(AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE).toBe(
+      [
+        "clawdentity.register.v1",
+        "challengeId:{challengeId}",
+        "nonce:{nonce}",
+        "ownerDid:{ownerDid}",
+        "publicKey:{publicKey}",
+        "name:{name}",
+        "framework:{framework}",
+        "ttlDays:{ttlDays}",
+      ].join("\n"),
     );
     expect(canonical).toBe(
       [

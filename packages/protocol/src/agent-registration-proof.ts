@@ -1,13 +1,13 @@
 export const AGENT_REGISTRATION_PROOF_VERSION = "clawdentity.register.v1";
 
 export const AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE =
-  `${AGENT_REGISTRATION_PROOF_VERSION}\\n` +
-  "challengeId:{challengeId}\\n" +
-  "nonce:{nonce}\\n" +
-  "ownerDid:{ownerDid}\\n" +
-  "publicKey:{publicKey}\\n" +
-  "name:{name}\\n" +
-  "framework:{framework}\\n" +
+  `${AGENT_REGISTRATION_PROOF_VERSION}\n` +
+  "challengeId:{challengeId}\n" +
+  "nonce:{nonce}\n" +
+  "ownerDid:{ownerDid}\n" +
+  "publicKey:{publicKey}\n" +
+  "name:{name}\n" +
+  "framework:{framework}\n" +
   "ttlDays:{ttlDays}";
 
 export type AgentRegistrationProofMessageInput = {
