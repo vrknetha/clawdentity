@@ -1,5 +1,6 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
+  AGENT_AUTH_REFRESH_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   type AitClaims,
   canonicalizeAgentRegistrationProof,
@@ -17,6 +18,7 @@ import {
   REQUEST_ID_HEADER,
   signAIT,
   signEd25519,
+  signHttpRequest,
   verifyAIT,
   verifyCRL,
 } from "@clawdentity/sdk";
@@ -26,6 +28,10 @@ import {
   DEFAULT_AGENT_FRAMEWORK,
   DEFAULT_AGENT_TTL_DAYS,
 } from "./agent-registration.js";
+import {
+  deriveRefreshTokenLookupPrefix,
+  hashAgentToken,
+} from "./auth/agent-auth-token.js";
 import {
   deriveApiKeyLookupPrefix,
   hashApiKeyToken,
@@ -89,6 +95,29 @@ type FakeApiKeyRow = {
   createdAt: string;
   lastUsedAt: string | null;
 };
+
+type FakeAgentAuthSessionRow = {
+  id: string;
+  agentId: string;
+  refreshKeyHash: string;
+  refreshKeyPrefix: string;
+  refreshIssuedAt: string;
+  refreshExpiresAt: string;
+  refreshLastUsedAt: string | null;
+  accessKeyHash: string;
+  accessKeyPrefix: string;
+  accessIssuedAt: string;
+  accessExpiresAt: string;
+  accessLastUsedAt: string | null;
+  status: "active" | "revoked";
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type FakeAgentAuthEventInsertRow = Record<string, unknown>;
+type FakeAgentAuthSessionInsertRow = Record<string, unknown>;
+type FakeAgentAuthSessionUpdateRow = Record<string, unknown>;
 type FakeApiKeySelectRow = {
   id: string;
   human_id: string;
@@ -172,6 +201,7 @@ type FakeDbOptions = {
   inviteRows?: FakeInviteRow[];
   revocationRows?: FakeRevocationRow[];
   registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
+  agentAuthSessionRows?: FakeAgentAuthSessionRow[];
 };
 
 type FakeCrlSelectRow = {
@@ -584,6 +614,112 @@ function resolveApiKeySelectRows(options: {
   return rows.slice(0, limit);
 }
 
+function getAgentAuthSessionSelectColumnValue(
+  row: FakeAgentAuthSessionRow,
+  column: string,
+): unknown {
+  if (column === "id") {
+    return row.id;
+  }
+  if (column === "agent_id") {
+    return row.agentId;
+  }
+  if (column === "refresh_key_hash") {
+    return row.refreshKeyHash;
+  }
+  if (column === "refresh_key_prefix") {
+    return row.refreshKeyPrefix;
+  }
+  if (column === "refresh_issued_at") {
+    return row.refreshIssuedAt;
+  }
+  if (column === "refresh_expires_at") {
+    return row.refreshExpiresAt;
+  }
+  if (column === "refresh_last_used_at") {
+    return row.refreshLastUsedAt;
+  }
+  if (column === "access_key_hash") {
+    return row.accessKeyHash;
+  }
+  if (column === "access_key_prefix") {
+    return row.accessKeyPrefix;
+  }
+  if (column === "access_issued_at") {
+    return row.accessIssuedAt;
+  }
+  if (column === "access_expires_at") {
+    return row.accessExpiresAt;
+  }
+  if (column === "access_last_used_at") {
+    return row.accessLastUsedAt;
+  }
+  if (column === "status") {
+    return row.status;
+  }
+  if (column === "revoked_at") {
+    return row.revokedAt;
+  }
+  if (column === "created_at") {
+    return row.createdAt;
+  }
+  if (column === "updated_at") {
+    return row.updatedAt;
+  }
+  return undefined;
+}
+
+function resolveAgentAuthSessionSelectRows(options: {
+  query: string;
+  params: unknown[];
+  sessionRows: FakeAgentAuthSessionRow[];
+}): FakeAgentAuthSessionRow[] {
+  const whereClause = extractWhereClause(options.query);
+  const equalityParams = parseWhereEqualityParams({
+    whereClause,
+    params: options.params,
+  });
+  const hasAgentIdFilter = hasFilter(whereClause, "agent_id");
+  const hasIdFilter = hasFilter(whereClause, "id");
+  const hasStatusFilter = hasFilter(whereClause, "status");
+  const hasRefreshPrefixFilter = hasFilter(whereClause, "refresh_key_prefix");
+  const hasLimitClause = options.query.toLowerCase().includes(" limit ");
+
+  const agentId =
+    hasAgentIdFilter && typeof equalityParams.values.agent_id?.[0] === "string"
+      ? String(equalityParams.values.agent_id[0])
+      : undefined;
+  const id =
+    hasIdFilter && typeof equalityParams.values.id?.[0] === "string"
+      ? String(equalityParams.values.id[0])
+      : undefined;
+  const status =
+    hasStatusFilter && typeof equalityParams.values.status?.[0] === "string"
+      ? String(equalityParams.values.status[0])
+      : undefined;
+  const refreshPrefix =
+    hasRefreshPrefixFilter &&
+    typeof equalityParams.values.refresh_key_prefix?.[0] === "string"
+      ? String(equalityParams.values.refresh_key_prefix[0])
+      : undefined;
+
+  const maybeLimit = hasLimitClause
+    ? Number(options.params[options.params.length - 1])
+    : Number.NaN;
+  const limit = Number.isFinite(maybeLimit)
+    ? maybeLimit
+    : options.sessionRows.length;
+
+  return options.sessionRows
+    .filter((row) => (agentId ? row.agentId === agentId : true))
+    .filter((row) => (id ? row.id === id : true))
+    .filter((row) => (status ? row.status === status : true))
+    .filter((row) =>
+      refreshPrefix ? row.refreshKeyPrefix === refreshPrefix : true,
+    )
+    .slice(0, limit);
+}
+
 function resolveAgentSelectRows(options: {
   query: string;
   params: unknown[];
@@ -600,6 +736,7 @@ function resolveAgentSelectRows(options: {
   const hasStatusFilter = hasFilter(whereClause, "status");
   const hasFrameworkFilter = hasFilter(whereClause, "framework");
   const hasIdFilter = hasFilter(whereClause, "id");
+  const hasDidFilter = hasFilter(whereClause, "did");
   const hasCurrentJtiFilter = hasFilter(whereClause, "current_jti");
   const hasCursorFilter = hasFilter(whereClause, "id", "<");
   const hasLimitClause = options.query.toLowerCase().includes(" limit ");
@@ -624,6 +761,10 @@ function resolveAgentSelectRows(options: {
     hasIdFilter && typeof equalityParams.values.id?.[0] === "string"
       ? String(equalityParams.values.id?.[0])
       : undefined;
+  const didFilter =
+    hasDidFilter && typeof equalityParams.values.did?.[0] === "string"
+      ? String(equalityParams.values.did?.[0])
+      : undefined;
   const currentJtiFilter = hasCurrentJtiFilter
     ? (equalityParams.values.current_jti?.[0] as string | null | undefined)
     : undefined;
@@ -645,6 +786,7 @@ function resolveAgentSelectRows(options: {
       frameworkFilter ? row.framework === frameworkFilter : true,
     )
     .filter((row) => (idFilter ? row.id === idFilter : true))
+    .filter((row) => (didFilter ? row.did === didFilter : true))
     .filter((row) =>
       currentJtiFilter !== undefined
         ? (row.currentJti ?? null) === currentJtiFilter
@@ -872,12 +1014,16 @@ function createFakeDb(
     [];
   const agentRegistrationChallengeUpdates: FakeAgentRegistrationChallengeUpdateRow[] =
     [];
+  const agentAuthSessionInserts: FakeAgentAuthSessionInsertRow[] = [];
+  const agentAuthSessionUpdates: FakeAgentAuthSessionUpdateRow[] = [];
+  const agentAuthEventInserts: FakeAgentAuthEventInsertRow[] = [];
   const inviteInserts: FakeInviteInsertRow[] = [];
   const inviteUpdates: FakeInviteUpdateRow[] = [];
   const revocationRows = [...(options.revocationRows ?? [])];
   const registrationChallengeRows = [
     ...(options.registrationChallengeRows ?? []),
   ];
+  const agentAuthSessionRows = [...(options.agentAuthSessionRows ?? [])];
   const inviteRows = [...(options.inviteRows ?? [])];
   const humanRows = rows.reduce<FakeHumanRow[]>((acc, row) => {
     if (acc.some((item) => item.id === row.humanId)) {
@@ -1074,6 +1220,38 @@ function createFakeDb(
             };
           }
           if (
+            (normalizedQuery.includes('from "agent_auth_sessions"') ||
+              normalizedQuery.includes("from agent_auth_sessions")) &&
+            (normalizedQuery.includes("select") ||
+              normalizedQuery.includes("returning"))
+          ) {
+            const resultRows = resolveAgentAuthSessionSelectRows({
+              query,
+              params,
+              sessionRows: agentAuthSessionRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getAgentAuthSessionSelectColumnValue(
+                      row,
+                      column,
+                    );
+                    return acc;
+                  },
+                  {},
+                );
+              }),
+            };
+          }
+          if (
             (normalizedQuery.includes('from "invites"') ||
               normalizedQuery.includes("from invites")) &&
             (normalizedQuery.includes("select") ||
@@ -1165,6 +1343,22 @@ function createFakeDb(
             return resultRows.map((row) =>
               selectedColumns.map((column) =>
                 getApiKeySelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
+            normalizedQuery.includes('from "agent_auth_sessions"') ||
+            normalizedQuery.includes("from agent_auth_sessions")
+          ) {
+            const resultRows = resolveAgentAuthSessionSelectRows({
+              query,
+              params,
+              sessionRows: agentAuthSessionRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getAgentAuthSessionSelectColumnValue(row, column),
               ),
             );
           }
@@ -1415,6 +1609,235 @@ function createFakeDb(
             }
 
             changes = 1;
+          }
+          if (
+            normalizedQuery.includes('insert into "agent_auth_sessions"') ||
+            normalizedQuery.includes("insert into agent_auth_sessions")
+          ) {
+            const columns = parseInsertColumns(query, "agent_auth_sessions");
+            const row = columns.reduce<FakeAgentAuthSessionInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            agentAuthSessionInserts.push(row);
+
+            if (
+              typeof row.id === "string" &&
+              typeof row.agent_id === "string" &&
+              typeof row.refresh_key_hash === "string" &&
+              typeof row.refresh_key_prefix === "string" &&
+              typeof row.refresh_issued_at === "string" &&
+              typeof row.refresh_expires_at === "string" &&
+              typeof row.access_key_hash === "string" &&
+              typeof row.access_key_prefix === "string" &&
+              typeof row.access_issued_at === "string" &&
+              typeof row.access_expires_at === "string" &&
+              (row.status === "active" || row.status === "revoked") &&
+              typeof row.created_at === "string" &&
+              typeof row.updated_at === "string"
+            ) {
+              const existingIndex = agentAuthSessionRows.findIndex(
+                (sessionRow) => sessionRow.agentId === row.agent_id,
+              );
+              const nextSession: FakeAgentAuthSessionRow = {
+                id: row.id,
+                agentId: row.agent_id,
+                refreshKeyHash: row.refresh_key_hash,
+                refreshKeyPrefix: row.refresh_key_prefix,
+                refreshIssuedAt: row.refresh_issued_at,
+                refreshExpiresAt: row.refresh_expires_at,
+                refreshLastUsedAt:
+                  typeof row.refresh_last_used_at === "string"
+                    ? row.refresh_last_used_at
+                    : null,
+                accessKeyHash: row.access_key_hash,
+                accessKeyPrefix: row.access_key_prefix,
+                accessIssuedAt: row.access_issued_at,
+                accessExpiresAt: row.access_expires_at,
+                accessLastUsedAt:
+                  typeof row.access_last_used_at === "string"
+                    ? row.access_last_used_at
+                    : null,
+                status: row.status,
+                revokedAt:
+                  typeof row.revoked_at === "string" ? row.revoked_at : null,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+              };
+              if (existingIndex >= 0) {
+                agentAuthSessionRows.splice(existingIndex, 1, nextSession);
+              } else {
+                agentAuthSessionRows.push(nextSession);
+              }
+            }
+
+            changes = 1;
+          }
+          if (
+            normalizedQuery.includes('insert into "agent_auth_events"') ||
+            normalizedQuery.includes("insert into agent_auth_events")
+          ) {
+            const columns = parseInsertColumns(query, "agent_auth_events");
+            const row = columns.reduce<FakeAgentAuthEventInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            agentAuthEventInserts.push(row);
+            changes = 1;
+          }
+          if (
+            normalizedQuery.includes('update "agent_auth_sessions"') ||
+            normalizedQuery.includes("update agent_auth_sessions")
+          ) {
+            const setColumns = parseUpdateSetColumns(
+              query,
+              "agent_auth_sessions",
+            );
+            const nextValues = setColumns.reduce<Record<string, unknown>>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            const whereClause = extractWhereClause(query);
+            const whereParams = params.slice(setColumns.length);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params: whereParams,
+            });
+
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : undefined;
+            const agentIdFilter =
+              typeof equalityParams.values.agent_id?.[0] === "string"
+                ? String(equalityParams.values.agent_id[0])
+                : undefined;
+            const statusFilter =
+              typeof equalityParams.values.status?.[0] === "string"
+                ? String(equalityParams.values.status[0])
+                : undefined;
+            const refreshHashFilter =
+              typeof equalityParams.values.refresh_key_hash?.[0] === "string"
+                ? String(equalityParams.values.refresh_key_hash[0])
+                : undefined;
+
+            let matchedRows = 0;
+            for (const row of agentAuthSessionRows) {
+              if (idFilter && row.id !== idFilter) {
+                continue;
+              }
+              if (agentIdFilter && row.agentId !== agentIdFilter) {
+                continue;
+              }
+              if (statusFilter && row.status !== statusFilter) {
+                continue;
+              }
+              if (
+                refreshHashFilter &&
+                row.refreshKeyHash !== refreshHashFilter
+              ) {
+                continue;
+              }
+
+              matchedRows += 1;
+              if (typeof nextValues.refresh_key_hash === "string") {
+                row.refreshKeyHash = nextValues.refresh_key_hash;
+              }
+              if (typeof nextValues.refresh_key_prefix === "string") {
+                row.refreshKeyPrefix = nextValues.refresh_key_prefix;
+              }
+              if (typeof nextValues.refresh_issued_at === "string") {
+                row.refreshIssuedAt = nextValues.refresh_issued_at;
+              }
+              if (typeof nextValues.refresh_expires_at === "string") {
+                row.refreshExpiresAt = nextValues.refresh_expires_at;
+              }
+              if (
+                typeof nextValues.refresh_last_used_at === "string" ||
+                nextValues.refresh_last_used_at === null
+              ) {
+                row.refreshLastUsedAt = nextValues.refresh_last_used_at;
+              }
+              if (typeof nextValues.access_key_hash === "string") {
+                row.accessKeyHash = nextValues.access_key_hash;
+              }
+              if (typeof nextValues.access_key_prefix === "string") {
+                row.accessKeyPrefix = nextValues.access_key_prefix;
+              }
+              if (typeof nextValues.access_issued_at === "string") {
+                row.accessIssuedAt = nextValues.access_issued_at;
+              }
+              if (typeof nextValues.access_expires_at === "string") {
+                row.accessExpiresAt = nextValues.access_expires_at;
+              }
+              if (
+                typeof nextValues.access_last_used_at === "string" ||
+                nextValues.access_last_used_at === null
+              ) {
+                row.accessLastUsedAt = nextValues.access_last_used_at;
+              }
+              if (
+                nextValues.status === "active" ||
+                nextValues.status === "revoked"
+              ) {
+                row.status = nextValues.status;
+              }
+              if (
+                typeof nextValues.revoked_at === "string" ||
+                nextValues.revoked_at === null
+              ) {
+                row.revokedAt = nextValues.revoked_at;
+              }
+              if (typeof nextValues.updated_at === "string") {
+                row.updatedAt = nextValues.updated_at;
+              }
+            }
+
+            agentAuthSessionUpdates.push({
+              ...nextValues,
+              id: idFilter,
+              agent_id: agentIdFilter,
+              status_where: statusFilter,
+              refresh_key_hash_where: refreshHashFilter,
+              matched_rows: matchedRows,
+            });
+            changes = matchedRows;
+          }
+          if (
+            normalizedQuery.includes('delete from "agent_auth_sessions"') ||
+            normalizedQuery.includes("delete from agent_auth_sessions")
+          ) {
+            const whereClause = extractWhereClause(query);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params,
+            });
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : undefined;
+
+            if (idFilter) {
+              for (
+                let index = agentAuthSessionRows.length - 1;
+                index >= 0;
+                index -= 1
+              ) {
+                if (agentAuthSessionRows[index]?.id === idFilter) {
+                  agentAuthSessionRows.splice(index, 1);
+                  changes += 1;
+                }
+              }
+            }
           }
           if (
             normalizedQuery.includes('insert into "invites"') ||
@@ -1824,6 +2247,10 @@ function createFakeDb(
     humanRows,
     humanInserts,
     apiKeyInserts,
+    agentAuthSessionRows,
+    agentAuthSessionInserts,
+    agentAuthSessionUpdates,
+    agentAuthEventInserts,
     agentInserts,
     agentUpdates,
     agentRegistrationChallengeInserts,
@@ -1879,6 +2306,40 @@ async function signRegistrationChallenge(options: {
     options.secretKey,
   );
   return encodeEd25519SignatureBase64url(signature);
+}
+
+async function createSignedAgentRefreshRequest(options: {
+  ait: string;
+  secretKey: Uint8Array;
+  refreshToken: string;
+  timestamp?: string;
+  nonce?: string;
+}): Promise<{
+  body: string;
+  headers: Record<string, string>;
+}> {
+  const timestamp = options.timestamp ?? String(Math.floor(Date.now() / 1000));
+  const nonce = options.nonce ?? "nonce-agent-refresh";
+  const body = JSON.stringify({
+    refreshToken: options.refreshToken,
+  });
+  const signed = await signHttpRequest({
+    method: "POST",
+    pathWithQuery: AGENT_AUTH_REFRESH_PATH,
+    timestamp,
+    nonce,
+    body: new TextEncoder().encode(body),
+    secretKey: options.secretKey,
+  });
+
+  return {
+    body,
+    headers: {
+      authorization: `Claw ${options.ait}`,
+      "content-type": "application/json",
+      ...signed.headers,
+    },
+  };
 }
 
 describe("GET /health", () => {
@@ -5126,7 +5587,12 @@ describe("POST /v1/agents", () => {
 
   it("creates an agent, defaults framework/ttl, and persists current_jti + expires_at", async () => {
     const { token, authRow } = await makeValidPatContext();
-    const { database, agentInserts } = createFakeDb([authRow]);
+    const {
+      database,
+      agentInserts,
+      agentAuthSessionInserts,
+      agentAuthEventInserts,
+    } = createFakeDb([authRow]);
     const signer = await generateEd25519Keypair();
     const agentKeypair = await generateEd25519Keypair();
     const appInstance = createRegistryApp();
@@ -5221,6 +5687,13 @@ describe("POST /v1/agents", () => {
         updatedAt: string;
       };
       ait: string;
+      agentAuth: {
+        tokenType: string;
+        accessToken: string;
+        accessExpiresAt: string;
+        refreshToken: string;
+        refreshExpiresAt: string;
+      };
     };
 
     expect(body.agent.name).toBe("agent-01");
@@ -5229,6 +5702,15 @@ describe("POST /v1/agents", () => {
     expect(body.agent.publicKey).toBe(encodeBase64url(agentKeypair.publicKey));
     expect(body.agent.status).toBe("active");
     expect(body.ait).toEqual(expect.any(String));
+    expect(body.agentAuth.tokenType).toBe("Bearer");
+    expect(body.agentAuth.accessToken.startsWith("clw_agt_")).toBe(true);
+    expect(body.agentAuth.refreshToken.startsWith("clw_rft_")).toBe(true);
+    expect(Date.parse(body.agentAuth.accessExpiresAt)).toBeGreaterThan(
+      Date.now(),
+    );
+    expect(Date.parse(body.agentAuth.refreshExpiresAt)).toBeGreaterThan(
+      Date.now(),
+    );
 
     expect(agentInserts).toHaveLength(1);
     const inserted = agentInserts[0];
@@ -5238,6 +5720,16 @@ describe("POST /v1/agents", () => {
     expect(inserted?.public_key).toBe(encodeBase64url(agentKeypair.publicKey));
     expect(inserted?.current_jti).toBe(body.agent.currentJti);
     expect(inserted?.expires_at).toBe(body.agent.expiresAt);
+    expect(agentAuthSessionInserts).toHaveLength(1);
+    expect(agentAuthSessionInserts[0]).toMatchObject({
+      agent_id: body.agent.id,
+      status: "active",
+    });
+    expect(agentAuthEventInserts).toHaveLength(1);
+    expect(agentAuthEventInserts[0]).toMatchObject({
+      agent_id: body.agent.id,
+      event_type: "issued",
+    });
   });
 
   it("returns verifiable AIT using published keyset", async () => {
@@ -5458,5 +5950,402 @@ describe("POST /v1/agents", () => {
     expect(body.error.details?.fieldErrors).toMatchObject({
       REGISTRY_SIGNING_KEYS: expect.any(Array),
     });
+  });
+});
+
+describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
+  async function buildRefreshFixture() {
+    const signer = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const agentId = generateUlid(Date.now());
+    const agentDid = makeAgentDid(agentId);
+    const aitJti = generateUlid(Date.now() + 1);
+    const refreshToken =
+      "clw_rft_fixture_refresh_token_value_for_registry_tests";
+    const refreshTokenHash = await hashAgentToken(refreshToken);
+    const ait = await signAIT({
+      claims: {
+        iss: "https://dev.api.clawdentity.com",
+        sub: agentDid,
+        ownerDid: makeHumanDid(generateUlid(Date.now() + 2)),
+        name: "agent-refresh-01",
+        framework: "openclaw",
+        cnf: {
+          jwk: {
+            kty: "OKP",
+            crv: "Ed25519",
+            x: encodeBase64url(agentKeypair.publicKey),
+          },
+        },
+        iat: nowSeconds - 10,
+        nbf: nowSeconds - 10,
+        exp: nowSeconds + 3600,
+        jti: aitJti,
+      },
+      signerKid: "reg-key-1",
+      signerKeypair: signer,
+    });
+
+    return {
+      signer,
+      agentKeypair,
+      agentId,
+      agentDid,
+      aitJti,
+      ait,
+      refreshToken,
+      refreshTokenHash,
+    };
+  }
+
+  it("rotates refresh credentials and returns a new agent auth bundle", async () => {
+    const fixture = await buildRefreshFixture();
+    const nowIso = new Date().toISOString();
+    const refreshExpiresAt = new Date(Date.now() + 60_000).toISOString();
+    const {
+      database,
+      agentAuthSessionRows,
+      agentAuthSessionUpdates,
+      agentAuthEventInserts,
+    } = createFakeDb(
+      [],
+      [
+        {
+          id: fixture.agentId,
+          did: fixture.agentDid,
+          ownerId: "human-1",
+          name: "agent-refresh-01",
+          framework: "openclaw",
+          publicKey: encodeBase64url(fixture.agentKeypair.publicKey),
+          status: "active",
+          expiresAt: null,
+          currentJti: fixture.aitJti,
+        },
+      ],
+      {
+        agentAuthSessionRows: [
+          {
+            id: generateUlid(Date.now() + 3),
+            agentId: fixture.agentId,
+            refreshKeyHash: fixture.refreshTokenHash,
+            refreshKeyPrefix: deriveRefreshTokenLookupPrefix(
+              fixture.refreshToken,
+            ),
+            refreshIssuedAt: nowIso,
+            refreshExpiresAt,
+            refreshLastUsedAt: null,
+            accessKeyHash: "old-access-hash",
+            accessKeyPrefix: "clw_agt_old",
+            accessIssuedAt: nowIso,
+            accessExpiresAt: refreshExpiresAt,
+            accessLastUsedAt: null,
+            status: "active",
+            revokedAt: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      },
+    );
+    const request = await createSignedAgentRefreshRequest({
+      ait: fixture.ait,
+      secretKey: fixture.agentKeypair.secretKey,
+      refreshToken: fixture.refreshToken,
+    });
+
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_REFRESH_PATH,
+      {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(fixture.signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      agentAuth: {
+        tokenType: string;
+        accessToken: string;
+        accessExpiresAt: string;
+        refreshToken: string;
+        refreshExpiresAt: string;
+      };
+    };
+    expect(body.agentAuth.tokenType).toBe("Bearer");
+    expect(body.agentAuth.accessToken.startsWith("clw_agt_")).toBe(true);
+    expect(body.agentAuth.refreshToken.startsWith("clw_rft_")).toBe(true);
+    expect(body.agentAuth.refreshToken).not.toBe(fixture.refreshToken);
+    expect(agentAuthSessionUpdates).toHaveLength(1);
+    expect(agentAuthSessionRows[0]?.refreshKeyPrefix).toBe(
+      deriveRefreshTokenLookupPrefix(body.agentAuth.refreshToken),
+    );
+    expect(agentAuthEventInserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event_type: "refreshed" }),
+      ]),
+    );
+  });
+
+  it("rejects refresh when session is revoked", async () => {
+    const fixture = await buildRefreshFixture();
+    const nowIso = new Date().toISOString();
+    const request = await createSignedAgentRefreshRequest({
+      ait: fixture.ait,
+      secretKey: fixture.agentKeypair.secretKey,
+      refreshToken: fixture.refreshToken,
+    });
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: fixture.agentId,
+          did: fixture.agentDid,
+          ownerId: "human-1",
+          name: "agent-refresh-01",
+          framework: "openclaw",
+          publicKey: encodeBase64url(fixture.agentKeypair.publicKey),
+          status: "active",
+          expiresAt: null,
+          currentJti: fixture.aitJti,
+        },
+      ],
+      {
+        agentAuthSessionRows: [
+          {
+            id: generateUlid(Date.now() + 4),
+            agentId: fixture.agentId,
+            refreshKeyHash: fixture.refreshTokenHash,
+            refreshKeyPrefix: deriveRefreshTokenLookupPrefix(
+              fixture.refreshToken,
+            ),
+            refreshIssuedAt: nowIso,
+            refreshExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            refreshLastUsedAt: null,
+            accessKeyHash: "old-access-hash",
+            accessKeyPrefix: "clw_agt_old",
+            accessIssuedAt: nowIso,
+            accessExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            accessLastUsedAt: null,
+            status: "revoked",
+            revokedAt: nowIso,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      },
+    );
+
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_REFRESH_PATH,
+      {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(fixture.signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_REFRESH_REVOKED");
+  });
+
+  it("marks expired refresh credentials revoked and returns expired error", async () => {
+    const fixture = await buildRefreshFixture();
+    const nowIso = new Date().toISOString();
+    const {
+      database,
+      agentAuthSessionRows,
+      agentAuthEventInserts,
+      agentAuthSessionUpdates,
+    } = createFakeDb(
+      [],
+      [
+        {
+          id: fixture.agentId,
+          did: fixture.agentDid,
+          ownerId: "human-1",
+          name: "agent-refresh-01",
+          framework: "openclaw",
+          publicKey: encodeBase64url(fixture.agentKeypair.publicKey),
+          status: "active",
+          expiresAt: null,
+          currentJti: fixture.aitJti,
+        },
+      ],
+      {
+        agentAuthSessionRows: [
+          {
+            id: generateUlid(Date.now() + 5),
+            agentId: fixture.agentId,
+            refreshKeyHash: fixture.refreshTokenHash,
+            refreshKeyPrefix: deriveRefreshTokenLookupPrefix(
+              fixture.refreshToken,
+            ),
+            refreshIssuedAt: nowIso,
+            refreshExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+            refreshLastUsedAt: null,
+            accessKeyHash: "old-access-hash",
+            accessKeyPrefix: "clw_agt_old",
+            accessIssuedAt: nowIso,
+            accessExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+            accessLastUsedAt: null,
+            status: "active",
+            revokedAt: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      },
+    );
+    const request = await createSignedAgentRefreshRequest({
+      ait: fixture.ait,
+      secretKey: fixture.agentKeypair.secretKey,
+      refreshToken: fixture.refreshToken,
+    });
+
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_REFRESH_PATH,
+      {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: encodeBase64url(fixture.signer.publicKey),
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_REFRESH_EXPIRED");
+    expect(agentAuthSessionRows[0]?.status).toBe("revoked");
+    expect(agentAuthSessionUpdates).toHaveLength(1);
+    expect(agentAuthEventInserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event_type: "revoked" }),
+      ]),
+    );
+  });
+});
+
+describe("DELETE /v1/agents/:id/auth/revoke", () => {
+  it("revokes active session for owned agent and is idempotent", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(Date.now() + 10);
+    const nowIso = new Date().toISOString();
+    const { database, agentAuthSessionRows, agentAuthEventInserts } =
+      createFakeDb(
+        [authRow],
+        [
+          {
+            id: agentId,
+            did: makeAgentDid(agentId),
+            ownerId: authRow.humanId,
+            name: "agent-auth-revoke",
+            framework: "openclaw",
+            publicKey: encodeBase64url(new Uint8Array(32)),
+            status: "active",
+            expiresAt: null,
+            currentJti: generateUlid(Date.now() + 11),
+          },
+        ],
+        {
+          agentAuthSessionRows: [
+            {
+              id: generateUlid(Date.now() + 12),
+              agentId,
+              refreshKeyHash: "refresh-hash",
+              refreshKeyPrefix: "clw_rft_test",
+              refreshIssuedAt: nowIso,
+              refreshExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+              refreshLastUsedAt: null,
+              accessKeyHash: "access-hash",
+              accessKeyPrefix: "clw_agt_test",
+              accessIssuedAt: nowIso,
+              accessExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+              accessLastUsedAt: null,
+              status: "active",
+              revokedAt: null,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+          ],
+        },
+      );
+
+    const appInstance = createRegistryApp();
+    const firstResponse = await appInstance.request(
+      `/v1/agents/${agentId}/auth/revoke`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(firstResponse.status).toBe(204);
+    expect(agentAuthSessionRows[0]?.status).toBe("revoked");
+    expect(agentAuthEventInserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "revoked",
+          reason: "owner_auth_revoke",
+        }),
+      ]),
+    );
+
+    const secondResponse = await appInstance.request(
+      `/v1/agents/${agentId}/auth/revoke`,
+      {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(secondResponse.status).toBe(204);
   });
 });

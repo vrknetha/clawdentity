@@ -1,5 +1,6 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
+  AGENT_AUTH_REFRESH_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   generateUlid,
   INVITES_PATH,
@@ -23,6 +24,13 @@ import {
 import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { parseAdminBootstrapPayload } from "./admin-bootstrap.js";
+import {
+  agentAuthRefreshConflictError,
+  agentAuthRefreshRejectedError,
+  issueAgentAuth,
+  parseAgentAuthRefreshPayload,
+  toAgentAuthResponse,
+} from "./agent-auth-lifecycle.js";
 import { mapAgentListRow, parseAgentListQuery } from "./agent-list.js";
 import {
   buildAgentRegistrationChallenge,
@@ -50,6 +58,11 @@ import {
   parseApiKeyRevokePath,
 } from "./api-key-lifecycle.js";
 import {
+  deriveRefreshTokenLookupPrefix,
+  hashAgentToken,
+} from "./auth/agent-auth-token.js";
+import { verifyAgentClawRequest } from "./auth/agent-claw-auth.js";
+import {
   type AuthenticatedHuman,
   createApiKeyAuth,
 } from "./auth/api-key-auth.js";
@@ -61,6 +74,8 @@ import {
 } from "./auth/api-key-token.js";
 import { createDb } from "./db/client.js";
 import {
+  agent_auth_events,
+  agent_auth_sessions,
   agent_registration_challenges,
   agents,
   api_keys,
@@ -124,6 +139,25 @@ type OwnedAgentRegistrationChallenge = {
   status: "pending" | "used";
   expires_at: string;
   used_at: string | null;
+};
+
+type OwnedAgentAuthSession = {
+  id: string;
+  agent_id: string;
+  refresh_key_hash: string;
+  refresh_key_prefix: string;
+  refresh_issued_at: string;
+  refresh_expires_at: string;
+  refresh_last_used_at: string | null;
+  access_key_hash: string;
+  access_key_prefix: string;
+  access_issued_at: string;
+  access_expires_at: string;
+  access_last_used_at: string | null;
+  status: "active" | "revoked";
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type InviteRow = {
@@ -246,6 +280,58 @@ async function findOwnedAgent(input: {
   return rows[0];
 }
 
+async function findAgentAuthSessionByAgentId(input: {
+  db: ReturnType<typeof createDb>;
+  agentId: string;
+}): Promise<OwnedAgentAuthSession | undefined> {
+  const rows = await input.db
+    .select({
+      id: agent_auth_sessions.id,
+      agent_id: agent_auth_sessions.agent_id,
+      refresh_key_hash: agent_auth_sessions.refresh_key_hash,
+      refresh_key_prefix: agent_auth_sessions.refresh_key_prefix,
+      refresh_issued_at: agent_auth_sessions.refresh_issued_at,
+      refresh_expires_at: agent_auth_sessions.refresh_expires_at,
+      refresh_last_used_at: agent_auth_sessions.refresh_last_used_at,
+      access_key_hash: agent_auth_sessions.access_key_hash,
+      access_key_prefix: agent_auth_sessions.access_key_prefix,
+      access_issued_at: agent_auth_sessions.access_issued_at,
+      access_expires_at: agent_auth_sessions.access_expires_at,
+      access_last_used_at: agent_auth_sessions.access_last_used_at,
+      status: agent_auth_sessions.status,
+      revoked_at: agent_auth_sessions.revoked_at,
+      created_at: agent_auth_sessions.created_at,
+      updated_at: agent_auth_sessions.updated_at,
+    })
+    .from(agent_auth_sessions)
+    .where(eq(agent_auth_sessions.agent_id, input.agentId))
+    .limit(1);
+
+  return rows[0];
+}
+
+async function findOwnedAgentByDid(input: {
+  db: ReturnType<typeof createDb>;
+  did: string;
+}): Promise<OwnedAgent | undefined> {
+  const rows = await input.db
+    .select({
+      id: agents.id,
+      did: agents.did,
+      name: agents.name,
+      framework: agents.framework,
+      public_key: agents.public_key,
+      status: agents.status,
+      expires_at: agents.expires_at,
+      current_jti: agents.current_jti,
+    })
+    .from(agents)
+    .where(eq(agents.did, input.did))
+    .limit(1);
+
+  return rows[0];
+}
+
 async function findOwnedAgentRegistrationChallenge(input: {
   db: ReturnType<typeof createDb>;
   ownerId: string;
@@ -327,6 +413,36 @@ function isInviteExpired(input: {
   }
 
   return expiresAtMillis <= input.nowMillis;
+}
+
+function isIsoExpired(expiresAtIso: string, nowMillis: number): boolean {
+  const parsed = Date.parse(expiresAtIso);
+  if (!Number.isFinite(parsed)) {
+    return true;
+  }
+
+  return parsed <= nowMillis;
+}
+
+async function insertAgentAuthEvent(input: {
+  db: ReturnType<typeof createDb>;
+  agentId: string;
+  sessionId: string;
+  eventType: "issued" | "refreshed" | "revoked" | "refresh_rejected";
+  reason?: string;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}): Promise<void> {
+  await input.db.insert(agent_auth_events).values({
+    id: generateUlid(Date.now()),
+    agent_id: input.agentId,
+    session_id: input.sessionId,
+    event_type: input.eventType,
+    reason: input.reason ?? null,
+    metadata_json:
+      input.metadata === undefined ? null : JSON.stringify(input.metadata),
+    created_at: input.createdAt ?? nowIso(),
+  });
 }
 
 async function resolveInviteRedeemStateError(input: {
@@ -1212,6 +1328,7 @@ function createRegistryApp() {
       signerKeypair: signer.signerKeypair,
     });
 
+    const initialAuth = await issueAgentAuth();
     const challengeUsedAt = nowIso();
     const applyRegistrationMutation = async (
       executor: typeof db,
@@ -1258,8 +1375,62 @@ function createRegistryApp() {
           created_at: registration.agent.createdAt,
           updated_at: registration.agent.updatedAt,
         });
+
+        await executor.insert(agent_auth_sessions).values({
+          id: initialAuth.sessionId,
+          agent_id: registration.agent.id,
+          refresh_key_hash: initialAuth.refreshTokenHash,
+          refresh_key_prefix: initialAuth.refreshTokenPrefix,
+          refresh_issued_at: initialAuth.refreshIssuedAt,
+          refresh_expires_at: initialAuth.refreshExpiresAt,
+          refresh_last_used_at: null,
+          access_key_hash: initialAuth.accessTokenHash,
+          access_key_prefix: initialAuth.accessTokenPrefix,
+          access_issued_at: initialAuth.accessIssuedAt,
+          access_expires_at: initialAuth.accessExpiresAt,
+          access_last_used_at: null,
+          status: "active",
+          revoked_at: null,
+          created_at: initialAuth.createdAt,
+          updated_at: initialAuth.updatedAt,
+        });
+
+        await insertAgentAuthEvent({
+          db: executor,
+          agentId: registration.agent.id,
+          sessionId: initialAuth.sessionId,
+          eventType: "issued",
+          createdAt: initialAuth.createdAt,
+          metadata: {
+            actor: "agent_registration",
+          },
+        });
       } catch (error) {
         if (options.rollbackOnAgentInsertFailure) {
+          try {
+            await executor
+              .delete(agent_auth_sessions)
+              .where(eq(agent_auth_sessions.id, initialAuth.sessionId));
+          } catch (rollbackError) {
+            logger.error("registry.agent_registration_rollback_failed", {
+              rollbackErrorName:
+                rollbackError instanceof Error ? rollbackError.name : "unknown",
+              stage: "auth_session_delete",
+            });
+          }
+
+          try {
+            await executor
+              .delete(agents)
+              .where(eq(agents.id, registration.agent.id));
+          } catch (rollbackError) {
+            logger.error("registry.agent_registration_rollback_failed", {
+              rollbackErrorName:
+                rollbackError instanceof Error ? rollbackError.name : "unknown",
+              stage: "agent_delete",
+            });
+          }
+
           await executor
             .update(agent_registration_challenges)
             .set({
@@ -1296,7 +1467,269 @@ function createRegistryApp() {
       });
     }
 
-    return c.json({ agent: registration.agent, ait }, 201);
+    return c.json(
+      {
+        agent: registration.agent,
+        ait,
+        agentAuth: toAgentAuthResponse({
+          accessToken: initialAuth.accessToken,
+          accessExpiresAt: initialAuth.accessExpiresAt,
+          refreshToken: initialAuth.refreshToken,
+          refreshExpiresAt: initialAuth.refreshExpiresAt,
+        }),
+      },
+      201,
+    );
+  });
+
+  app.post(AGENT_AUTH_REFRESH_PATH, async (c) => {
+    const config = getConfig(c.env);
+    const exposeDetails = shouldExposeVerboseErrors(config.ENVIRONMENT);
+    const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
+
+    let payload: unknown;
+    try {
+      const rawBody = new TextDecoder().decode(bodyBytes);
+      payload = rawBody.trim().length === 0 ? {} : JSON.parse(rawBody);
+    } catch {
+      throw new AppError({
+        code: "AGENT_AUTH_REFRESH_INVALID",
+        message: exposeDetails
+          ? "Request body must be valid JSON"
+          : "Request could not be processed",
+        status: 400,
+        expose: exposeDetails,
+      });
+    }
+
+    const parsedPayload = parseAgentAuthRefreshPayload({
+      payload,
+      environment: config.ENVIRONMENT,
+    });
+    const claims = await verifyAgentClawRequest({
+      config,
+      request: c.req.raw,
+      bodyBytes,
+    });
+    const nowMillis = Date.now();
+    const db = createDb(c.env.DB);
+    const existingAgent = await findOwnedAgentByDid({
+      db,
+      did: claims.sub,
+    });
+
+    if (!existingAgent || existingAgent.status !== "active") {
+      throw agentAuthRefreshRejectedError({
+        code: "AGENT_AUTH_REFRESH_INVALID",
+        message: "Agent auth refresh token is invalid",
+      });
+    }
+
+    if (existingAgent.current_jti !== claims.jti) {
+      throw agentAuthRefreshRejectedError({
+        code: "AGENT_AUTH_REFRESH_INVALID",
+        message: "Agent auth refresh token is invalid",
+      });
+    }
+
+    const existingSession = await findAgentAuthSessionByAgentId({
+      db,
+      agentId: existingAgent.id,
+    });
+
+    if (!existingSession) {
+      throw agentAuthRefreshRejectedError({
+        code: "AGENT_AUTH_REFRESH_INVALID",
+        message: "Agent auth refresh token is invalid",
+      });
+    }
+
+    if (existingSession.status !== "active") {
+      throw agentAuthRefreshRejectedError({
+        code: "AGENT_AUTH_REFRESH_REVOKED",
+        message: "Agent auth refresh token is revoked",
+      });
+    }
+
+    const refreshPrefix = deriveRefreshTokenLookupPrefix(
+      parsedPayload.refreshToken,
+    );
+    const refreshHash = await hashAgentToken(parsedPayload.refreshToken);
+    const refreshTokenMatches =
+      existingSession.refresh_key_prefix === refreshPrefix &&
+      constantTimeEqual(existingSession.refresh_key_hash, refreshHash);
+
+    if (!refreshTokenMatches) {
+      await insertAgentAuthEvent({
+        db,
+        agentId: existingAgent.id,
+        sessionId: existingSession.id,
+        eventType: "refresh_rejected",
+        reason: "invalid_refresh_token",
+      });
+      throw agentAuthRefreshRejectedError({
+        code: "AGENT_AUTH_REFRESH_INVALID",
+        message: "Agent auth refresh token is invalid",
+      });
+    }
+
+    if (isIsoExpired(existingSession.refresh_expires_at, nowMillis)) {
+      const revokedAt = nowIso();
+      await db
+        .update(agent_auth_sessions)
+        .set({
+          status: "revoked",
+          revoked_at: revokedAt,
+          updated_at: revokedAt,
+        })
+        .where(eq(agent_auth_sessions.id, existingSession.id));
+      await insertAgentAuthEvent({
+        db,
+        agentId: existingAgent.id,
+        sessionId: existingSession.id,
+        eventType: "revoked",
+        reason: "refresh_token_expired",
+        createdAt: revokedAt,
+      });
+      throw agentAuthRefreshRejectedError({
+        code: "AGENT_AUTH_REFRESH_EXPIRED",
+        message: "Agent auth refresh token is expired",
+      });
+    }
+
+    const rotatedAuth = await issueAgentAuth({
+      nowMs: nowMillis,
+    });
+    const refreshedAt = nowIso();
+    const applyRefreshMutation = async (executor: typeof db): Promise<void> => {
+      const updateResult = await executor
+        .update(agent_auth_sessions)
+        .set({
+          refresh_key_hash: rotatedAuth.refreshTokenHash,
+          refresh_key_prefix: rotatedAuth.refreshTokenPrefix,
+          refresh_issued_at: rotatedAuth.refreshIssuedAt,
+          refresh_expires_at: rotatedAuth.refreshExpiresAt,
+          refresh_last_used_at: refreshedAt,
+          access_key_hash: rotatedAuth.accessTokenHash,
+          access_key_prefix: rotatedAuth.accessTokenPrefix,
+          access_issued_at: rotatedAuth.accessIssuedAt,
+          access_expires_at: rotatedAuth.accessExpiresAt,
+          access_last_used_at: null,
+          status: "active",
+          revoked_at: null,
+          updated_at: refreshedAt,
+        })
+        .where(
+          and(
+            eq(agent_auth_sessions.id, existingSession.id),
+            eq(agent_auth_sessions.status, "active"),
+            eq(agent_auth_sessions.refresh_key_hash, refreshHash),
+          ),
+        );
+
+      const updatedRows = getMutationRowCount(updateResult);
+      if (updatedRows === 0) {
+        throw agentAuthRefreshConflictError();
+      }
+
+      await insertAgentAuthEvent({
+        db: executor,
+        agentId: existingAgent.id,
+        sessionId: existingSession.id,
+        eventType: "refreshed",
+        createdAt: refreshedAt,
+      });
+    };
+
+    try {
+      await db.transaction(async (tx) => {
+        await applyRefreshMutation(tx as unknown as typeof db);
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+
+      await applyRefreshMutation(db);
+    }
+
+    return c.json({
+      agentAuth: toAgentAuthResponse({
+        accessToken: rotatedAuth.accessToken,
+        accessExpiresAt: rotatedAuth.accessExpiresAt,
+        refreshToken: rotatedAuth.refreshToken,
+        refreshExpiresAt: rotatedAuth.refreshExpiresAt,
+      }),
+    });
+  });
+
+  app.delete("/v1/agents/:id/auth/revoke", createApiKeyAuth(), async (c) => {
+    const config = getConfig(c.env);
+    const agentId = parseAgentRevokePath({
+      id: c.req.param("id"),
+      environment: config.ENVIRONMENT,
+    });
+    const human = c.get("human");
+    const db = createDb(c.env.DB);
+    const existingAgent = await findOwnedAgent({
+      db,
+      ownerId: human.id,
+      agentId,
+    });
+
+    if (!existingAgent) {
+      throw agentNotFoundError();
+    }
+
+    const existingSession = await findAgentAuthSessionByAgentId({
+      db,
+      agentId: existingAgent.id,
+    });
+    if (!existingSession || existingSession.status === "revoked") {
+      return c.body(null, 204);
+    }
+
+    const revokedAt = nowIso();
+    const applyAuthRevokeMutation = async (
+      executor: typeof db,
+    ): Promise<void> => {
+      await executor
+        .update(agent_auth_sessions)
+        .set({
+          status: "revoked",
+          revoked_at: revokedAt,
+          updated_at: revokedAt,
+        })
+        .where(
+          and(
+            eq(agent_auth_sessions.id, existingSession.id),
+            eq(agent_auth_sessions.status, "active"),
+          ),
+        );
+
+      await insertAgentAuthEvent({
+        db: executor,
+        agentId: existingAgent.id,
+        sessionId: existingSession.id,
+        eventType: "revoked",
+        reason: "owner_auth_revoke",
+        createdAt: revokedAt,
+      });
+    };
+
+    try {
+      await db.transaction(async (tx) => {
+        await applyAuthRevokeMutation(tx as unknown as typeof db);
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+
+      await applyAuthRevokeMutation(db);
+    }
+
+    return c.body(null, 204);
   });
 
   app.delete("/v1/agents/:id", createApiKeyAuth(), async (c) => {
@@ -1331,6 +1764,10 @@ function createRegistryApp() {
         }),
     });
 
+    const existingSession = await findAgentAuthSessionByAgentId({
+      db,
+      agentId: existingAgent.id,
+    });
     const revokedAt = nowIso();
     const applyRevokeMutation = async (executor: typeof db): Promise<void> => {
       await executor
@@ -1353,6 +1790,31 @@ function createRegistryApp() {
         .onConflictDoNothing({
           target: revocations.jti,
         });
+
+      if (existingSession && existingSession.status === "active") {
+        await executor
+          .update(agent_auth_sessions)
+          .set({
+            status: "revoked",
+            revoked_at: revokedAt,
+            updated_at: revokedAt,
+          })
+          .where(
+            and(
+              eq(agent_auth_sessions.id, existingSession.id),
+              eq(agent_auth_sessions.status, "active"),
+            ),
+          );
+
+        await insertAgentAuthEvent({
+          db: executor,
+          agentId: existingAgent.id,
+          sessionId: existingSession.id,
+          eventType: "revoked",
+          reason: "agent_revoked",
+          createdAt: revokedAt,
+        });
+      }
     };
 
     try {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_BOOTSTRAP_PATH,
+  AGENT_AUTH_REFRESH_PATH,
   AGENT_NAME_REGEX,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,
@@ -37,6 +38,7 @@ describe("protocol", () => {
   it("exports shared endpoint constants", () => {
     expect(ADMIN_BOOTSTRAP_PATH).toBe("/v1/admin/bootstrap");
     expect(AGENT_REGISTRATION_CHALLENGE_PATH).toBe("/v1/agents/challenge");
+    expect(AGENT_AUTH_REFRESH_PATH).toBe("/v1/agents/auth/refresh");
     expect(INVITES_PATH).toBe("/v1/invites");
     expect(INVITES_REDEEM_PATH).toBe("/v1/invites/redeem");
     expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");

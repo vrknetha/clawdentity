@@ -1,4 +1,12 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +15,8 @@ vi.mock("node:fs/promises", () => ({
   chmod: vi.fn(),
   mkdir: vi.fn(),
   readFile: vi.fn(),
+  rename: vi.fn(),
+  unlink: vi.fn(),
   writeFile: vi.fn(),
 }));
 
@@ -27,6 +37,7 @@ vi.mock("@clawdentity/sdk", () => ({
   encodeEd25519SignatureBase64url: vi.fn(),
   encodeEd25519KeypairBase64url: vi.fn(),
   generateEd25519Keypair: vi.fn(),
+  signHttpRequest: vi.fn(),
   signEd25519: vi.fn(),
 }));
 
@@ -37,6 +48,7 @@ import {
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
   signEd25519,
+  signHttpRequest,
 } from "@clawdentity/sdk";
 import { resolveConfig } from "../config/manager.js";
 import { createAgentCommand } from "./agent.js";
@@ -45,9 +57,12 @@ const mockedAccess = vi.mocked(access);
 const mockedChmod = vi.mocked(chmod);
 const mockedMkdir = vi.mocked(mkdir);
 const mockedReadFile = vi.mocked(readFile);
+const mockedRename = vi.mocked(rename);
+const mockedUnlink = vi.mocked(unlink);
 const mockedWriteFile = vi.mocked(writeFile);
 const mockedResolveConfig = vi.mocked(resolveConfig);
 const mockedGenerateEd25519Keypair = vi.mocked(generateEd25519Keypair);
+const mockedSignHttpRequest = vi.mocked(signHttpRequest);
 const mockedSignEd25519 = vi.mocked(signEd25519);
 const mockedEncodeEd25519SignatureBase64url = vi.mocked(
   encodeEd25519SignatureBase64url,
@@ -134,6 +149,8 @@ describe("agent create command", () => {
     mockedAccess.mockRejectedValue(buildErrnoError("ENOENT"));
     mockedMkdir.mockResolvedValue(undefined);
     mockedWriteFile.mockResolvedValue(undefined);
+    mockedRename.mockResolvedValue(undefined);
+    mockedUnlink.mockResolvedValue(undefined);
     mockedChmod.mockResolvedValue(undefined);
 
     mockedGenerateEd25519Keypair.mockResolvedValue({
@@ -147,6 +164,16 @@ describe("agent create command", () => {
     });
 
     mockedSignEd25519.mockResolvedValue(Uint8Array.from([1, 2, 3]));
+    mockedSignHttpRequest.mockResolvedValue({
+      canonicalRequest: "canonical",
+      proof: "proof",
+      headers: {
+        "X-Claw-Timestamp": "1739364000",
+        "X-Claw-Nonce": "nonce-value",
+        "X-Claw-Body-SHA256": "body-sha",
+        "X-Claw-Proof": "proof",
+      },
+    });
     mockedEncodeEd25519SignatureBase64url.mockReturnValue(
       "challenge-signature-b64url",
     );
@@ -170,6 +197,13 @@ describe("agent create command", () => {
           expiresAt: "2030-01-01T00:00:00.000Z",
         },
         ait: "ait.jwt.value",
+        agentAuth: {
+          tokenType: "Bearer",
+          accessToken: "clw_agt_access_token",
+          accessExpiresAt: "2030-01-01T00:15:00.000Z",
+          refreshToken: "clw_rft_refresh_token",
+          refreshExpiresAt: "2030-01-31T00:00:00.000Z",
+        },
       });
     });
   });
@@ -211,7 +245,7 @@ describe("agent create command", () => {
       }),
     );
 
-    expect(mockedWriteFile).toHaveBeenCalledTimes(4);
+    expect(mockedWriteFile).toHaveBeenCalledTimes(5);
     expect(mockedWriteFile).toHaveBeenCalledWith(
       "/mock-home/.clawdentity/agents/agent-01/secret.key",
       "secret-key-b64url",
@@ -232,6 +266,11 @@ describe("agent create command", () => {
     expect(mockedWriteFile).toHaveBeenCalledWith(
       "/mock-home/.clawdentity/agents/agent-01/ait.jwt",
       "ait.jwt.value",
+      "utf-8",
+    );
+    expect(mockedWriteFile).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/agents/agent-01/registry-auth.json",
+      expect.stringContaining('"refreshToken": "clw_rft_refresh_token"'),
       "utf-8",
     );
 
@@ -306,7 +345,7 @@ describe("agent create command", () => {
   it("sets 0600 permissions on every identity file", async () => {
     await runAgentCommand(["create", "agent-01"]);
 
-    expect(mockedChmod).toHaveBeenCalledTimes(4);
+    expect(mockedChmod).toHaveBeenCalledTimes(5);
     expect(mockedChmod).toHaveBeenCalledWith(
       "/mock-home/.clawdentity/agents/agent-01/secret.key",
       0o600,
@@ -321,6 +360,10 @@ describe("agent create command", () => {
     );
     expect(mockedChmod).toHaveBeenCalledWith(
       "/mock-home/.clawdentity/agents/agent-01/ait.jwt",
+      0o600,
+    );
+    expect(mockedChmod).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/agents/agent-01/registry-auth.json",
       0o600,
     );
   });
@@ -357,6 +400,177 @@ describe("agent create command", () => {
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockedMkdir).not.toHaveBeenCalled();
     expect(mockedWriteFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("agent auth refresh command", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFetch.mockReset();
+    vi.stubGlobal("fetch", mockFetch);
+    mockedSignHttpRequest.mockResolvedValue({
+      canonicalRequest: "canonical",
+      proof: "proof",
+      headers: {
+        "X-Claw-Timestamp": "1739364000",
+        "X-Claw-Nonce": "nonce-value",
+        "X-Claw-Body-SHA256": "body-sha",
+        "X-Claw-Proof": "proof",
+      },
+    });
+
+    mockedReadFile.mockImplementation(async (path) => {
+      const filePath = String(path);
+      if (filePath.endsWith("/ait.jwt")) {
+        return "ait.jwt.value";
+      }
+      if (filePath.endsWith("/identity.json")) {
+        return JSON.stringify({
+          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+          registryUrl: "https://api.clawdentity.com",
+        });
+      }
+      if (filePath.endsWith("/secret.key")) {
+        return "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+      }
+      if (filePath.endsWith("/registry-auth.json")) {
+        return JSON.stringify({
+          tokenType: "Bearer",
+          accessToken: "clw_agt_old_access",
+          accessExpiresAt: "2030-01-01T00:15:00.000Z",
+          refreshToken: "clw_rft_old_refresh",
+          refreshExpiresAt: "2030-01-31T00:00:00.000Z",
+        });
+      }
+
+      throw buildErrnoError("ENOENT");
+    });
+
+    mockFetch.mockResolvedValue(
+      createJsonResponse(200, {
+        agentAuth: {
+          tokenType: "Bearer",
+          accessToken: "clw_agt_new_access",
+          accessExpiresAt: "2030-01-02T00:15:00.000Z",
+          refreshToken: "clw_rft_new_refresh",
+          refreshExpiresAt: "2030-02-01T00:00:00.000Z",
+        },
+      }),
+    );
+  });
+
+  afterEach(() => {
+    process.exitCode = undefined;
+    vi.unstubAllGlobals();
+  });
+
+  it("refreshes agent auth and rewrites registry-auth.json", async () => {
+    const result = await runAgentCommand(["auth", "refresh", "agent-01"]);
+
+    expect(mockedSignHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "POST",
+        pathWithQuery: "/v1/agents/auth/refresh",
+      }),
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.clawdentity.com/v1/agents/auth/refresh",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          authorization: "Claw ait.jwt.value",
+          "content-type": "application/json",
+        }),
+      }),
+    );
+    const [tempPath, tempContents, tempEncoding] = mockedWriteFile.mock
+      .calls[0] as [string, string, BufferEncoding];
+    expect(tempPath).toContain(
+      "/mock-home/.clawdentity/agents/agent-01/registry-auth.json.tmp-",
+    );
+    expect(tempContents).toContain('"refreshToken": "clw_rft_new_refresh"');
+    expect(tempEncoding).toBe("utf-8");
+    expect(mockedRename).toHaveBeenCalledWith(
+      tempPath,
+      "/mock-home/.clawdentity/agents/agent-01/registry-auth.json",
+    );
+    expect(mockedWriteFile).not.toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/agents/agent-01/registry-auth.json",
+      expect.stringContaining('"refreshToken": "clw_rft_new_refresh"'),
+      "utf-8",
+    );
+    expect(result.stdout).toContain("Agent auth refreshed: agent-01");
+    expect(result.exitCode).toBeUndefined();
+  });
+
+  it("fails when registry-auth.json is missing", async () => {
+    mockedReadFile.mockImplementation(async (path) => {
+      const filePath = String(path);
+      if (filePath.endsWith("/registry-auth.json")) {
+        throw buildErrnoError("ENOENT");
+      }
+      if (filePath.endsWith("/ait.jwt")) {
+        return "ait.jwt.value";
+      }
+      if (filePath.endsWith("/identity.json")) {
+        return JSON.stringify({
+          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+          registryUrl: "https://api.clawdentity.com",
+        });
+      }
+      if (filePath.endsWith("/secret.key")) {
+        return "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+      }
+
+      throw buildErrnoError("ENOENT");
+    });
+
+    const result = await runAgentCommand(["auth", "refresh", "agent-01"]);
+
+    expect(result.stderr).toContain("registry-auth.json");
+    expect(result.exitCode).toBe(1);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("signs refresh proof with the resolved endpoint path for base-path registries", async () => {
+    mockedReadFile.mockImplementation(async (path) => {
+      const filePath = String(path);
+      if (filePath.endsWith("/ait.jwt")) {
+        return "ait.jwt.value";
+      }
+      if (filePath.endsWith("/identity.json")) {
+        return JSON.stringify({
+          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+          registryUrl: "https://api.clawdentity.com/registry",
+        });
+      }
+      if (filePath.endsWith("/secret.key")) {
+        return "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+      }
+      if (filePath.endsWith("/registry-auth.json")) {
+        return JSON.stringify({
+          tokenType: "Bearer",
+          accessToken: "clw_agt_old_access",
+          accessExpiresAt: "2030-01-01T00:15:00.000Z",
+          refreshToken: "clw_rft_old_refresh",
+          refreshExpiresAt: "2030-01-31T00:00:00.000Z",
+        });
+      }
+
+      throw buildErrnoError("ENOENT");
+    });
+
+    await runAgentCommand(["auth", "refresh", "agent-01"]);
+
+    expect(mockedSignHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathWithQuery: "/registry/v1/agents/auth/refresh",
+      }),
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://api.clawdentity.com/registry/v1/agents/auth/refresh",
+      expect.any(Object),
+    );
   });
 });
 

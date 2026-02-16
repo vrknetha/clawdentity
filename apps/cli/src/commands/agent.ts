@@ -1,8 +1,19 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import {
+  AGENT_AUTH_REFRESH_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   canonicalizeAgentRegistrationProof,
+  decodeBase64url,
+  encodeBase64url,
   parseDid,
 } from "@clawdentity/protocol";
 import {
@@ -13,6 +24,7 @@ import {
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
   signEd25519,
+  signHttpRequest,
 } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
@@ -25,6 +37,7 @@ const logger = createLogger({ service: "cli", module: "agent" });
 const AGENTS_DIR_NAME = "agents";
 const AIT_FILE_NAME = "ait.jwt";
 const IDENTITY_FILE_NAME = "identity.json";
+const REGISTRY_AUTH_FILE_NAME = "registry-auth.json";
 const FILE_MODE = 0o600;
 
 type AgentCreateOptions = {
@@ -40,6 +53,7 @@ type AgentRegistrationResponse = {
     expiresAt: string;
   };
   ait: string;
+  agentAuth: AgentAuthBundle;
 };
 
 type AgentRegistrationChallengeResponse = {
@@ -51,6 +65,19 @@ type AgentRegistrationChallengeResponse = {
 
 type LocalAgentIdentity = {
   did: string;
+  registryUrl?: string;
+};
+
+type AgentAuthBundle = {
+  tokenType: "Bearer";
+  accessToken: string;
+  accessExpiresAt: string;
+  refreshToken: string;
+  refreshExpiresAt: string;
+};
+
+type LocalAgentRegistryAuth = {
+  refreshToken: string;
 };
 
 type RegistryErrorEnvelope = {
@@ -63,6 +90,14 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
 
+const parseNonEmptyString = (value: unknown): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim();
+};
+
 const getAgentDirectory = (name: string): string => {
   return join(getConfigDir(), AGENTS_DIR_NAME, name);
 };
@@ -73,6 +108,14 @@ const getAgentAitPath = (name: string): string => {
 
 const getAgentIdentityPath = (name: string): string => {
   return join(getAgentDirectory(name), IDENTITY_FILE_NAME);
+};
+
+const getAgentSecretKeyPath = (name: string): string => {
+  return join(getAgentDirectory(name), "secret.key");
+};
+
+const getAgentRegistryAuthPath = (name: string): string => {
+  return join(getAgentDirectory(name), REGISTRY_AUTH_FILE_NAME);
 };
 
 const readAgentAitToken = async (agentName: string): Promise<string> => {
@@ -137,7 +180,82 @@ const readAgentIdentity = async (
     );
   }
 
-  return { did };
+  const registryUrl = parseNonEmptyString(parsed.registryUrl);
+  return {
+    did,
+    registryUrl: registryUrl.length > 0 ? registryUrl : undefined,
+  };
+};
+
+const readAgentSecretKey = async (agentName: string): Promise<Uint8Array> => {
+  const secretKeyPath = getAgentSecretKeyPath(agentName);
+
+  let rawSecretKey: string;
+  try {
+    rawSecretKey = await readFile(secretKeyPath, "utf-8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      throw new Error(`Agent "${agentName}" not found (${secretKeyPath})`);
+    }
+    throw error;
+  }
+
+  const encodedSecretKey = rawSecretKey.trim();
+  if (encodedSecretKey.length === 0) {
+    throw new Error(`Agent "${agentName}" has an empty secret.key`);
+  }
+
+  try {
+    return decodeBase64url(encodedSecretKey);
+  } catch {
+    throw new Error(`Agent "${agentName}" has invalid secret.key format`);
+  }
+};
+
+const readAgentRegistryAuth = async (
+  agentName: string,
+): Promise<LocalAgentRegistryAuth> => {
+  const registryAuthPath = getAgentRegistryAuthPath(agentName);
+
+  let rawRegistryAuth: string;
+  try {
+    rawRegistryAuth = await readFile(registryAuthPath, "utf-8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      throw new Error(
+        `Agent "${agentName}" has no ${REGISTRY_AUTH_FILE_NAME}. Recreate agent identity or re-run auth bootstrap.`,
+      );
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawRegistryAuth);
+  } catch {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${REGISTRY_AUTH_FILE_NAME} (must be valid JSON)`,
+    );
+  }
+
+  if (!isRecord(parsed)) {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${REGISTRY_AUTH_FILE_NAME}`,
+    );
+  }
+
+  const refreshToken = parseNonEmptyString(parsed.refreshToken);
+  if (refreshToken.length === 0) {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${REGISTRY_AUTH_FILE_NAME} (missing refreshToken)`,
+    );
+  }
+
+  return {
+    refreshToken,
+  };
 };
 
 const parseAgentIdFromDid = (agentName: string, did: string): string => {
@@ -235,6 +353,22 @@ const toRegistryAgentChallengeRequestUrl = (registryUrl: string): string => {
   ).toString();
 };
 
+const toRegistryAgentAuthRefreshRequestUrl = (registryUrl: string): string => {
+  const normalizedBaseUrl = registryUrl.endsWith("/")
+    ? registryUrl
+    : `${registryUrl}/`;
+
+  return new URL(
+    AGENT_AUTH_REFRESH_PATH.slice(1),
+    normalizedBaseUrl,
+  ).toString();
+};
+
+const toPathWithQuery = (requestUrl: string): string => {
+  const parsed = new URL(requestUrl);
+  return `${parsed.pathname}${parsed.search}`;
+};
+
 const toHttpErrorMessage = (status: number, responseBody: unknown): string => {
   const registryMessage = extractRegistryErrorMessage(responseBody);
 
@@ -261,6 +395,36 @@ const toHttpErrorMessage = (status: number, responseBody: unknown): string => {
   return `Registry request failed (${status})`;
 };
 
+const parseAgentAuthBundle = (value: unknown): AgentAuthBundle => {
+  if (!isRecord(value)) {
+    throw new Error("Registry returned an invalid response payload");
+  }
+
+  const tokenType = value.tokenType;
+  const accessToken = value.accessToken;
+  const accessExpiresAt = value.accessExpiresAt;
+  const refreshToken = value.refreshToken;
+  const refreshExpiresAt = value.refreshExpiresAt;
+
+  if (
+    tokenType !== "Bearer" ||
+    typeof accessToken !== "string" ||
+    typeof accessExpiresAt !== "string" ||
+    typeof refreshToken !== "string" ||
+    typeof refreshExpiresAt !== "string"
+  ) {
+    throw new Error("Registry returned an invalid response payload");
+  }
+
+  return {
+    tokenType,
+    accessToken,
+    accessExpiresAt,
+    refreshToken,
+    refreshExpiresAt,
+  };
+};
+
 const parseAgentRegistrationResponse = (
   payload: unknown,
 ): AgentRegistrationResponse => {
@@ -270,8 +434,13 @@ const parseAgentRegistrationResponse = (
 
   const agentValue = payload.agent;
   const aitValue = payload.ait;
+  const agentAuthValue = payload.agentAuth;
 
-  if (!isRecord(agentValue) || typeof aitValue !== "string") {
+  if (
+    !isRecord(agentValue) ||
+    typeof aitValue !== "string" ||
+    !isRecord(agentAuthValue)
+  ) {
     throw new Error("Registry returned an invalid response payload");
   }
 
@@ -297,6 +466,7 @@ const parseAgentRegistrationResponse = (
       expiresAt,
     },
     ait: aitValue,
+    agentAuth: parseAgentAuthBundle(agentAuthValue),
   };
 };
 
@@ -354,6 +524,28 @@ const writeSecureFile = async (
   await chmod(path, FILE_MODE);
 };
 
+const writeSecureFileAtomically = async (
+  path: string,
+  content: string,
+): Promise<void> => {
+  const tempPath = `${path}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  await writeFile(tempPath, content, "utf-8");
+  await chmod(tempPath, FILE_MODE);
+
+  try {
+    await rename(tempPath, path);
+  } catch (error) {
+    try {
+      await unlink(tempPath);
+    } catch {
+      // Best-effort cleanup only.
+    }
+
+    throw error;
+  }
+};
+
 const ensureAgentDirectory = async (
   agentName: string,
   agentDirectory: string,
@@ -384,6 +576,7 @@ const writeAgentIdentity = async (input: {
   publicKey: string;
   secretKey: string;
   ait: string;
+  agentAuth: AgentAuthBundle;
 }): Promise<void> => {
   await ensureAgentDirectory(input.name, input.agentDirectory);
 
@@ -408,6 +601,20 @@ const writeAgentIdentity = async (input: {
     `${JSON.stringify(identityJson, null, 2)}\n`,
   );
   await writeSecureFile(join(input.agentDirectory, "ait.jwt"), input.ait);
+  await writeSecureFile(
+    join(input.agentDirectory, REGISTRY_AUTH_FILE_NAME),
+    `${JSON.stringify(input.agentAuth, null, 2)}\n`,
+  );
+};
+
+const writeAgentRegistryAuth = async (input: {
+  agentName: string;
+  agentAuth: AgentAuthBundle;
+}): Promise<void> => {
+  await writeSecureFileAtomically(
+    getAgentRegistryAuthPath(input.agentName),
+    `${JSON.stringify(input.agentAuth, null, 2)}\n`,
+  );
 };
 
 const requestAgentRegistrationChallenge = async (input: {
@@ -558,6 +765,110 @@ const toRevokeHttpErrorMessage = (
   return `Registry request failed (${status})`;
 };
 
+const toRefreshHttpErrorMessage = (
+  status: number,
+  responseBody: unknown,
+): string => {
+  const registryMessage = extractRegistryErrorMessage(responseBody);
+
+  if (status === 400) {
+    return registryMessage
+      ? `Refresh request is invalid (400): ${registryMessage}`
+      : "Refresh request is invalid (400).";
+  }
+
+  if (status === 401) {
+    return registryMessage
+      ? `Refresh rejected (401): ${registryMessage}`
+      : "Refresh rejected (401). Agent credentials are invalid, revoked, or expired.";
+  }
+
+  if (status === 409) {
+    return registryMessage
+      ? `Refresh conflict (409): ${registryMessage}`
+      : "Refresh conflict (409). Retry the command.";
+  }
+
+  if (status >= 500) {
+    return `Registry server error (${status}). Try again later.`;
+  }
+
+  if (registryMessage) {
+    return `Registry request failed (${status}): ${registryMessage}`;
+  }
+
+  return `Registry request failed (${status})`;
+};
+
+const parseAgentAuthRefreshResponse = (payload: unknown): AgentAuthBundle => {
+  if (!isRecord(payload) || !isRecord(payload.agentAuth)) {
+    throw new Error("Registry returned an invalid response payload");
+  }
+
+  return parseAgentAuthBundle(payload.agentAuth);
+};
+
+const refreshAgentAuth = async (input: {
+  agentName: string;
+}): Promise<{
+  registryUrl: string;
+  agentAuth: AgentAuthBundle;
+}> => {
+  const ait = await readAgentAitToken(input.agentName);
+  const identity = await readAgentIdentity(input.agentName);
+  const secretKey = await readAgentSecretKey(input.agentName);
+  const localAuth = await readAgentRegistryAuth(input.agentName);
+
+  const registryUrl = identity.registryUrl?.trim();
+  if (!registryUrl) {
+    throw new Error(
+      `Agent "${input.agentName}" identity is missing registryUrl in ${IDENTITY_FILE_NAME}`,
+    );
+  }
+
+  const refreshBody = JSON.stringify({
+    refreshToken: localAuth.refreshToken,
+  });
+  const refreshUrl = toRegistryAgentAuthRefreshRequestUrl(registryUrl);
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = encodeBase64url(crypto.getRandomValues(new Uint8Array(16)));
+  const signed = await signHttpRequest({
+    method: "POST",
+    pathWithQuery: toPathWithQuery(refreshUrl),
+    timestamp,
+    nonce,
+    body: new TextEncoder().encode(refreshBody),
+    secretKey,
+  });
+
+  let response: Response;
+  try {
+    response = await fetch(refreshUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Claw ${ait}`,
+        "content-type": "application/json",
+        ...signed.headers,
+      },
+      body: refreshBody,
+    });
+  } catch {
+    throw new Error(
+      "Unable to connect to the registry. Check network access and registryUrl.",
+    );
+  }
+
+  const responseBody = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(toRefreshHttpErrorMessage(response.status, responseBody));
+  }
+
+  return {
+    registryUrl,
+    agentAuth: parseAgentAuthRefreshResponse(responseBody),
+  };
+};
+
 const revokeAgent = async (input: {
   apiKey: string;
   registryUrl: string;
@@ -660,6 +971,7 @@ export const createAgentCommand = (): Command => {
             publicKey: encoded.publicKey,
             secretKey: encoded.secretKey,
             ait: registration.ait,
+            agentAuth: registration.agentAuth,
           });
 
           logger.info("cli.agent_created", {
@@ -684,6 +996,44 @@ export const createAgentCommand = (): Command => {
         await printAgentInspectCommand(name);
       }),
     );
+
+  const authCommand = new Command("auth").description(
+    "Manage local agent registry auth credentials",
+  );
+
+  authCommand
+    .command("refresh <name>")
+    .description("Refresh agent registry auth credentials with Claw proof")
+    .action(
+      withErrorHandling("agent auth refresh", async (name: string) => {
+        const agentName = assertValidAgentName(name);
+        const result = await refreshAgentAuth({
+          agentName,
+        });
+
+        await writeAgentRegistryAuth({
+          agentName,
+          agentAuth: result.agentAuth,
+        });
+
+        logger.info("cli.agent_auth_refreshed", {
+          name: agentName,
+          registryUrl: result.registryUrl,
+          accessExpiresAt: result.agentAuth.accessExpiresAt,
+          refreshExpiresAt: result.agentAuth.refreshExpiresAt,
+        });
+
+        writeStdoutLine(`Agent auth refreshed: ${agentName}`);
+        writeStdoutLine(
+          `Access Expires At: ${result.agentAuth.accessExpiresAt}`,
+        );
+        writeStdoutLine(
+          `Refresh Expires At: ${result.agentAuth.refreshExpiresAt}`,
+        );
+      }),
+    );
+
+  agentCommand.addCommand(authCommand);
 
   agentCommand
     .command("revoke <name>")

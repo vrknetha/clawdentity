@@ -18,7 +18,7 @@
 - Share header names/values via protocol exports so SDK/Proxy layers import a single source of truth (e.g., `X-Claw-Timestamp`, `X-Claw-Nonce`, `X-Claw-Body-SHA256`, and `X-Claw-Proof`).
 - Keep T02 canonicalization minimal and deterministic; replay/skew/nonce policy enforcement is handled in later tickets (`T07`, `T08`, `T09`).
 - Define shared API route fragments in protocol exports (for example `ADMIN_BOOTSTRAP_PATH`) so CLI/SDK/apps avoid hardcoded duplicate endpoint literals.
-- Keep lifecycle route constants together in `endpoints.ts` (e.g., `ADMIN_BOOTSTRAP_PATH`, `AGENT_REGISTRATION_CHALLENGE_PATH`, `ME_API_KEYS_PATH`) so registry and CLI stay contract-synchronized.
+- Keep lifecycle route constants together in `endpoints.ts` (e.g., `ADMIN_BOOTSTRAP_PATH`, `AGENT_REGISTRATION_CHALLENGE_PATH`, `AGENT_AUTH_REFRESH_PATH`, `ME_API_KEYS_PATH`) so registry and CLI stay contract-synchronized.
 - Keep registration-proof canonicalization in protocol exports (`canonicalizeAgentRegistrationProof`) so CLI signing and registry verification use an identical message format.
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.
 

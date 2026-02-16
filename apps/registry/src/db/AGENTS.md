@@ -9,9 +9,11 @@
 - Treat contract tests (for example `schema.contract.test.ts`) as executable checks for required table/index coverage.
 
 ## Baseline Requirements
-- Required tables: `humans`, `agents`, `revocations`, `api_keys`.
+- Required tables: `humans`, `agents`, `revocations`, `api_keys`, `agent_auth_sessions`, `agent_auth_events`.
 - Required index: `idx_agents_owner_status` on `agents(owner_id, status)`.
 - Revocation `jti` lookup can be unique or non-unique; current baseline uses `revocations_jti_unique`.
+- Agent auth refresh lookups require prefix indexes on `agent_auth_sessions.refresh_key_prefix` and `agent_auth_sessions.access_key_prefix`.
+- One session per agent is enforced by `agent_auth_sessions_agent_id_unique`.
 
 ## Query Rules
 - Prefer Drizzle (`createDb`) for application reads/writes.
