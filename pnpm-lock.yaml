@@ -85,6 +85,13 @@ importers:
       zod:
         specifier: ^4.1.12
         version: 4.3.6
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20260210.0
+        version: 4.20260210.0
+      '@types/node':
+        specifier: ^22.17.2
+        version: 22.19.11
 
   apps/registry:
     dependencies:

@@ -158,7 +158,94 @@ describe("openclaw command helpers", () => {
         "utf8",
       ).trim();
       expect(selectedAgent).toBe("alpha");
+
+      expect(result.openclawBaseUrl).toBe("http://127.0.0.1:18789");
+      const relayRuntimeConfig = JSON.parse(
+        readFileSync(
+          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          "utf8",
+        ),
+      ) as {
+        openclawBaseUrl: string;
+        updatedAt: string;
+      };
+      expect(relayRuntimeConfig.openclawBaseUrl).toBe("http://127.0.0.1:18789");
+      expect(relayRuntimeConfig.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("stores explicit OpenClaw base URL in relay runtime config", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      const result = await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+        openclawBaseUrl: "http://127.0.0.1:19001",
+      });
+
+      expect(result.openclawBaseUrl).toBe("http://127.0.0.1:19001");
+      const relayRuntimeConfig = JSON.parse(
+        readFileSync(
+          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          "utf8",
+        ),
+      ) as {
+        openclawBaseUrl: string;
+      };
+      expect(relayRuntimeConfig.openclawBaseUrl).toBe("http://127.0.0.1:19001");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("uses OPENCLAW_BASE_URL env when setup option is omitted", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+    const previousBaseUrl = process.env.OPENCLAW_BASE_URL;
+    process.env.OPENCLAW_BASE_URL = "http://127.0.0.1:19555";
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      const result = await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      expect(result.openclawBaseUrl).toBe("http://127.0.0.1:19555");
+      const relayRuntimeConfig = JSON.parse(
+        readFileSync(
+          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          "utf8",
+        ),
+      ) as {
+        openclawBaseUrl: string;
+      };
+      expect(relayRuntimeConfig.openclawBaseUrl).toBe("http://127.0.0.1:19555");
+    } finally {
+      if (previousBaseUrl === undefined) {
+        delete process.env.OPENCLAW_BASE_URL;
+      } else {
+        process.env.OPENCLAW_BASE_URL = previousBaseUrl;
+      }
       sandbox.cleanup();
     }
   });

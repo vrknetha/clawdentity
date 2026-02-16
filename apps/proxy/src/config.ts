@@ -28,6 +28,7 @@ export const DEFAULT_CRL_MAX_AGE_MS = 15 * 60 * 1000;
 export const DEFAULT_CRL_STALE_BEHAVIOR: ProxyCrlStaleBehavior = "fail-open";
 export const DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE = 60;
 export const DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+export const DEFAULT_INJECT_IDENTITY_INTO_MESSAGE = false;
 
 export class ProxyConfigError extends Error {
   readonly code = "CONFIG_VALIDATION_FAILED";
@@ -43,7 +44,34 @@ export class ProxyConfigError extends Error {
 }
 
 const OPENCLAW_CONFIG_FILENAME = "openclaw.json";
+const CLAWDENTITY_CONFIG_DIR = ".clawdentity";
+const OPENCLAW_RELAY_CONFIG_FILENAME = "openclaw-relay.json";
 const LEGACY_STATE_DIR_NAMES = [".clawdbot", ".moldbot", ".moltbot"] as const;
+
+const envBooleanSchema = z.preprocess((value) => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === "true" ||
+      normalized === "1" ||
+      normalized === "yes" ||
+      normalized === "on"
+    ) {
+      return true;
+    }
+
+    if (
+      normalized === "false" ||
+      normalized === "0" ||
+      normalized === "no" ||
+      normalized === "off"
+    ) {
+      return false;
+    }
+  }
+
+  return value;
+}, z.boolean());
 
 const proxyRuntimeEnvSchema = z.object({
   LISTEN_PORT: z.coerce
@@ -84,6 +112,9 @@ const proxyRuntimeEnvSchema = z.object({
     .int()
     .positive()
     .default(DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS),
+  INJECT_IDENTITY_INTO_MESSAGE: envBooleanSchema.default(
+    DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
+  ),
 });
 
 const proxyAllowListSchema = z
@@ -105,6 +136,7 @@ export const proxyConfigSchema = z.object({
   crlStaleBehavior: z.enum(["fail-open", "fail-closed"]),
   agentRateLimitRequestsPerMinute: z.number().int().positive(),
   agentRateLimitWindowMs: z.number().int().positive(),
+  injectIdentityIntoMessage: z.boolean(),
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
@@ -128,6 +160,7 @@ type RuntimeEnvInput = {
   CRL_STALE_BEHAVIOR?: unknown;
   AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE?: unknown;
   AGENT_RATE_LIMIT_WINDOW_MS?: unknown;
+  INJECT_IDENTITY_INTO_MESSAGE?: unknown;
   OPENCLAW_STATE_DIR?: unknown;
   CLAWDBOT_STATE_DIR?: unknown;
   OPENCLAW_CONFIG_PATH?: unknown;
@@ -282,6 +315,14 @@ function resolveOpenClawConfigPath(
   return join(stateDir, OPENCLAW_CONFIG_FILENAME);
 }
 
+function resolveOpenclawRelayConfigPath(
+  env: RuntimeEnvInput,
+  options: ProxyConfigLoadOptions,
+): string {
+  const home = resolveHomeDir(env, options.homeDir);
+  return join(home, CLAWDENTITY_CONFIG_DIR, OPENCLAW_RELAY_CONFIG_FILENAME);
+}
+
 function mergeMissingEnvValues(
   target: MutableEnv,
   values: Record<string, string>,
@@ -392,6 +433,87 @@ function resolveHookTokenFromOpenClawConfig(
   return trimmedToken.length > 0 ? trimmedToken : undefined;
 }
 
+function resolveBaseUrlFromRelayConfig(
+  env: RuntimeEnvInput,
+  options: ProxyConfigLoadOptions,
+): string | undefined {
+  const configPath = resolveOpenclawRelayConfigPath(env, options);
+  if (!existsSync(configPath)) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(configPath, "utf8"));
+  } catch (error) {
+    throw toConfigValidationError({
+      fieldErrors: {
+        OPENCLAW_RELAY_CONFIG_PATH: [
+          `Unable to parse relay config at ${configPath}`,
+        ],
+      },
+      formErrors: [
+        error instanceof Error ? error.message : "Unknown relay parse error",
+      ],
+    });
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw toConfigValidationError({
+      fieldErrors: {
+        OPENCLAW_RELAY_CONFIG_PATH: ["Relay config root must be a JSON object"],
+      },
+      formErrors: [],
+    });
+  }
+
+  const baseUrlValue = (parsed as Record<string, unknown>).openclawBaseUrl;
+  if (typeof baseUrlValue !== "string" || baseUrlValue.trim().length === 0) {
+    throw toConfigValidationError({
+      fieldErrors: {
+        OPENCLAW_RELAY_CONFIG_PATH: [
+          "openclawBaseUrl must be a non-empty string",
+        ],
+      },
+      formErrors: [],
+    });
+  }
+
+  const trimmed = baseUrlValue.trim();
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    throw toConfigValidationError({
+      fieldErrors: {
+        OPENCLAW_RELAY_CONFIG_PATH: [
+          "openclawBaseUrl must be a valid absolute URL",
+        ],
+      },
+      formErrors: [],
+    });
+  }
+
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw toConfigValidationError({
+      fieldErrors: {
+        OPENCLAW_RELAY_CONFIG_PATH: ["openclawBaseUrl must use http or https"],
+      },
+      formErrors: [],
+    });
+  }
+
+  if (
+    parsedUrl.pathname === "/" &&
+    parsedUrl.search.length === 0 &&
+    parsedUrl.hash.length === 0
+  ) {
+    return parsedUrl.origin;
+  }
+
+  return parsedUrl.toString();
+}
+
 function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
   const env: RuntimeEnvInput = isRuntimeEnvInput(input) ? input : {};
 
@@ -418,6 +540,9 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
     ]),
     AGENT_RATE_LIMIT_WINDOW_MS: firstNonEmpty(env, [
       "AGENT_RATE_LIMIT_WINDOW_MS",
+    ]),
+    INJECT_IDENTITY_INTO_MESSAGE: firstNonEmpty(env, [
+      "INJECT_IDENTITY_INTO_MESSAGE",
     ]),
   };
 }
@@ -520,6 +645,25 @@ function loadHookTokenFromFallback(
   }
 }
 
+function loadOpenclawBaseUrlFromFallback(
+  env: MutableEnv,
+  options: ProxyConfigLoadOptions,
+): void {
+  if (
+    firstNonEmpty(env as RuntimeEnvInput, ["OPENCLAW_BASE_URL"]) !== undefined
+  ) {
+    return;
+  }
+
+  const openclawBaseUrl = resolveBaseUrlFromRelayConfig(
+    env as RuntimeEnvInput,
+    options,
+  );
+  if (openclawBaseUrl !== undefined) {
+    env.OPENCLAW_BASE_URL = openclawBaseUrl;
+  }
+}
+
 export function parseProxyConfig(env: unknown): ProxyConfig {
   const inputEnv: RuntimeEnvInput = isRuntimeEnvInput(env) ? env : {};
   assertNoDeprecatedAllowAllVerified(inputEnv);
@@ -547,6 +691,8 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     agentRateLimitRequestsPerMinute:
       parsedRuntimeEnv.data.AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
     agentRateLimitWindowMs: parsedRuntimeEnv.data.AGENT_RATE_LIMIT_WINDOW_MS,
+    injectIdentityIntoMessage:
+      parsedRuntimeEnv.data.INJECT_IDENTITY_INTO_MESSAGE,
   };
 
   const parsedConfig = proxyConfigSchema.safeParse(candidateConfig);
@@ -565,6 +711,7 @@ export function loadProxyConfig(
   options: ProxyConfigLoadOptions = {},
 ): ProxyConfig {
   const mergedEnv = loadEnvWithDotEnvFallback(env, options);
+  loadOpenclawBaseUrlFromFallback(mergedEnv, options);
   loadHookTokenFromFallback(mergedEnv, options);
   return parseProxyConfig(mergedEnv);
 }

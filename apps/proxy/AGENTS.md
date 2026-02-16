@@ -6,15 +6,22 @@
 
 ## Runtime Configuration
 - Keep runtime config centralized in `src/config.ts`.
+- Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `development`, and `production` environments.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
+- Keep deployment intent explicit: `local` is for local Wrangler dev runs only; `development` and `production` are remote cloud environments.
+- For remote Worker deployments (`development`/`production`), require `OPENCLAW_BASE_URL` to be an externally reachable non-loopback URL; never rely on local loopback defaults.
+- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-off (`false`); only enable when operators need webhook `message` augmentation with verified identity context.
 - Require hook token input via env (`OPENCLAW_HOOK_TOKEN` or OpenClaw-compatible alias `OPENCLAW_HOOKS_TOKEN`) and never log the token value.
+- For Worker deploys, set hook tokens via Wrangler secrets for remote environments (`wrangler secret put ... --env <env>`); use CLI `--var` overrides only for local dev runs.
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (required token, registry URL, base URL, and optional policy/rate-limit vars).
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`, with legacy fallback to existing `~/.clawdbot` / `~/.moldbot` / `~/.moltbot`)
   - existing environment variables always win over `.env` values.
+- If `OPENCLAW_BASE_URL` is still missing after env loading, fallback to `~/.clawdentity/openclaw-relay.json` (`openclawBaseUrl`) before applying the built-in default.
 - Treat blank env values as unset for fallback resolution:
   - empty/whitespace values (and null-like values) in inherited env must not block `.env` or config-file fallbacks
   - dotenv merge semantics must match parser semantics (non-empty value wins).
@@ -58,6 +65,8 @@
 
 ## Server Runtime
 - Keep `src/server.ts` as the HTTP app/runtime entry.
+- Keep `src/worker.ts` as the Cloudflare Worker fetch entry and `src/node-server.ts` as the Node compatibility entry.
 - Keep middleware order stable: request context -> request logging -> auth verification -> agent DID rate limit -> error handler.
 - Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200.
 - Log startup and request completion with structured JSON logs; never log secrets or tokens.
+- If identity injection is enabled, mutate only `payload.message` when it is a string; preserve all other payload fields unchanged.

@@ -1,0 +1,34 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "clawdentity-proxy",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "env": {
+    "local": {
+      "name": "clawdentity-proxy-local",
+      "vars": {
+        "ENVIRONMENT": "local",
+        "REGISTRY_URL": "https://dev.api.clawdentity.com",
+        "OPENCLAW_BASE_URL": "http://127.0.0.1:18789",
+        "INJECT_IDENTITY_INTO_MESSAGE": "false"
+      }
+    },
+    "development": {
+      "name": "clawdentity-proxy-development",
+      "vars": {
+        "ENVIRONMENT": "development",
+        "REGISTRY_URL": "https://dev.api.clawdentity.com",
+        "INJECT_IDENTITY_INTO_MESSAGE": "false"
+      }
+    },
+    "production": {
+      "name": "clawdentity-proxy",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "REGISTRY_URL": "https://api.clawdentity.com",
+        "INJECT_IDENTITY_INTO_MESSAGE": "false"
+      }
+    }
+  }
+}

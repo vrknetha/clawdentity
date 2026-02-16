@@ -14,6 +14,7 @@ import { withErrorHandling } from "./helpers.js";
 
 const logger = createLogger({ service: "cli", module: "openclaw" });
 
+const CLAWDENTITY_DIR_NAME = ".clawdentity";
 const AGENTS_DIR_NAME = "agents";
 const AIT_FILE_NAME = "ait.jwt";
 const SECRET_KEY_FILE_NAME = "secret.key";
@@ -21,10 +22,12 @@ const PEERS_FILE_NAME = "peers.json";
 const OPENCLAW_DIR_NAME = ".openclaw";
 const OPENCLAW_CONFIG_FILE_NAME = "openclaw.json";
 const OPENCLAW_AGENT_FILE_NAME = "openclaw-agent-name";
+const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
 const SKILL_DIR_NAME = "clawdentity-openclaw-relay";
 const RELAY_MODULE_FILE_NAME = "relay-to-peer.mjs";
 const HOOK_MAPPING_ID = "clawdentity-send-to-peer";
 const HOOK_PATH_SEND_TO_PEER = "send-to-peer";
+const DEFAULT_OPENCLAW_BASE_URL = "http://127.0.0.1:18789";
 const INVITE_CODE_PREFIX = "clawd1_";
 const PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
 const FILE_MODE = 0o600;
@@ -52,6 +55,7 @@ type OpenclawSetupOptions = {
   peerAlias?: string;
   openclawDir?: string;
   transformSource?: string;
+  openclawBaseUrl?: string;
   homeDir?: string;
 };
 
@@ -79,6 +83,13 @@ export type OpenclawSetupResult = {
   peerProxyUrl: string;
   openclawConfigPath: string;
   transformTargetPath: string;
+  openclawBaseUrl: string;
+  relayRuntimeConfigPath: string;
+};
+
+type OpenclawRelayRuntimeConfig = {
+  openclawBaseUrl: string;
+  updatedAt?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -157,26 +168,50 @@ function parsePeerAlias(value: unknown): string {
 }
 
 function parseProxyUrl(value: unknown): string {
-  const candidate = parseNonEmptyString(value, "proxy URL");
+  return parseHttpUrl(value, {
+    label: "proxy URL",
+    code: "CLI_OPENCLAW_INVALID_PROXY_URL",
+    message: "proxy URL must be a valid URL",
+  });
+}
 
+function parseHttpUrl(
+  value: unknown,
+  input: {
+    label: string;
+    code: string;
+    message: string;
+  },
+): string {
+  const candidate = parseNonEmptyString(value, input.label);
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(candidate);
   } catch {
-    throw createCliError(
-      "CLI_OPENCLAW_INVALID_PROXY_URL",
-      "proxy URL must be a valid URL",
-    );
+    throw createCliError(input.code, input.message);
   }
 
   if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    throw createCliError(
-      "CLI_OPENCLAW_INVALID_PROXY_URL",
-      "proxy URL must use http or https",
-    );
+    throw createCliError(input.code, `${input.label} must use http or https`);
+  }
+
+  if (
+    parsedUrl.pathname === "/" &&
+    parsedUrl.search.length === 0 &&
+    parsedUrl.hash.length === 0
+  ) {
+    return parsedUrl.origin;
   }
 
   return parsedUrl.toString();
+}
+
+function parseOpenclawBaseUrl(value: unknown): string {
+  return parseHttpUrl(value, {
+    label: "OpenClaw base URL",
+    code: "CLI_OPENCLAW_INVALID_OPENCLAW_BASE_URL",
+    message: "OpenClaw base URL must be a valid URL",
+  });
 }
 
 function parseAgentDid(value: unknown, label: string): string {
@@ -267,11 +302,11 @@ function resolveOpenclawDir(openclawDir: string | undefined, homeDir: string) {
 }
 
 function resolveAgentDirectory(homeDir: string, agentName: string): string {
-  return join(homeDir, ".clawdentity", AGENTS_DIR_NAME, agentName);
+  return join(homeDir, CLAWDENTITY_DIR_NAME, AGENTS_DIR_NAME, agentName);
 }
 
 function resolvePeersPath(homeDir: string): string {
-  return join(homeDir, ".clawdentity", PEERS_FILE_NAME);
+  return join(homeDir, CLAWDENTITY_DIR_NAME, PEERS_FILE_NAME);
 }
 
 function resolveOpenclawConfigPath(openclawDir: string): string {
@@ -293,7 +328,11 @@ function resolveTransformTargetPath(openclawDir: string): string {
 }
 
 function resolveOpenclawAgentNamePath(homeDir: string): string {
-  return join(homeDir, ".clawdentity", OPENCLAW_AGENT_FILE_NAME);
+  return join(homeDir, CLAWDENTITY_DIR_NAME, OPENCLAW_AGENT_FILE_NAME);
+}
+
+function resolveRelayRuntimeConfigPath(homeDir: string): string {
+  return join(homeDir, CLAWDENTITY_DIR_NAME, OPENCLAW_RELAY_RUNTIME_FILE_NAME);
 }
 
 async function readJsonFile(filePath: string): Promise<unknown> {
@@ -465,6 +504,90 @@ async function savePeersConfig(
   await writeSecureFile(peersPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
+function parseRelayRuntimeConfig(
+  value: unknown,
+  relayRuntimeConfigPath: string,
+): OpenclawRelayRuntimeConfig {
+  if (!isRecord(value)) {
+    throw createCliError(
+      "CLI_OPENCLAW_INVALID_RELAY_RUNTIME_CONFIG",
+      "Relay runtime config must be an object",
+      { relayRuntimeConfigPath },
+    );
+  }
+
+  const updatedAt =
+    typeof value.updatedAt === "string" && value.updatedAt.trim().length > 0
+      ? value.updatedAt.trim()
+      : undefined;
+
+  return {
+    openclawBaseUrl: parseOpenclawBaseUrl(value.openclawBaseUrl),
+    updatedAt,
+  };
+}
+
+async function loadRelayRuntimeConfig(
+  relayRuntimeConfigPath: string,
+): Promise<OpenclawRelayRuntimeConfig | undefined> {
+  let parsed: unknown;
+  try {
+    parsed = await readJsonFile(relayRuntimeConfigPath);
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  return parseRelayRuntimeConfig(parsed, relayRuntimeConfigPath);
+}
+
+async function saveRelayRuntimeConfig(
+  relayRuntimeConfigPath: string,
+  openclawBaseUrl: string,
+): Promise<void> {
+  const config: OpenclawRelayRuntimeConfig = {
+    openclawBaseUrl,
+    updatedAt: nowIso(),
+  };
+
+  await writeSecureFile(
+    relayRuntimeConfigPath,
+    `${JSON.stringify(config, null, 2)}\n`,
+  );
+}
+
+async function resolveOpenclawBaseUrl(input: {
+  optionValue?: string;
+  relayRuntimeConfigPath: string;
+}): Promise<string> {
+  if (
+    typeof input.optionValue === "string" &&
+    input.optionValue.trim().length > 0
+  ) {
+    return parseOpenclawBaseUrl(input.optionValue);
+  }
+
+  const envOpenclawBaseUrl = process.env.OPENCLAW_BASE_URL;
+  if (
+    typeof envOpenclawBaseUrl === "string" &&
+    envOpenclawBaseUrl.trim().length > 0
+  ) {
+    return parseOpenclawBaseUrl(envOpenclawBaseUrl);
+  }
+
+  const existingConfig = await loadRelayRuntimeConfig(
+    input.relayRuntimeConfigPath,
+  );
+  if (existingConfig !== undefined) {
+    return existingConfig.openclawBaseUrl;
+  }
+
+  return DEFAULT_OPENCLAW_BASE_URL;
+}
+
 function normalizeStringArrayWithValue(
   value: unknown,
   requiredValue: string,
@@ -634,6 +757,11 @@ export async function setupOpenclawRelayFromInvite(
       ? options.transformSource.trim()
       : resolveDefaultTransformSource(openclawDir);
   const transformTargetPath = resolveTransformTargetPath(openclawDir);
+  const relayRuntimeConfigPath = resolveRelayRuntimeConfigPath(homeDir);
+  const openclawBaseUrl = await resolveOpenclawBaseUrl({
+    optionValue: options.openclawBaseUrl,
+    relayRuntimeConfigPath,
+  });
   const invite = decodeInvitePayload(options.inviteCode);
   const peerAliasCandidate = options.peerAlias ?? invite.alias;
 
@@ -674,6 +802,7 @@ export async function setupOpenclawRelayFromInvite(
 
   const agentNamePath = resolveOpenclawAgentNamePath(homeDir);
   await writeSecureFile(agentNamePath, `${normalizedAgentName}\n`);
+  await saveRelayRuntimeConfig(relayRuntimeConfigPath, openclawBaseUrl);
 
   logger.info("cli.openclaw_setup_completed", {
     agentName: normalizedAgentName,
@@ -681,6 +810,8 @@ export async function setupOpenclawRelayFromInvite(
     peerDid: invite.did,
     openclawConfigPath,
     transformTargetPath,
+    openclawBaseUrl,
+    relayRuntimeConfigPath,
   });
 
   return {
@@ -689,6 +820,8 @@ export async function setupOpenclawRelayFromInvite(
     peerProxyUrl: invite.proxyUrl,
     openclawConfigPath,
     transformTargetPath,
+    openclawBaseUrl,
+    relayRuntimeConfigPath,
   };
 }
 
@@ -739,6 +872,10 @@ export const createOpenclawCommand = (): Command => {
       "--transform-source <path>",
       "Path to relay-to-peer.mjs (default <openclaw-dir>/workspace/skills/clawdentity-openclaw-relay/relay-to-peer.mjs)",
     )
+    .option(
+      "--openclaw-base-url <url>",
+      "Base URL for local OpenClaw hook API (default http://127.0.0.1:18789)",
+    )
     .action(
       withErrorHandling(
         "openclaw setup",
@@ -751,6 +888,10 @@ export const createOpenclawCommand = (): Command => {
             `Updated OpenClaw config: ${result.openclawConfigPath}`,
           );
           writeStdoutLine(`Installed transform: ${result.transformTargetPath}`);
+          writeStdoutLine(`OpenClaw base URL: ${result.openclawBaseUrl}`);
+          writeStdoutLine(
+            `Relay runtime config: ${result.relayRuntimeConfigPath}`,
+          );
         },
       ),
     );

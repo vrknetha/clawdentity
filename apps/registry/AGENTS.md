@@ -23,6 +23,7 @@
 - Preserve `/health` response contract: `{ status, version, environment }`.
 - Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 
 ## Validation
 - Validate config changes with `wrangler check` before deployment.

@@ -12,6 +12,7 @@
   - environment (`CLAWDENTITY_AGENT_NAME`)
   - `~/.clawdentity/openclaw-agent-name`
   - single local agent auto-detection
+- Relay setup should preserve local OpenClaw upstream URL in `~/.clawdentity/openclaw-relay.json` for proxy runtime fallback.
 - Never commit local runtime files (`peers.json`, `secret.key`, `ait.jwt`) to the repository.
 
 ## Transform Rules
@@ -43,5 +44,5 @@
 - Install and execute onboarding through skill flow only (`npm install clawdentity --skill` plus agent-executed skill steps).
 - Human role in E2E is limited to supplying invite code and confirmations requested by the agent.
 - Do not edit relay hooks, peer config, or selected-agent files manually during validation.
-- After skill setup, verify these artifacts exist and are agent-generated: `~/.clawdentity/peers.json`, `~/.clawdentity/openclaw-agent-name`, `~/.openclaw/hooks/transforms/relay-to-peer.mjs`.
+- After skill setup, verify these artifacts exist and are agent-generated: `~/.clawdentity/peers.json`, `~/.clawdentity/openclaw-agent-name`, `~/.clawdentity/openclaw-relay.json`, `~/.openclaw/hooks/transforms/relay-to-peer.mjs`.
 - For reruns after failures, clear skill-generated artifacts first; only perform full identity reset (`~/.clawdentity/agents/<agent-name>/`) when identity reprovisioning is needed.

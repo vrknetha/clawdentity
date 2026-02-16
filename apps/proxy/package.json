@@ -13,10 +13,23 @@
     "./server": {
       "import": "./dist/server.js",
       "types": "./dist/server.d.ts"
+    },
+    "./node-server": {
+      "import": "./dist/node-server.js",
+      "types": "./dist/node-server.d.ts"
+    },
+    "./worker": {
+      "import": "./dist/worker.js",
+      "types": "./dist/worker.d.ts"
     }
   },
   "scripts": {
     "build": "tsup",
+    "deploy:dev": "wrangler deploy --env development --var OPENCLAW_BASE_URL:${OPENCLAW_BASE_URL:?set OPENCLAW_BASE_URL}",
+    "deploy:production": "wrangler deploy --env production --var OPENCLAW_BASE_URL:${OPENCLAW_BASE_URL:?set OPENCLAW_BASE_URL}",
+    "dev": "wrangler dev --env local --var OPENCLAW_HOOK_TOKEN:dev-proxy-hook-token",
+    "dev:development": "wrangler dev --env development --var OPENCLAW_HOOK_TOKEN:dev-proxy-hook-token",
+    "dev:fresh": "wrangler dev --env local --name clawdentity-proxy-local-fresh --port 8789 --persist-to .wrangler/state-fresh --var OPENCLAW_HOOK_TOKEN:fresh-proxy-hook-token",
     "format": "biome format .",
     "lint": "biome lint .",
     "start": "node ./dist/bin.js",
@@ -31,5 +44,9 @@
     "hono": "^4.11.9",
     "json5": "^2.2.3",
     "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260210.0",
+    "@types/node": "^22.17.2"
   }
 }

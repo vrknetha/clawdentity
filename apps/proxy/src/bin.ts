@@ -1,3 +1,3 @@
-import { startProxyServer } from "./server.js";
+import { startProxyServer } from "./node-server.js";
 
 startProxyServer();

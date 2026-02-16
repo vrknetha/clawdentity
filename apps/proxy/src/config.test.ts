@@ -7,6 +7,7 @@ import {
   DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS,
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
+  DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
   DEFAULT_OPENCLAW_BASE_URL,
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
@@ -40,6 +41,7 @@ describe("proxy config", () => {
       agentRateLimitRequestsPerMinute:
         DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
       agentRateLimitWindowMs: DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS,
+      injectIdentityIntoMessage: DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
     });
   });
 
@@ -52,6 +54,7 @@ describe("proxy config", () => {
       CRL_STALE_BEHAVIOR: "fail-closed",
       AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: "75",
       AGENT_RATE_LIMIT_WINDOW_MS: "90000",
+      INJECT_IDENTITY_INTO_MESSAGE: "true",
     });
 
     expect(config.listenPort).toBe(4100);
@@ -61,6 +64,7 @@ describe("proxy config", () => {
     expect(config.crlStaleBehavior).toBe("fail-closed");
     expect(config.agentRateLimitRequestsPerMinute).toBe(75);
     expect(config.agentRateLimitWindowMs).toBe(90000);
+    expect(config.injectIdentityIntoMessage).toBe(true);
   });
 
   it("parses allow list object and override env lists", () => {
@@ -137,6 +141,15 @@ describe("proxy config", () => {
       }),
     ).toThrow(ProxyConfigError);
   });
+
+  it("throws on invalid injectIdentityIntoMessage value", () => {
+    expect(() =>
+      parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+        INJECT_IDENTITY_INTO_MESSAGE: "maybe",
+      }),
+    ).toThrow(ProxyConfigError);
+  });
 });
 
 describe("proxy config loading", () => {
@@ -144,14 +157,16 @@ describe("proxy config loading", () => {
     const root = mkdtempSync(join(tmpdir(), "clawdentity-proxy-config-"));
     const cwd = join(root, "workspace");
     const stateDir = join(root, ".openclaw");
+    const clawdentityDir = join(root, ".clawdentity");
     mkdirSync(cwd, { recursive: true });
     mkdirSync(stateDir, { recursive: true });
+    mkdirSync(clawdentityDir, { recursive: true });
 
     const cleanup = () => {
       rmSync(root, { recursive: true, force: true });
     };
 
-    return { root, cwd, stateDir, cleanup };
+    return { root, cwd, stateDir, clawdentityDir, cleanup };
   }
 
   it("loads cwd .env first, then state .env without overriding existing values", () => {
@@ -186,6 +201,31 @@ describe("proxy config loading", () => {
       expect(config.openclawHookToken).toBe("from-cwd-dotenv");
       expect(config.listenPort).toBe(4444);
       expect(config.registryUrl).toBe("https://registry.cwd.example.com");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("loads INJECT_IDENTITY_INTO_MESSAGE from .env", () => {
+    const sandbox = createSandbox();
+    try {
+      writeFileSync(
+        join(sandbox.cwd, ".env"),
+        [
+          "OPENCLAW_HOOK_TOKEN=from-cwd-dotenv",
+          "INJECT_IDENTITY_INTO_MESSAGE=true",
+        ].join("\n"),
+      );
+
+      const config = loadProxyConfig(
+        {},
+        {
+          cwd: sandbox.cwd,
+          homeDir: sandbox.root,
+        },
+      );
+
+      expect(config.injectIdentityIntoMessage).toBe(true);
     } finally {
       sandbox.cleanup();
     }
@@ -239,6 +279,69 @@ describe("proxy config loading", () => {
       );
 
       expect(config.openclawHookToken).toBe("token-from-openclaw-config");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("falls back to ~/.clawdentity/openclaw-relay.json when OPENCLAW_BASE_URL is missing", () => {
+    const sandbox = createSandbox();
+    try {
+      writeFileSync(
+        join(sandbox.clawdentityDir, "openclaw-relay.json"),
+        JSON.stringify(
+          {
+            openclawBaseUrl: "http://127.0.0.1:19111",
+            updatedAt: "2026-02-15T20:00:00.000Z",
+          },
+          null,
+          2,
+        ),
+      );
+
+      const config = loadProxyConfig(
+        {
+          OPENCLAW_HOOK_TOKEN: "token",
+        },
+        {
+          cwd: sandbox.cwd,
+          homeDir: sandbox.root,
+        },
+      );
+
+      expect(config.openclawBaseUrl).toBe("http://127.0.0.1:19111");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("prefers env OPENCLAW_BASE_URL over ~/.clawdentity/openclaw-relay.json", () => {
+    const sandbox = createSandbox();
+    try {
+      writeFileSync(
+        join(sandbox.clawdentityDir, "openclaw-relay.json"),
+        JSON.stringify(
+          {
+            openclawBaseUrl: "http://127.0.0.1:19111",
+            updatedAt: "2026-02-15T20:00:00.000Z",
+          },
+          null,
+          2,
+        ),
+      );
+
+      const config = loadProxyConfig(
+        {
+          OPENCLAW_HOOK_TOKEN: "token",
+          OPENCLAW_BASE_URL: "http://127.0.0.1:19999",
+        },
+        {
+          cwd: sandbox.cwd,
+          homeDir: sandbox.root,
+        },
+      );
+
+      expect(config.openclawBaseUrl).toBe("http://127.0.0.1:19999");
     } finally {
       sandbox.cleanup();
     }
