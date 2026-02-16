@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { encodeBase64url } from "@clawdentity/protocol";
@@ -43,6 +49,35 @@ function createRelaySandbox(agentName: string): RelaySandbox {
     "utf8",
   );
   writeFileSync(join(agentDirectory, "ait.jwt"), "mock.ait.jwt", "utf8");
+  writeFileSync(
+    join(agentDirectory, "identity.json"),
+    `${JSON.stringify(
+      {
+        did: "did:claw:agent:01ALPHA",
+        name: agentName,
+        framework: "openclaw",
+        registryUrl: "https://registry.example.com",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    join(agentDirectory, "registry-auth.json"),
+    `${JSON.stringify(
+      {
+        tokenType: "Bearer",
+        accessToken: "clw_agt_access_initial",
+        accessExpiresAt: "2030-01-01T00:00:00.000Z",
+        refreshToken: "clw_rft_refresh_initial",
+        refreshExpiresAt: "2030-02-01T00:00:00.000Z",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 
   return {
     cleanup: () => {
@@ -61,6 +96,35 @@ function writeAgentCredentials(homeDir: string, agentName: string): void {
     "utf8",
   );
   writeFileSync(join(agentDirectory, "ait.jwt"), "mock.ait.jwt", "utf8");
+  writeFileSync(
+    join(agentDirectory, "identity.json"),
+    `${JSON.stringify(
+      {
+        did: "did:claw:agent:01ALPHA",
+        name: agentName,
+        framework: "openclaw",
+        registryUrl: "https://registry.example.com",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    join(agentDirectory, "registry-auth.json"),
+    `${JSON.stringify(
+      {
+        tokenType: "Bearer",
+        accessToken: "clw_agt_access_initial",
+        accessExpiresAt: "2030-01-01T00:00:00.000Z",
+        refreshToken: "clw_rft_refresh_initial",
+        refreshExpiresAt: "2030-02-01T00:00:00.000Z",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
 }
 
 describe("relay-to-peer transform", () => {
@@ -110,6 +174,7 @@ describe("relay-to-peer transform", () => {
       const headers = new Headers(requestInit.headers);
       expect(headers.get("authorization")).toBe("Claw mock.ait.jwt");
       expect(headers.get("content-type")).toBe("application/json");
+      expect(headers.get("x-claw-agent-access")).toBe("clw_agt_access_initial");
       expect(headers.get("x-claw-timestamp")).toBe("1700000000");
       expect(headers.get("x-claw-nonce")).toBe("AQIDBAUGBwgJCgsMDQ4PEA");
       expect(headers.get("x-claw-body-sha256")).toMatch(/^[A-Za-z0-9_-]+$/);
@@ -212,6 +277,80 @@ describe("relay-to-peer transform", () => {
       ).rejects.toThrow("Multiple local agents found");
     } finally {
       process.env.CLAWDENTITY_AGENT_NAME = previousAgentName;
+      sandbox.cleanup();
+    }
+  });
+
+  it("refreshes auth and retries once when peer returns 401", async () => {
+    const sandbox = createRelaySandbox("alpha-agent");
+    const fetchMock = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : "";
+      if (url === "https://peer.example.com/hooks/agent?source=skill") {
+        const headers = new Headers(init?.headers);
+        const accessToken = headers.get("x-claw-agent-access");
+        if (accessToken === "clw_agt_access_initial") {
+          return new Response("", { status: 401 });
+        }
+        if (accessToken === "clw_agt_access_refreshed") {
+          return new Response("", { status: 202 });
+        }
+      }
+
+      if (url === "https://registry.example.com/v1/agents/auth/refresh") {
+        return new Response(
+          JSON.stringify({
+            agentAuth: {
+              tokenType: "Bearer",
+              accessToken: "clw_agt_access_refreshed",
+              accessExpiresAt: "2030-03-01T00:00:00.000Z",
+              refreshToken: "clw_rft_refresh_refreshed",
+              refreshExpiresAt: "2030-04-01T00:00:00.000Z",
+            },
+          }),
+          { status: 200 },
+        );
+      }
+
+      return new Response("not found", { status: 404 });
+    });
+
+    try {
+      const result = await relayPayloadToPeer(
+        {
+          peer: "beta",
+          message: "retry me",
+        },
+        {
+          homeDir: sandbox.homeDir,
+          agentName: "alpha-agent",
+          fetchImpl: fetchMock as typeof fetch,
+        },
+      );
+
+      expect(result).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const registryAuth = JSON.parse(
+        String(
+          readFileSync(
+            join(
+              sandbox.homeDir,
+              ".clawdentity",
+              "agents",
+              "alpha-agent",
+              "registry-auth.json",
+            ),
+            "utf8",
+          ),
+        ),
+      ) as { accessToken: string; refreshToken: string };
+      expect(registryAuth.accessToken).toBe("clw_agt_access_refreshed");
+      expect(registryAuth.refreshToken).toBe("clw_rft_refresh_refreshed");
+    } finally {
       sandbox.cleanup();
     }
   });

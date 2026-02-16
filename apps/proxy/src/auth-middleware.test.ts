@@ -1,4 +1,5 @@
 import {
+  AGENT_AUTH_VALIDATE_PATH,
   generateUlid,
   makeAgentDid,
   makeHumanDid,
@@ -28,6 +29,7 @@ type AuthHarnessOptions = {
   allowCurrentAgent?: boolean;
   allowCurrentOwner?: boolean;
   revoked?: boolean;
+  validateStatus?: number;
 };
 
 type AuthHarness = {
@@ -106,6 +108,7 @@ function createFetchMock(input: {
   fetchCrlFails?: boolean;
   fetchKeysFails?: boolean;
   registryPublicKeyX: string;
+  validateStatus?: number;
 }) {
   return vi.fn(async (requestInput: unknown): Promise<Response> => {
     const url = resolveRequestUrl(requestInput);
@@ -142,6 +145,11 @@ function createFetchMock(input: {
         }),
         { status: 200 },
       );
+    }
+
+    if (url.endsWith(AGENT_AUTH_VALIDATE_PATH)) {
+      const status = input.validateStatus ?? 204;
+      return new Response(status === 204 ? null : "", { status });
     }
 
     return new Response("not found", { status: 404 });
@@ -195,6 +203,7 @@ async function createAuthHarness(
     fetchCrlFails: options.fetchCrlFails,
     fetchKeysFails: options.fetchKeysFails,
     registryPublicKeyX: encodedRegistry.publicKey,
+    validateStatus: options.validateStatus,
   });
 
   const allowListAgents =
@@ -217,6 +226,22 @@ async function createAuthHarness(
     auth: {
       fetchImpl: fetchMock as typeof fetch,
       clock: () => NOW_MS,
+    },
+    hooks: {
+      fetchImpl: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+            }),
+            {
+              status: 202,
+              headers: {
+                "content-type": "application/json",
+              },
+            },
+          ),
+      ) as typeof fetch,
     },
     registerRoutes: (nextApp) => {
       nextApp.post("/protected", (c) => {
@@ -560,6 +585,65 @@ describe("proxy auth middleware", () => {
 
     expect(response.status).toBe(200);
     expect(keyFetchCount).toBe(2);
+  });
+
+  it("requires x-claw-agent-access for /hooks/agent", async () => {
+    const harness = await createAuthHarness();
+    const headers = await harness.createSignedHeaders({
+      pathWithQuery: "/hooks/agent",
+      nonce: "nonce-hooks-agent-access-required",
+    });
+    const response = await harness.app.request("/hooks/agent", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AGENT_ACCESS_REQUIRED");
+  });
+
+  it("rejects /hooks/agent when registry access-token validation fails", async () => {
+    const harness = await createAuthHarness({
+      validateStatus: 401,
+    });
+    const headers = await harness.createSignedHeaders({
+      pathWithQuery: "/hooks/agent",
+      nonce: "nonce-hooks-agent-access-invalid",
+    });
+    const response = await harness.app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-claw-agent-access": "clw_agt_invalid",
+      },
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AGENT_ACCESS_INVALID");
+  });
+
+  it("accepts /hooks/agent when x-claw-agent-access validates", async () => {
+    const harness = await createAuthHarness({
+      validateStatus: 204,
+    });
+    const headers = await harness.createSignedHeaders({
+      pathWithQuery: "/hooks/agent",
+      nonce: "nonce-hooks-agent-access-valid",
+    });
+    const response = await harness.app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-claw-agent-access": "clw_agt_validtoken",
+      },
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(202);
   });
 
   it("rejects non-health route when Authorization scheme is not Claw", async () => {

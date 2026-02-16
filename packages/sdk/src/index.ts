@@ -1,5 +1,11 @@
 export const SDK_VERSION = "0.0.0";
 
+export type { AgentAuthBundle } from "./agent-auth-client.js";
+export {
+  executeWithAgentAuthRefreshRetry,
+  isRetryableAuthExpiryError,
+  refreshAgentAuthWithClawProof,
+} from "./agent-auth-client.js";
 export type { RegistryConfig } from "./config.js";
 export { parseRegistryConfig, registryConfigSchema } from "./config.js";
 export type {

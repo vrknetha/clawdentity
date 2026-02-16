@@ -137,6 +137,14 @@
   - successful refresh rotates both refresh/access credentials with a guarded update
 - Insert audit events in `agent_auth_events` for `refreshed`, `revoked`, and `refresh_rejected`.
 
+## POST /v1/agents/auth/validate Contract
+- Public endpoint used by proxy runtime auth enforcement; request must include `x-claw-agent-access` and JSON payload `{ agentDid, aitJti }`.
+- Validate `agentDid` + `aitJti` against active agent state (`agents.status=active`, `agents.current_jti` match).
+- Validate access token against active session hash/prefix material with constant-time comparison.
+- Expired access credentials must return `401 AGENT_AUTH_VALIDATE_EXPIRED` without rotating refresh credentials.
+- Successful validation must update `agent_auth_sessions.access_last_used_at` and return `204`.
+- Treat the `access_last_used_at` write as a guarded mutation: if the update matches zero rows, fail closed with `401 AGENT_AUTH_VALIDATE_UNAUTHORIZED` to prevent race-window acceptance after concurrent refresh/revoke.
+
 ## DELETE /v1/agents/:id Contract
 - Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be revoked.
 - Validate `:id` as ULID in `agent-revocation.ts`; path validation errors must be environment-aware via `shouldExposeVerboseErrors`.

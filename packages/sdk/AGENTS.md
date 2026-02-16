@@ -16,6 +16,7 @@
 - `crl/cache`: in-memory CRL cache with periodic refresh, staleness reporting, and configurable stale behavior.
 - `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash.
 - `security/nonce-cache`: in-memory TTL nonce replay protection keyed by `agentDid + nonce`.
+- `agent-auth-client`: shared agent auth refresh client + retry orchestration (`executeWithAgentAuthRefreshRetry`) for CLI/runtime integrations.
 - Tests should prove tamper cases (payload change, header kid swap, signature corruption).
 
 ## Design Rules
@@ -41,6 +42,9 @@
 - Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
 - Registry keyset validation must reject duplicate `kid` values and malformed `x` key material (non-base64url or non-32-byte Ed25519) so verifier behavior cannot become order-dependent.
 - Use `RuntimeEnvironment` + `shouldExposeVerboseErrors` from `runtime-environment` for environment-based error-detail behavior; do not duplicate ad-hoc `NODE_ENV`/string checks.
+- Keep `agent-auth-client` runtime-portable (no Node-only filesystem APIs); delegate persistence/locking to callers.
+- Keep refresh retry policy strict: a single refresh attempt and a single request retry on retryable auth failures.
+- Keep per-agent refresh single-flight keyed by explicit caller-provided key to avoid duplicate refresh races.
 
 ## Testing Rules
 - Unit test each shared module.
@@ -52,3 +56,4 @@
 - Nonce cache tests must include duplicate nonce rejection within TTL and acceptance after TTL expiry.
 - CRL cache tests must cover revoked lookup, refresh-on-stale, and stale-path behavior in both `fail-open` and `fail-closed` modes.
 - When new registry routes emit signed AITs (e.g., POST `/v1/agents`), tests should consume those tokens with the published `REGISTRY_SIGNING_KEYS` set (as returned by `/.well-known/claw-keys.json`) and assert that `verifyAIT` succeeds/fails exactly the same way the local `claw verify` workflow will, keeping the offline verification contract fully covered.
+- `agent-auth-client` tests must cover: success path, refresh HTTP error mapping, and concurrent retry callers sharing a single refresh.

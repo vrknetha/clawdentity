@@ -9,6 +9,12 @@ export {
   resolvePeersConfigPath,
   savePeersConfig,
 } from "./transforms/peers-config.js";
+export {
+  readAgentRegistryAuth,
+  resolveAgentRegistryAuthPath,
+  withAgentRegistryAuthLock,
+  writeAgentRegistryAuthAtomic,
+} from "./transforms/registry-auth.js";
 
 export type {
   RelayToPeerOptions,

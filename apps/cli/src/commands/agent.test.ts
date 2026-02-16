@@ -37,7 +37,7 @@ vi.mock("@clawdentity/sdk", () => ({
   encodeEd25519SignatureBase64url: vi.fn(),
   encodeEd25519KeypairBase64url: vi.fn(),
   generateEd25519Keypair: vi.fn(),
-  signHttpRequest: vi.fn(),
+  refreshAgentAuthWithClawProof: vi.fn(),
   signEd25519: vi.fn(),
 }));
 
@@ -47,8 +47,8 @@ import {
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
+  refreshAgentAuthWithClawProof,
   signEd25519,
-  signHttpRequest,
 } from "@clawdentity/sdk";
 import { resolveConfig } from "../config/manager.js";
 import { createAgentCommand } from "./agent.js";
@@ -62,7 +62,9 @@ const mockedUnlink = vi.mocked(unlink);
 const mockedWriteFile = vi.mocked(writeFile);
 const mockedResolveConfig = vi.mocked(resolveConfig);
 const mockedGenerateEd25519Keypair = vi.mocked(generateEd25519Keypair);
-const mockedSignHttpRequest = vi.mocked(signHttpRequest);
+const mockedRefreshAgentAuthWithClawProof = vi.mocked(
+  refreshAgentAuthWithClawProof,
+);
 const mockedSignEd25519 = vi.mocked(signEd25519);
 const mockedEncodeEd25519SignatureBase64url = vi.mocked(
   encodeEd25519SignatureBase64url,
@@ -164,16 +166,6 @@ describe("agent create command", () => {
     });
 
     mockedSignEd25519.mockResolvedValue(Uint8Array.from([1, 2, 3]));
-    mockedSignHttpRequest.mockResolvedValue({
-      canonicalRequest: "canonical",
-      proof: "proof",
-      headers: {
-        "X-Claw-Timestamp": "1739364000",
-        "X-Claw-Nonce": "nonce-value",
-        "X-Claw-Body-SHA256": "body-sha",
-        "X-Claw-Proof": "proof",
-      },
-    });
     mockedEncodeEd25519SignatureBase64url.mockReturnValue(
       "challenge-signature-b64url",
     );
@@ -408,16 +400,6 @@ describe("agent auth refresh command", () => {
     vi.clearAllMocks();
     mockFetch.mockReset();
     vi.stubGlobal("fetch", mockFetch);
-    mockedSignHttpRequest.mockResolvedValue({
-      canonicalRequest: "canonical",
-      proof: "proof",
-      headers: {
-        "X-Claw-Timestamp": "1739364000",
-        "X-Claw-Nonce": "nonce-value",
-        "X-Claw-Body-SHA256": "body-sha",
-        "X-Claw-Proof": "proof",
-      },
-    });
 
     mockedReadFile.mockImplementation(async (path) => {
       const filePath = String(path);
@@ -446,17 +428,13 @@ describe("agent auth refresh command", () => {
       throw buildErrnoError("ENOENT");
     });
 
-    mockFetch.mockResolvedValue(
-      createJsonResponse(200, {
-        agentAuth: {
-          tokenType: "Bearer",
-          accessToken: "clw_agt_new_access",
-          accessExpiresAt: "2030-01-02T00:15:00.000Z",
-          refreshToken: "clw_rft_new_refresh",
-          refreshExpiresAt: "2030-02-01T00:00:00.000Z",
-        },
-      }),
-    );
+    mockedRefreshAgentAuthWithClawProof.mockResolvedValue({
+      tokenType: "Bearer",
+      accessToken: "clw_agt_new_access",
+      accessExpiresAt: "2030-01-02T00:15:00.000Z",
+      refreshToken: "clw_rft_new_refresh",
+      refreshExpiresAt: "2030-02-01T00:00:00.000Z",
+    });
   });
 
   afterEach(() => {
@@ -467,20 +445,11 @@ describe("agent auth refresh command", () => {
   it("refreshes agent auth and rewrites registry-auth.json", async () => {
     const result = await runAgentCommand(["auth", "refresh", "agent-01"]);
 
-    expect(mockedSignHttpRequest).toHaveBeenCalledWith(
+    expect(mockedRefreshAgentAuthWithClawProof).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: "POST",
-        pathWithQuery: "/v1/agents/auth/refresh",
-      }),
-    );
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clawdentity.com/v1/agents/auth/refresh",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({
-          authorization: "Claw ait.jwt.value",
-          "content-type": "application/json",
-        }),
+        registryUrl: "https://api.clawdentity.com",
+        ait: "ait.jwt.value",
+        refreshToken: "clw_rft_old_refresh",
       }),
     );
     const [tempPath, tempContents, tempEncoding] = mockedWriteFile.mock
@@ -529,10 +498,10 @@ describe("agent auth refresh command", () => {
 
     expect(result.stderr).toContain("registry-auth.json");
     expect(result.exitCode).toBe(1);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockedRefreshAgentAuthWithClawProof).not.toHaveBeenCalled();
   });
 
-  it("signs refresh proof with the resolved endpoint path for base-path registries", async () => {
+  it("passes base-path registry urls through to shared refresh client", async () => {
     mockedReadFile.mockImplementation(async (path) => {
       const filePath = String(path);
       if (filePath.endsWith("/ait.jwt")) {
@@ -562,14 +531,10 @@ describe("agent auth refresh command", () => {
 
     await runAgentCommand(["auth", "refresh", "agent-01"]);
 
-    expect(mockedSignHttpRequest).toHaveBeenCalledWith(
+    expect(mockedRefreshAgentAuthWithClawProof).toHaveBeenCalledWith(
       expect.objectContaining({
-        pathWithQuery: "/registry/v1/agents/auth/refresh",
+        registryUrl: "https://api.clawdentity.com/registry",
       }),
-    );
-    expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clawdentity.com/registry/v1/agents/auth/refresh",
-      expect.any(Object),
     );
   });
 });

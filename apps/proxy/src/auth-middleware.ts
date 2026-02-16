@@ -1,4 +1,7 @@
-import { decodeBase64url } from "@clawdentity/protocol";
+import {
+  AGENT_AUTH_VALIDATE_PATH,
+  decodeBase64url,
+} from "@clawdentity/protocol";
 import {
   AitJwtError,
   AppError,
@@ -93,6 +96,17 @@ function toRegistryUrl(registryUrl: string, path: string): string {
     ? registryUrl
     : `${registryUrl}/`;
   return new URL(path, normalizedBaseUrl).toString();
+}
+
+function parseAgentAccessHeader(value: string | undefined): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw unauthorizedError({
+      code: "PROXY_AGENT_ACCESS_REQUIRED",
+      message: "X-Claw-Agent-Access header is required",
+    });
+  }
+
+  return value.trim();
 }
 
 function unauthorizedError(options: {
@@ -294,6 +308,10 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
     options.registryKeysCacheTtlMs ?? DEFAULT_REGISTRY_KEYS_CACHE_TTL_MS;
   const registryUrl = normalizeRegistryUrl(options.config.registryUrl);
   const expectedIssuer = resolveExpectedIssuer(registryUrl);
+  const agentAuthValidateUrl = toRegistryUrl(
+    registryUrl,
+    AGENT_AUTH_VALIDATE_PATH,
+  );
 
   let registryKeysCache: RegistryKeysCache | undefined;
 
@@ -585,6 +603,50 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
             agentDid: claims.sub,
           },
         });
+      }
+
+      if (c.req.path === "/hooks/agent") {
+        const accessToken = parseAgentAccessHeader(
+          c.req.header("x-claw-agent-access"),
+        );
+
+        let validateResponse: Response;
+        try {
+          validateResponse = await fetchImpl(agentAuthValidateUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-claw-agent-access": accessToken,
+            },
+            body: JSON.stringify({
+              agentDid: claims.sub,
+              aitJti: claims.jti,
+            }),
+          });
+        } catch (error) {
+          throw dependencyUnavailableError({
+            message: "Registry agent auth validation is unavailable",
+            details: {
+              reason: toErrorMessage(error),
+            },
+          });
+        }
+
+        if (validateResponse.status === 401) {
+          throw unauthorizedError({
+            code: "PROXY_AGENT_ACCESS_INVALID",
+            message: "Agent access token is invalid or expired",
+          });
+        }
+
+        if (validateResponse.status !== 204) {
+          throw dependencyUnavailableError({
+            message: "Registry agent auth validation is unavailable",
+            details: {
+              status: validateResponse.status,
+            },
+          });
+        }
       }
 
       c.set("auth", {

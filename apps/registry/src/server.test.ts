@@ -1,6 +1,7 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
   AGENT_AUTH_REFRESH_PATH,
+  AGENT_AUTH_VALIDATE_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   type AitClaims,
   canonicalizeAgentRegistrationProof,
@@ -29,6 +30,7 @@ import {
   DEFAULT_AGENT_TTL_DAYS,
 } from "./agent-registration.js";
 import {
+  deriveAccessTokenLookupPrefix,
   deriveRefreshTokenLookupPrefix,
   hashAgentToken,
 } from "./auth/agent-auth-token.js";
@@ -196,6 +198,9 @@ type FakeAgentSelectRow = {
 
 type FakeDbOptions = {
   beforeFirstAgentUpdate?: (agentRows: FakeAgentRow[]) => void;
+  beforeFirstAgentAuthSessionUpdate?: (
+    sessionRows: FakeAgentAuthSessionRow[],
+  ) => void;
   failApiKeyInsertCount?: number;
   failBeginTransaction?: boolean;
   inviteRows?: FakeInviteRow[];
@@ -1052,6 +1057,7 @@ function createFakeDb(
     lastUsedAt: null,
   }));
   let beforeFirstAgentUpdateApplied = false;
+  let beforeFirstAgentAuthSessionUpdateApplied = false;
   let remainingApiKeyInsertFailures = options.failApiKeyInsertCount ?? 0;
 
   const database: D1Database = {
@@ -1695,6 +1701,14 @@ function createFakeDb(
             normalizedQuery.includes('update "agent_auth_sessions"') ||
             normalizedQuery.includes("update agent_auth_sessions")
           ) {
+            if (
+              !beforeFirstAgentAuthSessionUpdateApplied &&
+              options.beforeFirstAgentAuthSessionUpdate
+            ) {
+              options.beforeFirstAgentAuthSessionUpdate(agentAuthSessionRows);
+              beforeFirstAgentAuthSessionUpdateApplied = true;
+            }
+
             const setColumns = parseUpdateSetColumns(
               query,
               "agent_auth_sessions",
@@ -1729,6 +1743,10 @@ function createFakeDb(
               typeof equalityParams.values.refresh_key_hash?.[0] === "string"
                 ? String(equalityParams.values.refresh_key_hash[0])
                 : undefined;
+            const accessHashFilter =
+              typeof equalityParams.values.access_key_hash?.[0] === "string"
+                ? String(equalityParams.values.access_key_hash[0])
+                : undefined;
 
             let matchedRows = 0;
             for (const row of agentAuthSessionRows) {
@@ -1745,6 +1763,9 @@ function createFakeDb(
                 refreshHashFilter &&
                 row.refreshKeyHash !== refreshHashFilter
               ) {
+                continue;
+              }
+              if (accessHashFilter && row.accessKeyHash !== accessHashFilter) {
                 continue;
               }
 
@@ -1808,6 +1829,7 @@ function createFakeDb(
               agent_id: agentIdFilter,
               status_where: statusFilter,
               refresh_key_hash_where: refreshHashFilter,
+              access_key_hash_where: accessHashFilter,
               matched_rows: matchedRows,
             });
             changes = matchedRows;
@@ -6265,6 +6287,253 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       expect.arrayContaining([
         expect.objectContaining({ event_type: "revoked" }),
       ]),
+    );
+  });
+});
+
+describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
+  it("validates active access token and updates access_last_used_at", async () => {
+    const nowIso = new Date().toISOString();
+    const accessToken = "clw_agt_fixture_access_token_value_for_registry_tests";
+    const accessTokenHash = await hashAgentToken(accessToken);
+    const agentId = generateUlid(Date.now() + 200);
+    const agentDid = makeAgentDid(agentId);
+    const aitJti = generateUlid(Date.now() + 201);
+    const { database, agentAuthSessionRows, agentAuthSessionUpdates } =
+      createFakeDb(
+        [],
+        [
+          {
+            id: agentId,
+            did: agentDid,
+            ownerId: "human-1",
+            name: "agent-access-validate-01",
+            framework: "openclaw",
+            publicKey: encodeBase64url(new Uint8Array(32)),
+            status: "active",
+            expiresAt: null,
+            currentJti: aitJti,
+          },
+        ],
+        {
+          agentAuthSessionRows: [
+            {
+              id: generateUlid(Date.now() + 202),
+              agentId,
+              refreshKeyHash: "refresh-hash",
+              refreshKeyPrefix: "clw_rft_fixture",
+              refreshIssuedAt: nowIso,
+              refreshExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+              refreshLastUsedAt: null,
+              accessKeyHash: accessTokenHash,
+              accessKeyPrefix: deriveAccessTokenLookupPrefix(accessToken),
+              accessIssuedAt: nowIso,
+              accessExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+              accessLastUsedAt: null,
+              status: "active",
+              revokedAt: null,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+          ],
+        },
+      );
+
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_VALIDATE_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": accessToken,
+        },
+        body: JSON.stringify({
+          agentDid,
+          aitJti,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+      },
+    );
+
+    expect(response.status).toBe(204);
+    expect(agentAuthSessionUpdates).toHaveLength(1);
+    expect(agentAuthSessionRows[0]?.accessLastUsedAt).not.toBeNull();
+  });
+
+  it("rejects validation when x-claw-agent-access is missing", async () => {
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_VALIDATE_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          agentDid: makeAgentDid(generateUlid(Date.now() + 203)),
+          aitJti: generateUlid(Date.now() + 204),
+        }),
+      },
+      {
+        DB: {},
+        ENVIRONMENT: "test",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_VALIDATE_UNAUTHORIZED");
+  });
+
+  it("rejects validation for expired access token", async () => {
+    const nowIso = new Date().toISOString();
+    const accessToken =
+      "clw_agt_fixture_expired_access_token_for_registry_tests";
+    const accessTokenHash = await hashAgentToken(accessToken);
+    const agentId = generateUlid(Date.now() + 205);
+    const agentDid = makeAgentDid(agentId);
+    const aitJti = generateUlid(Date.now() + 206);
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "agent-access-validate-expired",
+          framework: "openclaw",
+          publicKey: encodeBase64url(new Uint8Array(32)),
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+      {
+        agentAuthSessionRows: [
+          {
+            id: generateUlid(Date.now() + 207),
+            agentId,
+            refreshKeyHash: "refresh-hash",
+            refreshKeyPrefix: "clw_rft_fixture",
+            refreshIssuedAt: nowIso,
+            refreshExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            refreshLastUsedAt: null,
+            accessKeyHash: accessTokenHash,
+            accessKeyPrefix: deriveAccessTokenLookupPrefix(accessToken),
+            accessIssuedAt: nowIso,
+            accessExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+            accessLastUsedAt: null,
+            status: "active",
+            revokedAt: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      },
+    );
+
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_VALIDATE_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": accessToken,
+        },
+        body: JSON.stringify({
+          agentDid,
+          aitJti,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_VALIDATE_EXPIRED");
+  });
+
+  it("rejects validation when guarded session update matches zero rows", async () => {
+    const nowIso = new Date().toISOString();
+    const accessToken =
+      "clw_agt_fixture_race_window_access_token_for_registry_tests";
+    const accessTokenHash = await hashAgentToken(accessToken);
+    const agentId = generateUlid(Date.now() + 208);
+    const agentDid = makeAgentDid(agentId);
+    const aitJti = generateUlid(Date.now() + 209);
+    const { database, agentAuthSessionUpdates } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "agent-access-validate-race",
+          framework: "openclaw",
+          publicKey: encodeBase64url(new Uint8Array(32)),
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+      {
+        agentAuthSessionRows: [
+          {
+            id: generateUlid(Date.now() + 210),
+            agentId,
+            refreshKeyHash: "refresh-hash",
+            refreshKeyPrefix: "clw_rft_fixture",
+            refreshIssuedAt: nowIso,
+            refreshExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            refreshLastUsedAt: null,
+            accessKeyHash: accessTokenHash,
+            accessKeyPrefix: deriveAccessTokenLookupPrefix(accessToken),
+            accessIssuedAt: nowIso,
+            accessExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            accessLastUsedAt: null,
+            status: "active",
+            revokedAt: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+        beforeFirstAgentAuthSessionUpdate: (rows) => {
+          if (rows[0]) {
+            rows[0].status = "revoked";
+          }
+        },
+      },
+    );
+
+    const response = await createRegistryApp().request(
+      AGENT_AUTH_VALIDATE_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": accessToken,
+        },
+        body: JSON.stringify({
+          agentDid,
+          aitJti,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+      },
+    );
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_VALIDATE_UNAUTHORIZED");
+    expect(agentAuthSessionUpdates).toEqual(
+      expect.arrayContaining([expect.objectContaining({ matched_rows: 0 })]),
     );
   });
 });
