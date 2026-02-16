@@ -19,6 +19,8 @@
 - Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
 - npm `--skill` installer behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
 - Keep `skill-bundle/openclaw-skill/` in sync with `apps/openclaw-skill` via `pnpm -F @clawdentity/cli run sync:skill-bundle` before build/pack so `postinstall --skill` works in clean installs.
+- Keep `skill-bundle/openclaw-skill/dist/relay-to-peer.mjs` tracked in git so clean-checkout tests and packaged installs have the required relay artifact before workspace builds run.
+- When running the `@clawdentity/cli` test suite (`pnpm -F @clawdentity/cli test`), build `@clawdentity/openclaw-skill` and resync the skill bundle first so `relay-to-peer.mjs` exists on clean checkout and tests pass with deterministic artifacts.
 
 ## Config and Secrets
 - Local CLI config lives at `~/.clawdentity/config.json`.
