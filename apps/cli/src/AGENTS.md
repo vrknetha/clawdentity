@@ -17,6 +17,13 @@
 - Agent auth refresh state is stored per-agent at `~/.clawdentity/agents/<name>/registry-auth.json` and must be written with secure file permissions.
 - `agent auth refresh` must use `Authorization: Claw <AIT>` + PoP headers from local agent keys and must not require PAT config.
 
+## Skill Install Mode
+- Keep npm skill-install logic in shared helpers (`install-skill-mode.ts`) and invoke it from `postinstall.ts`; do not embed installer logic inside command factories.
+- Detect install mode via npm environment (`npm_config_skill` and npm argv fallback) so non-skill installs remain unaffected.
+- Resolve skill artifacts in this order: explicit override, bundled `skill-bundle/openclaw-skill`, installed `@clawdentity/openclaw-skill`, then workspace fallback.
+- Skill install must copy `SKILL.md`, `references/*`, and `relay-to-peer.mjs` into OpenClaw runtime paths under `~/.openclaw` and must fail with actionable errors when source artifacts are missing.
+- Installer logs must be deterministic and explicit (`installed`, `updated`, `unchanged`) so E2E skill tests can assert outcomes reliably.
+
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.
 - Resolve registry material from configured `registryUrl` only (`/.well-known/claw-keys.json`, `/v1/crl`).

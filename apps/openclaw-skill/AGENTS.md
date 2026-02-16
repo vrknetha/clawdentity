@@ -46,3 +46,8 @@
 - Do not edit relay hooks, peer config, or selected-agent files manually during validation.
 - After skill setup, verify these artifacts exist and are agent-generated: `~/.clawdentity/peers.json`, `~/.clawdentity/openclaw-agent-name`, `~/.clawdentity/openclaw-relay.json`, `~/.openclaw/hooks/transforms/relay-to-peer.mjs`.
 - For reruns after failures, clear skill-generated artifacts first; only perform full identity reset (`~/.clawdentity/agents/<agent-name>/`) when identity reprovisioning is needed.
+
+## Skill Runtime Behavior
+- Keep onboarding prompts input-focused (invite/API key/URLs) and let the skill decide command execution.
+- The agent should run required npm/CLI/filesystem operations via tools and only ask the human for missing inputs.
+- Report deterministic completion outputs: local DID, peer alias, and generated filesystem paths.

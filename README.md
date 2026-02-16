@@ -105,6 +105,263 @@ OpenClaw Gateway  (normal /hooks/agent handling)
 
 ---
 
+## Agent-to-Agent Communication: Complete Flow
+
+This section walks through **every step** from zero to two OpenClaw agents exchanging their first message. Each step adds a security guarantee that the shared-token model cannot provide.
+
+### Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        CLAWDENTITY REGISTRY                            │
+│                                                                        │
+│  Issues identities (AIT) ·  Publishes revocation list (CRL)           │
+│  Validates agent auth    ·  Manages invite-gated onboarding            │
+└───────────────┬─────────────────────────────────┬──────────────────────┘
+                │                                 │
+      issues AIT + auth                  issues AIT + auth
+                │                                 │
+    ┌───────────▼──────────┐          ┌───────────▼──────────┐
+    │     AGENT ALICE       │          │      AGENT BOB       │
+    │  (OpenClaw + keys)    │          │  (OpenClaw + keys)   │
+    │                       │          │                      │
+    │  Ed25519 keypair      │          │  Ed25519 keypair     │
+    │  AIT (signed passport)│          │  AIT (signed passport│
+    │  Auth tokens          │          │  Auth tokens         │
+    └───────────┬───────────┘          └──────────┬───────────┘
+                │                                 │
+        signs every request              signs every request
+        with private key                 with private key
+                │                                 │
+    ┌───────────▼──────────┐          ┌───────────▼──────────┐
+    │    ALICE'S PROXY      │◄─────────│   Bob sends signed   │
+    │  (Cloudflare Worker)  │ HTTP POST│   request to Alice   │
+    │                       │          │                      │
+    │  Verifies identity    │          └──────────────────────┘
+    │  Checks revocation    │
+    │  Enforces allowlist   │
+    │  Rejects replays      │
+    │  Rate limits per agent│
+    └───────────┬───────────┘
+                │
+        only verified requests
+        reach OpenClaw
+                │
+    ┌───────────▼──────────┐
+    │   ALICE'S OPENCLAW    │
+    │  (localhost, private) │
+    │                       │
+    │  Receives message     │
+    │  Never exposed to     │
+    │  public internet      │
+    └───────────────────────┘
+```
+
+### Step 1: Human Onboarding (Invite-Gated)
+
+An admin creates an invite code. A new operator redeems it to get API access.
+
+```
+Admin                          Registry
+  │                               │
+  │  clawdentity invite create    │
+  │──────────────────────────────►│  Generates clw_inv_<random>
+  │◄──────────────────────────────│  Stores with optional expiry
+  │                               │
+  │  Shares invite code           │
+  │  out-of-band (email, etc.)    │
+  │                               │
+
+New Operator                   Registry
+  │                               │
+  │  clawdentity invite redeem    │
+  │──────────────────────────────►│  Creates human account
+  │◄──────────────────────────────│  Issues API key (shown once)
+  │                               │
+  │  Stores API key locally       │
+```
+
+**Security:** Invite codes are single-use and time-limited. One agent per invite prevents bulk abuse.
+
+### Step 2: Agent Identity Creation (Challenge-Response)
+
+The operator creates an agent identity. The private key **never leaves the machine**.
+
+```
+CLI (operator's machine)              Registry
+  │                                      │
+  │  1. Generate Ed25519 keypair         │
+  │     (secret.key stays local)         │
+  │                                      │
+  │  2. POST /v1/agents/challenge        │
+  │     { publicKey }                    │
+  │─────────────────────────────────────►│  Generates 24-byte nonce
+  │◄─────────────────────────────────────│  Returns { challengeId,
+  │                                      │    nonce, ownerDid }
+  │                                      │
+  │  3. Sign canonical proof with        │
+  │     private key (proves ownership)   │
+  │                                      │
+  │  4. POST /v1/agents                  │
+  │     { name, publicKey, challengeId,  │
+  │       challengeSignature }           │
+  │─────────────────────────────────────►│  Verifies signature
+  │                                      │  Creates agent record
+  │                                      │  Issues AIT (JWT, EdDSA)
+  │                                      │  Issues auth tokens
+  │◄─────────────────────────────────────│  Returns { agent, ait,
+  │                                      │    agentAuth }
+  │  Stores locally:                     │
+  │    ~/.clawdentity/agents/<name>/     │
+  │      ├── secret.key (private, 0600)  │
+  │      ├── public.key                  │
+  │      ├── ait.jwt (signed passport)   │
+  │      ├── identity.json               │
+  │      └── registry-auth.json          │
+```
+
+**Security:** Challenge-response proves the operator holds the private key without ever transmitting it. The 5-minute challenge window prevents delayed replay. Each challenge is single-use.
+
+**What's in the AIT (Agent Identity Token):**
+
+| Claim | Purpose |
+|-------|---------|
+| `sub` | Agent DID (`did:claw:agent:<ulid>`) — unique identity |
+| `ownerDid` | Human DID — who owns this agent |
+| `cnf.jwk.x` | Agent's public key — for verifying PoP signatures |
+| `jti` | Token ID — for revocation tracking |
+| `iss` | Registry URL — who vouches for this identity |
+| `exp` | Expiry — credential lifetime (1-90 days) |
+
+### Step 3: Peer Discovery (Out-of-Band Invite)
+
+Alice creates an invite code for Bob. No secrets are exchanged — only a DID and endpoint.
+
+```
+Alice's Operator                        Bob's Operator
+  │                                        │
+  │  clawdentity openclaw invite create    │
+  │  → Encodes: {                          │
+  │      did: "did:claw:agent:...",        │
+  │      proxyUrl: "https://alice-proxy/   │
+  │        hooks/agent",                   │
+  │      alias: "bob",                     │
+  │      name: "Bob Agent"                 │
+  │    }                                   │
+  │  → Base64url invite code               │
+  │                                        │
+  │  Shares code out-of-band ─────────────►│
+  │  (email, QR, chat, etc.)               │
+  │                                        │
+  │                                        │  clawdentity openclaw setup
+  │                                        │    bob --invite-code <code>
+  │                                        │
+  │                                        │  Stores peer in peers.json:
+  │                                        │  { "alice": {
+  │                                        │      "did": "did:claw:agent:...",
+  │                                        │      "proxyUrl": "https://..."
+  │                                        │  }}
+  │                                        │
+  │                                        │  Installs relay transform
+  │                                        │  Configures OpenClaw hooks
+```
+
+**Security:** The invite contains only public information (DID + proxy URL). No keys, tokens, or secrets are exchanged. Alice's operator must also add Bob's DID to the proxy allowlist before Bob can actually send messages.
+
+### Step 4: First Message (Bob → Alice)
+
+Bob's OpenClaw triggers the relay. Every request is cryptographically signed.
+
+```
+Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's OpenClaw
+     │                      │                      │                       │
+     │  Hook trigger:       │                      │                       │
+     │  { peer: "alice",    │                      │                       │
+     │    message: "Hi!" }  │                      │                       │
+     │─────────────────────►│                      │                       │
+     │                      │                      │                       │
+     │               1. Load Bob's credentials     │                       │
+     │                  (secret.key, ait.jwt)       │                       │
+     │               2. Look up "alice" in          │                       │
+     │                  peers.json → proxy URL      │                       │
+     │               3. Sign HTTP request:          │                       │
+     │                  ┌─────────────────────┐     │                       │
+     │                  │ Canonical string:    │     │                       │
+     │                  │ POST /hooks/agent    │     │                       │
+     │                  │ timestamp:<unix>     │     │                       │
+     │                  │ nonce:<random>       │     │                       │
+     │                  │ body-sha256:<hash>   │     │                       │
+     │                  │                     │     │                       │
+     │                  │ Ed25519.sign(canon,  │     │                       │
+     │                  │   secretKey) → proof │     │                       │
+     │                  └─────────────────────┘     │                       │
+     │               4. Send signed request:        │                       │
+     │                  POST https://alice-proxy/hooks/agent                │
+     │                  Authorization: Claw <ait>   │                       │
+     │                  X-Claw-Timestamp: <ts>      │                       │
+     │                  X-Claw-Nonce: <random>      │                       │
+     │                  X-Claw-Body-SHA256: <hash>  │                       │
+     │                  X-Claw-Proof: <signature>   │                       │
+     │                  X-Claw-Agent-Access: <token>│                       │
+     │                      │─────────────────────►│                       │
+     │                      │                      │                       │
+     │                      │               VERIFICATION PIPELINE          │
+     │                      │               ─────────────────────          │
+     │                      │               ① Verify AIT signature         │
+     │                      │                 (registry EdDSA keys)        │
+     │                      │               ② Check timestamp skew         │
+     │                      │                 (max ±300 seconds)           │
+     │                      │               ③ Verify PoP signature         │
+     │                      │                 (Ed25519 from AIT cnf key)   │
+     │                      │               ④ Reject nonce replay          │
+     │                      │                 (per-agent nonce cache)      │
+     │                      │               ⑤ Check CRL revocation         │
+     │                      │                 (signed list from registry)  │
+     │                      │               ⑥ Enforce allowlist            │
+     │                      │                 (is Bob's DID permitted?)    │
+     │                      │               ⑦ Validate agent access token  │
+     │                      │                 (POST to registry)           │
+     │                      │                      │                       │
+     │                      │                      │  ALL CHECKS PASSED    │
+     │                      │                      │                       │
+     │                      │                      │  Forward to OpenClaw:  │
+     │                      │                      │  POST /hooks/agent     │
+     │                      │                      │  x-openclaw-token: <t> │
+     │                      │                      │──────────────────────►│
+     │                      │                      │                       │  Message
+     │                      │                      │◄──────────────────────│  delivered!
+     │                      │◄─────────────────────│  202                  │
+     │◄─────────────────────│                      │                       │
+```
+
+### Why This Beats Shared Tokens
+
+| Property | Shared Webhook Token | Clawdentity |
+|----------|---------------------|-------------|
+| **Identity** | All callers look the same | Each agent has a unique DID and signed passport |
+| **Accountability** | Cannot trace who sent what | Every request proves exactly which agent sent it |
+| **Blast radius** | One leak exposes everything | One compromised key only affects that agent |
+| **Revocation** | Rotate shared token = break all integrations | Revoke one agent instantly via CRL, others unaffected |
+| **Replay protection** | None | Timestamp + nonce + signature on every request |
+| **Tamper detection** | None | Body hash + PoP signature = any modification is detectable |
+| **Per-caller policy** | Not possible | Allowlist by agent DID, rate limit per agent |
+| **Key exposure** | Token must be shared with every caller | Private key never leaves the agent's machine |
+
+### What Gets Verified (and When It Fails)
+
+| Check | Failure | HTTP Status | Meaning |
+|-------|---------|-------------|---------|
+| AIT signature | `PROXY_AUTH_INVALID_AIT` | 401 | Token is forged or tampered |
+| Timestamp skew | `PROXY_AUTH_TIMESTAMP_SKEW` | 401 | Request is too old or clock is wrong |
+| PoP signature | `PROXY_AUTH_INVALID_PROOF` | 401 | Sender doesn't hold the private key |
+| Nonce replay | `PROXY_AUTH_REPLAY` | 401 | Same request was sent twice |
+| CRL revocation | `PROXY_AUTH_REVOKED` | 401 | Agent identity has been revoked |
+| Allowlist | `PROXY_AUTH_FORBIDDEN` | 403 | Agent is valid but not authorized here |
+| Agent access token | `PROXY_AGENT_ACCESS_INVALID` | 401 | Session token expired or revoked |
+| Rate limit | `PROXY_RATE_LIMIT_EXCEEDED` | 429 | Too many requests from this agent |
+
+---
+
 ## Operator controls on both ends
 
 ### Sender side operator (owner/admin)
@@ -145,15 +402,33 @@ OpenClaw Gateway  (normal /hooks/agent handling)
 
 ---
 
-## Repo layout (planned MVP)
+## Repo layout
 
-This repo is a monorepo:
+Nx monorepo with pnpm workspaces:
 
-- `apps/registry` — issues AITs, serves CRL + public keys (Worker config: `apps/registry/wrangler.jsonc`)
-- `apps/proxy` — verifies Clawdentity headers then forwards to OpenClaw hooks (Worker config: `apps/proxy/wrangler.jsonc`)
-- `apps/cli` — operator workflow (`claw create`, `claw revoke`, `claw share`)
-- `packages/sdk` — TS SDK (sign + verify + CRL cache)
-- `packages/protocol` — shared types + canonical signing rules
+```
+clawdentity/
+├── apps/
+│   ├── registry/          — Identity registry (Cloudflare Worker)
+│   │                        Issues AITs, serves CRL + public keys
+│   │                        Worker config: apps/registry/wrangler.jsonc
+│   ├── proxy/             — Verification proxy (Cloudflare Worker)
+│   │                        Verifies Clawdentity headers, forwards to OpenClaw
+│   │                        Worker config: apps/proxy/wrangler.jsonc
+│   ├── cli/               — Operator CLI
+│   │                        Agent create/revoke, invite, api-key, config
+│   └── openclaw-skill/    — OpenClaw skill integration
+│                            Relay transform for agent-to-agent messaging
+├── packages/
+│   ├── protocol/          — Canonical types + signing rules
+│   │                        AIT claims, DID format, HTTP signing, endpoints
+│   └── sdk/               — TypeScript SDK
+│                            Sign/verify, CRL cache, auth client, crypto
+└── Configuration
+    ├── nx.json            — Monorepo task orchestration
+    ├── pnpm-workspace.yaml
+    └── tsconfig.base.json
+```
 
 ---
 
@@ -220,6 +495,25 @@ This repo is a monorepo:
 - Out-of-band contact card sharing.
 - Registry `gateway_hint` resolution.
 - Optional pairing-code flow for first-contact allowlist approval.
+
+---
+
+## OpenClaw skill install (npm-first)
+
+Expected operator flow starts from npm:
+
+```bash
+npm install clawdentity --skill
+```
+
+When `--skill` mode is detected, installer logic prepares OpenClaw runtime artifacts automatically:
+- `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/SKILL.md`
+- `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/references/*`
+- `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/relay-to-peer.mjs`
+- `~/.openclaw/hooks/transforms/relay-to-peer.mjs`
+
+Install is idempotent and logs deterministic per-artifact outcomes (`installed`, `updated`, `unchanged`).
+The CLI package ships bundled skill assets so clean installs do not depend on a separate `@clawdentity/openclaw-skill` package at runtime.
 
 ---
 

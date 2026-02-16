@@ -14,10 +14,18 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": [
+    "dist",
+    "postinstall.mjs",
+    "skill-bundle"
+  ],
   "scripts": {
-    "build": "tsup",
+    "build": "pnpm run sync:skill-bundle && tsup",
     "format": "biome format .",
     "lint": "biome lint .",
+    "prepack": "pnpm run build",
+    "postinstall": "node ./postinstall.mjs",
+    "sync:skill-bundle": "node ./scripts/sync-skill-bundle.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
