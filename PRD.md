@@ -73,6 +73,7 @@ Because OpenClaw requires `hooks.token` and expects Bearer/token auth for `/hook
   - Verify token (`claw verify`)
   - Personal PAT lifecycle (`clawdentity api-key create|list|revoke`)
   - Share contact card (`claw share`)
+  - npm-first skill install path (`npm install clawdentity --skill`) that prepares OpenClaw relay skill artifacts automatically
 
 - **Proxy**
   - Verify inbound Clawdentity headers
@@ -155,6 +156,16 @@ Verifier must enforce:
   - `DELETE /v1/me/api-keys/:id` (revoke)
 - Revoked PATs must fail auth with `401 API_KEY_REVOKED`.
 - Unrelated active PATs must continue to authenticate after targeted key revocation.
+
+### 6.8 npm-first OpenClaw skill install
+- Installer detects npm skill mode via install-time npm config/environment.
+- Installer must prepare these artifacts without manual copy steps:
+  - `SKILL.md`
+  - `references/*`
+  - `relay-to-peer.mjs` in workspace skill path and hooks transform path
+- Runtime installs must not depend on sibling workspace packages; required skill assets are bundled with the CLI package.
+- Re-running install must be idempotent and safe.
+- Missing source artifacts must fail with actionable errors.
 
 ---
 

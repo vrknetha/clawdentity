@@ -7,6 +7,7 @@
 ## Command Architecture
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
+- Keep `src/postinstall.ts` as a thin install entrypoint only; it should detect npm `--skill` mode and call shared installer helpers without mutating runtime CLI command wiring.
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
 - Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
@@ -16,6 +17,10 @@
 - Prefer `@clawdentity/sdk` helpers (`decodeAIT`) when surfacing agent metadata instead of parsing JWTs manually.
 - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
 - Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
+- npm `--skill` installer behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
+- Keep `skill-bundle/openclaw-skill/` in sync with `apps/openclaw-skill` via `pnpm -F @clawdentity/cli run sync:skill-bundle` before build/pack so `postinstall --skill` works in clean installs.
+- Keep `skill-bundle/openclaw-skill/dist/relay-to-peer.mjs` tracked in git so clean-checkout tests and packaged installs have the required relay artifact before workspace builds run.
+- When running the `@clawdentity/cli` test suite (`pnpm -F @clawdentity/cli test`), build `@clawdentity/openclaw-skill` and resync the skill bundle first so `relay-to-peer.mjs` exists on clean checkout and tests pass with deterministic artifacts.
 
 ## Config and Secrets
 - Local CLI config lives at `~/.clawdentity/config.json`.

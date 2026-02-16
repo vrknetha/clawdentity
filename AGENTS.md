@@ -100,6 +100,7 @@
 - Reset for rerun must remove only skill-created artifacts first: `~/.clawdentity/peers.json`, `~/.clawdentity/openclaw-agent-name`, `~/.openclaw/hooks/transforms/relay-to-peer.mjs`, and `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/`.
 - Use a full reset only when required for identity reprovisioning, and then also clear `~/.clawdentity/agents/<agent-name>/` before re-onboarding.
 - Skill-only policy: no direct `clawdentity openclaw setup` execution by humans during E2E validation; the agent must run the skill flow and prompt the human only for missing invite code or confirmations.
+- npm-first contract: `npm install clawdentity --skill` must be the default install trigger for skill artifact preparation, and install logs should report deterministic per-artifact outcomes (`installed`, `updated`, `unchanged`).
 
 ## Scaffold Best Practices
 - Start by reviewing README, PRD, and the active execution tracker issue so documentation mirrors the execution model.
