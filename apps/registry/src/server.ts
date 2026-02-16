@@ -1,5 +1,6 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
+  AGENT_REGISTRATION_CHALLENGE_PATH,
   generateUlid,
   makeHumanDid,
 } from "@clawdentity/protocol";
@@ -21,9 +22,12 @@ import { Hono } from "hono";
 import { parseAdminBootstrapPayload } from "./admin-bootstrap.js";
 import { mapAgentListRow, parseAgentListQuery } from "./agent-list.js";
 import {
-  buildAgentRegistration,
+  buildAgentRegistrationChallenge,
+  buildAgentRegistrationFromParsed,
   buildAgentReissue,
+  parseAgentRegistrationBody,
   resolveRegistryIssuer,
+  verifyAgentRegistrationOwnershipProof,
 } from "./agent-registration.js";
 import {
   agentResolveNotFoundError,
@@ -47,7 +51,13 @@ import {
   hashApiKeyToken,
 } from "./auth/api-key-token.js";
 import { createDb } from "./db/client.js";
-import { agents, api_keys, humans, revocations } from "./db/schema.js";
+import {
+  agent_registration_challenges,
+  agents,
+  api_keys,
+  humans,
+  revocations,
+} from "./db/schema.js";
 import {
   createInMemoryRateLimit,
   RESOLVE_RATE_LIMIT_MAX_REQUESTS,
@@ -85,6 +95,16 @@ type OwnedAgent = {
   status: "active" | "revoked";
   expires_at: string | null;
   current_jti: string | null;
+};
+
+type OwnedAgentRegistrationChallenge = {
+  id: string;
+  owner_id: string;
+  public_key: string;
+  nonce: string;
+  status: "pending" | "used";
+  expires_at: string;
+  used_at: string | null;
 };
 
 type CrlSnapshotRow = {
@@ -192,6 +212,33 @@ async function findOwnedAgent(input: {
     .from(agents)
     .where(
       and(eq(agents.owner_id, input.ownerId), eq(agents.id, input.agentId)),
+    )
+    .limit(1);
+
+  return rows[0];
+}
+
+async function findOwnedAgentRegistrationChallenge(input: {
+  db: ReturnType<typeof createDb>;
+  ownerId: string;
+  challengeId: string;
+}): Promise<OwnedAgentRegistrationChallenge | undefined> {
+  const rows = await input.db
+    .select({
+      id: agent_registration_challenges.id,
+      owner_id: agent_registration_challenges.owner_id,
+      public_key: agent_registration_challenges.public_key,
+      nonce: agent_registration_challenges.nonce,
+      status: agent_registration_challenges.status,
+      expires_at: agent_registration_challenges.expires_at,
+      used_at: agent_registration_challenges.used_at,
+    })
+    .from(agent_registration_challenges)
+    .where(
+      and(
+        eq(agent_registration_challenges.owner_id, input.ownerId),
+        eq(agent_registration_challenges.id, input.challengeId),
+      ),
     )
     .limit(1);
 
@@ -595,6 +642,48 @@ function createRegistryApp() {
     });
   });
 
+  app.post(AGENT_REGISTRATION_CHALLENGE_PATH, createApiKeyAuth(), async (c) => {
+    const config = getConfig(c.env);
+    const exposeDetails = shouldExposeVerboseErrors(config.ENVIRONMENT);
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      throw new AppError({
+        code: "AGENT_REGISTRATION_CHALLENGE_INVALID",
+        message: exposeDetails
+          ? "Request body must be valid JSON"
+          : "Request could not be processed",
+        status: 400,
+        expose: exposeDetails,
+      });
+    }
+
+    const human = c.get("human");
+    const challenge = buildAgentRegistrationChallenge({
+      payload,
+      ownerId: human.id,
+      ownerDid: human.did,
+      environment: config.ENVIRONMENT,
+    });
+
+    const db = createDb(c.env.DB);
+    await db.insert(agent_registration_challenges).values({
+      id: challenge.challenge.id,
+      owner_id: challenge.challenge.ownerId,
+      public_key: challenge.challenge.publicKey,
+      nonce: challenge.challenge.nonce,
+      status: challenge.challenge.status,
+      expires_at: challenge.challenge.expiresAt,
+      used_at: challenge.challenge.usedAt,
+      created_at: challenge.challenge.createdAt,
+      updated_at: challenge.challenge.updatedAt,
+    });
+
+    return c.json(challenge.response, 201);
+  });
+
   app.post("/v1/agents", createApiKeyAuth(), async (c) => {
     const config = getConfig(c.env);
     const exposeDetails = shouldExposeVerboseErrors(config.ENVIRONMENT);
@@ -614,11 +703,44 @@ function createRegistryApp() {
     }
 
     const human = c.get("human");
-    const registration = buildAgentRegistration({
-      payload,
+    const parsedBody = parseAgentRegistrationBody(payload, config.ENVIRONMENT);
+    const db = createDb(c.env.DB);
+
+    const challenge = await findOwnedAgentRegistrationChallenge({
+      db,
+      ownerId: human.id,
+      challengeId: parsedBody.challengeId,
+    });
+
+    if (!challenge) {
+      throw new AppError({
+        code: "AGENT_REGISTRATION_CHALLENGE_NOT_FOUND",
+        message: exposeDetails
+          ? "Registration challenge was not found"
+          : "Request could not be processed",
+        status: 400,
+        expose: true,
+      });
+    }
+
+    await verifyAgentRegistrationOwnershipProof({
+      parsedBody,
+      challenge: {
+        id: challenge.id,
+        ownerId: challenge.owner_id,
+        publicKey: challenge.public_key,
+        nonce: challenge.nonce,
+        status: challenge.status,
+        expiresAt: challenge.expires_at,
+        usedAt: challenge.used_at,
+      },
+      ownerDid: human.did,
+      environment: config.ENVIRONMENT,
+    });
+    const registration = buildAgentRegistrationFromParsed({
+      parsedBody,
       ownerDid: human.did,
       issuer: resolveRegistryIssuer(config.ENVIRONMENT),
-      environment: config.ENVIRONMENT,
     });
     const signer = await resolveRegistrySigner(config);
     const ait = await signAIT({
@@ -627,20 +749,89 @@ function createRegistryApp() {
       signerKeypair: signer.signerKeypair,
     });
 
-    const db = createDb(c.env.DB);
-    await db.insert(agents).values({
-      id: registration.agent.id,
-      did: registration.agent.did,
-      owner_id: human.id,
-      name: registration.agent.name,
-      framework: registration.agent.framework,
-      public_key: registration.agent.publicKey,
-      current_jti: registration.agent.currentJti,
-      status: registration.agent.status,
-      expires_at: registration.agent.expiresAt,
-      created_at: registration.agent.createdAt,
-      updated_at: registration.agent.updatedAt,
-    });
+    const challengeUsedAt = nowIso();
+    const applyRegistrationMutation = async (
+      executor: typeof db,
+      options: { rollbackOnAgentInsertFailure: boolean },
+    ): Promise<void> => {
+      const challengeUpdateResult = await executor
+        .update(agent_registration_challenges)
+        .set({
+          status: "used",
+          used_at: challengeUsedAt,
+          updated_at: challengeUsedAt,
+        })
+        .where(
+          and(
+            eq(agent_registration_challenges.id, challenge.id),
+            eq(agent_registration_challenges.owner_id, human.id),
+            eq(agent_registration_challenges.status, "pending"),
+          ),
+        );
+
+      const updatedRows = getMutationRowCount(challengeUpdateResult);
+      if (updatedRows === 0) {
+        throw new AppError({
+          code: "AGENT_REGISTRATION_CHALLENGE_REPLAYED",
+          message: exposeDetails
+            ? "Registration challenge has already been used"
+            : "Request could not be processed",
+          status: 400,
+          expose: true,
+        });
+      }
+
+      try {
+        await executor.insert(agents).values({
+          id: registration.agent.id,
+          did: registration.agent.did,
+          owner_id: human.id,
+          name: registration.agent.name,
+          framework: registration.agent.framework,
+          public_key: registration.agent.publicKey,
+          current_jti: registration.agent.currentJti,
+          status: registration.agent.status,
+          expires_at: registration.agent.expiresAt,
+          created_at: registration.agent.createdAt,
+          updated_at: registration.agent.updatedAt,
+        });
+      } catch (error) {
+        if (options.rollbackOnAgentInsertFailure) {
+          await executor
+            .update(agent_registration_challenges)
+            .set({
+              status: "pending",
+              used_at: null,
+              updated_at: nowIso(),
+            })
+            .where(
+              and(
+                eq(agent_registration_challenges.id, challenge.id),
+                eq(agent_registration_challenges.owner_id, human.id),
+                eq(agent_registration_challenges.status, "used"),
+              ),
+            );
+        }
+
+        throw error;
+      }
+    };
+
+    try {
+      await db.transaction(async (tx) => {
+        await applyRegistrationMutation(tx as unknown as typeof db, {
+          rollbackOnAgentInsertFailure: false,
+        });
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+
+      await applyRegistrationMutation(db, {
+        rollbackOnAgentInsertFailure: true,
+      });
+    }
 
     return c.json({ agent: registration.agent, ait }, 201);
   });

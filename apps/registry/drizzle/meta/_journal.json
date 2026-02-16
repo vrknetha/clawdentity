@@ -8,6 +8,13 @@
       "when": 1770816277696,
       "tag": "0000_common_marrow",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1771278200000,
+      "tag": "0001_agent_registration_challenge",
+      "breakpoints": true
     }
   ]
 }

@@ -1,8 +1,12 @@
 import {
+  AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,
   type AitClaims,
+  canonicalizeAgentRegistrationProof,
   decodeBase64url,
+  encodeBase64url,
   generateUlid,
   makeAgentDid,
+  parseUlid,
   validateAgentName,
 } from "@clawdentity/protocol";
 import {
@@ -11,6 +15,7 @@ import {
   nowIso,
   type RegistryConfig,
   shouldExposeVerboseErrors,
+  verifyEd25519,
 } from "@clawdentity/sdk";
 
 const DEFAULT_AGENT_FRAMEWORK = "openclaw";
@@ -20,6 +25,9 @@ const MIN_AGENT_TTL_DAYS = 1;
 const MAX_AGENT_TTL_DAYS = 90;
 const DAY_IN_SECONDS = 24 * 60 * 60;
 const ED25519_PUBLIC_KEY_LENGTH = 32;
+const ED25519_SIGNATURE_LENGTH = 64;
+const AGENT_REGISTRATION_CHALLENGE_TTL_SECONDS = 5 * 60;
+const AGENT_REGISTRATION_CHALLENGE_NONCE_LENGTH = 24;
 const REGISTRY_ISSUER_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
@@ -34,6 +42,46 @@ type AgentRegistrationBody = {
   framework?: string;
   publicKey: string;
   ttlDays?: number;
+  challengeId: string;
+  challengeSignature: string;
+};
+
+type AgentRegistrationChallengeBody = {
+  publicKey: string;
+};
+
+export type AgentRegistrationChallenge = {
+  id: string;
+  ownerId: string;
+  publicKey: string;
+  nonce: string;
+  status: "pending";
+  expiresAt: string;
+  usedAt: null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AgentRegistrationChallengeResult = {
+  challenge: AgentRegistrationChallenge;
+  response: {
+    challengeId: string;
+    nonce: string;
+    ownerDid: string;
+    expiresAt: string;
+    algorithm: "Ed25519";
+    messageTemplate: string;
+  };
+};
+
+export type PersistedAgentRegistrationChallenge = {
+  id: string;
+  ownerId: string;
+  publicKey: string;
+  nonce: string;
+  status: "pending" | "used";
+  expiresAt: string;
+  usedAt: string | null;
 };
 
 export type AgentRegistrationResult = {
@@ -87,6 +135,43 @@ function invalidRegistration(options: {
     status: 400,
     expose: exposeDetails,
     details: exposeDetails ? options.details : undefined,
+  });
+}
+
+function invalidRegistrationChallenge(options: {
+  environment: RegistryConfig["ENVIRONMENT"];
+  details?: {
+    fieldErrors: Record<string, string[]>;
+    formErrors: string[];
+  };
+}): AppError {
+  const exposeDetails = shouldExposeVerboseErrors(options.environment);
+  return new AppError({
+    code: "AGENT_REGISTRATION_CHALLENGE_INVALID",
+    message: exposeDetails
+      ? "Agent registration challenge payload is invalid"
+      : "Request could not be processed",
+    status: 400,
+    expose: exposeDetails,
+    details: exposeDetails ? options.details : undefined,
+  });
+}
+
+function registrationProofError(options: {
+  environment: RegistryConfig["ENVIRONMENT"];
+  code:
+    | "AGENT_REGISTRATION_CHALLENGE_EXPIRED"
+    | "AGENT_REGISTRATION_CHALLENGE_REPLAYED"
+    | "AGENT_REGISTRATION_PROOF_MISMATCH"
+    | "AGENT_REGISTRATION_PROOF_INVALID";
+  message: string;
+}): AppError {
+  const exposeDetails = shouldExposeVerboseErrors(options.environment);
+  return new AppError({
+    code: options.code,
+    message: exposeDetails ? options.message : "Request could not be processed",
+    status: 400,
+    expose: true,
   });
 }
 
@@ -238,6 +323,158 @@ function parseTtlDays(
   return input;
 }
 
+function parseChallengeId(
+  input: unknown,
+  fieldErrors: Record<string, string[]>,
+): string {
+  if (typeof input !== "string") {
+    addFieldError(fieldErrors, "challengeId", "challengeId is required");
+    return "";
+  }
+
+  const value = input.trim();
+  if (value.length === 0) {
+    addFieldError(fieldErrors, "challengeId", "challengeId is required");
+    return "";
+  }
+
+  try {
+    parseUlid(value);
+  } catch {
+    addFieldError(fieldErrors, "challengeId", "challengeId must be a ULID");
+  }
+
+  return value;
+}
+
+function parseChallengeSignature(
+  input: unknown,
+  fieldErrors: Record<string, string[]>,
+): string {
+  if (typeof input !== "string") {
+    addFieldError(
+      fieldErrors,
+      "challengeSignature",
+      "challengeSignature is required",
+    );
+    return "";
+  }
+
+  const value = input.trim();
+  if (value.length === 0) {
+    addFieldError(
+      fieldErrors,
+      "challengeSignature",
+      "challengeSignature is required",
+    );
+    return "";
+  }
+
+  let decodedSignature: Uint8Array;
+  try {
+    decodedSignature = decodeBase64url(value);
+  } catch {
+    addFieldError(
+      fieldErrors,
+      "challengeSignature",
+      "challengeSignature must be a base64url-encoded Ed25519 signature",
+    );
+    return value;
+  }
+
+  if (decodedSignature.length !== ED25519_SIGNATURE_LENGTH) {
+    addFieldError(
+      fieldErrors,
+      "challengeSignature",
+      "challengeSignature must be a base64url-encoded Ed25519 signature",
+    );
+  }
+
+  return value;
+}
+
+export function parseAgentRegistrationChallengeBody(
+  payload: unknown,
+  environment: RegistryConfig["ENVIRONMENT"],
+): AgentRegistrationChallengeBody {
+  const fieldErrors: Record<string, string[]> = {};
+
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw invalidRegistrationChallenge({
+      environment,
+      details: {
+        fieldErrors: {
+          body: ["body must be a JSON object"],
+        },
+        formErrors: [],
+      },
+    });
+  }
+
+  const objectPayload = payload as Record<string, unknown>;
+
+  const parsed: AgentRegistrationChallengeBody = {
+    publicKey: parsePublicKey(objectPayload.publicKey, fieldErrors),
+  };
+
+  if (Object.keys(fieldErrors).length > 0) {
+    throw invalidRegistrationChallenge({
+      environment,
+      details: { fieldErrors, formErrors: [] },
+    });
+  }
+
+  return parsed;
+}
+
+export function buildAgentRegistrationChallenge(input: {
+  payload: unknown;
+  ownerId: string;
+  ownerDid: string;
+  environment: RegistryConfig["ENVIRONMENT"];
+}): AgentRegistrationChallengeResult {
+  const parsedBody = parseAgentRegistrationChallengeBody(
+    input.payload,
+    input.environment,
+  );
+
+  const createdAt = nowIso();
+  const createdAtMs = Date.parse(createdAt);
+  const challengeId = generateUlid(createdAtMs);
+  const nonceBytes = crypto.getRandomValues(
+    new Uint8Array(AGENT_REGISTRATION_CHALLENGE_NONCE_LENGTH),
+  );
+  const nonce = encodeBase64url(nonceBytes);
+  const expiresAt = addSeconds(
+    createdAt,
+    AGENT_REGISTRATION_CHALLENGE_TTL_SECONDS,
+  );
+
+  const challenge: AgentRegistrationChallenge = {
+    id: challengeId,
+    ownerId: input.ownerId,
+    publicKey: parsedBody.publicKey,
+    nonce,
+    status: "pending",
+    expiresAt,
+    usedAt: null,
+    createdAt,
+    updatedAt: createdAt,
+  };
+
+  return {
+    challenge,
+    response: {
+      challengeId,
+      nonce,
+      ownerDid: input.ownerDid,
+      expiresAt,
+      algorithm: "Ed25519",
+      messageTemplate: AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,
+    },
+  };
+}
+
 export function parseAgentRegistrationBody(
   payload: unknown,
   environment: RegistryConfig["ENVIRONMENT"],
@@ -263,6 +500,11 @@ export function parseAgentRegistrationBody(
     framework: parseFramework(objectPayload.framework, fieldErrors),
     publicKey: parsePublicKey(objectPayload.publicKey, fieldErrors),
     ttlDays: parseTtlDays(objectPayload.ttlDays, fieldErrors),
+    challengeId: parseChallengeId(objectPayload.challengeId, fieldErrors),
+    challengeSignature: parseChallengeSignature(
+      objectPayload.challengeSignature,
+      fieldErrors,
+    ),
   };
 
   if (Object.keys(fieldErrors).length > 0) {
@@ -275,22 +517,85 @@ export function parseAgentRegistrationBody(
   return parsed;
 }
 
-export function buildAgentRegistration(input: {
-  payload: unknown;
+export async function verifyAgentRegistrationOwnershipProof(input: {
+  parsedBody: AgentRegistrationBody;
+  challenge: PersistedAgentRegistrationChallenge;
   ownerDid: string;
-  issuer: string;
   environment: RegistryConfig["ENVIRONMENT"];
-}): AgentRegistrationResult {
-  const parsedBody = parseAgentRegistrationBody(
-    input.payload,
-    input.environment,
+}): Promise<void> {
+  if (input.challenge.status !== "pending") {
+    throw registrationProofError({
+      environment: input.environment,
+      code: "AGENT_REGISTRATION_CHALLENGE_REPLAYED",
+      message: "Registration challenge has already been used",
+    });
+  }
+
+  const expiresAtMs = Date.parse(input.challenge.expiresAt);
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw registrationProofError({
+      environment: input.environment,
+      code: "AGENT_REGISTRATION_CHALLENGE_EXPIRED",
+      message: "Registration challenge has expired",
+    });
+  }
+
+  if (input.challenge.publicKey !== input.parsedBody.publicKey) {
+    throw registrationProofError({
+      environment: input.environment,
+      code: "AGENT_REGISTRATION_PROOF_MISMATCH",
+      message: "Registration challenge does not match the provided public key",
+    });
+  }
+
+  let signatureBytes: Uint8Array;
+  let publicKeyBytes: Uint8Array;
+  try {
+    signatureBytes = decodeBase64url(input.parsedBody.challengeSignature);
+    publicKeyBytes = decodeBase64url(input.parsedBody.publicKey);
+  } catch {
+    throw registrationProofError({
+      environment: input.environment,
+      code: "AGENT_REGISTRATION_PROOF_INVALID",
+      message: "Registration challenge signature is invalid",
+    });
+  }
+
+  const canonical = canonicalizeAgentRegistrationProof({
+    challengeId: input.challenge.id,
+    nonce: input.challenge.nonce,
+    ownerDid: input.ownerDid,
+    publicKey: input.parsedBody.publicKey,
+    name: input.parsedBody.name,
+    framework: input.parsedBody.framework,
+    ttlDays: input.parsedBody.ttlDays,
+  });
+
+  const verified = await verifyEd25519(
+    signatureBytes,
+    new TextEncoder().encode(canonical),
+    publicKeyBytes,
   );
 
+  if (!verified) {
+    throw registrationProofError({
+      environment: input.environment,
+      code: "AGENT_REGISTRATION_PROOF_INVALID",
+      message: "Registration challenge signature is invalid",
+    });
+  }
+}
+
+export function buildAgentRegistrationFromParsed(input: {
+  parsedBody: AgentRegistrationBody;
+  ownerDid: string;
+  issuer: string;
+}): AgentRegistrationResult {
   const issuedAt = nowIso();
   const issuedAtMs = Date.parse(issuedAt);
   const issuedAtSeconds = Math.floor(issuedAtMs / 1000);
-  const ttlDays = parsedBody.ttlDays ?? DEFAULT_AGENT_TTL_DAYS;
-  const framework = parsedBody.framework ?? DEFAULT_AGENT_FRAMEWORK;
+  const ttlDays = input.parsedBody.ttlDays ?? DEFAULT_AGENT_TTL_DAYS;
+  const framework = input.parsedBody.framework ?? DEFAULT_AGENT_FRAMEWORK;
   const ttlSeconds = ttlDays * DAY_IN_SECONDS;
   const expiresAt = addSeconds(issuedAt, ttlSeconds);
 
@@ -304,9 +609,9 @@ export function buildAgentRegistration(input: {
       id: agentId,
       did: agentDid,
       ownerDid: input.ownerDid,
-      name: parsedBody.name,
+      name: input.parsedBody.name,
       framework,
-      publicKey: parsedBody.publicKey,
+      publicKey: input.parsedBody.publicKey,
       currentJti,
       ttlDays,
       status: "active",
@@ -318,13 +623,13 @@ export function buildAgentRegistration(input: {
       iss: input.issuer,
       sub: agentDid,
       ownerDid: input.ownerDid,
-      name: parsedBody.name,
+      name: input.parsedBody.name,
       framework,
       cnf: {
         jwk: {
           kty: "OKP",
           crv: "Ed25519",
-          x: parsedBody.publicKey,
+          x: input.parsedBody.publicKey,
         },
       },
       iat: issuedAtSeconds,
@@ -333,6 +638,24 @@ export function buildAgentRegistration(input: {
       jti: currentJti,
     },
   };
+}
+
+export function buildAgentRegistration(input: {
+  payload: unknown;
+  ownerDid: string;
+  issuer: string;
+  environment: RegistryConfig["ENVIRONMENT"];
+}): AgentRegistrationResult {
+  const parsedBody = parseAgentRegistrationBody(
+    input.payload,
+    input.environment,
+  );
+
+  return buildAgentRegistrationFromParsed({
+    parsedBody,
+    ownerDid: input.ownerDid,
+    issuer: input.issuer,
+  });
 }
 
 function resolveReissueExpiry(input: {

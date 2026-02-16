@@ -62,6 +62,13 @@
 - Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
 
+## POST /v1/agents/challenge Contract
+- Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
+- Accept only `{ publicKey }` and validate it as base64url Ed25519 (32-byte decode).
+- Persist challenge state in D1 (`agent_registration_challenges`) with owner binding, nonce, expiry, and status.
+- Return challenge metadata needed for deterministic proof signing: `challengeId`, `nonce`, `ownerDid`, `expiresAt`, algorithm marker, and canonical message template.
+- Keep challenge TTL short-lived (5 minutes) and make replay protection stateful (pending -> used).
+
 ## POST /v1/agents Contract
 - Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
 - Validate request payload fields with explicit rules:
@@ -69,9 +76,14 @@
   - `framework`: optional; default to `openclaw` when omitted.
   - `publicKey`: base64url Ed25519 key that decodes to 32 bytes.
   - `ttlDays`: optional; default `30`; allow only integer range `1..90`.
+- Require ownership-proof fields:
+  - `challengeId`: ULID from `/v1/agents/challenge`.
+  - `challengeSignature`: base64url Ed25519 signature over the canonical proof message.
 - Keep request parsing and validation in a reusable helper module (`agent-registration.ts`) so future routes can share the same constraints without duplicating schema logic.
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `development`/`test` for debugging.
 - Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
+- Verify challenge ownership before signing AIT: challenge must exist for the caller, be unexpired, remain `pending`, and match the request public key + signature.
+- Consume challenge with guarded state transition (`pending` -> `used`) in the same mutation unit as agent insert; reject zero-row updates as replayed challenge.
 - Use shared SDK datetime helpers (`nowIso`, `addSeconds`) for issuance/expiry math instead of ad-hoc `Date.now()` arithmetic in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
 - Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.api.clawdentity.com`, `production` -> `https://api.clawdentity.com`) rather than request-origin inference.

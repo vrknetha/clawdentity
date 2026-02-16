@@ -72,6 +72,32 @@ export const api_keys = sqliteTable(
   (table) => [index("idx_api_keys_key_hash").on(table.key_hash)],
 );
 
+export const agent_registration_challenges = sqliteTable(
+  "agent_registration_challenges",
+  {
+    id: text("id").primaryKey(),
+    owner_id: text("owner_id")
+      .notNull()
+      .references(() => humans.id),
+    public_key: text("public_key").notNull(),
+    nonce: text("nonce").notNull(),
+    status: text("status", { enum: ["pending", "used"] })
+      .notNull()
+      .default("pending"),
+    expires_at: text("expires_at").notNull(),
+    used_at: text("used_at"),
+    created_at: text("created_at").notNull(),
+    updated_at: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_agent_registration_challenges_owner_status").on(
+      table.owner_id,
+      table.status,
+    ),
+    index("idx_agent_registration_challenges_expires_at").on(table.expires_at),
+  ],
+);
+
 export const invites = sqliteTable("invites", {
   id: text("id").primaryKey(),
   code: text("code").notNull().unique(),

@@ -1,12 +1,18 @@
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { parseDid } from "@clawdentity/protocol";
+import {
+  AGENT_REGISTRATION_CHALLENGE_PATH,
+  canonicalizeAgentRegistrationProof,
+  parseDid,
+} from "@clawdentity/protocol";
 import {
   createLogger,
   type DecodedAit,
   decodeAIT,
   encodeEd25519KeypairBase64url,
+  encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
+  signEd25519,
 } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
@@ -34,6 +40,13 @@ type AgentRegistrationResponse = {
     expiresAt: string;
   };
   ait: string;
+};
+
+type AgentRegistrationChallengeResponse = {
+  challengeId: string;
+  nonce: string;
+  ownerDid: string;
+  expiresAt: string;
 };
 
 type LocalAgentIdentity = {
@@ -211,6 +224,17 @@ const toRegistryAgentsRequestUrl = (
   return new URL(path, normalizedBaseUrl).toString();
 };
 
+const toRegistryAgentChallengeRequestUrl = (registryUrl: string): string => {
+  const normalizedBaseUrl = registryUrl.endsWith("/")
+    ? registryUrl
+    : `${registryUrl}/`;
+
+  return new URL(
+    AGENT_REGISTRATION_CHALLENGE_PATH.slice(1),
+    normalizedBaseUrl,
+  ).toString();
+};
+
 const toHttpErrorMessage = (status: number, responseBody: unknown): string => {
   const registryMessage = extractRegistryErrorMessage(responseBody);
 
@@ -273,6 +297,35 @@ const parseAgentRegistrationResponse = (
       expiresAt,
     },
     ait: aitValue,
+  };
+};
+
+const parseAgentRegistrationChallengeResponse = (
+  payload: unknown,
+): AgentRegistrationChallengeResponse => {
+  if (!isRecord(payload)) {
+    throw new Error("Registry returned an invalid response payload");
+  }
+
+  const challengeId = payload.challengeId;
+  const nonce = payload.nonce;
+  const ownerDid = payload.ownerDid;
+  const expiresAt = payload.expiresAt;
+
+  if (
+    typeof challengeId !== "string" ||
+    typeof nonce !== "string" ||
+    typeof ownerDid !== "string" ||
+    typeof expiresAt !== "string"
+  ) {
+    throw new Error("Registry returned an invalid response payload");
+  }
+
+  return {
+    challengeId,
+    nonce,
+    ownerDid,
+    expiresAt,
   };
 };
 
@@ -357,22 +410,84 @@ const writeAgentIdentity = async (input: {
   await writeSecureFile(join(input.agentDirectory, "ait.jwt"), input.ait);
 };
 
+const requestAgentRegistrationChallenge = async (input: {
+  apiKey: string;
+  registryUrl: string;
+  publicKey: string;
+}): Promise<AgentRegistrationChallengeResponse> => {
+  let response: Response;
+  try {
+    response = await fetch(
+      toRegistryAgentChallengeRequestUrl(input.registryUrl),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${input.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          publicKey: input.publicKey,
+        }),
+      },
+    );
+  } catch {
+    throw new Error(
+      "Unable to connect to the registry. Check network access and registryUrl.",
+    );
+  }
+
+  const responseBody = await parseJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(toHttpErrorMessage(response.status, responseBody));
+  }
+
+  return parseAgentRegistrationChallengeResponse(responseBody);
+};
+
 const registerAgent = async (input: {
   apiKey: string;
   registryUrl: string;
   name: string;
   publicKey: string;
+  secretKey: Uint8Array;
   framework?: string;
   ttlDays?: number;
 }): Promise<AgentRegistrationResponse> => {
+  const challenge = await requestAgentRegistrationChallenge({
+    apiKey: input.apiKey,
+    registryUrl: input.registryUrl,
+    publicKey: input.publicKey,
+  });
+
+  const canonicalProof = canonicalizeAgentRegistrationProof({
+    challengeId: challenge.challengeId,
+    nonce: challenge.nonce,
+    ownerDid: challenge.ownerDid,
+    publicKey: input.publicKey,
+    name: input.name,
+    framework: input.framework,
+    ttlDays: input.ttlDays,
+  });
+  const challengeSignature = encodeEd25519SignatureBase64url(
+    await signEd25519(
+      new TextEncoder().encode(canonicalProof),
+      input.secretKey,
+    ),
+  );
+
   const requestBody: {
     name: string;
     publicKey: string;
+    challengeId: string;
+    challengeSignature: string;
     framework?: string;
     ttlDays?: number;
   } = {
     name: input.name,
     publicKey: input.publicKey,
+    challengeId: challenge.challengeId,
+    challengeSignature,
   };
 
   if (input.framework) {
@@ -530,6 +645,7 @@ export const createAgentCommand = (): Command => {
             registryUrl: config.registryUrl,
             name: agentName,
             publicKey: encoded.publicKey,
+            secretKey: keypair.secretKey,
             framework,
             ttlDays,
           });
