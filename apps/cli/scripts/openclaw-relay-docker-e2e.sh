@@ -90,15 +90,9 @@ reset_skill_state() {
 install_skill_assets() {
   local container="$1"
   local package_root="$CLI_GLOBAL_PACKAGE_ROOT"
-  local legacy_package_root="/home/node/.local/lib/node_modules/@clawdentity/cli"
 
-  if ! container_exec "$container" "test -f \"$package_root/postinstall.mjs\""; then
-    if container_exec "$container" "test -f \"$legacy_package_root/postinstall.mjs\""; then
-      package_root="$legacy_package_root"
-    else
-      fail "postinstall.mjs not found in CLI package root: $package_root"
-    fi
-  fi
+  container_exec "$container" "test -f \"$package_root/postinstall.mjs\"" \
+    || fail "postinstall.mjs not found in strict CLI package root: $package_root"
 
   container_exec "$container" "npm_config_skill=true node \"$package_root/postinstall.mjs\" >/dev/null"
 }
