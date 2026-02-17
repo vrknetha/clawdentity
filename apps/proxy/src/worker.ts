@@ -1,6 +1,9 @@
 import { createLogger } from "@clawdentity/sdk";
 import {
-  DEFAULT_OPENCLAW_BASE_URL,
+  AgentRelaySession,
+  type AgentRelaySessionNamespace,
+} from "./agent-relay-session.js";
+import {
   type ProxyConfig,
   ProxyConfigError,
   parseProxyConfig,
@@ -13,6 +16,7 @@ export type ProxyWorkerBindings = {
   OPENCLAW_BASE_URL?: string;
   OPENCLAW_HOOK_TOKEN?: string;
   OPENCLAW_HOOKS_TOKEN?: string;
+  AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
   ENVIRONMENT?: string;
@@ -67,7 +71,6 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
   }
 
   const config = parseProxyConfig(env);
-  assertWorkerOpenclawBaseUrl(config);
   const app = createProxyApp({ config, logger });
 
   cachedRuntime = {
@@ -76,61 +79,6 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
     config,
   };
   return cachedRuntime;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
-  if (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    normalized === "0.0.0.0"
-  ) {
-    return true;
-  }
-
-  const ipv4Match = normalized.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
-  if (!ipv4Match) {
-    return false;
-  }
-
-  const segments = normalized.split(".").map(Number);
-  if (segments.some((segment) => Number.isNaN(segment) || segment > 255)) {
-    return false;
-  }
-
-  return segments[0] === 127;
-}
-
-function assertWorkerOpenclawBaseUrl(config: ProxyConfig): void {
-  if (config.environment === "local" || config.environment === "test") {
-    return;
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(config.openclawBaseUrl);
-  } catch {
-    throw new ProxyConfigError("Proxy configuration is invalid", {
-      fieldErrors: {
-        OPENCLAW_BASE_URL: ["OPENCLAW_BASE_URL must be a valid absolute URL"],
-      },
-      formErrors: [],
-    });
-  }
-
-  if (
-    config.openclawBaseUrl === DEFAULT_OPENCLAW_BASE_URL ||
-    isLoopbackHostname(parsed.hostname)
-  ) {
-    throw new ProxyConfigError("Proxy configuration is invalid", {
-      fieldErrors: {
-        OPENCLAW_BASE_URL: [
-          "OPENCLAW_BASE_URL must be an externally reachable URL for deployed Worker environments",
-        ],
-      },
-      formErrors: [],
-    });
-  }
 }
 
 function toConfigErrorResponse(error: ProxyConfigError): Response {
@@ -181,4 +129,5 @@ const worker = {
   },
 };
 
+export { AgentRelaySession };
 export default worker;

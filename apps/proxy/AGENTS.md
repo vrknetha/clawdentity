@@ -12,11 +12,9 @@
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
 - Keep deployment intent explicit: `local` is for local Wrangler dev runs only; `development` and `production` are remote cloud environments.
-- For remote Worker deployments (`development`/`production`), require `OPENCLAW_BASE_URL` to be an externally reachable non-loopback URL; never rely on local loopback defaults.
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-off (`false`); only enable when operators need webhook `message` augmentation with verified identity context.
-- Require hook token input via env (`OPENCLAW_HOOK_TOKEN` or OpenClaw-compatible alias `OPENCLAW_HOOKS_TOKEN`) and never log the token value.
-- For Worker deploys, set hook tokens via Wrangler secrets for remote environments (`wrangler secret put ... --env <env>`); use CLI `--var` overrides only for local dev runs.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (required token, registry URL, base URL, and optional policy/rate-limit vars).
+- Keep OpenClaw env inputs (`OPENCLAW_BASE_URL`, `OPENCLAW_HOOK_TOKEN` / `OPENCLAW_HOOKS_TOKEN`) backward-compatible but optional for relay-mode startup.
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw compatibility vars, and policy/rate-limit vars).
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`, with legacy fallback to existing `~/.clawdbot` / `~/.moldbot` / `~/.moltbot`)
@@ -26,6 +24,10 @@
   - empty/whitespace values (and null-like values) in inherited env must not block `.env` or config-file fallbacks
   - dotenv merge semantics must match parser semantics (non-empty value wins).
 - If hook token env vars are missing, resolve fallback token from `hooks.token` in `openclaw.json` (`OPENCLAW_CONFIG_PATH`/`CLAWDBOT_CONFIG_PATH`, default `$OPENCLAW_STATE_DIR/openclaw.json`).
+- Route relay sessions via Durable Objects:
+  - `GET /v1/relay/connect` keys connector sessions by authenticated caller agent DID.
+  - `POST /hooks/agent` keys recipient delivery by `x-claw-recipient-agent-did`.
+  - Do not route sessions via `OWNER_AGENT_DID`.
 - Keep env alias support stable for operator UX:
   - `LISTEN_PORT` or `PORT`
   - `OPENCLAW_HOOK_TOKEN` or `OPENCLAW_HOOKS_TOKEN`
@@ -52,6 +54,8 @@
 - Return `403` when requests are verified but agent DID is not allowlisted.
 - Return `429` with `PROXY_RATE_LIMIT_EXCEEDED` when an allowlisted verified agent DID exceeds its request budget within the configured window.
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
+- Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
+- Keep `/v1/relay/connect` auth strict with verified Claw auth + PoP headers, but do not require `x-claw-agent-access`.
 
 ## CRL Policy
 - Keep CRL timing defaults explicit in `src/config.ts` (`5m` refresh, `15m` max age) unless explicitly overridden.
@@ -66,6 +70,7 @@
 ## Server Runtime
 - Keep `src/server.ts` as the HTTP app/runtime entry.
 - Keep `src/worker.ts` as the Cloudflare Worker fetch entry and `src/node-server.ts` as the Node compatibility entry.
+- Keep `AgentRelaySession` exported from `src/worker.ts` and bound/migrated in `wrangler.jsonc`.
 - Keep middleware order stable: request context -> request logging -> auth verification -> agent DID rate limit -> error handler.
 - Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200.
 - Log startup and request completion with structured JSON logs; never log secrets or tokens.

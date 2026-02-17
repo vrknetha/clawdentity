@@ -28,6 +28,13 @@ vi.mock("./auth-middleware.js", async () => {
   };
 });
 
+import { RELAY_RECIPIENT_AGENT_DID_HEADER } from "./agent-hook-route.js";
+import type {
+  AgentRelaySessionNamespace,
+  AgentRelaySessionStub,
+  RelayDeliveryInput,
+  RelayDeliveryResult,
+} from "./agent-relay-session.js";
 import { parseProxyConfig } from "./config.js";
 import { createProxyApp } from "./server.js";
 
@@ -45,142 +52,142 @@ function hasDisallowedControlCharacter(value: string): boolean {
   return false;
 }
 
+function createRelayHarness(input?: {
+  deliverResult?: RelayDeliveryResult;
+  throwOnDeliver?: boolean;
+}) {
+  const deliverResult = input?.deliverResult ?? {
+    delivered: true,
+    connectedSockets: 1,
+  };
+  const receivedInputs: RelayDeliveryInput[] = [];
+
+  const fetchRpc = vi.fn(async (request: Request) => {
+    if (request.method !== "POST") {
+      return new Response("not found", { status: 404 });
+    }
+
+    const relayInput = (await request.json()) as RelayDeliveryInput;
+    receivedInputs.push(relayInput);
+
+    if (input?.throwOnDeliver) {
+      return new Response("delivery failed", { status: 502 });
+    }
+
+    return Response.json(deliverResult, { status: 202 });
+  });
+
+  const relaySession: AgentRelaySessionStub = {
+    fetch: fetchRpc,
+  };
+
+  const durableObjectId = {
+    toString: () => "relay-session-id",
+  } as unknown as DurableObjectId;
+
+  const idFromName = vi.fn((_name: string) => durableObjectId);
+  const get = vi.fn((_id: DurableObjectId) => relaySession);
+
+  return {
+    idFromName,
+    get,
+    fetchRpc,
+    receivedInputs,
+    namespace: {
+      idFromName,
+      get,
+    } satisfies AgentRelaySessionNamespace,
+  };
+}
+
 function createHookRouteApp(input: {
-  fetchImpl: typeof fetch;
-  timeoutMs?: number;
-  openclawBaseUrl?: string;
+  relayNamespace?: AgentRelaySessionNamespace;
   injectIdentityIntoMessage?: boolean;
+  now?: () => Date;
 }) {
   return createProxyApp({
     config: parseProxyConfig({
-      OPENCLAW_BASE_URL: input.openclawBaseUrl ?? "http://openclaw.local",
-      OPENCLAW_HOOK_TOKEN: "openclaw-secret",
       INJECT_IDENTITY_INTO_MESSAGE: input.injectIdentityIntoMessage,
     }),
     hooks: {
-      fetchImpl: input.fetchImpl,
-      timeoutMs: input.timeoutMs,
+      now: input.now,
+      resolveSessionNamespace: () => input.relayNamespace,
     },
   });
 }
 
-function resolveRequestUrl(input: unknown): string {
-  if (typeof input === "string") {
-    return input;
-  }
-
-  if (input instanceof URL) {
-    return input.toString();
-  }
-
-  if (
-    typeof input === "object" &&
-    input !== null &&
-    "url" in input &&
-    typeof (input as { url?: unknown }).url === "string"
-  ) {
-    return (input as { url: string }).url;
-  }
-
-  return "";
-}
-
 describe("POST /hooks/agent", () => {
-  it("forwards JSON payload and returns upstream status/body", async () => {
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(
-        JSON.stringify({
-          accepted: true,
-          echoedBody: init?.body,
-        }),
-        {
-          status: 202,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      );
-    });
+  it("delivers hook payload to recipient relay session", async () => {
+    const relayHarness = createRelayHarness();
+    const now = new Date("2026-02-16T20:00:00.000Z");
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
+      now: () => now,
     });
 
     const response = await app.request("/hooks/agent", {
       method: "POST",
       headers: {
         "content-type": "application/json; charset=utf-8",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         event: "agent.started",
       }),
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [calledInput, calledInit] = fetchMock.mock.calls[0] as [
-      unknown,
-      RequestInit | undefined,
-    ];
-    const calledHeaders = (calledInit?.headers ?? {}) as Record<string, string>;
-
-    expect(resolveRequestUrl(calledInput)).toBe(
-      "http://openclaw.local/hooks/agent",
-    );
-    expect(calledInit?.method).toBe("POST");
-    expect(calledInit?.body).toBe(JSON.stringify({ event: "agent.started" }));
-    expect(calledHeaders["content-type"]).toBe("application/json");
-    expect(calledHeaders["x-openclaw-token"]).toBe("openclaw-secret");
-    expect(typeof calledHeaders["x-request-id"]).toBe("string");
-    expect(calledHeaders["x-request-id"].length).toBeGreaterThan(0);
-
     expect(response.status).toBe(202);
-    expect(response.headers.get("content-type")).toContain("application/json");
+    expect(relayHarness.idFromName).toHaveBeenCalledWith(
+      "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    );
+    expect(relayHarness.get).toHaveBeenCalledTimes(1);
+    expect(relayHarness.fetchRpc).toHaveBeenCalledTimes(1);
+    const [relayInput] = relayHarness.receivedInputs;
+    expect(relayInput.senderAgentDid).toBe("did:claw:agent:alpha");
+    expect(relayInput.recipientAgentDid).toBe(
+      "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    );
+    expect(relayInput.payload).toEqual({ event: "agent.started" });
+    expect(typeof relayInput.requestId).toBe("string");
+    expect(relayInput.requestId.length).toBeGreaterThan(0);
+
     const body = (await response.json()) as {
       accepted: boolean;
-      echoedBody: unknown;
+      delivered: boolean;
+      connectedSockets: number;
     };
-    expect(body.accepted).toBe(true);
-    expect(body.echoedBody).toBe(JSON.stringify({ event: "agent.started" }));
+    expect(body).toEqual({
+      accepted: true,
+      delivered: true,
+      connectedSockets: 1,
+    });
   });
 
-  it("preserves OpenClaw base path prefixes when building hook URL", async () => {
-    let forwardedUrl = "";
-    const fetchMock = vi.fn(async (input: unknown) => {
-      forwardedUrl = resolveRequestUrl(input);
-      return new Response("{}", { status: 202 });
-    });
+  it("delivers through DO fetch RPC", async () => {
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      openclawBaseUrl: "http://openclaw.local/api",
+      relayNamespace: relayHarness.namespace,
     });
 
-    await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/agent", {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(forwardedUrl).toBe("http://openclaw.local/api/hooks/agent");
+    expect(response.status).toBe(202);
+    expect(relayHarness.fetchRpc).toHaveBeenCalledTimes(1);
   });
 
   it("prepends sanitized identity block when message injection is enabled", async () => {
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(
-        JSON.stringify({
-          echoedBody: init?.body,
-        }),
-        {
-          status: 202,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      );
-    });
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
       injectIdentityIntoMessage: true,
     });
 
@@ -188,6 +195,8 @@ describe("POST /hooks/agent", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         message: "Summarize this payload",
@@ -195,15 +204,11 @@ describe("POST /hooks/agent", () => {
     });
 
     expect(response.status).toBe(202);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    const [, calledInit] = fetchMock.mock.calls[0] as [
-      unknown,
-      RequestInit | undefined,
-    ];
-    const forwardedPayload = JSON.parse(String(calledInit?.body)) as {
+    const [relayInput] = relayHarness.receivedInputs;
+    const forwardedPayload = relayInput.payload as {
       message: string;
     };
+
     expect(forwardedPayload.message).toBe(
       [
         "[Clawdentity Identity]",
@@ -218,11 +223,9 @@ describe("POST /hooks/agent", () => {
   });
 
   it("keeps payload unchanged when message injection is enabled but auth is missing", async () => {
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(String(init?.body), { status: 202 });
-    });
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
       injectIdentityIntoMessage: true,
     });
     const rawPayload = {
@@ -234,25 +237,20 @@ describe("POST /hooks/agent", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         "x-test-missing-auth": "1",
       },
       body: JSON.stringify(rawPayload),
     });
 
-    expect(response.status).toBe(202);
-    const [, calledInit] = fetchMock.mock.calls[0] as [
-      unknown,
-      RequestInit | undefined,
-    ];
-    expect(String(calledInit?.body)).toBe(JSON.stringify(rawPayload));
+    expect(response.status).toBe(500);
   });
 
   it("keeps payload unchanged when message is missing or non-string", async () => {
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(String(init?.body), { status: 202 });
-    });
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
       injectIdentityIntoMessage: true,
     });
 
@@ -260,6 +258,8 @@ describe("POST /hooks/agent", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         event: "agent.started",
@@ -270,38 +270,24 @@ describe("POST /hooks/agent", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         message: { nested: true },
       }),
     });
 
-    const [, firstInit] = fetchMock.mock.calls[0] as [unknown, RequestInit];
-    const [, secondInit] = fetchMock.mock.calls[1] as [unknown, RequestInit];
-    expect(String(firstInit.body)).toBe(
-      JSON.stringify({ event: "agent.started" }),
-    );
-    expect(String(secondInit.body)).toBe(
-      JSON.stringify({ message: { nested: true } }),
-    );
+    const [firstRelayInput, secondRelayInput] = relayHarness.receivedInputs;
+
+    expect(firstRelayInput.payload).toEqual({ event: "agent.started" });
+    expect(secondRelayInput.payload).toEqual({ message: { nested: true } });
   });
 
   it("sanitizes identity fields and enforces length limits", async () => {
-    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
-      return new Response(
-        JSON.stringify({
-          echoedBody: init?.body,
-        }),
-        {
-          status: 202,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      );
-    });
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
       injectIdentityIntoMessage: true,
     });
 
@@ -309,6 +295,8 @@ describe("POST /hooks/agent", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         "x-test-dirty-auth": "1",
       },
       body: JSON.stringify({
@@ -317,11 +305,9 @@ describe("POST /hooks/agent", () => {
     });
 
     expect(response.status).toBe(202);
-    const [, calledInit] = fetchMock.mock.calls[0] as [
-      unknown,
-      RequestInit | undefined,
-    ];
-    const forwardedPayload = JSON.parse(String(calledInit?.body)) as {
+    const [relayInput] = relayHarness.receivedInputs;
+
+    const forwardedPayload = relayInput.payload as {
       message: string;
     };
     expect(forwardedPayload.message).toContain("[Clawdentity Identity]");
@@ -337,20 +323,22 @@ describe("POST /hooks/agent", () => {
   });
 
   it("rejects non-json content types", async () => {
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
     });
 
     const response = await app.request("/hooks/agent", {
       method: "POST",
       headers: {
         "content-type": "text/plain",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: "hello",
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
     expect(response.status).toBe(415);
     const body = (await response.json()) as {
       error: { code: string; message: string; requestId: string };
@@ -361,20 +349,22 @@ describe("POST /hooks/agent", () => {
   });
 
   it("rejects invalid JSON payloads", async () => {
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
     });
 
     const response = await app.request("/hooks/agent", {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: "{not valid json",
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
     expect(response.status).toBe(400);
     const body = (await response.json()) as {
       error: { code: string; message: string; requestId: string };
@@ -384,12 +374,10 @@ describe("POST /hooks/agent", () => {
     expect(typeof body.error.requestId).toBe("string");
   });
 
-  it("maps upstream network errors to 502", async () => {
-    const fetchMock = vi.fn(async () => {
-      throw new TypeError("fetch failed");
-    });
+  it("rejects missing recipient DID header", async () => {
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
+      relayNamespace: relayHarness.namespace,
     });
 
     const response = await app.request("/hooks/agent", {
@@ -400,57 +388,95 @@ describe("POST /hooks/agent", () => {
       body: JSON.stringify({ event: "agent.started" }),
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(response.status).toBe(502);
-    const body = (await response.json()) as {
-      error: { code: string; message: string; requestId: string };
-    };
-    expect(body.error.code).toBe("PROXY_HOOK_UPSTREAM_UNAVAILABLE");
-    expect(body.error.message).toBe("OpenClaw hook upstream request failed");
-    expect(typeof body.error.requestId).toBe("string");
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_HOOK_RECIPIENT_REQUIRED");
   });
 
-  it("maps upstream timeout errors to 504", async () => {
-    const fetchMock = vi.fn(
-      (_input: unknown, init?: RequestInit): Promise<Response> =>
-        new Promise((_resolve, reject) => {
-          const signal = init?.signal;
-          if (signal == null) {
-            reject(new Error("signal is required"));
-            return;
-          }
-
-          signal.addEventListener(
-            "abort",
-            () => {
-              const timeoutError = new Error("request aborted");
-              timeoutError.name = "AbortError";
-              reject(timeoutError);
-            },
-            { once: true },
-          );
-        }),
-    );
+  it("rejects invalid recipient DID header", async () => {
+    const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
-      fetchImpl: fetchMock as unknown as typeof fetch,
-      timeoutMs: 5,
+      relayNamespace: relayHarness.namespace,
     });
 
     const response = await app.request("/hooks/agent", {
       method: "POST",
       headers: {
         "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]: "did:claw:human:not-agent",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(response.status).toBe(504);
-    const body = (await response.json()) as {
-      error: { code: string; message: string; requestId: string };
-    };
-    expect(body.error.code).toBe("PROXY_HOOK_UPSTREAM_TIMEOUT");
-    expect(body.error.message).toBe("OpenClaw hook upstream request timed out");
-    expect(typeof body.error.requestId).toBe("string");
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_HOOK_RECIPIENT_INVALID");
+  });
+
+  it("returns 503 when relay session namespace is unavailable", async () => {
+    const app = createHookRouteApp({
+      relayNamespace: undefined,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_UNAVAILABLE");
+  });
+
+  it("maps relay delivery failures to 502", async () => {
+    const relayHarness = createRelayHarness({ throwOnDeliver: true });
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(502);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_DELIVERY_FAILED");
+  });
+
+  it("returns 502 when target connector is offline", async () => {
+    const relayHarness = createRelayHarness({
+      deliverResult: {
+        delivered: false,
+        connectedSockets: 0,
+      },
+    });
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(502);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_CONNECTOR_OFFLINE");
   });
 });

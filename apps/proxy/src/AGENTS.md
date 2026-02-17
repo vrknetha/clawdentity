@@ -11,7 +11,7 @@
 - Keep per-agent DID throttling in `agent-rate-limit-middleware.ts`; do not blend rate-limit state or counters into `auth-middleware.ts`.
 - Keep `.env` fallback loading and OpenClaw config (`hooks.token`) fallback logic inside `config.ts` so runtime behavior is deterministic.
 - Keep OpenClaw base URL fallback logic in `config.ts`: `OPENCLAW_BASE_URL` env -> `~/.clawdentity/openclaw-relay.json` -> default.
-- Keep Worker runtime guardrails in `worker.ts`: block loopback/default OpenClaw upstream URLs for `development`/`production` so cloud deploys fail fast with config errors.
+- Keep OpenClaw compatibility vars optional for relay-mode runtime; never require `OPENCLAW_BASE_URL` or hook token for cloud relay startup.
 - Keep fallback semantics consistent across merge + parse stages: empty/whitespace env values are treated as missing, so non-empty `.env`/file values can be used.
 - Do not derive runtime environment from `NODE_ENV`; use validated `ENVIRONMENT` from proxy config.
 
@@ -26,16 +26,20 @@
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
+- Keep relay websocket connect handling isolated in `relay-connect-route.ts`; `server.ts` should only compose middleware/routes.
+- Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-allowlisted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
+- Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
+- Keep `/v1/relay/connect` keyed by authenticated connector DID from auth middleware, and reject non-websocket requests with clear client errors.
 - Keep rate-limit failure semantics stable: verified requests over budget map to `429` with code `PROXY_RATE_LIMIT_EXCEEDED` and structured warn log event `proxy.rate_limit.exceeded`.
 - Keep `X-Claw-Timestamp` parsing strict: accept digit-only unix-seconds strings and reject mixed/decimal formats.
 - Keep AIT verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_AIT_KID` before rejecting.
 - Keep CRL verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_CRL_KID` before dependency-failure mapping.
 - Keep `/hooks/agent` input contract strict: require `Content-Type: application/json` and reject malformed JSON with explicit client errors.
 - Keep agent-access validation centralized in `auth-middleware.ts` and call registry `POST /v1/agents/auth/validate`; treat non-`204` non-`401` responses as dependency failures (`503`).
-- Keep `/hooks/agent` upstream failure mapping explicit: timeout errors -> `504`, network errors -> `502`, and never log `openclawHookToken` or request payload.
+- Keep relay delivery failure mapping explicit for `/hooks/agent`: DO delivery/RPC failures -> `502`, unavailable DO namespace -> `503`.
 - Keep identity message injection optional and default-off (`INJECT_IDENTITY_INTO_MESSAGE=false`) so forwarding behavior is unchanged unless explicitly enabled.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.

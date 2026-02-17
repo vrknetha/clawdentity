@@ -81,7 +81,7 @@ const proxyRuntimeEnvSchema = z.object({
     .max(65535)
     .default(DEFAULT_PROXY_LISTEN_PORT),
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
-  OPENCLAW_HOOK_TOKEN: z.string().trim().min(1),
+  OPENCLAW_HOOK_TOKEN: z.string().trim().min(1).optional(),
   REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
   ENVIRONMENT: z
     .enum(proxyEnvironmentValues)
@@ -127,7 +127,7 @@ const proxyAllowListSchema = z
 export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
   openclawBaseUrl: z.string().url(),
-  openclawHookToken: z.string().min(1),
+  openclawHookToken: z.string().min(1).optional(),
   registryUrl: z.string().url(),
   environment: z.enum(proxyEnvironmentValues),
   allowList: proxyAllowListSchema,

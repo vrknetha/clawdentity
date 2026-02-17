@@ -12,7 +12,10 @@ import {
   signHttpRequest,
 } from "@clawdentity/sdk";
 import { describe, expect, it, vi } from "vitest";
+import { RELAY_RECIPIENT_AGENT_DID_HEADER } from "./agent-hook-route.js";
+import type { AgentRelaySessionNamespace } from "./agent-relay-session.js";
 import { parseProxyConfig } from "./config.js";
+import { RELAY_CONNECT_PATH } from "./relay-connect-route.js";
 import { createProxyApp } from "./server.js";
 
 const REGISTRY_KID = "registry-active-kid";
@@ -37,6 +40,7 @@ type AuthHarness = {
   claims: Awaited<ReturnType<typeof buildAitClaims>>;
   createSignedHeaders: (input?: {
     body?: string;
+    method?: "GET" | "POST";
     nonce?: string;
     pathWithQuery?: string;
     timestamp?: string;
@@ -209,10 +213,28 @@ async function createAuthHarness(
   const allowListAgents =
     options.allowCurrentAgent === false ? [] : [claims.sub];
   const allowListOwners = options.allowCurrentOwner ? [claims.ownerDid] : [];
+  const relaySession = {
+    fetch: vi.fn(async (request: Request) => {
+      if (request.method === "POST") {
+        return Response.json(
+          {
+            delivered: true,
+            connectedSockets: 1,
+          },
+          { status: 202 },
+        );
+      }
+
+      return new Response(null, { status: 204 });
+    }),
+  };
+  const relayNamespace = {
+    idFromName: vi.fn((_name: string) => ({}) as DurableObjectId),
+    get: vi.fn((_id: DurableObjectId) => relaySession),
+  } satisfies AgentRelaySessionNamespace;
 
   const app = createProxyApp({
     config: parseProxyConfig({
-      OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
       ...(allowListAgents.length > 0
         ? { ALLOWLIST_AGENTS: allowListAgents.join(",") }
         : {}),
@@ -228,20 +250,11 @@ async function createAuthHarness(
       clock: () => NOW_MS,
     },
     hooks: {
-      fetchImpl: vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              ok: true,
-            }),
-            {
-              status: 202,
-              headers: {
-                "content-type": "application/json",
-              },
-            },
-          ),
-      ) as typeof fetch,
+      resolveSessionNamespace: () => relayNamespace,
+      now: () => new Date(NOW_MS),
+    },
+    relay: {
+      resolveSessionNamespace: () => relayNamespace,
     },
     registerRoutes: (nextApp) => {
       nextApp.post("/protected", (c) => {
@@ -258,14 +271,15 @@ async function createAuthHarness(
     app,
     claims,
     createSignedHeaders: async (input = {}) => {
-      const body = input.body ?? BODY_JSON;
+      const method = input.method ?? "POST";
+      const body = input.body ?? (method === "GET" ? "" : BODY_JSON);
       const nonce = input.nonce ?? "nonce-1";
       const pathWithQuery = input.pathWithQuery ?? "/protected";
       const timestamp =
         input.timestamp ?? String(input.timestampSeconds ?? NOW_SECONDS);
 
       const signed = await signHttpRequest({
-        method: "POST",
+        method,
         pathWithQuery,
         timestamp,
         nonce,
@@ -275,7 +289,7 @@ async function createAuthHarness(
 
       return {
         authorization: `Claw ${ait}`,
-        "content-type": "application/json",
+        ...(method === "POST" ? { "content-type": "application/json" } : {}),
         ...signed.headers,
       };
     },
@@ -639,11 +653,55 @@ describe("proxy auth middleware", () => {
       headers: {
         ...headers,
         "x-claw-agent-access": "clw_agt_validtoken",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]: harness.claims.sub,
       },
       body: BODY_JSON,
     });
 
     expect(response.status).toBe(202);
+  });
+
+  it("requires x-claw-agent-access for relay websocket connect", async () => {
+    const harness = await createAuthHarness({
+      validateStatus: 204,
+    });
+    const headers = await harness.createSignedHeaders({
+      method: "GET",
+      pathWithQuery: RELAY_CONNECT_PATH,
+      nonce: "nonce-relay-connect",
+    });
+    const response = await harness.app.request(RELAY_CONNECT_PATH, {
+      method: "GET",
+      headers: {
+        ...headers,
+        upgrade: "websocket",
+      },
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AGENT_ACCESS_REQUIRED");
+  });
+
+  it("accepts relay websocket connect when x-claw-agent-access validates", async () => {
+    const harness = await createAuthHarness({
+      validateStatus: 204,
+    });
+    const headers = await harness.createSignedHeaders({
+      method: "GET",
+      pathWithQuery: RELAY_CONNECT_PATH,
+      nonce: "nonce-relay-connect-agent-access-valid",
+    });
+    const response = await harness.app.request(RELAY_CONNECT_PATH, {
+      method: "GET",
+      headers: {
+        ...headers,
+        upgrade: "websocket",
+        "x-claw-agent-access": "clw_agt_validtoken",
+      },
+    });
+
+    expect(response.status).toBe(204);
   });
 
   it("rejects non-health route when Authorization scheme is not Claw", async () => {

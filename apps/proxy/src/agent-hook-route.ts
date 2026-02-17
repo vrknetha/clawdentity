@@ -1,28 +1,40 @@
+import {
+  parseDid,
+  RELAY_RECIPIENT_AGENT_DID_HEADER,
+} from "@clawdentity/protocol";
 import { AppError, type Logger } from "@clawdentity/sdk";
 import type { Context } from "hono";
+import {
+  type AgentRelaySessionNamespace,
+  deliverToRelaySession,
+  type RelayDeliveryInput,
+} from "./agent-relay-session.js";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 
-const AGENT_HOOK_PATH = "hooks/agent";
-export const DEFAULT_AGENT_HOOK_TIMEOUT_MS = 10_000;
 const MAX_AGENT_DID_LENGTH = 160;
 const MAX_OWNER_DID_LENGTH = 160;
 const MAX_ISSUER_LENGTH = 200;
 const MAX_AIT_JTI_LENGTH = 64;
 
+export { RELAY_RECIPIENT_AGENT_DID_HEADER } from "@clawdentity/protocol";
+
 export type AgentHookRuntimeOptions = {
-  fetchImpl?: typeof fetch;
-  timeoutMs?: number;
   injectIdentityIntoMessage?: boolean;
+  now?: () => Date;
+  resolveSessionNamespace?: (
+    c: ProxyContext,
+  ) => AgentRelaySessionNamespace | undefined;
 };
 
 type CreateAgentHookHandlerOptions = AgentHookRuntimeOptions & {
   logger: Logger;
-  openclawBaseUrl: string;
-  openclawHookToken: string;
 };
 
 type ProxyContext = Context<{
   Variables: ProxyRequestVariables;
+  Bindings: {
+    AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+  };
 }>;
 
 function isJsonContentType(contentTypeHeader: string | undefined): boolean {
@@ -32,25 +44,6 @@ function isJsonContentType(contentTypeHeader: string | undefined): boolean {
 
   const [mediaType] = contentTypeHeader.split(";");
   return mediaType.trim().toLowerCase() === "application/json";
-}
-
-function toOpenclawHookUrl(openclawBaseUrl: string): string {
-  const normalizedBase = openclawBaseUrl.endsWith("/")
-    ? openclawBaseUrl
-    : `${openclawBaseUrl}/`;
-  return new URL(AGENT_HOOK_PATH, normalizedBase).toString();
-}
-
-function toErrorName(error: unknown): string {
-  if (error instanceof Error && error.name.trim().length > 0) {
-    return error.name;
-  }
-
-  return "unknown";
-}
-
-function isAbortError(error: unknown): boolean {
-  return toErrorName(error) === "AbortError";
 }
 
 function stripControlChars(value: string): string {
@@ -111,13 +104,58 @@ function injectIdentityBlockIntoPayload(
   };
 }
 
+function parseRecipientAgentDid(c: ProxyContext): string {
+  const recipientHeader = c.req.header(RELAY_RECIPIENT_AGENT_DID_HEADER);
+  if (
+    typeof recipientHeader !== "string" ||
+    recipientHeader.trim().length === 0
+  ) {
+    throw new AppError({
+      code: "PROXY_HOOK_RECIPIENT_REQUIRED",
+      message: "X-Claw-Recipient-Agent-Did header is required",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const recipientDid = recipientHeader.trim();
+  let parsedDid: ReturnType<typeof parseDid>;
+  try {
+    parsedDid = parseDid(recipientDid);
+  } catch {
+    throw new AppError({
+      code: "PROXY_HOOK_RECIPIENT_INVALID",
+      message: "X-Claw-Recipient-Agent-Did must be a valid agent DID",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (parsedDid.kind !== "agent") {
+    throw new AppError({
+      code: "PROXY_HOOK_RECIPIENT_INVALID",
+      message: "X-Claw-Recipient-Agent-Did must be a valid agent DID",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return recipientDid;
+}
+
+function resolveDefaultSessionNamespace(
+  c: ProxyContext,
+): AgentRelaySessionNamespace | undefined {
+  return c.env.AGENT_RELAY_SESSION;
+}
+
 export function createAgentHookHandler(
   options: CreateAgentHookHandlerOptions,
 ): (c: ProxyContext) => Promise<Response> {
-  const fetchImpl = options.fetchImpl ?? fetch;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_AGENT_HOOK_TIMEOUT_MS;
   const injectIdentityIntoMessage = options.injectIdentityIntoMessage ?? false;
-  const hookUrl = toOpenclawHookUrl(options.openclawBaseUrl);
+  const now = options.now ?? (() => new Date());
+  const resolveSessionNamespace =
+    options.resolveSessionNamespace ?? resolveDefaultSessionNamespace;
 
   return async (c) => {
     if (!isJsonContentType(c.req.header("content-type"))) {
@@ -145,70 +183,84 @@ export function createAgentHookHandler(
       payload = injectIdentityBlockIntoPayload(payload, c.get("auth"));
     }
 
-    const requestId = c.get("requestId");
-    const startedAt = Date.now();
-    const controller = new AbortController();
-    let timedOut = false;
-    const timeoutHandle = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-
-    let upstreamResponse: Response;
-    try {
-      upstreamResponse = await fetchImpl(hookUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-openclaw-token": options.openclawHookToken,
-          "x-request-id": requestId,
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      if (timedOut || isAbortError(error)) {
-        options.logger.warn("proxy.hooks.agent.timeout", {
-          requestId,
-          timeoutMs,
-        });
-        throw new AppError({
-          code: "PROXY_HOOK_UPSTREAM_TIMEOUT",
-          message: "OpenClaw hook upstream request timed out",
-          status: 504,
-        });
-      }
-
-      options.logger.warn("proxy.hooks.agent.network_error", {
-        requestId,
-        errorName: toErrorName(error),
-      });
+    const auth = c.get("auth");
+    if (auth === undefined) {
       throw new AppError({
-        code: "PROXY_HOOK_UPSTREAM_UNAVAILABLE",
-        message: "OpenClaw hook upstream request failed",
+        code: "PROXY_HOOK_AUTH_CONTEXT_MISSING",
+        message: "Verified auth context is required",
+        status: 500,
+      });
+    }
+
+    const recipientAgentDid = parseRecipientAgentDid(c);
+    const sessionNamespace = resolveSessionNamespace(c);
+    if (sessionNamespace === undefined) {
+      throw new AppError({
+        code: "PROXY_RELAY_UNAVAILABLE",
+        message: "Relay session namespace is unavailable",
+        status: 503,
+      });
+    }
+
+    const requestId = c.get("requestId");
+    const relayInput: RelayDeliveryInput = {
+      requestId,
+      senderAgentDid: auth.agentDid,
+      recipientAgentDid,
+      payload,
+    };
+
+    const relaySession = sessionNamespace.get(
+      sessionNamespace.idFromName(recipientAgentDid),
+    );
+
+    let deliveryResult: Awaited<ReturnType<typeof deliverToRelaySession>>;
+    try {
+      deliveryResult = await deliverToRelaySession(relaySession, relayInput);
+    } catch (error) {
+      options.logger.warn("proxy.hooks.agent.relay_delivery_failed", {
+        requestId,
+        senderAgentDid: auth.agentDid,
+        recipientAgentDid,
+        errorName: error instanceof Error ? error.name : "unknown",
+      });
+
+      throw new AppError({
+        code: "PROXY_RELAY_DELIVERY_FAILED",
+        message: "Relay delivery failed",
         status: 502,
       });
-    } finally {
-      clearTimeout(timeoutHandle);
     }
 
-    options.logger.info("proxy.hooks.agent.forwarded", {
+    if (!deliveryResult.delivered) {
+      options.logger.warn("proxy.hooks.agent.connector_offline", {
+        requestId,
+        recipientAgentDid,
+      });
+
+      throw new AppError({
+        code: "PROXY_RELAY_CONNECTOR_OFFLINE",
+        message: "Target connector is offline",
+        status: 502,
+      });
+    }
+
+    options.logger.info("proxy.hooks.agent.delivered_to_relay", {
       requestId,
-      upstreamStatus: upstreamResponse.status,
-      durationMs: Date.now() - startedAt,
+      senderAgentDid: auth.agentDid,
+      recipientAgentDid,
+      delivered: deliveryResult.delivered,
+      connectedSockets: deliveryResult.connectedSockets,
+      sentAt: now().toISOString(),
     });
 
-    const responseBody = await upstreamResponse.text();
-    const responseHeaders: Record<string, string> = {};
-    const upstreamContentType = upstreamResponse.headers.get("content-type");
-    if (typeof upstreamContentType === "string") {
-      responseHeaders["content-type"] = upstreamContentType;
-    }
-
-    return c.body(
-      responseBody,
-      upstreamResponse.status as 200,
-      responseHeaders,
+    return c.json(
+      {
+        accepted: true,
+        delivered: deliveryResult.delivered,
+        connectedSockets: deliveryResult.connectedSockets,
+      },
+      202,
     );
   };
 }

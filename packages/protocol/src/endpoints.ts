@@ -5,3 +5,5 @@ export const AGENT_AUTH_VALIDATE_PATH = "/v1/agents/auth/validate";
 export const INVITES_PATH = "/v1/invites";
 export const INVITES_REDEEM_PATH = "/v1/invites/redeem";
 export const ME_API_KEYS_PATH = "/v1/me/api-keys";
+export const RELAY_CONNECT_PATH = "/v1/relay/connect";
+export const RELAY_RECIPIENT_AGENT_DID_HEADER = "x-claw-recipient-agent-did";

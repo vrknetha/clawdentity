@@ -72,10 +72,12 @@ describe("proxy server", () => {
     }
   });
 
-  it("fails startup when required config is missing", () => {
+  it("fails startup when config is invalid", () => {
     expect(() =>
       startProxyServer({
-        env: {},
+        env: {
+          OPENCLAW_BASE_URL: "bad-url",
+        },
       }),
     ).toThrow(ProxyConfigError);
   });

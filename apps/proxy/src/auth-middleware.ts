@@ -1,6 +1,7 @@
 import {
   AGENT_AUTH_VALIDATE_PATH,
   decodeBase64url,
+  RELAY_CONNECT_PATH,
 } from "@clawdentity/protocol";
 import {
   AitJwtError,
@@ -605,7 +606,7 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         });
       }
 
-      if (c.req.path === "/hooks/agent") {
+      if (c.req.path === "/hooks/agent" || c.req.path === RELAY_CONNECT_PATH) {
         const accessToken = parseAgentAccessHeader(
           c.req.header("x-claw-agent-access"),
         );
