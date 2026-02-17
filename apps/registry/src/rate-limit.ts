@@ -4,6 +4,12 @@ import type { MiddlewareHandler } from "hono";
 export const RESOLVE_RATE_LIMIT_WINDOW_MS = 60_000;
 export const RESOLVE_RATE_LIMIT_MAX_REQUESTS = 10;
 export const RESOLVE_RATE_LIMIT_MAX_BUCKETS = 10_000;
+export const CRL_RATE_LIMIT_WINDOW_MS = 60_000;
+export const CRL_RATE_LIMIT_MAX_REQUESTS = 30;
+export const AGENT_AUTH_REFRESH_RATE_LIMIT_WINDOW_MS = 60_000;
+export const AGENT_AUTH_REFRESH_RATE_LIMIT_MAX_REQUESTS = 20;
+export const AGENT_AUTH_VALIDATE_RATE_LIMIT_WINDOW_MS = 60_000;
+export const AGENT_AUTH_VALIDATE_RATE_LIMIT_MAX_REQUESTS = 120;
 
 type InMemoryBucket = {
   windowStartedAtMs: number;

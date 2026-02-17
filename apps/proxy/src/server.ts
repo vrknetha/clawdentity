@@ -22,6 +22,11 @@ import {
 import type { ProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
 import {
+  createPublicRateLimitMiddleware,
+  DEFAULT_PRE_AUTH_IP_RATE_LIMIT_REQUESTS_PER_MINUTE,
+  DEFAULT_PRE_AUTH_IP_RATE_LIMIT_WINDOW_MS,
+} from "./public-rate-limit-middleware.js";
+import {
   createRelayConnectHandler,
   type RelayConnectRuntimeOptions,
 } from "./relay-connect-route.js";
@@ -35,6 +40,8 @@ type ProxyAuthRuntimeOptions = {
 
 type ProxyRateLimitRuntimeOptions = {
   nowMs?: () => number;
+  publicIpMaxRequests?: number;
+  publicIpWindowMs?: number;
 };
 
 type CreateProxyAppOptions = {
@@ -69,6 +76,20 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
 
   app.use("*", createRequestContextMiddleware());
   app.use("*", createRequestLoggingMiddleware(logger));
+  app.use(
+    "*",
+    createPublicRateLimitMiddleware({
+      logger,
+      paths: ["/hooks/agent", RELAY_CONNECT_PATH],
+      maxRequests:
+        options.rateLimit?.publicIpMaxRequests ??
+        DEFAULT_PRE_AUTH_IP_RATE_LIMIT_REQUESTS_PER_MINUTE,
+      windowMs:
+        options.rateLimit?.publicIpWindowMs ??
+        DEFAULT_PRE_AUTH_IP_RATE_LIMIT_WINDOW_MS,
+      nowMs: options.rateLimit?.nowMs,
+    }),
+  );
   app.use(
     "*",
     createProxyAuthMiddleware({

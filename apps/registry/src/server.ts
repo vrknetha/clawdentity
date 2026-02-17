@@ -96,6 +96,12 @@ import {
   parseInviteRedeemPayload,
 } from "./invite-lifecycle.js";
 import {
+  AGENT_AUTH_REFRESH_RATE_LIMIT_MAX_REQUESTS,
+  AGENT_AUTH_REFRESH_RATE_LIMIT_WINDOW_MS,
+  AGENT_AUTH_VALIDATE_RATE_LIMIT_MAX_REQUESTS,
+  AGENT_AUTH_VALIDATE_RATE_LIMIT_WINDOW_MS,
+  CRL_RATE_LIMIT_MAX_REQUESTS,
+  CRL_RATE_LIMIT_WINDOW_MS,
   createInMemoryRateLimit,
   RESOLVE_RATE_LIMIT_MAX_REQUESTS,
   RESOLVE_RATE_LIMIT_WINDOW_MS,
@@ -178,6 +184,22 @@ type CrlSnapshotRow = {
   reason: string | null;
   revoked_at: string;
   agent_did: string;
+};
+
+type RegistryRateLimitRuntimeOptions = {
+  nowMs?: () => number;
+  resolveMaxRequests?: number;
+  resolveWindowMs?: number;
+  crlMaxRequests?: number;
+  crlWindowMs?: number;
+  agentAuthRefreshMaxRequests?: number;
+  agentAuthRefreshWindowMs?: number;
+  agentAuthValidateMaxRequests?: number;
+  agentAuthValidateWindowMs?: number;
+};
+
+type CreateRegistryAppOptions = {
+  rateLimit?: RegistryRateLimitRuntimeOptions;
 };
 
 function crlBuildError(options: {
@@ -614,7 +636,7 @@ function adminBootstrapAlreadyCompletedError(): AppError {
   });
 }
 
-function createRegistryApp() {
+function createRegistryApp(options: CreateRegistryAppOptions = {}) {
   let cachedConfig: RegistryConfig | undefined;
 
   function getConfig(bindings: Bindings): RegistryConfig {
@@ -630,10 +652,40 @@ function createRegistryApp() {
     Bindings: Bindings;
     Variables: { requestId: string; human: AuthenticatedHuman };
   }>();
+  const rateLimitOptions = options.rateLimit;
   const resolveRateLimit = createInMemoryRateLimit({
     bucketKey: "resolve",
-    maxRequests: RESOLVE_RATE_LIMIT_MAX_REQUESTS,
-    windowMs: RESOLVE_RATE_LIMIT_WINDOW_MS,
+    maxRequests:
+      rateLimitOptions?.resolveMaxRequests ?? RESOLVE_RATE_LIMIT_MAX_REQUESTS,
+    windowMs: rateLimitOptions?.resolveWindowMs ?? RESOLVE_RATE_LIMIT_WINDOW_MS,
+    nowMs: rateLimitOptions?.nowMs,
+  });
+  const crlRateLimit = createInMemoryRateLimit({
+    bucketKey: "crl",
+    maxRequests:
+      rateLimitOptions?.crlMaxRequests ?? CRL_RATE_LIMIT_MAX_REQUESTS,
+    windowMs: rateLimitOptions?.crlWindowMs ?? CRL_RATE_LIMIT_WINDOW_MS,
+    nowMs: rateLimitOptions?.nowMs,
+  });
+  const agentAuthRefreshRateLimit = createInMemoryRateLimit({
+    bucketKey: "agent_auth_refresh",
+    maxRequests:
+      rateLimitOptions?.agentAuthRefreshMaxRequests ??
+      AGENT_AUTH_REFRESH_RATE_LIMIT_MAX_REQUESTS,
+    windowMs:
+      rateLimitOptions?.agentAuthRefreshWindowMs ??
+      AGENT_AUTH_REFRESH_RATE_LIMIT_WINDOW_MS,
+    nowMs: rateLimitOptions?.nowMs,
+  });
+  const agentAuthValidateRateLimit = createInMemoryRateLimit({
+    bucketKey: "agent_auth_validate",
+    maxRequests:
+      rateLimitOptions?.agentAuthValidateMaxRequests ??
+      AGENT_AUTH_VALIDATE_RATE_LIMIT_MAX_REQUESTS,
+    windowMs:
+      rateLimitOptions?.agentAuthValidateWindowMs ??
+      AGENT_AUTH_VALIDATE_RATE_LIMIT_WINDOW_MS,
+    nowMs: rateLimitOptions?.nowMs,
   });
 
   app.use("*", createRequestContextMiddleware());
@@ -796,7 +848,7 @@ function createRegistryApp() {
     );
   });
 
-  app.get("/v1/crl", async (c) => {
+  app.get("/v1/crl", crlRateLimit, async (c) => {
     const config = getConfig(c.env);
     const db = createDb(c.env.DB);
 
@@ -1531,7 +1583,7 @@ function createRegistryApp() {
     );
   });
 
-  app.post(AGENT_AUTH_REFRESH_PATH, async (c) => {
+  app.post(AGENT_AUTH_REFRESH_PATH, agentAuthRefreshRateLimit, async (c) => {
     const config = getConfig(c.env);
     const exposeDetails = shouldExposeVerboseErrors(config.ENVIRONMENT);
     const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
@@ -1712,7 +1764,7 @@ function createRegistryApp() {
     });
   });
 
-  app.post(AGENT_AUTH_VALIDATE_PATH, async (c) => {
+  app.post(AGENT_AUTH_VALIDATE_PATH, agentAuthValidateRateLimit, async (c) => {
     let payload: unknown;
     try {
       payload = await c.req.json();
