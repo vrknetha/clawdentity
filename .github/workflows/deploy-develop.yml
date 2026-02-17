@@ -53,11 +53,11 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
-      - name: Run tests
-        run: pnpm -r test
-
       - name: Build
         run: pnpm -r build
+
+      - name: Run tests
+        run: pnpm -r test
 
       - name: Capture pre-deploy rollback artifacts
         run: |
