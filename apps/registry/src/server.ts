@@ -33,6 +33,7 @@ import {
   toAgentAuthResponse,
 } from "./agent-auth-lifecycle.js";
 import { mapAgentListRow, parseAgentListQuery } from "./agent-list.js";
+import { parseAgentOwnershipPath } from "./agent-ownership.js";
 import {
   buildAgentRegistrationChallenge,
   buildAgentRegistrationFromParsed,
@@ -1319,6 +1320,28 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
         limit: query.limit,
         nextCursor,
       },
+    });
+  });
+
+  app.get("/v1/agents/:id/ownership", createApiKeyAuth(), async (c) => {
+    const config = getConfig(c.env);
+    const agentId = parseAgentOwnershipPath({
+      id: c.req.param("id"),
+      environment: config.ENVIRONMENT,
+    });
+    const human = c.get("human");
+    const db = createDb(c.env.DB);
+
+    const rows = await db
+      .select({
+        id: agents.id,
+      })
+      .from(agents)
+      .where(and(eq(agents.owner_id, human.id), eq(agents.id, agentId)))
+      .limit(1);
+
+    return c.json({
+      ownsAgent: rows.length > 0,
     });
   });
 

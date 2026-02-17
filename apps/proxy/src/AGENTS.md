@@ -16,6 +16,8 @@
 - Keep OpenClaw compatibility vars optional for relay-mode runtime; never require `OPENCLAW_BASE_URL` or hook token for cloud relay startup.
 - Keep fallback semantics consistent across merge + parse stages: empty/whitespace env values are treated as missing, so non-empty `.env`/file values can be used.
 - Do not derive runtime environment from `NODE_ENV`; use validated `ENVIRONMENT` from proxy config.
+- Keep static allowlist env vars removed (`ALLOW_LIST`, `ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`); trust must come from pairing state, not env.
+- Keep `/pair/confirm` write path atomic at the trust-store API level: trust persistence and pairing-code consumption must happen in one operation (`confirmPairingCode`).
 
 ## Config Error Handling
 - Convert parse failures to `ProxyConfigError` with code `CONFIG_VALIDATION_FAILED`.
@@ -24,7 +26,8 @@
 ## Maintainability
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
-- Keep allowlist schema strict and agent-first: reject unknown allowlist keys and require explicit `allowList.agents` membership after verification.
+- Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state.ts` (Durable Object backed).
+- Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
@@ -32,9 +35,12 @@
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
-- Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-allowlisted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
+- Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
+- Keep pairing bootstrap explicit: `/pair/start` and `/pair/confirm` must bypass known-agent gate in auth middleware.
+- Keep `/pair/start` ownership validation against registry `GET /v1/agents/:id/ownership` using `x-claw-owner-pat`, and map dependency failures to `503`.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
+- Keep `/hooks/agent` trust check explicit: sender/recipient pair must be authorized by trust state before relay delivery.
 - Keep `/v1/relay/connect` keyed by authenticated connector DID from auth middleware, and reject non-websocket requests with clear client errors.
 - Keep pre-auth IP throttling enabled for `/hooks/agent` and `/v1/relay/connect` so repeated unauthenticated probes fail with `429` before auth/registry work.
 - Keep rate-limit failure semantics stable: verified requests over budget map to `429` with code `PROXY_RATE_LIMIT_EXCEEDED` and structured warn log event `proxy.rate_limit.exceeded`.
@@ -46,5 +52,6 @@
 - Keep agent-access validation centralized in `auth-middleware.ts` and call registry `POST /v1/agents/auth/validate`; treat non-`204` non-`401` responses as dependency failures (`503`).
 - Keep relay delivery failure mapping explicit for `/hooks/agent`: DO delivery/RPC failures -> `502`, unavailable DO namespace -> `503`.
 - Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
+- Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.

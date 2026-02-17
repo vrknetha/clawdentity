@@ -21,6 +21,9 @@ import {
 } from "@clawdentity/sdk";
 import { createMiddleware } from "hono/factory";
 import type { ProxyConfig } from "./config.js";
+import { PAIR_CONFIRM_PATH, PAIR_START_PATH } from "./pairing-constants.js";
+import type { ProxyTrustStore } from "./proxy-trust-store.js";
+import { assertKnownTrustedAgent } from "./trust-policy.js";
 
 export const DEFAULT_REGISTRY_KEYS_CACHE_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS = 300;
@@ -53,6 +56,7 @@ export type ProxyRequestVariables = RequestContextVariables & {
 export type ProxyAuthMiddlewareOptions = {
   config: ProxyConfig;
   logger: Logger;
+  trustStore: ProxyTrustStore;
   fetchImpl?: typeof fetch;
   clock?: () => number;
   nonceCache?: NonceCache;
@@ -137,22 +141,8 @@ function dependencyUnavailableError(options: {
   });
 }
 
-function forbiddenError(options: {
-  code: string;
-  message: string;
-  details?: Record<string, unknown>;
-}): AppError {
-  return new AppError({
-    code: options.code,
-    message: options.message,
-    status: 403,
-    details: options.details,
-    expose: true,
-  });
-}
-
-function isAgentDidAllowed(config: ProxyConfig, agentDid: string): boolean {
-  return config.allowList.agents.includes(agentDid);
+function shouldSkipKnownAgentCheck(path: string): boolean {
+  return path === PAIR_START_PATH || path === PAIR_CONFIRM_PATH;
 }
 
 export function parseClawAuthorizationHeader(authorization?: string): string {
@@ -596,13 +586,10 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         });
       }
 
-      if (!isAgentDidAllowed(options.config, claims.sub)) {
-        throw forbiddenError({
-          code: "PROXY_AUTH_FORBIDDEN",
-          message: "Verified caller is not allowlisted",
-          details: {
-            agentDid: claims.sub,
-          },
+      if (!shouldSkipKnownAgentCheck(c.req.path)) {
+        await assertKnownTrustedAgent({
+          trustStore: options.trustStore,
+          agentDid: claims.sub,
         });
       }
 

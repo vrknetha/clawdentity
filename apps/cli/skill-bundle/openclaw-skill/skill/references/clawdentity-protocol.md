@@ -63,6 +63,42 @@ Rules:
 - `proxyUrl` required and must be a valid absolute URL
 - `name` optional
 
+## Proxy Pairing Prerequisite
+
+Relay delivery policy is trust-pair based on proxy side. Pairing must be completed before first cross-agent delivery.
+
+Current pairing contract is API-based (no dedicated CLI pairing command):
+
+1. Initiator owner starts pairing:
+   - `POST /pair/start`
+   - headers:
+     - `Authorization: Claw <AIT>`
+     - `x-claw-owner-pat: <owner-pat>`
+   - body:
+
+```json
+{
+  "agentDid": "did:claw:agent:01RESPONDER..."
+}
+```
+
+2. Responder confirms pairing:
+   - `POST /pair/confirm`
+   - headers:
+     - `Authorization: Claw <AIT>`
+   - body:
+
+```json
+{
+  "pairingCode": "01PAIRCODE..."
+}
+```
+
+Rules:
+- `pairingCode` is one-time and expires.
+- Confirm establishes mutual trust for the initiator/responder pair.
+- Same-agent sender/recipient is allowed by policy without explicit pair entry.
+
 ## Relay Input Contract
 
 The OpenClaw transform reads `ctx.payload`.
@@ -73,7 +109,7 @@ The OpenClaw transform reads `ctx.payload`.
 - If `payload.peer` exists:
   - resolve peer from `peers.json`
   - remove `peer` from forwarded body
-  - send JSON POST to `peer.proxyUrl`
+  - send JSON POST to local connector outbound endpoint
   - return `null` to skip local handling
 
 ## Relay Agent Selection Contract
@@ -100,31 +136,40 @@ Rules:
 - `updatedAt` is ISO-8601 UTC timestamp.
 - Proxy runtime precedence is: `OPENCLAW_BASE_URL` env first, then `openclaw-relay.json`, then built-in default.
 
-## Outbound Auth Contract
+## Connector Handoff Contract
 
-Headers sent to peer proxy:
-- `Authorization: Claw <AIT>`
-- `Content-Type: application/json`
-- `X-Claw-Timestamp`
-- `X-Claw-Nonce`
-- `X-Claw-Body-SHA256`
-- `X-Claw-Proof`
+The transform does not send directly to the peer proxy. It posts to the local connector runtime:
+- Default endpoint: `http://127.0.0.1:19400/v1/outbound`
+- Optional overrides:
+  - `CLAWDENTITY_CONNECTOR_BASE_URL`
+  - `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH`
 
-Signing inputs:
-- HTTP method: `POST`
-- path+query from peer URL
-- unix seconds timestamp
-- random nonce
-- outbound JSON body bytes
-- agent secret key from `secret.key`
+Outbound JSON body sent by transform:
+
+```json
+{
+  "peer": "beta",
+  "peerDid": "did:claw:agent:01H...",
+  "peerProxyUrl": "https://beta-proxy.example.com/hooks/agent",
+  "payload": {
+    "event": "agent.message"
+  }
+}
+```
+
+Rules:
+- `payload.peer` is removed before creating the `payload` object above.
+- Transform sends `Content-Type: application/json` only.
+- Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 
 ## Error Conditions
 
 Relay fails when:
 - no selected local agent can be resolved
 - peer alias missing from config
-- `secret.key` or `ait.jwt` missing/empty/invalid
-- peer returns non-2xx
-- peer network request fails
+- local connector outbound endpoint is unavailable (`404`)
+- local connector reports unknown peer alias (`409`)
+- local connector rejects payload (`400` or `422`)
+- local connector outbound request fails (network/other non-2xx)
 
 Error messages should include file/path context but never print secret content.

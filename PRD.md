@@ -77,14 +77,14 @@ Because OpenClaw requires `hooks.token` and expects Bearer/token auth for `/hook
 
 - **Proxy**
   - Verify inbound Clawdentity headers
-  - Enforce allowlist rules (agent DID only in current phase; owner DID support deferred)
+  - Enforce durable trust-pair rules for sender/recipient agent DIDs
   - Rate-limit per verified agent DID
   - Forward to OpenClaw `/hooks/agent` with `x-openclaw-token`
 
 - **Discovery**
   - Share-by-contact-card (verify link + endpoint)
   - Resolve `gateway_hint` from registry (optional)
-  - Pairing code (optional, “approve first contact”)
+  - Pairing code (`/pair/start` + `/pair/confirm`) for trust bootstrap
 
 - **Onboarding / access control**
   - Invite-gated user registration (`register --invite`)
@@ -192,7 +192,7 @@ Verifier must enforce:
 
 - Valid caller → proxy forwards → OpenClaw returns 202
 - Invalid/expired/revoked token → proxy returns 401
-- Valid but not allowlisted → proxy returns 403
+- Valid but not trusted for recipient pair → proxy returns 403
 - Replay within time window is rejected (nonce reuse)
 - Revocation causes rejection within next CRL refresh
 

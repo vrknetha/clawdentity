@@ -10,6 +10,8 @@ import {
   type RelayDeliveryInput,
 } from "./agent-relay-session.js";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
+import type { ProxyTrustStore } from "./proxy-trust-store.js";
+import { assertTrustedPair } from "./trust-policy.js";
 
 const MAX_AGENT_DID_LENGTH = 160;
 const MAX_OWNER_DID_LENGTH = 160;
@@ -28,6 +30,7 @@ export type AgentHookRuntimeOptions = {
 
 type CreateAgentHookHandlerOptions = AgentHookRuntimeOptions & {
   logger: Logger;
+  trustStore: ProxyTrustStore;
 };
 
 type ProxyContext = Context<{
@@ -193,6 +196,12 @@ export function createAgentHookHandler(
     }
 
     const recipientAgentDid = parseRecipientAgentDid(c);
+    await assertTrustedPair({
+      trustStore: options.trustStore,
+      initiatorAgentDid: auth.agentDid,
+      responderAgentDid: recipientAgentDid,
+    });
+
     const sessionNamespace = resolveSessionNamespace(c);
     if (sessionNamespace === undefined) {
       throw new AppError({

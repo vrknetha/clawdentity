@@ -9,6 +9,12 @@ import {
   parseProxyConfig,
 } from "./config.js";
 import { resolveProxyVersion } from "./index.js";
+import { ProxyTrustState } from "./proxy-trust-state.js";
+import {
+  createDurableProxyTrustStore,
+  createInMemoryProxyTrustStore,
+  type ProxyTrustStateNamespace,
+} from "./proxy-trust-store.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
 
 export type ProxyWorkerBindings = {
@@ -16,14 +22,11 @@ export type ProxyWorkerBindings = {
   PORT?: string;
   OPENCLAW_BASE_URL?: string;
   OPENCLAW_HOOK_TOKEN?: string;
-  OPENCLAW_HOOKS_TOKEN?: string;
   AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+  PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
   ENVIRONMENT?: string;
-  ALLOW_LIST?: string;
-  ALLOWLIST_OWNERS?: string;
-  ALLOWLIST_AGENTS?: string;
   ALLOW_ALL_VERIFIED?: string;
   CRL_REFRESH_INTERVAL_MS?: string;
   CRL_MAX_AGE_MS?: string;
@@ -49,13 +52,11 @@ function toCacheKey(env: ProxyWorkerBindings): string {
   const keyParts = [
     env.OPENCLAW_BASE_URL,
     env.OPENCLAW_HOOK_TOKEN,
-    env.OPENCLAW_HOOKS_TOKEN,
+    env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,
     env.ENVIRONMENT,
-    env.ALLOW_LIST,
-    env.ALLOWLIST_OWNERS,
-    env.ALLOWLIST_AGENTS,
+    env.ALLOW_ALL_VERIFIED,
     env.CRL_REFRESH_INTERVAL_MS,
     env.CRL_MAX_AGE_MS,
     env.CRL_STALE_BEHAVIOR,
@@ -79,6 +80,10 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
   const app = createProxyApp({
     config,
     logger,
+    trustStore:
+      env.PROXY_TRUST_STATE !== undefined
+        ? createDurableProxyTrustStore(env.PROXY_TRUST_STATE)
+        : createInMemoryProxyTrustStore(),
     version: resolveProxyVersion(env),
   });
 
@@ -138,5 +143,5 @@ const worker = {
   },
 };
 
-export { AgentRelaySession };
+export { AgentRelaySession, ProxyTrustState };
 export default worker;

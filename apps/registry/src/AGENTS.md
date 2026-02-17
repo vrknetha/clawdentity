@@ -64,6 +64,12 @@
 - Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
 
+## GET /v1/agents/:id/ownership Contract
+- Require PAT auth via `createApiKeyAuth`.
+- Validate `:id` as ULID and return `400 AGENT_OWNERSHIP_INVALID_PATH` for malformed IDs.
+- Return `{ ownsAgent: true }` when the caller owns the agent and `{ ownsAgent: false }` for foreign or missing IDs.
+- Keep this endpoint ownership-only; do not return agent metadata.
+
 ## POST /v1/invites Contract
 - Require PAT auth via `createApiKeyAuth`.
 - Enforce admin-only access with explicit `403 INVITE_CREATE_FORBIDDEN` for authenticated non-admin callers.

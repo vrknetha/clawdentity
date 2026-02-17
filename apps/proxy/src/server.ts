@@ -21,6 +21,17 @@ import {
 } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
+import { PAIR_CONFIRM_PATH, PAIR_START_PATH } from "./pairing-constants.js";
+import {
+  createPairConfirmHandler,
+  createPairStartHandler,
+  type PairConfirmRuntimeOptions,
+  type PairStartRuntimeOptions,
+} from "./pairing-route.js";
+import {
+  createInMemoryProxyTrustStore,
+  type ProxyTrustStore,
+} from "./proxy-trust-store.js";
 import {
   createPublicRateLimitMiddleware,
   DEFAULT_PRE_AUTH_IP_RATE_LIMIT_REQUESTS_PER_MINUTE,
@@ -53,6 +64,11 @@ type CreateProxyAppOptions = {
   rateLimit?: ProxyRateLimitRuntimeOptions;
   hooks?: AgentHookRuntimeOptions;
   relay?: RelayConnectRuntimeOptions;
+  pairing?: {
+    confirm?: PairConfirmRuntimeOptions;
+    start?: PairStartRuntimeOptions;
+  };
+  trustStore?: ProxyTrustStore;
 };
 
 export type ProxyApp = Hono<{
@@ -68,6 +84,7 @@ function resolveLogger(logger?: Logger): Logger {
 
 export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
   const logger = resolveLogger(options.logger);
+  const trustStore = options.trustStore ?? createInMemoryProxyTrustStore();
   const app = new Hono<{
     Bindings: {
       AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
@@ -96,6 +113,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     createProxyAuthMiddleware({
       config: options.config,
       logger,
+      trustStore,
       ...options.auth,
     }),
   );
@@ -121,7 +139,25 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     createAgentHookHandler({
       logger,
       injectIdentityIntoMessage: options.config.injectIdentityIntoMessage,
+      trustStore,
       ...options.hooks,
+    }),
+  );
+  app.post(
+    PAIR_START_PATH,
+    createPairStartHandler({
+      logger,
+      registryUrl: options.config.registryUrl,
+      trustStore,
+      ...options.pairing?.start,
+    }),
+  );
+  app.post(
+    PAIR_CONFIRM_PATH,
+    createPairConfirmHandler({
+      logger,
+      trustStore,
+      ...options.pairing?.confirm,
     }),
   );
   app.get(
