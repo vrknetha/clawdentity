@@ -28,6 +28,7 @@
 
 ## CRL Snapshot Contract
 - `GET /v1/crl` is a public endpoint and must remain unauthenticated so SDK/proxy clients can refresh revocation state without PAT bootstrap dependencies.
+- Apply per-client-IP throttling on `GET /v1/crl` and return `429 RATE_LIMIT_EXCEEDED` when over budget.
 - Success response shape must remain `{ crl: <jwt> }` where `crl` is an EdDSA-signed token with `typ=CRL`.
 - Build CRL claims from the full `revocations` table (MVP full snapshot), joining each row to `agents.did` for `revocations[].agentDid`.
 - Keep CRL cache headers explicit and short-lived (`max-age=300` + `stale-while-revalidate`) for predictable revocation propagation.
@@ -47,6 +48,7 @@
 ## Validation
 - Run `pnpm -F @clawdentity/registry run test` after changing routes or config loading.
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.
+- For route-limit tests, prefer `createRegistryApp({ rateLimit: ... })` overrides to keep tests deterministic without weakening production defaults.
 - When using fake D1 adapters in route tests, make select responses honor bound parameters, selected-column projection, and join semantics so query-shape regressions are caught.
 - Fake D1 join emulation should drop rows when `innerJoin` targets are missing so tests catch missing/incorrect joins instead of masking them with stubbed values.
 
@@ -127,6 +129,7 @@
 
 ## POST /v1/agents/auth/refresh Contract
 - Public endpoint (no PAT): auth is agent-scoped via `Authorization: Claw <AIT>` + PoP headers + refresh token payload.
+- Apply per-client-IP throttling and return `429 RATE_LIMIT_EXCEEDED` before auth parsing when over budget.
 - Verify AIT against active registry signing keys and enforce deterministic issuer mapping for environment.
 - Verify PoP using canonical request inputs and public key from AIT `cnf`.
 - Enforce timestamp skew checks for replay-window reduction.
@@ -139,6 +142,7 @@
 
 ## POST /v1/agents/auth/validate Contract
 - Public endpoint used by proxy runtime auth enforcement; request must include `x-claw-agent-access` and JSON payload `{ agentDid, aitJti }`.
+- Apply per-client-IP throttling and return `429 RATE_LIMIT_EXCEEDED` before payload/auth validation when over budget.
 - Validate `agentDid` + `aitJti` against active agent state (`agents.status=active`, `agents.current_jti` match).
 - Validate access token against active session hash/prefix material with constant-time comparison.
 - Expired access credentials must return `401 AGENT_AUTH_VALIDATE_EXPIRED` without rotating refresh credentials.

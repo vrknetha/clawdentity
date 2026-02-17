@@ -52,6 +52,7 @@
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
 - Return `401` for invalid/expired/replayed/revoked/invalid-proof requests.
 - Return `403` when requests are verified but agent DID is not allowlisted.
+- Return `429` with `PROXY_PUBLIC_RATE_LIMIT_EXCEEDED` when repeated unauthenticated probes exceed public-route IP budget.
 - Return `429` with `PROXY_RATE_LIMIT_EXCEEDED` when an allowlisted verified agent DID exceeds its request budget within the configured window.
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
@@ -71,7 +72,7 @@
 - Keep `src/server.ts` as the HTTP app/runtime entry.
 - Keep `src/worker.ts` as the Cloudflare Worker fetch entry and `src/node-server.ts` as the Node compatibility entry.
 - Keep `AgentRelaySession` exported from `src/worker.ts` and bound/migrated in `wrangler.jsonc`.
-- Keep middleware order stable: request context -> request logging -> auth verification -> agent DID rate limit -> error handler.
+- Keep middleware order stable: request context -> request logging -> public-route IP rate limit -> auth verification -> agent DID rate limit -> error handler.
 - Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200.
 - Log startup and request completion with structured JSON logs; never log secrets or tokens.
 - If identity injection is enabled, mutate only `payload.message` when it is a string; preserve all other payload fields unchanged.

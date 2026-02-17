@@ -1,3 +1,4 @@
+import { RELAY_CONNECT_PATH } from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_PROXY_ENVIRONMENT,
@@ -80,5 +81,73 @@ describe("proxy server", () => {
         },
       }),
     ).toThrow(ProxyConfigError);
+  });
+
+  it("returns 429 for repeated unauthenticated probes on /hooks/agent from same IP", async () => {
+    const app = createProxyApp({
+      config: parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+      }),
+      rateLimit: {
+        publicIpMaxRequests: 2,
+        publicIpWindowMs: 60_000,
+      },
+    });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await app.request("/hooks/agent", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "CF-Connecting-IP": "198.51.100.41",
+        },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+    }
+
+    const rateLimited = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "CF-Connecting-IP": "198.51.100.41",
+      },
+      body: JSON.stringify({}),
+    });
+
+    expect(rateLimited.status).toBe(429);
+    const body = (await rateLimited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_PUBLIC_RATE_LIMIT_EXCEEDED");
+  });
+
+  it("returns 429 for repeated unauthenticated probes on relay connect from same IP", async () => {
+    const app = createProxyApp({
+      config: parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+      }),
+      rateLimit: {
+        publicIpMaxRequests: 2,
+        publicIpWindowMs: 60_000,
+      },
+    });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await app.request(RELAY_CONNECT_PATH, {
+        headers: {
+          "CF-Connecting-IP": "198.51.100.42",
+        },
+      });
+      expect(response.status).toBe(401);
+    }
+
+    const rateLimited = await app.request(RELAY_CONNECT_PATH, {
+      headers: {
+        "CF-Connecting-IP": "198.51.100.42",
+      },
+    });
+
+    expect(rateLimited.status).toBe(429);
+    const body = (await rateLimited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_PUBLIC_RATE_LIMIT_EXCEEDED");
   });
 });

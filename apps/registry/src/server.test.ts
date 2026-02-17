@@ -3091,6 +3091,44 @@ describe("GET /v1/crl", () => {
     expect(body.error.message).toBe("CRL snapshot is not available");
   });
 
+  it("returns 429 when rate limit is exceeded for the same client", async () => {
+    const { database } = createFakeDb([]);
+    const appInstance = createRegistryApp({
+      rateLimit: {
+        crlMaxRequests: 2,
+        crlWindowMs: 60_000,
+      },
+    });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await appInstance.request(
+        "/v1/crl",
+        {
+          headers: {
+            "CF-Connecting-IP": "203.0.113.77",
+          },
+        },
+        { DB: database, ENVIRONMENT: "test" },
+      );
+
+      expect(response.status).toBe(404);
+    }
+
+    const rateLimited = await appInstance.request(
+      "/v1/crl",
+      {
+        headers: {
+          "CF-Connecting-IP": "203.0.113.77",
+        },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(rateLimited.status).toBe(429);
+    const body = (await rateLimited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+  });
+
   it("returns 500 when CRL signing configuration is missing", async () => {
     const agentId = generateUlid(1700400000600);
     const { database } = createFakeDb(
@@ -6289,6 +6327,49 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       ]),
     );
   });
+
+  it("returns 429 when refresh rate limit is exceeded for the same client", async () => {
+    const appInstance = createRegistryApp({
+      rateLimit: {
+        agentAuthRefreshMaxRequests: 2,
+        agentAuthRefreshWindowMs: 60_000,
+      },
+    });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await appInstance.request(
+        AGENT_AUTH_REFRESH_PATH,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "CF-Connecting-IP": "203.0.113.88",
+          },
+          body: JSON.stringify({}),
+        },
+        { DB: {} as D1Database, ENVIRONMENT: "test" },
+      );
+
+      expect(response.status).toBe(400);
+    }
+
+    const rateLimited = await appInstance.request(
+      AGENT_AUTH_REFRESH_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "CF-Connecting-IP": "203.0.113.88",
+        },
+        body: JSON.stringify({}),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(rateLimited.status).toBe(429);
+    const body = (await rateLimited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
+  });
 });
 
 describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
@@ -6535,6 +6616,49 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
     expect(agentAuthSessionUpdates).toEqual(
       expect.arrayContaining([expect.objectContaining({ matched_rows: 0 })]),
     );
+  });
+
+  it("returns 429 when validate rate limit is exceeded for the same client", async () => {
+    const appInstance = createRegistryApp({
+      rateLimit: {
+        agentAuthValidateMaxRequests: 2,
+        agentAuthValidateWindowMs: 60_000,
+      },
+    });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await appInstance.request(
+        AGENT_AUTH_VALIDATE_PATH,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "CF-Connecting-IP": "203.0.113.99",
+          },
+          body: JSON.stringify({}),
+        },
+        { DB: {} as D1Database, ENVIRONMENT: "test" },
+      );
+
+      expect(response.status).toBe(400);
+    }
+
+    const rateLimited = await appInstance.request(
+      AGENT_AUTH_VALIDATE_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "CF-Connecting-IP": "203.0.113.99",
+        },
+        body: JSON.stringify({}),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(rateLimited.status).toBe(429);
+    const body = (await rateLimited.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("RATE_LIMIT_EXCEEDED");
   });
 });
 
