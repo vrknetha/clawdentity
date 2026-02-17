@@ -72,6 +72,8 @@
 
 ## OpenClaw Diagnostic Command Rules
 - `openclaw doctor` must stay read-only and validate required local state: resolved CLI config (`registryUrl` + `apiKey`), selected agent marker, local agent credentials, peers map integrity (and requested `--peer` alias), transform presence, hook mapping, and OpenClaw base URL resolution.
+- `openclaw doctor` must treat malformed/unreadable CLI config as a failed diagnostic check, not a thrown exception, so full per-check output remains available.
+- Relay hook mapping validation must require the expected mapping path (`send-to-peer`) and only accept optional `id` when it matches `clawdentity-send-to-peer`.
 - `openclaw doctor` must print deterministic check IDs and actionable fix hints for each failed check.
 - `openclaw doctor --json` must emit a stable machine-readable envelope with overall status + per-check results for CI scripting.
 
