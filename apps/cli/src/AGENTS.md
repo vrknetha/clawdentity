@@ -12,6 +12,7 @@
 - Admin bootstrap must print the one-time PAT before attempting to persist it and depend on `persistBootstrapConfig` so config write failures are surfaced via CLI errors while the operator still sees the PAT.
 - API-key lifecycle command logic should stay in `commands/api-key.ts`; keep create/list/revoke request mapping explicit and keep token exposure limited to create output only.
 - Connector runtime command logic should stay in `commands/connector.ts`; keep startup orchestration deterministic and avoid embedding connector runtime implementation details in the CLI.
+- Keep connector runtime import bundled at build time (from `@clawdentity/connector`) so published `clawdentity` installs do not depend on unpublished workspace runtime packages.
 - Registry invite lifecycle command logic should stay in `commands/invite.ts`; keep it strictly scoped to registry onboarding invites and separate from `commands/openclaw.ts` peer-relay invite codes.
 - `invite redeem` must print the returned PAT once, then persist config in deterministic order (`registryUrl`, then `apiKey`) so bootstrap/onboarding state is predictable.
 - `invite` command routes must use endpoint constants from `@clawdentity/protocol` (`INVITES_PATH`, `INVITES_REDEEM_PATH`) instead of inline path literals.

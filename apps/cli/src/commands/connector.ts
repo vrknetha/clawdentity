@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { startConnectorRuntime as bundledStartConnectorRuntime } from "@clawdentity/connector";
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
@@ -371,16 +372,9 @@ function parseAgentIdentity(rawIdentity: string): { did: string } {
 }
 
 async function loadDefaultConnectorModule(): Promise<ConnectorModule> {
-  const connectorModuleName: string = "@clawdentity/connector";
-
-  try {
-    return (await import(connectorModuleName)) as ConnectorModule;
-  } catch {
-    throw createCliError(
-      "CLI_CONNECTOR_PACKAGE_UNAVAILABLE",
-      "Connector package is unavailable. Install @clawdentity/connector and retry.",
-    );
-  }
+  return {
+    startConnectorRuntime: bundledStartConnectorRuntime,
+  };
 }
 
 function resolveWaitPromise(

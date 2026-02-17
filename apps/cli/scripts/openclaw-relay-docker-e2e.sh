@@ -19,7 +19,7 @@ CONTAINER_OPENCLAW_BASE_URL="${CONTAINER_OPENCLAW_BASE_URL:-http://127.0.0.1:187
 ALPHA_HOOK_TOKEN="${ALPHA_HOOK_TOKEN:-alpha-hook-secret}"
 BETA_HOOK_TOKEN="${BETA_HOOK_TOKEN:-beta-hook-secret}"
 BOOTSTRAP_SECRET="${BOOTSTRAP_SECRET:-clawdentity-local-bootstrap}"
-CLI_GLOBAL_PACKAGE_ROOT="${CLI_GLOBAL_PACKAGE_ROOT:-/home/node/.local/lib/node_modules/@clawdentity/cli}"
+CLI_GLOBAL_PACKAGE_ROOT="${CLI_GLOBAL_PACKAGE_ROOT:-/home/node/.local/lib/node_modules/clawdentity}"
 
 RESET_MODE="${RESET_MODE:-skill}"
 CLAWDENTITY_E2E_PAT="${CLAWDENTITY_E2E_PAT:-}"
@@ -89,8 +89,18 @@ reset_skill_state() {
 
 install_skill_assets() {
   local container="$1"
-  container_exec "$container" "test -f \"$CLI_GLOBAL_PACKAGE_ROOT/postinstall.mjs\""
-  container_exec "$container" "npm_config_skill=true node \"$CLI_GLOBAL_PACKAGE_ROOT/postinstall.mjs\" >/dev/null"
+  local package_root="$CLI_GLOBAL_PACKAGE_ROOT"
+  local legacy_package_root="/home/node/.local/lib/node_modules/@clawdentity/cli"
+
+  if ! container_exec "$container" "test -f \"$package_root/postinstall.mjs\""; then
+    if container_exec "$container" "test -f \"$legacy_package_root/postinstall.mjs\""; then
+      package_root="$legacy_package_root"
+    else
+      fail "postinstall.mjs not found in CLI package root: $package_root"
+    fi
+  fi
+
+  container_exec "$container" "npm_config_skill=true node \"$package_root/postinstall.mjs\" >/dev/null"
 }
 
 ensure_agent_identity() {

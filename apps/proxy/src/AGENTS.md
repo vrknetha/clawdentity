@@ -2,6 +2,7 @@
 
 ## Source Layout
 - Keep `index.ts` as runtime bootstrap surface and version export.
+- Keep version resolution in `index.ts` deterministic: prefer `APP_VERSION`, then `PROXY_VERSION`, then fallback constant for local/dev defaults.
 - Keep runtime env parsing and defaults in `config.ts`; do not scatter `process.env` reads across handlers.
 - Keep agent DID rate-limit env parsing in `config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE`, `AGENT_RATE_LIMIT_WINDOW_MS`) and validate as positive integers.
 - Keep HTTP app composition in `server.ts`.
@@ -30,6 +31,7 @@
 - Keep relay websocket connect handling isolated in `relay-connect-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
+- Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-allowlisted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.

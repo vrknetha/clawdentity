@@ -48,6 +48,21 @@ describe("proxy server", () => {
     expect(body.environment).toBe("local");
   });
 
+  it("uses provided app version when supplied by runtime", async () => {
+    const app = createProxyApp({
+      config: parseProxyConfig({
+        OPENCLAW_HOOK_TOKEN: "token",
+      }),
+      version: "sha-123456",
+    });
+
+    const res = await app.request("/health");
+    const body = (await res.json()) as { version: string };
+
+    expect(res.status).toBe(200);
+    expect(body.version).toBe("sha-123456");
+  });
+
   it("emits structured request completion log for /health", async () => {
     const logSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {

@@ -5,7 +5,7 @@
 
 ## Rules
 - Treat this folder as generated release input; do not hand-edit bundled files.
-- Regenerate by running `pnpm -F @clawdentity/cli run sync:skill-bundle` after changes in `apps/openclaw-skill`.
+- Regenerate by running `pnpm -F clawdentity run sync:skill-bundle` after changes in `apps/openclaw-skill`.
 - Required bundled files:
   - `openclaw-skill/skill/SKILL.md`
   - `openclaw-skill/skill/references/*`

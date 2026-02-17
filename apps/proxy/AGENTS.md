@@ -7,6 +7,7 @@
 ## Runtime Configuration
 - Keep runtime config centralized in `src/config.ts`.
 - Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `development`, and `production` environments.
+- Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
@@ -73,6 +74,6 @@
 - Keep `src/worker.ts` as the Cloudflare Worker fetch entry and `src/node-server.ts` as the Node compatibility entry.
 - Keep `AgentRelaySession` exported from `src/worker.ts` and bound/migrated in `wrangler.jsonc`.
 - Keep middleware order stable: request context -> request logging -> public-route IP rate limit -> auth verification -> agent DID rate limit -> error handler.
-- Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200.
+- Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200; version should reflect deploy-time `APP_VERSION` when provided.
 - Log startup and request completion with structured JSON logs; never log secrets or tokens.
 - If identity injection is enabled, mutate only `payload.message` when it is a string; preserve all other payload fields unchanged.

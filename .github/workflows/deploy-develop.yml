@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   deploy:
-    name: Lint, test, migrate, and deploy to dev
+    name: Lint, test, migrate, and deploy registry + proxy to dev
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -22,6 +22,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       APP_VERSION: ${{ github.sha }}
+      PROXY_HEALTH_URL_OVERRIDE: ${{ secrets.PROXY_HEALTH_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -64,16 +65,17 @@ jobs:
           PREDEPLOY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           echo "PREDEPLOY_TS=${PREDEPLOY_TS}" >> "${GITHUB_ENV}"
           printf "%s\n" "${PREDEPLOY_TS}" > artifacts/predeploy.timestamp
-          wrangler --cwd apps/registry deployments list --env dev --json > artifacts/worker-deployments-pre.json
+          wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-pre.json
+          wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-pre.json
           wrangler --cwd apps/registry d1 time-travel info clawdentity-db-dev --env dev --timestamp "${PREDEPLOY_TS}" --json > artifacts/d1-time-travel-pre.json
           wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output artifacts/d1-dev-predeploy.sql
 
-      - name: Apply dev migrations and deploy
+      - name: Apply registry dev migrations and deploy
         run: |
           wrangler --cwd apps/registry d1 migrations apply clawdentity-db-dev --remote --env dev
           wrangler --cwd apps/registry deploy --env dev --var APP_VERSION:${APP_VERSION}
 
-      - name: Verify health endpoint
+      - name: Verify registry health endpoint
         run: |
           python3 - <<'PY'
           import json, os, sys, urllib.request, urllib.error
@@ -98,19 +100,74 @@ jobs:
           print("healthcheck passed", data)
           PY
 
+      - name: Deploy proxy to development environment
+        run: |
+          mkdir -p artifacts
+          PROXY_DEPLOY_OUTPUT_FILE="artifacts/proxy-deploy-output.txt"
+          wrangler --cwd apps/proxy deploy --env development --var APP_VERSION:${APP_VERSION} 2>&1 | tee "${PROXY_DEPLOY_OUTPUT_FILE}"
+
+          PROXY_WORKERS_DEV_URL="$(grep -Eo 'https://[[:alnum:]._-]+\.workers\.dev' "${PROXY_DEPLOY_OUTPUT_FILE}" | head -n 1 || true)"
+          PROXY_HEALTH_URL=""
+
+          if [ -n "${PROXY_WORKERS_DEV_URL}" ]; then
+            PROXY_HEALTH_URL="${PROXY_WORKERS_DEV_URL}/health"
+          elif [ -n "${PROXY_HEALTH_URL_OVERRIDE}" ]; then
+            PROXY_HEALTH_URL="${PROXY_HEALTH_URL_OVERRIDE%/}/health"
+          fi
+
+          if [ -z "${PROXY_HEALTH_URL}" ]; then
+            echo "Unable to resolve proxy health URL. Set optional PROXY_HEALTH_URL secret if workers.dev URL is unavailable." >&2
+            exit 1
+          fi
+
+          echo "PROXY_HEALTH_URL=${PROXY_HEALTH_URL}" >> "${GITHUB_ENV}"
+          echo "Resolved proxy health URL: ${PROXY_HEALTH_URL}"
+
+      - name: Verify proxy health endpoint
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, urllib.error
+          url = os.environ.get("PROXY_HEALTH_URL", "")
+          expected_version = os.environ.get("APP_VERSION", "")
+          if not url:
+              raise SystemExit("PROXY_HEALTH_URL was not set")
+          try:
+              resp = urllib.request.urlopen(url, timeout=10)
+          except urllib.error.HTTPError as exc:
+              sys.stderr.write(f"proxy health check failed ({exc.code} {exc.reason})\n")
+              sys.exit(1)
+          data = json.load(resp)
+          if data.get("status") != "ok" or data.get("environment") != "development":
+              raise SystemExit(f"unexpected proxy health payload: {data}")
+          if not expected_version:
+              raise SystemExit("APP_VERSION was not set in workflow environment")
+          if data.get("version") == "0.0.0":
+              raise SystemExit(f"unexpected placeholder proxy version after deploy: {data}")
+          if data.get("version") != expected_version:
+              raise SystemExit(
+                  f"unexpected proxy version: expected {expected_version}, got {data.get('version')}"
+              )
+          print("proxy healthcheck passed", data)
+          PY
+
       - name: Capture post-deploy state
         if: always()
         run: |
           mkdir -p artifacts
-          wrangler --cwd apps/registry deployments list --env dev --json > artifacts/worker-deployments-post.json || true
+          wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-post.json || true
+          wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-post.json || true
           wrangler --cwd apps/registry d1 migrations list clawdentity-db-dev --remote --env dev > artifacts/d1-migrations-post.txt || true
 
       - name: Rollback instructions on failure
         if: failure()
         run: |
-          echo "Worker rollback:"
+          echo "Registry Worker rollback:"
           echo "  wrangler --cwd apps/registry deployments list --env dev --json"
           echo "  wrangler --cwd apps/registry rollback <version-id> --env dev -y -m \"ci rollback\""
+          echo ""
+          echo "Proxy Worker rollback:"
+          echo "  wrangler --cwd apps/proxy deployments list --env development --json"
+          echo "  wrangler --cwd apps/proxy rollback <version-id> --env development -y -m \"ci rollback\""
           echo ""
           echo "D1 rollback:"
           echo "  wrangler --cwd apps/registry d1 time-travel restore clawdentity-db-dev --env dev --timestamp \"${PREDEPLOY_TS}\""

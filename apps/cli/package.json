@@ -1,8 +1,10 @@
 {
-  "name": "@clawdentity/cli",
+  "name": "clawdentity",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
@@ -31,10 +33,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@clawdentity/connector": "workspace:*",
     "commander": "^13.1.0"
   },
   "devDependencies": {
+    "@clawdentity/connector": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
     "@clawdentity/sdk": "workspace:*",
     "@types/node": "^22.18.11"

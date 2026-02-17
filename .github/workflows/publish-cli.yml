@@ -1,0 +1,113 @@
+name: Publish CLI
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version for clawdentity (semver)"
+        required: true
+        type: string
+      dist_tag:
+        description: "npm dist-tag"
+        required: true
+        default: "latest"
+        type: string
+
+concurrency:
+  group: publish-cli-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Validate and publish clawdentity to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Validate required secrets
+        run: |
+          test -n "${NODE_AUTH_TOKEN}"
+
+      - name: Validate release version format
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          version = "${{ inputs.version }}"
+          if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$", version):
+              raise SystemExit(f"invalid semver version: {version}")
+          print("version accepted:", version)
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint CLI package
+        run: pnpm -F clawdentity lint
+
+      - name: Typecheck CLI package
+        run: pnpm -F clawdentity typecheck
+
+      - name: Test CLI package
+        run: pnpm -F clawdentity test
+
+      - name: Build CLI package
+        run: pnpm -F clawdentity build
+
+      - name: Set package version for release
+        run: npm --prefix apps/cli pkg set version=${{ inputs.version }}
+
+      - name: Validate publish manifest
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const pkg = JSON.parse(fs.readFileSync("apps/cli/package.json", "utf8"));
+          if (pkg.name !== "clawdentity") {
+            throw new Error(`Unexpected package name: ${pkg.name}`);
+          }
+          if (pkg.private === true) {
+            throw new Error("Package is private; publish would fail");
+          }
+          const runtimeDeps = {
+            ...(pkg.dependencies || {}),
+            ...(pkg.peerDependencies || {}),
+            ...(pkg.optionalDependencies || {}),
+          };
+          const workspaceRuntimeDeps = Object.entries(runtimeDeps).filter(([, value]) =>
+            String(value).includes("workspace:"),
+          );
+          if (workspaceRuntimeDeps.length > 0) {
+            throw new Error(
+              `Found workspace runtime dependencies: ${workspaceRuntimeDeps
+                .map(([name, value]) => `${name}@${value}`)
+                .join(", ")}`,
+            );
+          }
+          console.log("publish manifest validated");
+          NODE
+
+      - name: Dry-run package contents
+        run: npm --prefix apps/cli pack --dry-run
+
+      - name: Publish package
+        run: npm --prefix apps/cli publish --access public --provenance --tag ${{ inputs.dist_tag }}
