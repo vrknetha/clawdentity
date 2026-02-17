@@ -30,7 +30,7 @@ What Clawdentity adds:
 
 - Verifiable per-agent identity (AIT + PoP)
 - Fast revocation propagation (signed CRL + cache refresh)
-- Proxy-side policy enforcement (allowlist + rate limits + replay protection)
+- Proxy-side policy enforcement (trust pairs + rate limits + replay protection)
 
 ---
 
@@ -50,7 +50,7 @@ Caller Agent
   |
   |  Authorization: Claw <AIT>  +  X-Claw-Proof/Nonce/Timestamp
   v
-Clawdentity Proxy   (verifies identity + allowlist + rate limits)
+Clawdentity Proxy   (verifies identity + trust policy + rate limits)
   |
   |  x-openclaw-token: <hooks.token>   (internal only)
   v
@@ -89,7 +89,7 @@ OpenClaw Gateway  (normal /hooks/agent handling)
 - Proxy checks AIT expiry and CRL revocation status.
 - Proxy verifies PoP signature against the key in the token.
 - Proxy rejects replay via timestamp skew + nonce cache.
-- Proxy enforces allowlist and rate limits.
+- Proxy enforces trust-pair policy and rate limits.
 
 ### 4) Forward to OpenClaw
 
@@ -139,7 +139,7 @@ This section walks through **every step** from zero to two OpenClaw agents excha
     │                       │          │                      │
     │  Verifies identity    │          └──────────────────────┘
     │  Checks revocation    │
-    │  Enforces allowlist   │
+    │  Enforces trust pairs │
     │  Rejects replays      │
     │  Rate limits per agent│
     └───────────┬───────────┘
@@ -266,7 +266,7 @@ Alice's Operator                        Bob's Operator
   │                                        │  Configures OpenClaw hooks
 ```
 
-**Security:** The invite contains only public information (DID + proxy URL). No keys, tokens, or secrets are exchanged. Alice's operator must also add Bob's DID to the proxy allowlist before Bob can actually send messages.
+**Security:** The invite contains only public information (DID + proxy URL). No keys, tokens, or secrets are exchanged. Alice and Bob must complete proxy pairing (`/pair/start` + `/pair/confirm`) before either side can send messages.
 
 ### Step 4: First Message (Bob → Alice)
 
@@ -317,8 +317,8 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
      │                      │                 (per-agent nonce cache)      │
      │                      │               ⑤ Check CRL revocation         │
      │                      │                 (signed list from registry)  │
-     │                      │               ⑥ Enforce allowlist            │
-     │                      │                 (is Bob's DID permitted?)    │
+     │                      │               ⑥ Enforce trust pair           │
+     │                      │                 (is Bob trusted for Alice?)  │
      │                      │               ⑦ Validate agent access token  │
      │                      │                 (POST to registry)           │
      │                      │                      │                       │
@@ -344,7 +344,7 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 | **Revocation** | Rotate shared token = break all integrations | Revoke one agent instantly via CRL, others unaffected |
 | **Replay protection** | None | Timestamp + nonce + signature on every request |
 | **Tamper detection** | None | Body hash + PoP signature = any modification is detectable |
-| **Per-caller policy** | Not possible | Allowlist by agent DID, rate limit per agent |
+| **Per-caller policy** | Not possible | Trust pairs by sender/recipient DID, rate limit per agent |
 | **Key exposure** | Token must be shared with every caller | Private key never leaves the agent's machine |
 
 ### What Gets Verified (and When It Fails)
@@ -356,7 +356,7 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 | PoP signature | `PROXY_AUTH_INVALID_PROOF` | 401 | Sender doesn't hold the private key |
 | Nonce replay | `PROXY_AUTH_REPLAY` | 401 | Same request was sent twice |
 | CRL revocation | `PROXY_AUTH_REVOKED` | 401 | Agent identity has been revoked |
-| Allowlist | `PROXY_AUTH_FORBIDDEN` | 403 | Agent is valid but not authorized here |
+| Trust policy | `PROXY_AUTH_FORBIDDEN` | 403 | Agent is valid but not trusted for this recipient |
 | Agent access token | `PROXY_AGENT_ACCESS_INVALID` | 401 | Session token expired or revoked |
 | Rate limit | `PROXY_RATE_LIMIT_EXCEEDED` | 429 | Too many requests from this agent |
 
@@ -373,7 +373,7 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 
 ### Receiver side operator (callee gateway owner)
 
-- Action: remove/deny caller in local allowlist (or keep `approvalRequired` for first contact)
+- Action: remove/deny trusted caller pair in local proxy trust state (or keep approval-required first contact)
 - Scope: **local only** (that specific gateway/proxy)
 - Effect: caller is blocked on this gateway immediately, but remains valid elsewhere unless globally revoked.
 - Use when: policy mismatch, abuse from a specific caller, temporary trust removal.
@@ -390,7 +390,7 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 2. Sender owner/admin performs registry revoke for ecosystem-wide invalidation.
 3. Proxies return:
    - `401` for invalid/expired/revoked identity
-   - `403` for valid identity that is not allowlisted locally
+   - `403` for valid identity that is not trusted locally for the target recipient
 
 ---
 
@@ -456,7 +456,7 @@ clawdentity/
 
 - Handled by: `apps/proxy`
 - Proxy Worker verifies AIT + CRL + PoP before forwarding to OpenClaw.
-- Enforces caller allowlist policy by DID.
+- Enforces durable trust pairs for sender/recipient DID.
 - Applies per-agent rate limiting.
 - Keeps `hooks.token` private and only injects it internally during forward.
 - By default, `INJECT_IDENTITY_INTO_MESSAGE=true` to prepend a sanitized identity block
@@ -510,7 +510,7 @@ clawdentity/
 - Handled by: `apps/registry`, `apps/proxy`, `apps/cli`
 - Out-of-band contact card sharing.
 - Registry `gateway_hint` resolution.
-- Optional pairing-code flow for first-contact allowlist approval.
+- Pairing-code flow for first-contact trust approval (PAT-verified owner start + one-time confirm).
 
 ---
 
@@ -559,7 +559,7 @@ MVP supports three ways to “find” another agent:
 
 1. **Out-of-band share**: human shares a contact card (verify link + endpoint URL)
 2. **Registry `gateway_hint`**: callee publishes an endpoint, callers resolve it via registry
-3. **Pairing code** (proxy): “Approve first contact” to auto-add caller to allowlist
+3. **Pairing code** (proxy): “Approve first contact” to establish a mutual trusted agent pair
 
 No one shares keys/files between agents. Identity is presented per request.
 
@@ -582,7 +582,7 @@ No one shares keys/files between agents. Identity is presented per request.
   - method, path, timestamp, nonce, body hash
   - and reject nonce replays
 - Reject tampering: any change to method/path/body/timestamp/nonce invalidates proof.
-- Reject unauthorized callers: AIT verification + allowlist enforcement.
+- Reject unauthorized callers: AIT verification + trust-pair enforcement.
 - Reject compromised identities quickly: CRL-based revocation checks.
 - Contain abuse: per-agent rate limits at proxy boundary.
 
@@ -600,7 +600,7 @@ No one shares keys/files between agents. Identity is presented per request.
 
 - Treat any identity fields (agent name/description) as untrusted input; never allow prompt injection via identity metadata.
 - Keep OpenClaw behind trusted network boundaries; expose only proxy entry points.
-- Rotate PATs and audit allowlist entries regularly.
+- Rotate PATs and audit trusted pair entries regularly.
 - Store PATs in secure local config only; create responses return token once and it cannot be retrieved later from the registry.
 - Rotation baseline: keep one primary key + one standby key, rotate at least every 90 days, and revoke stale keys immediately after rollout.
 

@@ -86,9 +86,6 @@ const proxyRuntimeEnvSchema = z.object({
   ENVIRONMENT: z
     .enum(proxyEnvironmentValues)
     .default(DEFAULT_PROXY_ENVIRONMENT),
-  ALLOW_LIST: z.string().optional(),
-  ALLOWLIST_OWNERS: z.string().optional(),
-  ALLOWLIST_AGENTS: z.string().optional(),
   CRL_REFRESH_INTERVAL_MS: z.coerce
     .number()
     .int()
@@ -117,20 +114,12 @@ const proxyRuntimeEnvSchema = z.object({
   ),
 });
 
-const proxyAllowListSchema = z
-  .object({
-    owners: z.array(z.string().trim().min(1)).default([]),
-    agents: z.array(z.string().trim().min(1)).default([]),
-  })
-  .strict();
-
 export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
   openclawBaseUrl: z.string().url(),
   openclawHookToken: z.string().min(1).optional(),
   registryUrl: z.string().url(),
   environment: z.enum(proxyEnvironmentValues),
-  allowList: proxyAllowListSchema,
   crlRefreshIntervalMs: z.number().int().positive(),
   crlMaxAgeMs: z.number().int().positive(),
   crlStaleBehavior: z.enum(["fail-open", "fail-closed"]),
@@ -140,20 +129,15 @@ export const proxyConfigSchema = z.object({
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
-export type ProxyAllowList = z.infer<typeof proxyAllowListSchema>;
 
 type RuntimeEnvInput = {
   LISTEN_PORT?: unknown;
   PORT?: unknown;
   OPENCLAW_BASE_URL?: unknown;
   OPENCLAW_HOOK_TOKEN?: unknown;
-  OPENCLAW_HOOKS_TOKEN?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
   ENVIRONMENT?: unknown;
-  ALLOW_LIST?: unknown;
-  ALLOWLIST_OWNERS?: unknown;
-  ALLOWLIST_AGENTS?: unknown;
   ALLOW_ALL_VERIFIED?: unknown;
   CRL_REFRESH_INTERVAL_MS?: unknown;
   CRL_MAX_AGE_MS?: unknown;
@@ -162,9 +146,7 @@ type RuntimeEnvInput = {
   AGENT_RATE_LIMIT_WINDOW_MS?: unknown;
   INJECT_IDENTITY_INTO_MESSAGE?: unknown;
   OPENCLAW_STATE_DIR?: unknown;
-  CLAWDBOT_STATE_DIR?: unknown;
   OPENCLAW_CONFIG_PATH?: unknown;
-  CLAWDBOT_CONFIG_PATH?: unknown;
   HOME?: unknown;
   USERPROFILE?: unknown;
 };
@@ -272,10 +254,7 @@ function resolveStateDir(
 ): string {
   const cwd = options.cwd ?? resolveDefaultCwd();
   const home = resolveHomeDir(env, options.homeDir);
-  const stateDirOverride = firstNonEmptyString(env, [
-    "OPENCLAW_STATE_DIR",
-    "CLAWDBOT_STATE_DIR",
-  ]);
+  const stateDirOverride = firstNonEmptyString(env, ["OPENCLAW_STATE_DIR"]);
 
   if (stateDirOverride !== undefined) {
     return resolvePathWithHome(stateDirOverride, cwd, home);
@@ -303,10 +282,7 @@ function resolveOpenClawConfigPath(
   const cwd = options.cwd ?? resolveDefaultCwd();
   const home = resolveHomeDir(env, options.homeDir);
   const stateDir = resolveStateDir(env, options);
-  const configPathOverride = firstNonEmptyString(env, [
-    "OPENCLAW_CONFIG_PATH",
-    "CLAWDBOT_CONFIG_PATH",
-  ]);
+  const configPathOverride = firstNonEmptyString(env, ["OPENCLAW_CONFIG_PATH"]);
 
   if (configPathOverride !== undefined) {
     return resolvePathWithHome(configPathOverride, cwd, home);
@@ -520,18 +496,12 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
   return {
     LISTEN_PORT: firstNonEmpty(env, ["LISTEN_PORT", "PORT"]),
     OPENCLAW_BASE_URL: firstNonEmpty(env, ["OPENCLAW_BASE_URL"]),
-    OPENCLAW_HOOK_TOKEN: firstNonEmpty(env, [
-      "OPENCLAW_HOOK_TOKEN",
-      "OPENCLAW_HOOKS_TOKEN",
-    ]),
+    OPENCLAW_HOOK_TOKEN: firstNonEmpty(env, ["OPENCLAW_HOOK_TOKEN"]),
     REGISTRY_URL: firstNonEmpty(env, [
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",
     ]),
     ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
-    ALLOW_LIST: firstNonEmpty(env, ["ALLOW_LIST"]),
-    ALLOWLIST_OWNERS: firstNonEmpty(env, ["ALLOWLIST_OWNERS"]),
-    ALLOWLIST_AGENTS: firstNonEmpty(env, ["ALLOWLIST_AGENTS"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
     CRL_MAX_AGE_MS: firstNonEmpty(env, ["CRL_MAX_AGE_MS"]),
     CRL_STALE_BEHAVIOR: firstNonEmpty(env, ["CRL_STALE_BEHAVIOR"]),
@@ -547,62 +517,6 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
   };
 }
 
-function dedupe(values: readonly string[]): string[] {
-  return [...new Set(values)];
-}
-
-function parseDidList(input: string): string[] {
-  return dedupe(
-    input
-      .split(",")
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0),
-  );
-}
-
-function parseAllowList(
-  env: z.infer<typeof proxyRuntimeEnvSchema>,
-): ProxyAllowList {
-  let allowList: ProxyAllowList = {
-    owners: [],
-    agents: [],
-  };
-
-  if (env.ALLOW_LIST !== undefined) {
-    let parsedAllowList: unknown;
-    try {
-      parsedAllowList = JSON.parse(env.ALLOW_LIST);
-    } catch {
-      throw toConfigValidationError({
-        fieldErrors: {
-          ALLOW_LIST: ["Expected valid JSON object"],
-        },
-        formErrors: [],
-      });
-    }
-
-    const parsed = proxyAllowListSchema.safeParse(parsedAllowList);
-    if (!parsed.success) {
-      throw toConfigValidationError({
-        fieldErrors: parsed.error.flatten().fieldErrors,
-        formErrors: parsed.error.flatten().formErrors,
-      });
-    }
-
-    allowList = parsed.data;
-  }
-
-  if (env.ALLOWLIST_OWNERS !== undefined) {
-    allowList = { ...allowList, owners: parseDidList(env.ALLOWLIST_OWNERS) };
-  }
-
-  if (env.ALLOWLIST_AGENTS !== undefined) {
-    allowList = { ...allowList, agents: parseDidList(env.ALLOWLIST_AGENTS) };
-  }
-
-  return allowList;
-}
-
 function assertNoDeprecatedAllowAllVerified(env: RuntimeEnvInput): void {
   const value = env.ALLOW_ALL_VERIFIED;
   if (
@@ -615,9 +529,7 @@ function assertNoDeprecatedAllowAllVerified(env: RuntimeEnvInput): void {
 
   throw toConfigValidationError({
     fieldErrors: {
-      ALLOW_ALL_VERIFIED: [
-        "ALLOW_ALL_VERIFIED is no longer supported. Use ALLOWLIST_AGENTS.",
-      ],
+      ALLOW_ALL_VERIFIED: ["ALLOW_ALL_VERIFIED is no longer supported."],
     },
     formErrors: [],
   });
@@ -628,10 +540,7 @@ function loadHookTokenFromFallback(
   options: ProxyConfigLoadOptions,
 ): void {
   if (
-    firstNonEmpty(env as RuntimeEnvInput, [
-      "OPENCLAW_HOOK_TOKEN",
-      "OPENCLAW_HOOKS_TOKEN",
-    ]) !== undefined
+    firstNonEmpty(env as RuntimeEnvInput, ["OPENCLAW_HOOK_TOKEN"]) !== undefined
   ) {
     return;
   }
@@ -684,7 +593,6 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     openclawHookToken: parsedRuntimeEnv.data.OPENCLAW_HOOK_TOKEN,
     registryUrl: parsedRuntimeEnv.data.REGISTRY_URL,
     environment: parsedRuntimeEnv.data.ENVIRONMENT,
-    allowList: parseAllowList(parsedRuntimeEnv.data),
     crlRefreshIntervalMs: parsedRuntimeEnv.data.CRL_REFRESH_INTERVAL_MS,
     crlMaxAgeMs: parsedRuntimeEnv.data.CRL_MAX_AGE_MS,
     crlStaleBehavior: parsedRuntimeEnv.data.CRL_STALE_BEHAVIOR,

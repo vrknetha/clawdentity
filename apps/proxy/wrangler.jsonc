@@ -9,6 +9,10 @@
       {
         "name": "AGENT_RELAY_SESSION",
         "class_name": "AgentRelaySession"
+      },
+      {
+        "name": "PROXY_TRUST_STATE",
+        "class_name": "ProxyTrustState"
       }
     ]
   },
@@ -16,6 +20,10 @@
     {
       "tag": "v1-agent-relay-session",
       "new_sqlite_classes": ["AgentRelaySession"]
+    },
+    {
+      "tag": "v2-proxy-trust-state",
+      "new_sqlite_classes": ["ProxyTrustState"]
     }
   ],
   "env": {
@@ -26,6 +34,10 @@
           {
             "name": "AGENT_RELAY_SESSION",
             "class_name": "AgentRelaySession"
+          },
+          {
+            "name": "PROXY_TRUST_STATE",
+            "class_name": "ProxyTrustState"
           }
         ]
       },
@@ -33,6 +45,10 @@
         {
           "tag": "v1-agent-relay-session",
           "new_sqlite_classes": ["AgentRelaySession"]
+        },
+        {
+          "tag": "v2-proxy-trust-state",
+          "new_sqlite_classes": ["ProxyTrustState"]
         }
       ],
       "vars": {
@@ -49,6 +65,10 @@
           {
             "name": "AGENT_RELAY_SESSION",
             "class_name": "AgentRelaySession"
+          },
+          {
+            "name": "PROXY_TRUST_STATE",
+            "class_name": "ProxyTrustState"
           }
         ]
       },
@@ -56,6 +76,10 @@
         {
           "tag": "v1-agent-relay-session",
           "new_sqlite_classes": ["AgentRelaySession"]
+        },
+        {
+          "tag": "v2-proxy-trust-state",
+          "new_sqlite_classes": ["ProxyTrustState"]
         }
       ],
       "vars": {
@@ -71,6 +95,10 @@
           {
             "name": "AGENT_RELAY_SESSION",
             "class_name": "AgentRelaySession"
+          },
+          {
+            "name": "PROXY_TRUST_STATE",
+            "class_name": "ProxyTrustState"
           }
         ]
       },
@@ -78,6 +106,10 @@
         {
           "tag": "v1-agent-relay-session",
           "new_sqlite_classes": ["AgentRelaySession"]
+        },
+        {
+          "tag": "v2-proxy-trust-state",
+          "new_sqlite_classes": ["ProxyTrustState"]
         }
       ],
       "vars": {

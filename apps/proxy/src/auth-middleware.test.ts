@@ -1,9 +1,4 @@
-import {
-  AGENT_AUTH_VALIDATE_PATH,
-  generateUlid,
-  makeAgentDid,
-  makeHumanDid,
-} from "@clawdentity/protocol";
+import { AGENT_AUTH_VALIDATE_PATH, generateUlid } from "@clawdentity/protocol";
 import {
   encodeEd25519KeypairBase64url,
   generateEd25519Keypair,
@@ -11,10 +6,13 @@ import {
   signCRL,
   signHttpRequest,
 } from "@clawdentity/sdk";
+import { buildTestAitClaims } from "@clawdentity/sdk/testing";
 import { describe, expect, it, vi } from "vitest";
 import { RELAY_RECIPIENT_AGENT_DID_HEADER } from "./agent-hook-route.js";
 import type { AgentRelaySessionNamespace } from "./agent-relay-session.js";
 import { parseProxyConfig } from "./config.js";
+import { PAIR_CONFIRM_PATH } from "./pairing-constants.js";
+import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
 import { RELAY_CONNECT_PATH } from "./relay-connect-route.js";
 import { createProxyApp } from "./server.js";
 
@@ -23,6 +21,7 @@ const NOW_MS = Date.now();
 const NOW_SECONDS = Math.floor(NOW_MS / 1000);
 const ISSUER = "https://api.clawdentity.com";
 const BODY_JSON = JSON.stringify({ message: "hello" });
+const KNOWN_PEER_DID = "did:claw:agent:known-peer";
 
 type AuthHarnessOptions = {
   expired?: boolean;
@@ -30,14 +29,13 @@ type AuthHarnessOptions = {
   fetchCrlFails?: boolean;
   fetchKeysFails?: boolean;
   allowCurrentAgent?: boolean;
-  allowCurrentOwner?: boolean;
   revoked?: boolean;
   validateStatus?: number;
 };
 
 type AuthHarness = {
   app: ReturnType<typeof createProxyApp>;
-  claims: Awaited<ReturnType<typeof buildAitClaims>>;
+  claims: ReturnType<typeof buildTestAitClaims>;
   createSignedHeaders: (input?: {
     body?: string;
     method?: "GET" | "POST";
@@ -47,46 +45,6 @@ type AuthHarness = {
     timestampSeconds?: number;
   }) => Promise<Record<string, string>>;
 };
-
-async function buildAitClaims(input: { agentPublicKeyX: string }): Promise<{
-  iss: string;
-  sub: string;
-  ownerDid: string;
-  name: string;
-  framework: string;
-  description: string;
-  cnf: {
-    jwk: {
-      kty: "OKP";
-      crv: "Ed25519";
-      x: string;
-    };
-  };
-  iat: number;
-  nbf: number;
-  exp: number;
-  jti: string;
-}> {
-  return {
-    iss: ISSUER,
-    sub: makeAgentDid(generateUlid(NOW_MS + 10)),
-    ownerDid: makeHumanDid(generateUlid(NOW_MS + 20)),
-    name: "Proxy Agent",
-    framework: "openclaw",
-    description: "test agent",
-    cnf: {
-      jwk: {
-        kty: "OKP",
-        crv: "Ed25519",
-        x: input.agentPublicKeyX,
-      },
-    },
-    iat: NOW_SECONDS - 10,
-    nbf: NOW_SECONDS - 10,
-    exp: NOW_SECONDS + 600,
-    jti: generateUlid(NOW_MS + 30),
-  };
-}
 
 function resolveRequestUrl(requestInput: unknown): string {
   if (typeof requestInput === "string") {
@@ -167,8 +125,13 @@ async function createAuthHarness(
   const agentKeypair = await generateEd25519Keypair();
   const encodedRegistry = encodeEd25519KeypairBase64url(registryKeypair);
   const encodedAgent = encodeEd25519KeypairBase64url(agentKeypair);
-  const claims = await buildAitClaims({
-    agentPublicKeyX: encodedAgent.publicKey,
+  const claims = buildTestAitClaims({
+    publicKeyX: encodedAgent.publicKey,
+    issuer: ISSUER,
+    nowSeconds: NOW_SECONDS - 10,
+    ttlSeconds: 610,
+    nbfSkewSeconds: 0,
+    seedMs: NOW_MS,
   });
   if (options.expired) {
     claims.exp = NOW_SECONDS - 1;
@@ -210,9 +173,14 @@ async function createAuthHarness(
     validateStatus: options.validateStatus,
   });
 
-  const allowListAgents =
-    options.allowCurrentAgent === false ? [] : [claims.sub];
-  const allowListOwners = options.allowCurrentOwner ? [claims.ownerDid] : [];
+  const trustStore = createInMemoryProxyTrustStore();
+  if (options.allowCurrentAgent !== false) {
+    await trustStore.upsertPair({
+      initiatorAgentDid: claims.sub,
+      responderAgentDid: KNOWN_PEER_DID,
+    });
+  }
+
   const relaySession = {
     fetch: vi.fn(async (request: Request) => {
       if (request.method === "POST") {
@@ -235,16 +203,11 @@ async function createAuthHarness(
 
   const app = createProxyApp({
     config: parseProxyConfig({
-      ...(allowListAgents.length > 0
-        ? { ALLOWLIST_AGENTS: allowListAgents.join(",") }
-        : {}),
-      ...(allowListOwners.length > 0
-        ? { ALLOWLIST_OWNERS: allowListOwners.join(",") }
-        : {}),
       ...(options.crlStaleBehavior
         ? { CRL_STALE_BEHAVIOR: options.crlStaleBehavior }
         : {}),
     }),
+    trustStore,
     auth: {
       fetchImpl: fetchMock as typeof fetch,
       clock: () => NOW_MS,
@@ -328,12 +291,12 @@ describe("proxy auth middleware", () => {
     expect(body.auth.aitJti).toBe(harness.claims.jti);
   });
 
-  it("returns 403 when a verified caller is not allowlisted by agent DID", async () => {
+  it("returns 403 when a verified caller is not trusted by agent DID", async () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
     });
     const headers = await harness.createSignedHeaders({
-      nonce: "nonce-not-allowlisted",
+      nonce: "nonce-not-trusted",
     });
     const response = await harness.app.request("/protected", {
       method: "POST",
@@ -346,23 +309,26 @@ describe("proxy auth middleware", () => {
     expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
   });
 
-  it("returns 403 when only owner DID is allowlisted", async () => {
+  it("allows unknown agents to reach /pair/confirm for pairing bootstrap", async () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
-      allowCurrentOwner: true,
     });
+    const requestBody = JSON.stringify({ pairingCode: "missing-code" });
     const headers = await harness.createSignedHeaders({
-      nonce: "nonce-owner-only-allowlisted",
-    });
-    const response = await harness.app.request("/protected", {
-      method: "POST",
-      headers,
-      body: BODY_JSON,
+      body: requestBody,
+      nonce: "nonce-pair-confirm-bootstrap",
+      pathWithQuery: PAIR_CONFIRM_PATH,
     });
 
-    expect(response.status).toBe(403);
+    const response = await harness.app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers,
+      body: requestBody,
+    });
+
+    expect(response.status).toBe(404);
     const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
+    expect(body.error.code).toBe("PROXY_PAIR_CODE_NOT_FOUND");
   });
 
   it("refreshes keyset and accepts valid AIT after registry key rotation", async () => {
@@ -377,8 +343,13 @@ describe("proxy auth middleware", () => {
       encodeEd25519KeypairBase64url(newRegistryKeypair);
     const encodedAgent = encodeEd25519KeypairBase64url(agentKeypair);
 
-    const claims = await buildAitClaims({
-      agentPublicKeyX: encodedAgent.publicKey,
+    const claims = buildTestAitClaims({
+      publicKeyX: encodedAgent.publicKey,
+      issuer: ISSUER,
+      nowSeconds: NOW_SECONDS - 10,
+      ttlSeconds: 610,
+      nbfSkewSeconds: 0,
+      seedMs: NOW_MS,
     });
     const ait = await signAIT({
       claims,
@@ -447,11 +418,17 @@ describe("proxy auth middleware", () => {
       },
     );
 
+    const trustStore = createInMemoryProxyTrustStore();
+    await trustStore.upsertPair({
+      initiatorAgentDid: claims.sub,
+      responderAgentDid: KNOWN_PEER_DID,
+    });
+
     const app = createProxyApp({
       config: parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
-        ALLOWLIST_AGENTS: claims.sub,
       }),
+      trustStore,
       auth: {
         fetchImpl: fetchMock as typeof fetch,
         clock: () => NOW_MS,
@@ -495,8 +472,13 @@ describe("proxy auth middleware", () => {
       encodeEd25519KeypairBase64url(newRegistryKeypair);
     const encodedAgent = encodeEd25519KeypairBase64url(agentKeypair);
 
-    const claims = await buildAitClaims({
-      agentPublicKeyX: encodedAgent.publicKey,
+    const claims = buildTestAitClaims({
+      publicKeyX: encodedAgent.publicKey,
+      issuer: ISSUER,
+      nowSeconds: NOW_SECONDS - 10,
+      ttlSeconds: 610,
+      nbfSkewSeconds: 0,
+      seedMs: NOW_MS,
     });
     const ait = await signAIT({
       claims,
@@ -565,11 +547,17 @@ describe("proxy auth middleware", () => {
       },
     );
 
+    const trustStore = createInMemoryProxyTrustStore();
+    await trustStore.upsertPair({
+      initiatorAgentDid: claims.sub,
+      responderAgentDid: KNOWN_PEER_DID,
+    });
+
     const app = createProxyApp({
       config: parseProxyConfig({
         OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
-        ALLOWLIST_AGENTS: claims.sub,
       }),
+      trustStore,
       auth: {
         fetchImpl: fetchMock as typeof fetch,
         clock: () => NOW_MS,

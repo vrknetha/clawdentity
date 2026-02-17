@@ -27,6 +27,13 @@
 - Keep filesystem path logic centralized; avoid hardcoding `~/.clawdentity` paths across multiple files.
 - Keep relay behavior pure except for explicit dependencies (`fetch`, filesystem) so tests stay deterministic.
 - Prefer schema-first runtime validation over ad-hoc guards.
+- Keep skill docs aligned with connector architecture: do not document direct transform-to-peer-proxy signing.
+- Keep `skill/SKILL.md` command utilization section explicit and executable with current CLI commands used by this skill (`config`, `agent`, `openclaw setup/doctor/relay test`, `connector start`, optional `connector service install`).
+- Keep pairing prerequisite documented as API-based (`/pair/start`, `/pair/confirm`) until a dedicated CLI pairing command exists.
+- When `src/transforms/relay-to-peer.ts` relay envelope, endpoint defaults, or failure mapping changes, update:
+  - `skill/SKILL.md`
+  - `skill/references/clawdentity-protocol.md`
+  - bundled copies in `apps/cli/skill-bundle/openclaw-skill/skill/*`
 
 ## Validation Commands
 - `pnpm -F @clawdentity/openclaw-skill typecheck`

@@ -36,6 +36,7 @@ import type {
   RelayDeliveryResult,
 } from "./agent-relay-session.js";
 import { parseProxyConfig } from "./config.js";
+import type { ProxyTrustStore } from "./proxy-trust-store.js";
 import { createProxyApp } from "./server.js";
 
 function hasDisallowedControlCharacter(value: string): boolean {
@@ -105,10 +106,23 @@ function createHookRouteApp(input: {
   injectIdentityIntoMessage?: boolean;
   now?: () => Date;
 }) {
+  const trustStore: ProxyTrustStore = {
+    createPairingCode: vi.fn(),
+    consumePairingCode: vi.fn(),
+    confirmPairingCode: vi.fn(),
+    isAgentKnown: vi.fn(async () => true),
+    isPairAllowed: vi.fn(
+      async (pair) =>
+        pair.responderAgentDid === "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    ),
+    upsertPair: vi.fn(async () => {}),
+  };
+
   return createProxyApp({
     config: parseProxyConfig({
       INJECT_IDENTITY_INTO_MESSAGE: input.injectIdentityIntoMessage,
     }),
+    trustStore,
     hooks: {
       now: input.now,
       resolveSessionNamespace: () => input.relayNamespace,
@@ -182,6 +196,28 @@ describe("POST /hooks/agent", () => {
 
     expect(response.status).toBe(202);
     expect(relayHarness.fetchRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 403 when sender/recipient pair is not trusted", async () => {
+    const relayHarness = createRelayHarness();
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
+    expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
   });
 
   it("prepends sanitized identity block when message injection is enabled", async () => {

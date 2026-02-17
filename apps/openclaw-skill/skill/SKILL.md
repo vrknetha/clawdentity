@@ -1,12 +1,12 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "install clawdentity relay skill", "set up agent-to-agent relay from invite code", "connect OpenClaw agents with invite code", or needs OpenClaw peer communication with Clawdentity PoP verification.
+description: This skill should be used when the user asks to "install clawdentity relay skill", "set up agent-to-agent relay from invite code", "connect OpenClaw agents with invite code", or needs OpenClaw peer communication through the local Clawdentity connector runtime.
 version: 0.1.0
 ---
 
 # Clawdentity OpenClaw Relay Skill
 
-This skill configures an OpenClaw agent to relay selected webhook payloads to a peer through Clawdentity identity (`Authorization: Claw <AIT>` + PoP headers) using a single invite code.
+This skill configures an OpenClaw agent to relay selected webhook payloads to a peer through the local Clawdentity connector runtime using a single invite code.
 
 ## Trigger Conditions
 
@@ -36,14 +36,10 @@ Use this skill when any of the following are requested:
 - Local selected agent marker: `~/.clawdentity/openclaw-agent-name`
 - Relay runtime config: `~/.clawdentity/openclaw-relay.json`
 
-## Operator Split
+## Invite Input Assumption
 
-### Admin/operator side (only action required)
-Create invite code:
-
-`clawdentity openclaw invite --did <peer-agent-did> --proxy-url <peer-proxy-hooks-agent-url> --peer-alias <alias>`
-
-Share the invite code string with the human who owns the target agent.
+Provide a valid invite code string before running this skill.
+Invite creation is outside this skill scope; this skill focuses on setup, pairing, and relay validation.
 
 ## Human + Agent Flow (strict user-style)
 
@@ -56,6 +52,41 @@ This skill is operational. The agent must execute side effects via tools.
 - Do not ask the human to run shell commands that the agent can run itself.
 - Ask the human only for missing secrets/inputs (for example API key or invite code).
 - Report final status with concrete outputs (local DID, peer alias, written paths).
+
+## CLI Command Utilization (required)
+
+Use these commands as the default execution path for skill utilization:
+
+- Initialize local CLI config:
+  - `clawdentity config init`
+- Configure registry URL and API key when missing:
+  - `clawdentity config set registryUrl <registry-url>`
+  - `clawdentity config set apiKey <api-key>`
+- Create and inspect local OpenClaw agent identity:
+  - `clawdentity agent create <agent-name> --framework openclaw`
+  - `clawdentity agent inspect <agent-name>`
+- Apply OpenClaw invite setup:
+  - `clawdentity openclaw setup <agent-name> --invite-code <invite-code>`
+- Start connector runtime for relay handoff:
+  - `clawdentity connector start <agent-name>`
+- Optional persistent connector autostart:
+  - `clawdentity connector service install <agent-name>`
+- Validate health and delivery:
+  - `clawdentity openclaw doctor`
+  - `clawdentity openclaw relay test --peer <alias>`
+
+Pairing bootstrap for trust policy is API-based in the current release (no dedicated pairing CLI command yet):
+
+- Owner/initiator starts pairing on initiator proxy:
+  - `POST /pair/start`
+  - Requires `Authorization: Claw <AIT>` and `x-claw-owner-pat`
+  - Body: `{"agentDid":"<responder-agent-did>"}`
+- Responder confirms on responder proxy:
+  - `POST /pair/confirm`
+  - Requires `Authorization: Claw <AIT>`
+  - Body: `{"pairingCode":"<code-from-start>"}`
+
+Successful confirm establishes mutual trust for the two agent DIDs. After confirm, both directions are allowed for trusted delivery.
 
 1. Confirm prerequisites with the human.
 - Confirm `clawdentity` CLI is installed and runnable.
@@ -94,11 +125,21 @@ This skill is operational. The agent must execute side effects via tools.
   - relay runtime config path
 - Confirm `~/.clawdentity/openclaw-agent-name` is set to the local agent name.
 
-7. Validate with user-style relay test.
-- Human asks Alpha to send a request with `peer: "beta"`.
-- Agent relays with Claw + PoP headers.
-- Peer proxy verifies and forwards to peer OpenClaw.
-- Verify success logs on both sides.
+7. Start connector runtime for local relay handoff.
+- Run `clawdentity connector start <agent-name>`.
+- Optional: run `clawdentity connector service install <agent-name>` for persistent autostart.
+
+8. Complete trust pairing bootstrap.
+- Run pairing start (`POST /pair/start`) from the owner/initiator side.
+- Share returned one-time `pairingCode` with responder side.
+- Run pairing confirm (`POST /pair/confirm`) from responder side.
+- Confirm pairing success before relay test.
+
+9. Validate with user-style relay test.
+- Run `clawdentity openclaw doctor` to verify setup health and remediation hints.
+- Run `clawdentity openclaw relay test --peer <alias>` to execute a probe.
+- Confirm probe success and connector-mediated delivery logs.
+- Human asks Alpha to send a real request with `peer: "beta"` and verifies peer delivery.
 
 ## Required question policy
 
@@ -107,20 +148,23 @@ Ask the human only when required inputs are missing:
 - Unclear OpenClaw state directory.
 - Non-default OpenClaw base URL.
 - Missing invite code.
-- Local registry/proxy network location is unknown or unreachable from agent runtime.
+- Local connector runtime or peer network route is unknown or unreachable from agent runtime.
 
 ## Failure Handling
 
 If setup or relay fails:
 - Report precise missing file/path/value.
 - Fix only the failing config/input.
-- Re-run the same user-style flow from step 5 onward.
+- Ensure connector runtime is active (`clawdentity connector start <agent-name>`).
+- Re-run `clawdentity openclaw doctor`.
+- Re-run `clawdentity openclaw relay test --peer <alias>`.
+- Re-run the same user-style flow from step 5 onward only after health checks pass.
 
 ## Bundled Resources
 
 ### References
 | File | Purpose |
 |------|---------|
-| `references/clawdentity-protocol.md` | Header format, peer map schema, and relay verification details |
+| `references/clawdentity-protocol.md` | Invite format, peer map schema, connector handoff envelope, and runtime failure mapping |
 
-Directive: read the reference file before troubleshooting protocol or signature failures.
+Directive: read the reference file before troubleshooting relay contract or connector handoff failures.

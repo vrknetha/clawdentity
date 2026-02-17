@@ -7,6 +7,7 @@
 ## Runtime Configuration
 - Keep runtime config centralized in `src/config.ts`.
 - Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `development`, and `production` environments.
+- Duplicate Durable Object `bindings` and `migrations` inside each Wrangler env block; env sections do not inherit top-level DO config.
 - Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
@@ -14,8 +15,8 @@
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
 - Keep deployment intent explicit: `local` is for local Wrangler dev runs only; `development` and `production` are remote cloud environments.
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
-- Keep OpenClaw env inputs (`OPENCLAW_BASE_URL`, `OPENCLAW_HOOK_TOKEN` / `OPENCLAW_HOOKS_TOKEN`) backward-compatible but optional for relay-mode startup.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw compatibility vars, and policy/rate-limit vars).
+- Keep OpenClaw env inputs (`OPENCLAW_BASE_URL`, `OPENCLAW_HOOK_TOKEN`) optional for relay-mode startup.
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw vars, and policy/rate-limit vars).
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`, with legacy fallback to existing `~/.clawdbot` / `~/.moldbot` / `~/.moltbot`)
@@ -24,21 +25,26 @@
 - Treat blank env values as unset for fallback resolution:
   - empty/whitespace values (and null-like values) in inherited env must not block `.env` or config-file fallbacks
   - dotenv merge semantics must match parser semantics (non-empty value wins).
-- If hook token env vars are missing, resolve fallback token from `hooks.token` in `openclaw.json` (`OPENCLAW_CONFIG_PATH`/`CLAWDBOT_CONFIG_PATH`, default `$OPENCLAW_STATE_DIR/openclaw.json`).
+- If hook token env vars are missing, resolve fallback token from `hooks.token` in `openclaw.json` (`OPENCLAW_CONFIG_PATH`, default `$OPENCLAW_STATE_DIR/openclaw.json`).
 - Route relay sessions via Durable Objects:
   - `GET /v1/relay/connect` keys connector sessions by authenticated caller agent DID.
   - `POST /hooks/agent` keys recipient delivery by `x-claw-recipient-agent-did`.
   - Do not route sessions via `OWNER_AGENT_DID`.
-- Keep env alias support stable for operator UX:
+- Keep env input contract explicit for operator UX:
   - `LISTEN_PORT` or `PORT`
-  - `OPENCLAW_HOOK_TOKEN` or `OPENCLAW_HOOKS_TOKEN`
+  - `OPENCLAW_HOOK_TOKEN`
   - `REGISTRY_URL` or `CLAWDENTITY_REGISTRY_URL`
-  - state/config path aliases: `OPENCLAW_STATE_DIR`/`CLAWDBOT_STATE_DIR`, `OPENCLAW_CONFIG_PATH`/`CLAWDBOT_CONFIG_PATH`
+  - `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`
 
-## Allowlist and Access
-- Keep allowlist shape as `{ owners: string[], agents: string[] }`.
-- Allow bootstrap from `ALLOW_LIST` JSON with optional explicit overrides (`ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`).
-- Keep allowlist parsing deterministic and reject malformed input with structured config errors.
+## Trust and Pairing
+- Keep trust state in Durable Objects (`ProxyTrustState`), not in static environment variables.
+- Do not add support for `ALLOW_LIST`, `ALLOWLIST_OWNERS`, or `ALLOWLIST_AGENTS`; trust is API-managed only.
+- Pairing is managed by API:
+  - `POST /pair/start` (verified Claw auth + `x-claw-owner-pat` ownership check against registry `GET /v1/agents/:id/ownership`)
+  - `POST /pair/confirm` (verified Claw auth + one-time pairing code consume)
+- Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the code in one step (`confirmPairingCode`), never two separate calls.
+- Confirming a valid pairing code must establish mutual trust for the initiator/responder agent pair.
+- Keep pairing codes one-time and expiring; reject missing/expired/mismatched codes with explicit client errors.
 - Reject deprecated `ALLOW_ALL_VERIFIED` at startup; never provide a global allow-all bypass for verified callers.
 
 ## Auth Verification
@@ -48,15 +54,16 @@
 - Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
 - Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
-- Enforce proxy access by explicit agent DID allowlist after auth verification; owner DID-only entries do not grant access.
+- Enforce known-agent access from durable trust state after auth verification (except pairing bootstrap paths).
 - When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
 - Return `401` for invalid/expired/replayed/revoked/invalid-proof requests.
-- Return `403` when requests are verified but agent DID is not allowlisted.
+- Return `403` when requests are verified but caller is not trusted.
 - Return `429` with `PROXY_PUBLIC_RATE_LIMIT_EXCEEDED` when repeated unauthenticated probes exceed public-route IP budget.
-- Return `429` with `PROXY_RATE_LIMIT_EXCEEDED` when an allowlisted verified agent DID exceeds its request budget within the configured window.
+- Return `429` with `PROXY_RATE_LIMIT_EXCEEDED` when a trusted verified agent DID exceeds its request budget within the configured window.
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
+- Keep `/hooks/agent` authorization strict: after auth succeeds, require trusted initiator/responder pair before relay delivery.
 - Keep `/v1/relay/connect` auth strict with verified Claw auth + PoP headers, but do not require `x-claw-agent-access`.
 
 ## CRL Policy

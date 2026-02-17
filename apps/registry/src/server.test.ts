@@ -3,7 +3,6 @@ import {
   AGENT_AUTH_REFRESH_PATH,
   AGENT_AUTH_VALIDATE_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
-  type AitClaims,
   canonicalizeAgentRegistrationProof,
   encodeBase64url,
   generateUlid,
@@ -23,6 +22,7 @@ import {
   verifyAIT,
   verifyCRL,
 } from "@clawdentity/sdk";
+import { buildTestAitClaims } from "@clawdentity/sdk/testing";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AGENT_LIST_LIMIT } from "./agent-list.js";
 import {
@@ -41,27 +41,18 @@ import {
 import { RESOLVE_RATE_LIMIT_MAX_REQUESTS } from "./rate-limit.js";
 import app, { createRegistryApp } from "./server.js";
 
-function makeAitClaims(publicKey: Uint8Array): AitClaims {
-  const now = Math.floor(Date.now() / 1000);
-  return {
-    iss: "https://registry.clawdentity.dev",
-    sub: makeAgentDid(generateUlid(1700100000000)),
-    ownerDid: makeHumanDid(generateUlid(1700100001000)),
+function makeAitClaims(publicKey: Uint8Array) {
+  return buildTestAitClaims({
+    publicKeyX: encodeBase64url(publicKey),
+    issuer: "https://registry.clawdentity.dev",
+    nowSeconds: Math.floor(Date.now() / 1000),
+    ttlSeconds: 3600,
+    nbfSkewSeconds: 5,
+    seedMs: 1_700_100_000_000,
     name: "agent-registry-01",
     framework: "openclaw",
     description: "registry key publishing verification path",
-    cnf: {
-      jwk: {
-        kty: "OKP",
-        crv: "Ed25519",
-        x: encodeBase64url(publicKey),
-      },
-    },
-    iat: now,
-    nbf: now - 5,
-    exp: now + 3600,
-    jti: generateUlid(1700100002000),
-  };
+  });
 }
 
 type FakeD1Row = {
@@ -4493,6 +4484,125 @@ describe("GET /v1/agents", () => {
     expect(body.error.code).toBe("AGENT_LIST_INVALID_QUERY");
     expect(body.error.message).toBe("Request could not be processed");
     expect(body.error.details).toBeUndefined();
+  });
+});
+
+describe("GET /v1/agents/:id/ownership", () => {
+  it("returns 401 when PAT is missing", async () => {
+    const agentId = generateUlid(1700100017000);
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}/ownership`,
+      {},
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("API_KEY_MISSING");
+  });
+
+  it("returns ownsAgent=true when caller owns the agent", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const ownedAgentId = generateUlid(1700100017100);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: ownedAgentId,
+          did: makeAgentDid(ownedAgentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${ownedAgentId}/ownership`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ownsAgent: boolean };
+    expect(body).toEqual({ ownsAgent: true });
+  });
+
+  it("returns ownsAgent=false for non-owned or missing agent ids", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const foreignAgentId = generateUlid(1700100017200);
+    const missingAgentId = generateUlid(1700100017300);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: foreignAgentId,
+          did: makeAgentDid(foreignAgentId),
+          ownerId: "human-2",
+          name: "foreign-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    );
+
+    const foreignRes = await createRegistryApp().request(
+      `/v1/agents/${foreignAgentId}/ownership`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(foreignRes.status).toBe(200);
+    expect((await foreignRes.json()) as { ownsAgent: boolean }).toEqual({
+      ownsAgent: false,
+    });
+
+    const missingRes = await createRegistryApp().request(
+      `/v1/agents/${missingAgentId}/ownership`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+    expect(missingRes.status).toBe(200);
+    expect((await missingRes.json()) as { ownsAgent: boolean }).toEqual({
+      ownsAgent: false,
+    });
+  });
+
+  it("returns path validation errors for invalid ids", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow]);
+
+    const res = await createRegistryApp().request(
+      "/v1/agents/not-a-ulid/ownership",
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      { DB: database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: {
+        code: string;
+        message: string;
+        details?: { fieldErrors?: Record<string, unknown> };
+      };
+    };
+    expect(body.error.code).toBe("AGENT_OWNERSHIP_INVALID_PATH");
+    expect(body.error.message).toBe("Agent ownership path is invalid");
+    expect(body.error.details?.fieldErrors).toMatchObject({
+      id: expect.any(Array),
+    });
   });
 });
 

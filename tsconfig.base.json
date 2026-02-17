@@ -17,7 +17,8 @@
     "paths": {
       "@clawdentity/connector": ["packages/connector/src/index.ts"],
       "@clawdentity/protocol": ["packages/protocol/src/index.ts"],
-      "@clawdentity/sdk": ["packages/sdk/src/index.ts"]
+      "@clawdentity/sdk": ["packages/sdk/src/index.ts"],
+      "@clawdentity/sdk/testing": ["packages/sdk/src/testing/index.ts"]
     }
   },
   "exclude": ["node_modules", "dist"]

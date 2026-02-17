@@ -29,10 +29,6 @@ describe("proxy config", () => {
       openclawHookToken: undefined,
       registryUrl: DEFAULT_REGISTRY_URL,
       environment: DEFAULT_PROXY_ENVIRONMENT,
-      allowList: {
-        owners: [],
-        agents: [],
-      },
       crlRefreshIntervalMs: DEFAULT_CRL_REFRESH_INTERVAL_MS,
       crlMaxAgeMs: DEFAULT_CRL_MAX_AGE_MS,
       crlStaleBehavior: "fail-open",
@@ -43,10 +39,10 @@ describe("proxy config", () => {
     });
   });
 
-  it("supports OpenClaw-compatible env aliases", () => {
+  it("supports canonical proxy env inputs", () => {
     const config = parseProxyConfig({
       PORT: "4100",
-      OPENCLAW_HOOKS_TOKEN: "hooks-token",
+      OPENCLAW_HOOK_TOKEN: "hooks-token",
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
       ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
@@ -73,50 +69,14 @@ describe("proxy config", () => {
     expect(config.injectIdentityIntoMessage).toBe(false);
   });
 
-  it("parses allow list object and override env lists", () => {
-    const config = parseProxyConfig({
-      OPENCLAW_HOOK_TOKEN: "token",
-      ALLOW_LIST: JSON.stringify({
-        owners: ["did:claw:owner:1"],
-        agents: ["did:claw:agent:1"],
-      }),
-      ALLOWLIST_OWNERS: "did:claw:owner:2,did:claw:owner:3",
-    });
-
-    expect(config.allowList).toEqual({
-      owners: ["did:claw:owner:2", "did:claw:owner:3"],
-      agents: ["did:claw:agent:1"],
-    });
-  });
-
   it("accepts missing hook token for relay-only startup", () => {
     expect(() => parseProxyConfig({})).not.toThrow();
-  });
-
-  it("throws on malformed allow list JSON", () => {
-    expect(() =>
-      parseProxyConfig({
-        ALLOW_LIST: "{not-json",
-      }),
-    ).toThrow(ProxyConfigError);
   });
 
   it("throws when deprecated ALLOW_ALL_VERIFIED is set", () => {
     expect(() =>
       parseProxyConfig({
         ALLOW_ALL_VERIFIED: "true",
-      }),
-    ).toThrow(ProxyConfigError);
-  });
-
-  it("throws when ALLOW_LIST includes unknown keys", () => {
-    expect(() =>
-      parseProxyConfig({
-        ALLOW_LIST: JSON.stringify({
-          owners: [],
-          agents: [],
-          allowAllVerified: true,
-        }),
       }),
     ).toThrow(ProxyConfigError);
   });
