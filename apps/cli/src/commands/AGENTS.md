@@ -9,6 +9,7 @@
 - Use `withErrorHandling` for command actions unless a command has a documented reason not to.
 - Route all user-facing messages through `writeStdoutLine`/`writeStderrLine`.
 - For new command-domain errors, use SDK `AppError` with stable `code` values.
+- Normalize Commander option keys at the command boundary when helper/runtime option names differ (for example `--peer` -> `peerAlias`) so flags are never silently ignored.
 
 ## Verification Command Rules
 - `verify` must preserve the `✅`/`❌` output contract with explicit reasons.

@@ -6,9 +6,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createOpenclawCommand,
   createOpenclawInviteCode,
   decodeOpenclawInviteCode,
   runOpenclawDoctor,
@@ -474,6 +475,68 @@ describe("openclaw command helpers", () => {
         ),
       ).toBe(true);
     } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("applies --peer filter for doctor command", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+    const originalHome = process.env.HOME;
+    const originalExitCode = process.exitCode;
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const configPath = join(sandbox.homeDir, ".clawdentity", "config.json");
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            registryUrl: "https://api.example.com",
+            apiKey: "test-api-key",
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const baseline = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+      expect(baseline.status).toBe("healthy");
+
+      process.env.HOME = sandbox.homeDir;
+      process.exitCode = undefined;
+
+      const command = createOpenclawCommand();
+      await command.parseAsync(
+        ["doctor", "--peer", "gamma", "--openclaw-dir", sandbox.openclawDir],
+        { from: "user" },
+      );
+
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.env.HOME = originalHome;
+      process.exitCode = originalExitCode;
       sandbox.cleanup();
     }
   });

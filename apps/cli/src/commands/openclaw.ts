@@ -69,6 +69,12 @@ type OpenclawDoctorOptions = {
   json?: boolean;
 };
 
+type OpenclawDoctorCommandOptions = {
+  peer?: string;
+  openclawDir?: string;
+  json?: boolean;
+};
+
 type OpenclawRelayTestOptions = {
   peer: string;
   homeDir?: string;
@@ -1570,8 +1576,12 @@ export const createOpenclawCommand = (): Command => {
     .action(
       withErrorHandling(
         "openclaw doctor",
-        async (options: OpenclawDoctorOptions) => {
-          const result = await runOpenclawDoctor(options);
+        async (options: OpenclawDoctorCommandOptions) => {
+          const result = await runOpenclawDoctor({
+            openclawDir: options.openclawDir,
+            peerAlias: options.peer,
+            json: options.json,
+          });
           if (options.json) {
             writeStdoutLine(JSON.stringify(result, null, 2));
           } else {
