@@ -69,7 +69,7 @@ jobs:
           # First proxy deploy may not have an existing Worker/deployments yet.
           pnpm exec wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-pre.json || true
           pnpm exec wrangler --cwd apps/registry d1 time-travel info clawdentity-db-dev --env dev --timestamp "${PREDEPLOY_TS}" --json > artifacts/d1-time-travel-pre.json
-          pnpm exec wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output artifacts/d1-dev-predeploy.sql
+          pnpm exec wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output "${GITHUB_WORKSPACE}/artifacts/d1-dev-predeploy.sql"
 
       - name: Apply registry dev migrations and deploy
         run: |

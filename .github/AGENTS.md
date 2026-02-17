@@ -48,7 +48,7 @@
   - `pnpm exec wrangler --cwd apps/registry deployments list --env dev --json`
   - `pnpm exec wrangler --cwd apps/proxy deployments list --env development --json || true` (non-blocking for first deploy before proxy Worker exists)
   - `pnpm exec wrangler d1 time-travel info clawdentity-db-dev --timestamp <predeploy-ts> --json`
-  - `pnpm exec wrangler d1 export clawdentity-db-dev --remote --output <file.sql>`
+  - `pnpm exec wrangler d1 export clawdentity-db-dev --remote --output "${GITHUB_WORKSPACE}/artifacts/<file.sql>"`
 - Keep deploy snapshot collection non-blocking for Worker deployment listings (pre and post) so rollback artifact capture does not fail the workflow when a Worker has no prior deployment history.
 - Upload artifacts on every run for operator recovery.
 - On failed deploy:
