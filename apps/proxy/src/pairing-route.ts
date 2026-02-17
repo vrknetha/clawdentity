@@ -35,6 +35,7 @@ type CreatePairStartHandlerOptions = PairStartRuntimeOptions & {
   logger: Logger;
   registryUrl: string;
   trustStore: ProxyTrustStore;
+  issuerProxyUrl?: string;
 };
 
 export type PairConfirmRuntimeOptions = {
@@ -582,6 +583,10 @@ export function createPairStartHandler(
   const fetchImpl = options.fetchImpl ?? fetch;
   const nowMs = options.nowMs ?? Date.now;
   const registryUrl = normalizeRegistryUrl(options.registryUrl);
+  const configuredIssuerProxyUrl =
+    typeof options.issuerProxyUrl === "string"
+      ? normalizeProxyOrigin(options.issuerProxyUrl)
+      : undefined;
 
   return async (c) => {
     const auth = c.get("auth");
@@ -607,7 +612,8 @@ export function createPairStartHandler(
       registryUrl,
     });
 
-    const issuerProxyUrl = normalizeProxyOrigin(c.req.url);
+    const issuerProxyUrl =
+      configuredIssuerProxyUrl ?? normalizeProxyOrigin(c.req.url);
     const pairingTicketResult = await options.trustStore
       .createPairingTicket({
         initiatorAgentDid: auth.agentDid,

@@ -1,6 +1,6 @@
 import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { createPairingTicket } from "./pairing-ticket.js";
+import { createPairingTicket, parsePairingTicket } from "./pairing-ticket.js";
 
 const INITIATOR_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_000));
 const RESPONDER_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_100));
@@ -35,11 +35,13 @@ import { createProxyApp } from "./server.js";
 function createPairingApp(input?: {
   fetchImpl?: typeof fetch;
   nowMs?: () => number;
+  pairingIssuerUrl?: string;
 }) {
   const trustStore = createInMemoryProxyTrustStore();
   const app = createProxyApp({
     config: parseProxyConfig({
       REGISTRY_URL: "https://registry.example.com",
+      PAIRING_ISSUER_URL: input?.pairingIssuerUrl,
     }),
     pairing: {
       start: {
@@ -145,6 +147,38 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     expect(response.status).toBe(403);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_PAIR_OWNER_PAT_FORBIDDEN");
+  });
+
+  it("uses configured pairing issuer URL when creating ticket", async () => {
+    const fetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({
+      fetchImpl,
+      nowMs: () => 1_700_000_000_000,
+      pairingIssuerUrl: "http://127.0.0.1:8788",
+    });
+
+    const response = await app.request(PAIR_START_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [OWNER_PAT_HEADER]: "clw_pat_owner_token",
+      },
+      body: JSON.stringify({}),
+    });
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      ticket: string;
+    };
+    const parsedTicket = parsePairingTicket(body.ticket);
+    expect(parsedTicket.iss).toBe("http://127.0.0.1:8788");
   });
 });
 

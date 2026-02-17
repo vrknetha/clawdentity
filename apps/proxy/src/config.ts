@@ -44,7 +44,6 @@ export class ProxyConfigError extends Error {
 
 const CLAWDENTITY_CONFIG_DIR = ".clawdentity";
 const OPENCLAW_RELAY_CONFIG_FILENAME = "openclaw-relay.json";
-const LEGACY_STATE_DIR_NAMES = [".clawdbot", ".moldbot", ".moltbot"] as const;
 
 const envBooleanSchema = z.preprocess((value) => {
   if (typeof value === "string") {
@@ -80,6 +79,7 @@ const proxyRuntimeEnvSchema = z.object({
     .default(DEFAULT_PROXY_LISTEN_PORT),
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
   REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
+  PAIRING_ISSUER_URL: z.string().trim().url().optional(),
   ENVIRONMENT: z
     .enum(proxyEnvironmentValues)
     .default(DEFAULT_PROXY_ENVIRONMENT),
@@ -115,6 +115,7 @@ export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
   openclawBaseUrl: z.string().url(),
   registryUrl: z.string().url(),
+  pairingIssuerUrl: z.string().url().optional(),
   environment: z.enum(proxyEnvironmentValues),
   crlRefreshIntervalMs: z.number().int().positive(),
   crlMaxAgeMs: z.number().int().positive(),
@@ -132,6 +133,7 @@ type RuntimeEnvInput = {
   OPENCLAW_BASE_URL?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
+  PAIRING_ISSUER_URL?: unknown;
   ENVIRONMENT?: unknown;
   ALLOW_ALL_VERIFIED?: unknown;
   CRL_REFRESH_INTERVAL_MS?: unknown;
@@ -255,17 +257,6 @@ function resolveStateDir(
   }
 
   const canonicalStateDir = join(home, ".openclaw");
-  if (existsSync(canonicalStateDir)) {
-    return canonicalStateDir;
-  }
-
-  for (const legacyDirName of LEGACY_STATE_DIR_NAMES) {
-    const legacyStateDir = join(home, legacyDirName);
-    if (existsSync(legacyStateDir)) {
-      return legacyStateDir;
-    }
-  }
-
   return canonicalStateDir;
 }
 
@@ -424,6 +415,7 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",
     ]),
+    PAIRING_ISSUER_URL: firstNonEmpty(env, ["PAIRING_ISSUER_URL"]),
     ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
     CRL_MAX_AGE_MS: firstNonEmpty(env, ["CRL_MAX_AGE_MS"]),
@@ -491,7 +483,7 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     });
   }
 
-  const candidateConfig = {
+  const candidateConfig: Record<string, unknown> = {
     listenPort: parsedRuntimeEnv.data.LISTEN_PORT,
     openclawBaseUrl: parsedRuntimeEnv.data.OPENCLAW_BASE_URL,
     registryUrl: parsedRuntimeEnv.data.REGISTRY_URL,
@@ -505,6 +497,9 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     injectIdentityIntoMessage:
       parsedRuntimeEnv.data.INJECT_IDENTITY_INTO_MESSAGE,
   };
+  if (parsedRuntimeEnv.data.PAIRING_ISSUER_URL !== undefined) {
+    candidateConfig.pairingIssuerUrl = parsedRuntimeEnv.data.PAIRING_ISSUER_URL;
+  }
 
   const parsedConfig = proxyConfigSchema.safeParse(candidateConfig);
   if (parsedConfig.success) {

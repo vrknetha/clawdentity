@@ -40,6 +40,7 @@ describe("proxy config", () => {
     const config = parseProxyConfig({
       PORT: "4100",
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
+      PAIRING_ISSUER_URL: "https://proxy.example.com",
       ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
       AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: "75",
@@ -49,6 +50,7 @@ describe("proxy config", () => {
 
     expect(config.listenPort).toBe(4100);
     expect(config.registryUrl).toBe("https://registry.example.com");
+    expect(config.pairingIssuerUrl).toBe("https://proxy.example.com");
     expect(config.environment).toBe("local");
     expect(config.crlStaleBehavior).toBe("fail-closed");
     expect(config.agentRateLimitRequestsPerMinute).toBe(75);
@@ -97,6 +99,14 @@ describe("proxy config", () => {
     expect(() =>
       parseProxyConfig({
         INJECT_IDENTITY_INTO_MESSAGE: "maybe",
+      }),
+    ).toThrow(ProxyConfigError);
+  });
+
+  it("throws on invalid pairing issuer URL", () => {
+    expect(() =>
+      parseProxyConfig({
+        PAIRING_ISSUER_URL: "not-a-url",
       }),
     ).toThrow(ProxyConfigError);
   });
@@ -274,28 +284,6 @@ describe("proxy config loading", () => {
       );
 
       expect(config.openclawBaseUrl).toBe("http://127.0.0.1:19999");
-    } finally {
-      sandbox.cleanup();
-    }
-  });
-
-  it("uses legacy state directory when canonical .openclaw does not exist", () => {
-    const sandbox = createSandbox();
-    try {
-      rmSync(sandbox.stateDir, { recursive: true, force: true });
-      const legacyStateDir = join(sandbox.root, ".clawdbot");
-      mkdirSync(legacyStateDir, { recursive: true });
-      writeFileSync(join(legacyStateDir, ".env"), "LISTEN_PORT=4555");
-
-      const config = loadProxyConfig(
-        {},
-        {
-          cwd: sandbox.cwd,
-          homeDir: sandbox.root,
-        },
-      );
-
-      expect(config.listenPort).toBe(4555);
     } finally {
       sandbox.cleanup();
     }

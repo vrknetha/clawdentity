@@ -19,7 +19,7 @@
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw base URL, and policy/rate-limit vars).
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
-  - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`, with legacy fallback to existing `~/.clawdbot` / `~/.moldbot` / `~/.moltbot`)
+  - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`)
   - existing environment variables always win over `.env` values.
 - If `OPENCLAW_BASE_URL` is still missing after env loading, fallback to `~/.clawdentity/openclaw-relay.json` (`openclawBaseUrl`) before applying the built-in default.
 - Treat blank env values as unset for fallback resolution:
@@ -34,6 +34,7 @@
   - `LISTEN_PORT` or `PORT`
   - `OPENCLAW_BASE_URL`
   - `REGISTRY_URL` or `CLAWDENTITY_REGISTRY_URL`
+  - `PAIRING_ISSUER_URL` (optional stable issuer origin used in pairing tickets)
   - `OPENCLAW_STATE_DIR`
 
 ## Trust and Pairing

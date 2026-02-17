@@ -148,6 +148,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     createPairStartHandler({
       logger,
       registryUrl: options.config.registryUrl,
+      issuerProxyUrl: options.config.pairingIssuerUrl,
       trustStore,
       ...options.pairing?.start,
     }),
