@@ -9,6 +9,7 @@
 - Use `withErrorHandling` for command actions unless a command has a documented reason not to.
 - Route all user-facing messages through `writeStdoutLine`/`writeStderrLine`.
 - For new command-domain errors, use SDK `AppError` with stable `code` values.
+- Normalize Commander option keys at the command boundary when helper/runtime option names differ (for example `--peer` -> `peerAlias`) so flags are never silently ignored.
 
 ## Verification Command Rules
 - `verify` must preserve the `✅`/`❌` output contract with explicit reasons.
@@ -22,7 +23,7 @@
 - `openclaw setup` must persist/update `~/.clawdentity/openclaw-relay.json` with the resolved `openclawBaseUrl` so downstream proxy runtime can boot without manual env edits.
 - `openclaw setup --openclaw-base-url` should only be needed when OpenClaw is not reachable on the default `http://127.0.0.1:18789`.
 - `openclaw setup` must set `hooks.allowRequestSessionKey=false` by default and retain `hooks.allowedSessionKeyPrefixes` enforcement for safer `/hooks/agent` session routing.
-- Keep error messages static (no interpolated runtime values); include variable context only in error details/log fields.
+- Keep thrown command errors static (no interpolated runtime values); include variable context in error details/log fields. Diagnostic check output (`openclaw doctor`, `openclaw relay test`) may include concrete paths/aliases so operators can remediate quickly.
 
 ## Connector Command Rules
 - `connector start <agentName>` is the runtime entrypoint for local relay handoff and must remain long-running when connector runtime provides a wait/closed primitive.
@@ -69,3 +70,16 @@
 - Mock network and filesystem dependencies in command tests.
 - Include success and failure scenarios for external calls, parsing, and cache behavior.
 - Assert exit code behavior in addition to stdout/stderr text.
+
+## OpenClaw Diagnostic Command Rules
+- `openclaw doctor` must stay read-only and validate required local state: resolved CLI config (`registryUrl` + `apiKey`), selected agent marker, local agent credentials, peers map integrity (and requested `--peer` alias), transform presence, hook mapping, and OpenClaw base URL resolution.
+- `openclaw doctor` must treat malformed/unreadable CLI config as a failed diagnostic check, not a thrown exception, so full per-check output remains available.
+- Relay hook mapping validation must require the expected mapping path (`send-to-peer`) and only accept optional `id` when it matches `clawdentity-send-to-peer`.
+- `openclaw doctor` must print deterministic check IDs and actionable fix hints for each failed check.
+- `openclaw doctor --json` must emit a stable machine-readable envelope with overall status + per-check results for CI scripting.
+
+## OpenClaw Relay Test Command Rules
+- `openclaw relay test --peer <alias>` must run doctor-style preflight checks before sending the probe payload.
+- Relay probe must target local OpenClaw `POST /hooks/send-to-peer` with deterministic payload fields (`peer`, `sessionId`, `message`).
+- Relay test output must summarize endpoint, HTTP status, and remediation guidance when delivery fails.
+- `openclaw relay test --json` must emit a stable result envelope and include preflight details when preflight failed.

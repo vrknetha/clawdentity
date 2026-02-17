@@ -6,11 +6,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  createOpenclawCommand,
   createOpenclawInviteCode,
   decodeOpenclawInviteCode,
+  runOpenclawDoctor,
+  runOpenclawRelayTest,
   setupOpenclawRelayFromInvite,
 } from "./openclaw.js";
 
@@ -311,6 +314,304 @@ describe("openclaw command helpers", () => {
         }),
       ).rejects.toThrow(
         "Peer alias is required. Include alias in invite code or pass --peer-alias.",
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("reports healthy doctor status when relay setup is complete", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("healthy");
+      expect(result.checks.every((check) => check.status === "pass")).toBe(
+        true,
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("reports missing peer alias in doctor output", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        peerAlias: "gamma",
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("unhealthy");
+      expect(
+        result.checks.some(
+          (check) =>
+            check.id === "state.peers" &&
+            check.status === "fail" &&
+            check.message.includes("peer alias is missing: gamma"),
+        ),
+      ).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("does not throw when CLI config resolution fails", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        resolveConfigImpl: async () => {
+          throw new Error("invalid config");
+        },
+      });
+
+      expect(result.status).toBe("unhealthy");
+      expect(
+        result.checks.some(
+          (check) =>
+            check.id === "config.registry" &&
+            check.status === "fail" &&
+            check.message === "unable to resolve CLI config",
+        ),
+      ).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("fails doctor hook mapping check when mapping path is wrong", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const openclawConfigPath = join(sandbox.openclawDir, "openclaw.json");
+      const openclawConfig = JSON.parse(
+        readFileSync(openclawConfigPath, "utf8"),
+      ) as {
+        hooks: { mappings?: Array<Record<string, unknown>> };
+      };
+      const mappings = openclawConfig.hooks.mappings ?? [];
+      const targetMapping = mappings.find(
+        (mapping) => mapping.id === "clawdentity-send-to-peer",
+      );
+      if (targetMapping === undefined) {
+        throw new Error("expected clawdentity-send-to-peer mapping");
+      }
+      targetMapping.match = { path: "not-send-to-peer" };
+      writeFileSync(openclawConfigPath, JSON.stringify(openclawConfig), "utf8");
+
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("unhealthy");
+      expect(
+        result.checks.some(
+          (check) =>
+            check.id === "state.hookMapping" && check.status === "fail",
+        ),
+      ).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("applies --peer filter for doctor command", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+    const originalHome = process.env.HOME;
+    const originalExitCode = process.exitCode;
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const configPath = join(sandbox.homeDir, ".clawdentity", "config.json");
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(
+        configPath,
+        JSON.stringify(
+          {
+            registryUrl: "https://api.example.com",
+            apiKey: "test-api-key",
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const baseline = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+      expect(baseline.status).toBe("healthy");
+
+      process.env.HOME = sandbox.homeDir;
+      process.exitCode = undefined;
+
+      const command = createOpenclawCommand();
+      await command.parseAsync(
+        ["doctor", "--peer", "gamma", "--openclaw-dir", sandbox.openclawDir],
+        { from: "user" },
+      );
+
+      expect(process.exitCode).toBe(1);
+    } finally {
+      process.env.HOME = originalHome;
+      process.exitCode = originalExitCode;
+      sandbox.cleanup();
+    }
+  });
+
+  it("returns relay test success for accepted probe", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const result = await runOpenclawRelayTest({
+        peer: "beta",
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        fetchImpl: async () => new Response(null, { status: 204 }),
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.httpStatus).toBe(204);
+      expect(result.endpoint).toBe("http://127.0.0.1:18789/hooks/send-to-peer");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("returns relay test failure when probe is rejected", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const result = await runOpenclawRelayTest({
+        peer: "beta",
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        fetchImpl: async () =>
+          new Response("connector offline", { status: 500 }),
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("failure");
+      expect(result.httpStatus).toBe(500);
+      expect(result.message).toBe(
+        "Relay probe failed inside local relay pipeline",
       );
     } finally {
       sandbox.cleanup();
