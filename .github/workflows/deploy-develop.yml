@@ -66,7 +66,8 @@ jobs:
           echo "PREDEPLOY_TS=${PREDEPLOY_TS}" >> "${GITHUB_ENV}"
           printf "%s\n" "${PREDEPLOY_TS}" > artifacts/predeploy.timestamp
           wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-pre.json
-          wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-pre.json
+          # First proxy deploy may not have an existing Worker/deployments yet.
+          wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-pre.json || true
           wrangler --cwd apps/registry d1 time-travel info clawdentity-db-dev --env dev --timestamp "${PREDEPLOY_TS}" --json > artifacts/d1-time-travel-pre.json
           wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output artifacts/d1-dev-predeploy.sql
 

@@ -9,6 +9,7 @@
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
 - Keep `src/postinstall.ts` as a thin install entrypoint only; it should detect npm `--skill` mode and call shared installer helpers without mutating runtime CLI command wiring.
 - Keep package identity clear: workspace package name is `clawdentity` and published install entrypoint remains `npm install clawdentity --skill`.
+- Keep runtime version parity: source `CLI_VERSION` from the package metadata (`package.json`) at runtime, never from a hardcoded literal in `src/index.ts`.
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
 - Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`, `connector`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
