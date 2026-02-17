@@ -28,7 +28,7 @@ export const DEFAULT_CRL_MAX_AGE_MS = 15 * 60 * 1000;
 export const DEFAULT_CRL_STALE_BEHAVIOR: ProxyCrlStaleBehavior = "fail-open";
 export const DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE = 60;
 export const DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
-export const DEFAULT_INJECT_IDENTITY_INTO_MESSAGE = false;
+export const DEFAULT_INJECT_IDENTITY_INTO_MESSAGE = true;
 
 export class ProxyConfigError extends Error {
   readonly code = "CONFIG_VALIDATION_FAILED";

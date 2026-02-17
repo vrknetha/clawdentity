@@ -12,7 +12,7 @@
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
 - Keep deployment intent explicit: `local` is for local Wrangler dev runs only; `development` and `production` are remote cloud environments.
-- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-off (`false`); only enable when operators need webhook `message` augmentation with verified identity context.
+- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
 - Keep OpenClaw env inputs (`OPENCLAW_BASE_URL`, `OPENCLAW_HOOK_TOKEN` / `OPENCLAW_HOOKS_TOKEN`) backward-compatible but optional for relay-mode startup.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw compatibility vars, and policy/rate-limit vars).
 - Load env files with OpenClaw precedence and no overrides:

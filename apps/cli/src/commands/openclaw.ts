@@ -689,7 +689,7 @@ async function patchOpenclawConfig(openclawConfigPath: string): Promise<void> {
   const hooks = isRecord(config.hooks) ? { ...config.hooks } : {};
 
   hooks.enabled = true;
-  hooks.allowRequestSessionKey = true;
+  hooks.allowRequestSessionKey = false;
   hooks.allowedSessionKeyPrefixes = normalizeStringArrayWithValue(
     hooks.allowedSessionKeyPrefixes,
     "hook:",
