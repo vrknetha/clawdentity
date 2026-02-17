@@ -35,13 +35,13 @@ importers:
 
   apps/cli:
     dependencies:
-      '@clawdentity/connector':
-        specifier: workspace:*
-        version: link:../../packages/connector
       commander:
         specifier: ^13.1.0
         version: 13.1.0
     devDependencies:
+      '@clawdentity/connector':
+        specifier: workspace:*
+        version: link:../../packages/connector
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
