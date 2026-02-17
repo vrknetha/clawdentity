@@ -28,7 +28,7 @@
 - Detect install mode via npm environment (`npm_config_skill` and npm argv fallback) so non-skill installs remain unaffected.
 - Resolve skill artifacts in this order: explicit override, bundled `skill-bundle/openclaw-skill`, installed `@clawdentity/openclaw-skill`, then workspace fallback.
 - Skill install must copy `SKILL.md`, `references/*`, and `relay-to-peer.mjs` into OpenClaw runtime paths under `~/.openclaw` and must fail with actionable errors when source artifacts are missing.
-- Installer logs must be deterministic and explicit (`installed`, `updated`, `unchanged`) so E2E skill tests can assert outcomes reliably.
+- Installer logs must be deterministic and explicit (`installed`, `updated`, `unchanged`) so automated skill tests can assert outcomes reliably.
 
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.

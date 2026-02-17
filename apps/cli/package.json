@@ -29,7 +29,6 @@
     "postinstall": "node ./postinstall.mjs",
     "sync:skill-bundle": "node ./scripts/sync-skill-bundle.mjs",
     "test": "vitest run",
-    "test:e2e:openclaw-docker": "bash ./scripts/openclaw-relay-docker-e2e.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

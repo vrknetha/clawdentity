@@ -531,30 +531,6 @@ When `--skill` mode is detected, installer logic prepares OpenClaw runtime artif
 Install is idempotent and logs deterministic per-artifact outcomes (`installed`, `updated`, `unchanged`).
 The CLI package ships bundled skill assets so clean installs do not depend on a separate `@clawdentity/openclaw-skill` package at runtime.
 
-### Docker E2E relay check (skill + invite flow)
-
-For user-like OpenClaw relay validation with existing Docker agents, run:
-
-```bash
-pnpm -F clawdentity run test:e2e:openclaw-docker
-```
-
-Defaults target:
-- `clawdbot-agent-alpha-1` (`http://127.0.0.1:18789`)
-- `clawdbot-agent-beta-1` (`http://127.0.0.1:19001`)
-
-This script validates:
-- invite-code onboarding setup in both containers
-- skill-created artifact presence
-- bidirectional multi-message relay
-- edge cases: unknown peer alias, connector offline, connector recovery
-
-Common environment overrides:
-- `CLAWDENTITY_E2E_PAT` (required if registry is already bootstrapped)
-- `RESET_MODE=skill|full|none` (default `skill`)
-- `ALPHA_CONTAINER`, `BETA_CONTAINER`
-- `REGISTRY_URL`, `PROXY_HOOK_URL`, `PROXY_WS_URL`
-
 ### CLI npm release (manual)
 
 - GitHub workflow: `.github/workflows/publish-cli.yml`

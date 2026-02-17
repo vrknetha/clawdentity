@@ -33,14 +33,6 @@
 - `pnpm -F @clawdentity/openclaw-skill test`
 - `pnpm -F @clawdentity/openclaw-skill build`
 
-## Docker E2E Workflow
-- Run E2E with two OpenClaw containers: Alpha (sender) and Beta (receiver), each with isolated HOME storage.
-- Install and execute onboarding through skill flow only (`npm install clawdentity --skill` plus agent-executed skill steps).
-- Human role in E2E is limited to supplying invite code and confirmations requested by the agent.
-- Do not edit relay hooks, peer config, or selected-agent files manually during validation.
-- After skill setup, verify these artifacts exist and are agent-generated: `~/.clawdentity/peers.json`, `~/.clawdentity/openclaw-agent-name`, `~/.clawdentity/openclaw-relay.json`, `~/.openclaw/hooks/transforms/relay-to-peer.mjs`.
-- For reruns after failures, clear skill-generated artifacts first; only perform full identity reset (`~/.clawdentity/agents/<agent-name>/`) when identity reprovisioning is needed.
-
 ## Skill Runtime Behavior
 - Keep onboarding prompts input-focused (invite/API key/URLs) and let the skill decide command execution.
 - The agent should run required npm/CLI/filesystem operations via tools and only ask the human for missing inputs.
