@@ -1,6 +1,6 @@
 # PRD — Clawdentity MVP (v0.1)
 
-**Last updated:** 2026-02-11  
+**Last updated:** 2026-02-17  
 **Owner:** Ravi Kiran Vemula  
 **Status:** Ready for execution (deployment-first gate enabled)  
 **Primary target:** OpenClaw Gateway webhooks (`/hooks/*`)  
@@ -167,6 +167,16 @@ Verifier must enforce:
 - Re-running install must be idempotent and safe.
 - Missing source artifacts must fail with actionable errors.
 
+### 6.9 Deployment and release automation
+- `develop` deploy workflow must deploy both registry and proxy after full quality gates pass.
+- Registry deploy must run D1 migrations before Worker deploy.
+- Registry and proxy `/health` checks must validate:
+  - `status = "ok"`
+  - `environment = "development"`
+  - `version = git commit SHA` passed via `APP_VERSION`.
+- CLI release must use manual GitHub workflow dispatch with explicit semver version input.
+- Published npm package must be `clawdentity` and must not include `workspace:*` runtime dependencies.
+
 ---
 
 ## 7) Non-functional requirements
@@ -191,9 +201,10 @@ Verifier must enforce:
 ## 9) Rollout plan
 
 1) Establish workspace and deployment baseline
-2) Deploy and verify baseline environments and health checks
-3) Execute MVP feature backlog after the deployment gate passes
-4) Execute Phase 2/3 enhancements from HLD after MVP stability
+2) Deploy and verify `develop` baseline environments and health checks (registry + proxy)
+3) Establish manual npm release gate for `clawdentity` CLI package
+4) Execute MVP feature backlog after deployment and release gates pass
+5) Execute Phase 2/3 enhancements from HLD after MVP stability
 
 ---
 
@@ -228,3 +239,5 @@ Governance rules:
 4) Revocation propagation test within CRL refresh window  
 5) Replay attack rejection via nonce reuse checks  
 6) CI gate: lint -> typecheck -> test -> build
+7) Deploy gate: registry and proxy health checks validate `APP_VERSION == github.sha` in `develop`
+8) Release gate: `publish-cli.yml` validates CLI package and publishes `clawdentity` with npm provenance

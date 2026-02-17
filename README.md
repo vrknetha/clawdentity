@@ -468,8 +468,21 @@ clawdentity/
 - Local env (`ENVIRONMENT=local`): `pnpm dev:proxy`
 - Development env (`ENVIRONMENT=development`): `pnpm dev:proxy:development`
 - Fresh deploy-like env: `pnpm dev:proxy:fresh`
+- Development deploy command: `pnpm -F @clawdentity/proxy run deploy:dev`
 - Production deploy command: `pnpm -F @clawdentity/proxy run deploy:production`
 - Environment intent: `local` is local Wrangler development only; `development` and `production` are cloud deployment environments.
+
+### Develop deployment automation
+
+- GitHub workflow: `.github/workflows/deploy-develop.yml`
+- Trigger: push to `develop`
+- Runs full quality gates, then deploys:
+  - registry (`apps/registry`, env `dev`) with D1 migrations
+  - proxy (`apps/proxy`, env `development`)
+- Health checks must pass with `version == $GITHUB_SHA` for:
+  - `https://dev.api.clawdentity.com/health`
+  - deployed proxy `/health` URL (workers.dev URL extracted from wrangler output, or optional `PROXY_HEALTH_URL` secret override)
+- Required GitHub secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
 
 ### 4) Operator lifecycle tooling (CLI)
 
@@ -518,29 +531,15 @@ When `--skill` mode is detected, installer logic prepares OpenClaw runtime artif
 Install is idempotent and logs deterministic per-artifact outcomes (`installed`, `updated`, `unchanged`).
 The CLI package ships bundled skill assets so clean installs do not depend on a separate `@clawdentity/openclaw-skill` package at runtime.
 
-### Docker E2E relay check (skill + invite flow)
+### CLI npm release (manual)
 
-For user-like OpenClaw relay validation with existing Docker agents, run:
-
-```bash
-pnpm -F @clawdentity/cli run test:e2e:openclaw-docker
-```
-
-Defaults target:
-- `clawdbot-agent-alpha-1` (`http://127.0.0.1:18789`)
-- `clawdbot-agent-beta-1` (`http://127.0.0.1:19001`)
-
-This script validates:
-- invite-code onboarding setup in both containers
-- skill-created artifact presence
-- bidirectional multi-message relay
-- edge cases: unknown peer alias, connector offline, connector recovery
-
-Common environment overrides:
-- `CLAWDENTITY_E2E_PAT` (required if registry is already bootstrapped)
-- `RESET_MODE=skill|full|none` (default `skill`)
-- `ALPHA_CONTAINER`, `BETA_CONTAINER`
-- `REGISTRY_URL`, `PROXY_HOOK_URL`, `PROXY_WS_URL`
+- GitHub workflow: `.github/workflows/publish-cli.yml`
+- Trigger: `workflow_dispatch` with inputs:
+  - `version` (semver, required)
+  - `dist_tag` (default `latest`)
+- Required GitHub secret: `NPM_TOKEN`
+- Publish target: npm package `clawdentity`
+- Workflow runs CLI lint/typecheck/test/build before publishing.
 
 ---
 

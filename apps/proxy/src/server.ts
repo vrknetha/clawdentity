@@ -46,6 +46,7 @@ type ProxyRateLimitRuntimeOptions = {
 
 type CreateProxyAppOptions = {
   config: ProxyConfig;
+  version?: string;
   logger?: Logger;
   registerRoutes?: (app: ProxyApp) => void;
   auth?: ProxyAuthRuntimeOptions;
@@ -111,7 +112,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
   app.get("/health", (c) =>
     c.json({
       status: "ok",
-      version: PROXY_VERSION,
+      version: options.version ?? PROXY_VERSION,
       environment: options.config.environment,
     }),
   );

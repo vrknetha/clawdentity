@@ -1,8 +1,10 @@
 {
-  "name": "@clawdentity/cli",
+  "name": "clawdentity",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
@@ -27,14 +29,13 @@
     "postinstall": "node ./postinstall.mjs",
     "sync:skill-bundle": "node ./scripts/sync-skill-bundle.mjs",
     "test": "vitest run",
-    "test:e2e:openclaw-docker": "bash ./scripts/openclaw-relay-docker-e2e.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@clawdentity/connector": "workspace:*",
     "commander": "^13.1.0"
   },
   "devDependencies": {
+    "@clawdentity/connector": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
     "@clawdentity/sdk": "workspace:*",
     "@types/node": "^22.18.11"

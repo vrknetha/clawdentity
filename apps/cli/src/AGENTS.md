@@ -12,6 +12,7 @@
 - Admin bootstrap must print the one-time PAT before attempting to persist it and depend on `persistBootstrapConfig` so config write failures are surfaced via CLI errors while the operator still sees the PAT.
 - API-key lifecycle command logic should stay in `commands/api-key.ts`; keep create/list/revoke request mapping explicit and keep token exposure limited to create output only.
 - Connector runtime command logic should stay in `commands/connector.ts`; keep startup orchestration deterministic and avoid embedding connector runtime implementation details in the CLI.
+- Keep connector runtime import bundled at build time (from `@clawdentity/connector`) so published `clawdentity` installs do not depend on unpublished workspace runtime packages.
 - Registry invite lifecycle command logic should stay in `commands/invite.ts`; keep it strictly scoped to registry onboarding invites and separate from `commands/openclaw.ts` peer-relay invite codes.
 - `invite redeem` must print the returned PAT once, then persist config in deterministic order (`registryUrl`, then `apiKey`) so bootstrap/onboarding state is predictable.
 - `invite` command routes must use endpoint constants from `@clawdentity/protocol` (`INVITES_PATH`, `INVITES_REDEEM_PATH`) instead of inline path literals.
@@ -27,7 +28,7 @@
 - Detect install mode via npm environment (`npm_config_skill` and npm argv fallback) so non-skill installs remain unaffected.
 - Resolve skill artifacts in this order: explicit override, bundled `skill-bundle/openclaw-skill`, installed `@clawdentity/openclaw-skill`, then workspace fallback.
 - Skill install must copy `SKILL.md`, `references/*`, and `relay-to-peer.mjs` into OpenClaw runtime paths under `~/.openclaw` and must fail with actionable errors when source artifacts are missing.
-- Installer logs must be deterministic and explicit (`installed`, `updated`, `unchanged`) so E2E skill tests can assert outcomes reliably.
+- Installer logs must be deterministic and explicit (`installed`, `updated`, `unchanged`) so automated skill tests can assert outcomes reliably.
 
 ## Verification Flow Contract
 - `verify` must support both raw token input and file-path input without requiring extra flags.

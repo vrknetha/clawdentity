@@ -15,6 +15,7 @@ describe("proxy worker", () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
       {
+        APP_VERSION: "sha-worker-123",
         ENVIRONMENT: "local",
       } satisfies ProxyWorkerBindings,
       createExecutionContext(),
@@ -28,7 +29,7 @@ describe("proxy worker", () => {
     };
     expect(payload).toEqual({
       status: "ok",
-      version: PROXY_VERSION,
+      version: "sha-worker-123",
       environment: "local",
     });
   });
@@ -43,9 +44,11 @@ describe("proxy worker", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       status: string;
+      version: string;
       environment: string;
     };
     expect(payload.status).toBe("ok");
+    expect(payload.version).toBe(PROXY_VERSION);
     expect(payload.environment).toBe("development");
   });
 

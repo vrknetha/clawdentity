@@ -5,7 +5,11 @@ export default defineConfig({
   format: ["esm"],
   bundle: true,
   splitting: false,
-  noExternal: ["@clawdentity/protocol", "@clawdentity/sdk"],
+  noExternal: [
+    "@clawdentity/connector",
+    "@clawdentity/protocol",
+    "@clawdentity/sdk",
+  ],
   platform: "node",
   target: "node22",
   dts: true,

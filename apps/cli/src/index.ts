@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { createAdminCommand } from "./commands/admin.js";
 import { createAgentCommand } from "./commands/agent.js";
@@ -8,7 +9,22 @@ import { createInviteCommand } from "./commands/invite.js";
 import { createOpenclawCommand } from "./commands/openclaw.js";
 import { createVerifyCommand } from "./commands/verify.js";
 
-export const CLI_VERSION = "0.0.0";
+const require = createRequire(import.meta.url);
+
+const resolveCliVersion = (): string => {
+  const packageJson = require("../package.json") as { version?: unknown };
+
+  if (
+    typeof packageJson.version === "string" &&
+    packageJson.version.length > 0
+  ) {
+    return packageJson.version;
+  }
+
+  throw new Error("Unable to resolve CLI version from package metadata.");
+};
+
+export const CLI_VERSION = resolveCliVersion();
 
 export const createProgram = (): Command => {
   return new Command("clawdentity")

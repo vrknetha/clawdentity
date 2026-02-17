@@ -8,6 +8,7 @@ import {
   ProxyConfigError,
   parseProxyConfig,
 } from "./config.js";
+import { resolveProxyVersion } from "./index.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
 
 export type ProxyWorkerBindings = {
@@ -30,6 +31,8 @@ export type ProxyWorkerBindings = {
   AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE?: string;
   AGENT_RATE_LIMIT_WINDOW_MS?: string;
   INJECT_IDENTITY_INTO_MESSAGE?: string;
+  APP_VERSION?: string;
+  PROXY_VERSION?: string;
   [key: string]: unknown;
 };
 
@@ -59,6 +62,8 @@ function toCacheKey(env: ProxyWorkerBindings): string {
     env.AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
     env.AGENT_RATE_LIMIT_WINDOW_MS,
     env.INJECT_IDENTITY_INTO_MESSAGE,
+    env.APP_VERSION,
+    env.PROXY_VERSION,
   ];
 
   return keyParts.map((value) => String(value ?? "")).join("|");
@@ -71,7 +76,11 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
   }
 
   const config = parseProxyConfig(env);
-  const app = createProxyApp({ config, logger });
+  const app = createProxyApp({
+    config,
+    logger,
+    version: resolveProxyVersion(env),
+  });
 
   cachedRuntime = {
     key,

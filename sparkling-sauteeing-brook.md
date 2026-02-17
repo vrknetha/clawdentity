@@ -65,7 +65,7 @@ clawdentity/
   apps/
     registry/     -- @clawdentity/registry (Hono on Workers + D1)
     proxy/        -- @clawdentity/proxy (Hono on Node/Bun, sidecar)
-    cli/          -- @clawdentity/cli (Commander.js, bin: "clawdentity")
+    cli/          -- clawdentity (Commander.js, bin: "clawdentity")
 ```
 
 **Build order:** protocol -> sdk -> (registry | proxy | cli) in parallel

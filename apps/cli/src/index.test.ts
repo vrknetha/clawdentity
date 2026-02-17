@@ -1,9 +1,13 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { CLI_VERSION, createProgram } from "./index.js";
 
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json") as { version: string };
+
 describe("cli", () => {
   it("exports CLI_VERSION", () => {
-    expect(CLI_VERSION).toBe("0.0.0");
+    expect(CLI_VERSION).toBe(packageJson.version);
   });
 
   it("creates a program named clawdentity", () => {
@@ -91,6 +95,6 @@ describe("cli", () => {
       exitCode: 0,
     });
 
-    expect(output.join("")).toContain("0.0.0");
+    expect(output.join("")).toContain(packageJson.version);
   });
 });

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ProxyConfigError } from "./config.js";
-import { initializeProxyRuntime, PROXY_VERSION } from "./index.js";
+import {
+  initializeProxyRuntime,
+  PROXY_VERSION,
+  resolveProxyVersion,
+} from "./index.js";
 
 describe("proxy", () => {
   it("exports PROXY_VERSION", () => {
@@ -28,5 +32,20 @@ describe("proxy", () => {
 
     expect(runtime.version).toBe(PROXY_VERSION);
     expect(runtime.config.openclawHookToken).toBeUndefined();
+  });
+
+  it("prefers APP_VERSION for runtime version", () => {
+    expect(
+      resolveProxyVersion({
+        APP_VERSION: "sha-1234",
+        PROXY_VERSION: "ignored",
+      }),
+    ).toBe("sha-1234");
+  });
+
+  it("falls back to PROXY_VERSION binding when APP_VERSION is absent", () => {
+    expect(resolveProxyVersion({ PROXY_VERSION: "proxy-1.2.3" })).toBe(
+      "proxy-1.2.3",
+    );
   });
 });
