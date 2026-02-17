@@ -22,4 +22,11 @@ describe("proxy", () => {
       initializeProxyRuntime({ OPENCLAW_BASE_URL: "bad-url" }),
     ).toThrow(ProxyConfigError);
   });
+
+  it("supports relay runtime startup without OpenClaw vars", () => {
+    const runtime = initializeProxyRuntime({});
+
+    expect(runtime.version).toBe(PROXY_VERSION);
+    expect(runtime.config.openclawHookToken).toBeUndefined();
+  });
 });

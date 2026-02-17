@@ -7,17 +7,15 @@
 - Keep network relay behavior in `transforms/relay-to-peer.ts`.
 
 ## Safety Rules
-- Validate external input (`payload`, peer config JSON, selected agent name) before use.
-- Resolve selected agent in deterministic order: explicit option, env var, `~/.clawdentity/openclaw-agent-name`, then single-agent fallback.
-- Do not log or persist secret material from `secret.key` or `ait.jwt`.
-- Keep outbound peer requests as JSON POSTs with explicit auth + PoP headers.
-- Require outbound relay requests to include `x-claw-agent-access` from local `registry-auth.json`.
-- Keep refresh/write operations for `registry-auth.json` lock-protected and atomic.
-- On relay `401` auth failures, use shared SDK refresh+retry orchestration and retry exactly once.
+- Validate external input (`payload`, peer config JSON) before use.
+- Do not log relay payload contents or local connector credential material.
+- Keep transform relay path as local connector handoff only (`http://127.0.0.1:19400/v1/outbound` by default), not direct peer HTTP calls.
+- Keep peer alias semantics deterministic: validate `payload.peer` against peers config before connector handoff.
+- Keep connector failure mapping deterministic (`404` endpoint unavailable, `409` peer alias conflict, network failure generic outage).
 - Keep peer schema strict (`did`, `proxyUrl`, optional `name`) and reject malformed values early.
 
 ## Testing Rules
 - Use temp directories for filesystem tests; no dependency on real user home state.
-- Mock `fetch` in relay tests and assert emitted headers/body.
-- Cover both happy path and failure paths (missing peer mapping, missing credentials, invalid config).
-- Include refresh-retry tests: first relay `401` -> registry refresh -> one retry success.
+- Mock `fetch` in relay tests and assert local connector endpoint + request body contract.
+- Cover both happy path and failure paths (missing peer mapping, invalid peers config, connector rejection).
+- Include deterministic connector failure tests (endpoint missing, network unavailable).

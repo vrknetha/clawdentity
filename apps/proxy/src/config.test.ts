@@ -20,15 +20,13 @@ import {
 const OPENCLAW_CONFIG_FILENAME = "openclaw.json";
 
 describe("proxy config", () => {
-  it("parses required settings and applies defaults", () => {
-    const config = parseProxyConfig({
-      OPENCLAW_HOOK_TOKEN: "super-secret-hook-token",
-    });
+  it("parses defaults without requiring OpenClaw token", () => {
+    const config = parseProxyConfig({});
 
     expect(config).toEqual({
       listenPort: DEFAULT_PROXY_LISTEN_PORT,
       openclawBaseUrl: DEFAULT_OPENCLAW_BASE_URL,
-      openclawHookToken: "super-secret-hook-token",
+      openclawHookToken: undefined,
       registryUrl: DEFAULT_REGISTRY_URL,
       environment: DEFAULT_PROXY_ENVIRONMENT,
       allowList: {
@@ -83,14 +81,13 @@ describe("proxy config", () => {
     });
   });
 
-  it("throws on missing hook token", () => {
-    expect(() => parseProxyConfig({})).toThrow(ProxyConfigError);
+  it("accepts missing hook token for relay-only startup", () => {
+    expect(() => parseProxyConfig({})).not.toThrow();
   });
 
   it("throws on malformed allow list JSON", () => {
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         ALLOW_LIST: "{not-json",
       }),
     ).toThrow(ProxyConfigError);
@@ -99,7 +96,6 @@ describe("proxy config", () => {
   it("throws when deprecated ALLOW_ALL_VERIFIED is set", () => {
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         ALLOW_ALL_VERIFIED: "true",
       }),
     ).toThrow(ProxyConfigError);
@@ -108,7 +104,6 @@ describe("proxy config", () => {
   it("throws when ALLOW_LIST includes unknown keys", () => {
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         ALLOW_LIST: JSON.stringify({
           owners: [],
           agents: [],
@@ -121,7 +116,6 @@ describe("proxy config", () => {
   it("throws on unsupported environment value", () => {
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         ENVIRONMENT: "staging",
       }),
     ).toThrow(ProxyConfigError);
@@ -130,13 +124,11 @@ describe("proxy config", () => {
   it("throws on invalid agent DID rate-limit values", () => {
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: "0",
       }),
     ).toThrow(ProxyConfigError);
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         AGENT_RATE_LIMIT_WINDOW_MS: "-1",
       }),
     ).toThrow(ProxyConfigError);
@@ -145,7 +137,6 @@ describe("proxy config", () => {
   it("throws on invalid injectIdentityIntoMessage value", () => {
     expect(() =>
       parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         INJECT_IDENTITY_INTO_MESSAGE: "maybe",
       }),
     ).toThrow(ProxyConfigError);
@@ -201,6 +192,24 @@ describe("proxy config loading", () => {
       expect(config.openclawHookToken).toBe("from-cwd-dotenv");
       expect(config.listenPort).toBe(4444);
       expect(config.registryUrl).toBe("https://registry.cwd.example.com");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("allows loading config when no OpenClaw token fallback is present", () => {
+    const sandbox = createSandbox();
+    try {
+      const config = loadProxyConfig(
+        {},
+        {
+          cwd: sandbox.cwd,
+          homeDir: sandbox.root,
+        },
+      );
+
+      expect(config.openclawHookToken).toBeUndefined();
+      expect(config.openclawBaseUrl).toBe(DEFAULT_OPENCLAW_BASE_URL);
     } finally {
       sandbox.cleanup();
     }

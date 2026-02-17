@@ -9,7 +9,7 @@
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
 - Keep `src/postinstall.ts` as a thin install entrypoint only; it should detect npm `--skill` mode and call shared installer helpers without mutating runtime CLI command wiring.
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
-- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`) so automation and docs do not drift.
+- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`, `connector`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
 - Use `process.exitCode` instead of `process.exit()`.
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
@@ -27,6 +27,7 @@
 - CLI verification caches live under `~/.clawdentity/cache/` and must never include private keys or PATs.
 - Agent identities live at `~/.clawdentity/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
 - OpenClaw setup runtime hint lives at `~/.clawdentity/openclaw-relay.json` and stores `openclawBaseUrl` for proxy fallback.
+- Connector runtime defaults to local outbound handoff endpoint `http://127.0.0.1:19400/v1/outbound`; keep transform and CLI defaults aligned.
 - Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/agents/`.
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
 - Keep API tokens masked in human-facing output (`show`, success logs, debug prints).

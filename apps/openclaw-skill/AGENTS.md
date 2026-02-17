@@ -2,16 +2,11 @@
 
 ## Purpose
 - Define conventions for the OpenClaw skill package that relays selected payloads to remote Clawdentity peers.
-- Keep peer routing config, credential loading, and PoP signing deterministic and testable.
+- Keep peer routing config and local connector handoff deterministic and testable.
 
 ## Filesystem Contracts
 - Peer routing map lives at `~/.clawdentity/peers.json` by default.
-- Local agent credentials are read from `~/.clawdentity/agents/<agent-name>/secret.key` and `~/.clawdentity/agents/<agent-name>/ait.jwt`.
-- Agent selection order for relay runtime:
-  - explicit transform override (`agentName`)
-  - environment (`CLAWDENTITY_AGENT_NAME`)
-  - `~/.clawdentity/openclaw-agent-name`
-  - single local agent auto-detection
+- Local relay handoff targets connector runtime endpoint `http://127.0.0.1:19400/v1/outbound` by default (override via connector env/options when needed).
 - Relay setup should preserve local OpenClaw upstream URL in `~/.clawdentity/openclaw-relay.json` for proxy runtime fallback.
 - Never commit local runtime files (`peers.json`, `secret.key`, `ait.jwt`) to the repository.
 
@@ -21,17 +16,16 @@
 - `src/transforms/relay-to-peer.ts` must:
   - expose default export accepting OpenClaw transform context (`ctx.payload`)
   - read `payload.peer`
-  - resolve peer proxy URL from peers config
-  - sign outbound POST with `signHttpRequest`
-  - send `Authorization: Claw <AIT>` and `X-Claw-*` PoP headers
-  - remove `peer` from forwarded JSON payload
+  - resolve peer metadata from peers config to preserve alias semantics
+  - send outbound payload to local connector endpoint as JSON
+  - remove `peer` from forwarded application payload and wrap it in connector relay envelope
   - return `null` after successful relay so local handling is skipped
 - If `payload.peer` is absent, return payload unchanged.
 - Keep setup flow CLI-driven via `clawdentity openclaw setup`; do not add `configure-hooks.sh`.
 
 ## Maintainability
 - Keep filesystem path logic centralized; avoid hardcoding `~/.clawdentity` paths across multiple files.
-- Keep relay behavior pure except for explicit dependencies (`fetch`, clock, random bytes, filesystem) so tests stay deterministic.
+- Keep relay behavior pure except for explicit dependencies (`fetch`, filesystem) so tests stay deterministic.
 - Prefer schema-first runtime validation over ad-hoc guards.
 
 ## Validation Commands

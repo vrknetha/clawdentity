@@ -28,6 +28,8 @@ export {
   INVITES_PATH,
   INVITES_REDEEM_PATH,
   ME_API_KEYS_PATH,
+  RELAY_CONNECT_PATH,
+  RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "./endpoints.js";
 export type { ProtocolParseErrorCode } from "./errors.js";
 export { ProtocolParseError } from "./errors.js";

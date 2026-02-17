@@ -28,6 +28,8 @@ import {
   parseCrlClaims,
   parseDid,
   parseUlid,
+  RELAY_CONNECT_PATH,
+  RELAY_RECIPIENT_AGENT_DID_HEADER,
   validateAgentName,
 } from "./index.js";
 
@@ -44,6 +46,8 @@ describe("protocol", () => {
     expect(INVITES_PATH).toBe("/v1/invites");
     expect(INVITES_REDEEM_PATH).toBe("/v1/invites/redeem");
     expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");
+    expect(RELAY_CONNECT_PATH).toBe("/v1/relay/connect");
+    expect(RELAY_RECIPIENT_AGENT_DID_HEADER).toBe("x-claw-recipient-agent-did");
   });
 
   it("exports helpers from package root", () => {

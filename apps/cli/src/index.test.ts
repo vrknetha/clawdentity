@@ -50,6 +50,14 @@ describe("cli", () => {
     expect(hasApiKeyCommand).toBe(true);
   });
 
+  it("registers the connector command", () => {
+    const hasConnectorCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("connector");
+
+    expect(hasConnectorCommand).toBe(true);
+  });
+
   it("registers the openclaw command", () => {
     const hasOpenclawCommand = createProgram()
       .commands.map((command) => command.name())

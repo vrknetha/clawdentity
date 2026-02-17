@@ -23,6 +23,16 @@
 - `openclaw setup --openclaw-base-url` should only be needed when OpenClaw is not reachable on the default `http://127.0.0.1:18789`.
 - Keep error messages static (no interpolated runtime values); include variable context only in error details/log fields.
 
+## Connector Command Rules
+- `connector start <agentName>` is the runtime entrypoint for local relay handoff and must remain long-running when connector runtime provides a wait/closed primitive.
+- Validate agent local state before start (`identity.json`, `ait.jwt`, `secret.key`, `registry-auth.json`) and fail early with deterministic operator-facing errors.
+- Keep connector startup wiring behind dependency-injected helpers so tests can mock module loading/runtime behavior without requiring a live connector package.
+- Print resolved outbound endpoint and proxy websocket URL (when provided by runtime) so operators can verify local handoff and upstream connectivity.
+- Parse and forward optional `registry-auth.json` expiry metadata (`accessExpiresAt`, `refreshExpiresAt`, `tokenType`) to connector runtime so startup refresh decisions can be made without re-reading CLI-side files.
+- `connector service install <agentName>` must generate deterministic user-service files and wire autostart using OS-native tooling (`launchctl` or `systemctl --user`).
+- `connector service install/uninstall` must keep service names/path generation stable from agent name so support/debug commands remain predictable.
+- `connector service uninstall` must be safe to re-run (ignore already-stopped service errors and still remove service file).
+
 ## Registry Invite Command Rules
 - `invite create` is for registry onboarding invites only (admin-authenticated), not peer-relay invite-code generation.
 - `invite create` must call `INVITES_PATH` from `@clawdentity/protocol` and include PAT bearer auth from resolved CLI config.

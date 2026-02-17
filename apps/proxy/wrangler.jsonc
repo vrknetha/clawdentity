@@ -4,9 +4,37 @@
   "main": "src/worker.ts",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT_RELAY_SESSION",
+        "class_name": "AgentRelaySession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-agent-relay-session",
+      "new_sqlite_classes": ["AgentRelaySession"]
+    }
+  ],
   "env": {
     "local": {
       "name": "clawdentity-proxy-local",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "AGENT_RELAY_SESSION",
+            "class_name": "AgentRelaySession"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1-agent-relay-session",
+          "new_sqlite_classes": ["AgentRelaySession"]
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "local",
         "REGISTRY_URL": "https://dev.api.clawdentity.com",
@@ -16,6 +44,20 @@
     },
     "development": {
       "name": "clawdentity-proxy-development",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "AGENT_RELAY_SESSION",
+            "class_name": "AgentRelaySession"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1-agent-relay-session",
+          "new_sqlite_classes": ["AgentRelaySession"]
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "development",
         "REGISTRY_URL": "https://dev.api.clawdentity.com",
@@ -24,6 +66,20 @@
     },
     "production": {
       "name": "clawdentity-proxy",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "AGENT_RELAY_SESSION",
+            "class_name": "AgentRelaySession"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1-agent-relay-session",
+          "new_sqlite_classes": ["AgentRelaySession"]
+        }
+      ],
       "vars": {
         "ENVIRONMENT": "production",
         "REGISTRY_URL": "https://api.clawdentity.com",
