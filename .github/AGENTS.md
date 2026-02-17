@@ -23,6 +23,7 @@
   - proxy (`apps/proxy`, env `development`) after registry health passes
 - Verify registry health at `https://dev.api.clawdentity.com/health` and verify proxy health via deployed URL (workers.dev or explicit override) with expected `APP_VERSION`.
 - Health verification should use bounded retries (for example 3 minutes with 10-second polling) and `Cache-Control: no-cache` requests to tolerate short edge propagation delays after deploy.
+- When using Python `urllib` for health checks, always set explicit request headers (`Accept: application/json` and a custom `User-Agent` such as `Clawdentity-CI/1.0`) because Cloudflare may return `403`/`1010` for the default `Python-urllib/*` user agent.
 - Use workflow concurrency groups to prevent overlapping deploys for the same environment.
 - Run Wrangler through workspace tooling (`pnpm exec wrangler`) in CI so commands work without a global Wrangler install on GitHub runners.
 
