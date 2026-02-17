@@ -39,7 +39,7 @@
         "ENVIRONMENT": "local",
         "REGISTRY_URL": "https://dev.api.clawdentity.com",
         "OPENCLAW_BASE_URL": "http://127.0.0.1:18789",
-        "INJECT_IDENTITY_INTO_MESSAGE": "false"
+        "INJECT_IDENTITY_INTO_MESSAGE": "true"
       }
     },
     "development": {
@@ -61,7 +61,7 @@
       "vars": {
         "ENVIRONMENT": "development",
         "REGISTRY_URL": "https://dev.api.clawdentity.com",
-        "INJECT_IDENTITY_INTO_MESSAGE": "false"
+        "INJECT_IDENTITY_INTO_MESSAGE": "true"
       }
     },
     "production": {
@@ -83,7 +83,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         "REGISTRY_URL": "https://api.clawdentity.com",
-        "INJECT_IDENTITY_INTO_MESSAGE": "false"
+        "INJECT_IDENTITY_INTO_MESSAGE": "true"
       }
     }
   }

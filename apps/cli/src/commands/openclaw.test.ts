@@ -125,7 +125,7 @@ describe("openclaw command helpers", () => {
       };
 
       expect(openclawConfig.hooks.enabled).toBe(true);
-      expect(openclawConfig.hooks.allowRequestSessionKey).toBe(true);
+      expect(openclawConfig.hooks.allowRequestSessionKey).toBe(false);
       expect(openclawConfig.hooks.allowedSessionKeyPrefixes).toContain("hook:");
       expect(
         openclawConfig.hooks.mappings?.some(

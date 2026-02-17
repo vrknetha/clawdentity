@@ -40,6 +40,6 @@
 - Keep `/hooks/agent` input contract strict: require `Content-Type: application/json` and reject malformed JSON with explicit client errors.
 - Keep agent-access validation centralized in `auth-middleware.ts` and call registry `POST /v1/agents/auth/validate`; treat non-`204` non-`401` responses as dependency failures (`503`).
 - Keep relay delivery failure mapping explicit for `/hooks/agent`: DO delivery/RPC failures -> `502`, unavailable DO namespace -> `503`.
-- Keep identity message injection optional and default-off (`INJECT_IDENTITY_INTO_MESSAGE=false`) so forwarding behavior is unchanged unless explicitly enabled.
+- Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.

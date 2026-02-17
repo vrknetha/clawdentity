@@ -65,6 +65,14 @@ describe("proxy config", () => {
     expect(config.injectIdentityIntoMessage).toBe(true);
   });
 
+  it("allows disabling identity injection via env override", () => {
+    const config = parseProxyConfig({
+      INJECT_IDENTITY_INTO_MESSAGE: "false",
+    });
+
+    expect(config.injectIdentityIntoMessage).toBe(false);
+  });
+
   it("parses allow list object and override env lists", () => {
     const config = parseProxyConfig({
       OPENCLAW_HOOK_TOKEN: "token",

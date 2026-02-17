@@ -459,9 +459,9 @@ clawdentity/
 - Enforces caller allowlist policy by DID.
 - Applies per-agent rate limiting.
 - Keeps `hooks.token` private and only injects it internally during forward.
-- Optional: set `INJECT_IDENTITY_INTO_MESSAGE=true` to prepend a sanitized identity block
+- By default, `INJECT_IDENTITY_INTO_MESSAGE=true` to prepend a sanitized identity block
   (`agentDid`, `ownerDid`, `issuer`, `aitJti`) into `/hooks/agent` payload `message`.
-  Default is `false`, which keeps payloads unchanged.
+  Set `INJECT_IDENTITY_INTO_MESSAGE=false` to keep payloads unchanged.
 
 ### Proxy Worker local runs
 
