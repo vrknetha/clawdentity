@@ -18,6 +18,7 @@
 - `invite` command routes must use endpoint constants from `@clawdentity/protocol` (`INVITES_PATH`, `INVITES_REDEEM_PATH`) instead of inline path literals.
 - Agent auth refresh state is stored per-agent at `~/.clawdentity/agents/<name>/registry-auth.json` and must be written with secure file permissions.
 - `agent auth refresh` must use `Authorization: Claw <AIT>` + PoP headers from local agent keys and must not require PAT config.
+- `pair` command logic should stay in `commands/pair.ts`; keep proxy pairing bootstrap (`/pair/start`, `/pair/confirm`) CLI-driven with local AIT + PoP proof headers and one-time ticket QR support (`--qr`, `--qr-file`).
 - `connector start <agentName>` must validate local agent material (`identity.json`, `ait.jwt`, `secret.key`, `registry-auth.json`) before starting runtime and must fail with stable CLI errors when files are missing/invalid.
 - `connector start` must print the local outbound handoff endpoint so transform troubleshooting is deterministic.
 - `connector service install <agentName>` must install user-scoped autostart integration (`launchd` on macOS, `systemd --user` on Linux) so connector runtime survives host restarts.

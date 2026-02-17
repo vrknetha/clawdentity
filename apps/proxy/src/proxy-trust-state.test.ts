@@ -68,40 +68,21 @@ describe("ProxyTrustState", () => {
     expect(harness.values.has("trust:agent-peers")).toBe(true);
   });
 
-  it("does not treat pairs as known agents without agent-peer index", async () => {
-    const { proxyTrustState, harness } = createProxyTrustState({
-      "trust:pairs": ["did:claw:agent:alice|did:claw:agent:bob"],
-    });
-
-    const knownResponse = await proxyTrustState.fetch(
-      makeRequest(TRUST_STORE_ROUTES.isAgentKnown, {
-        agentDid: "did:claw:agent:alice",
-      }),
-    );
-
-    expect(knownResponse.status).toBe(200);
-    expect((await knownResponse.json()) as { known: boolean }).toEqual({
-      known: false,
-    });
-
-    expect(harness.values.get("trust:agent-peers")).toBeUndefined();
-  });
-
-  it("confirms pairing code in one operation and persists trust", async () => {
+  it("confirms pairing ticket in one operation and persists trust", async () => {
     const { proxyTrustState } = createProxyTrustState();
-    const codeResponse = await proxyTrustState.fetch(
-      makeRequest(TRUST_STORE_ROUTES.createPairingCode, {
+    const ticketResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
         initiatorAgentDid: "did:claw:agent:alice",
-        responderAgentDid: "did:claw:agent:bob",
+        issuerProxyUrl: "https://proxy-a.example.com",
         ttlSeconds: 60,
         nowMs: 1_700_000_000_000,
       }),
     );
-    const codeBody = (await codeResponse.json()) as { pairingCode: string };
+    const ticketBody = (await ticketResponse.json()) as { ticket: string };
 
     const confirmResponse = await proxyTrustState.fetch(
-      makeRequest(TRUST_STORE_ROUTES.confirmPairingCode, {
-        pairingCode: codeBody.pairingCode,
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
+        ticket: ticketBody.ticket,
         responderAgentDid: "did:claw:agent:bob",
         nowMs: 1_700_000_000_100,
       }),
@@ -109,10 +90,15 @@ describe("ProxyTrustState", () => {
 
     expect(confirmResponse.status).toBe(200);
     expect(
-      (await confirmResponse.json()) as { initiatorAgentDid: string },
+      (await confirmResponse.json()) as {
+        initiatorAgentDid: string;
+        responderAgentDid: string;
+        issuerProxyUrl: string;
+      },
     ).toEqual({
       initiatorAgentDid: "did:claw:agent:alice",
       responderAgentDid: "did:claw:agent:bob",
+      issuerProxyUrl: "https://proxy-a.example.com",
     });
 
     const pairCheckResponse = await proxyTrustState.fetch(

@@ -11,13 +11,14 @@
 - Keep inbound auth verification in `auth-middleware.ts` with focused helpers for token parsing, registry material loading, CRL checks, and replay protection.
 - Keep per-agent DID throttling in `agent-rate-limit-middleware.ts`; do not blend rate-limit state or counters into `auth-middleware.ts`.
 - Keep pre-auth public-route IP throttling in `public-rate-limit-middleware.ts`; do not blend unauthenticated probe controls into `auth-middleware.ts`.
-- Keep `.env` fallback loading and OpenClaw config (`hooks.token`) fallback logic inside `config.ts` so runtime behavior is deterministic.
+- Keep `.env` fallback loading inside `config.ts` so runtime behavior is deterministic.
 - Keep OpenClaw base URL fallback logic in `config.ts`: `OPENCLAW_BASE_URL` env -> `~/.clawdentity/openclaw-relay.json` -> default.
-- Keep OpenClaw compatibility vars optional for relay-mode runtime; never require `OPENCLAW_BASE_URL` or hook token for cloud relay startup.
+- Keep OpenClaw compatibility vars optional for relay-mode runtime; never require `OPENCLAW_BASE_URL` for cloud relay startup.
+- Do not add `OPENCLAW_HOOK_TOKEN` handling to proxy runtime; hook token auth belongs to connector -> OpenClaw delivery path.
 - Keep fallback semantics consistent across merge + parse stages: empty/whitespace env values are treated as missing, so non-empty `.env`/file values can be used.
 - Do not derive runtime environment from `NODE_ENV`; use validated `ENVIRONMENT` from proxy config.
 - Keep static allowlist env vars removed (`ALLOW_LIST`, `ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`); trust must come from pairing state, not env.
-- Keep `/pair/confirm` write path atomic at the trust-store API level: trust persistence and pairing-code consumption must happen in one operation (`confirmPairingCode`).
+- Keep `/pair/confirm` write path atomic at the trust-store API level: trust persistence and one-time ticket consumption must happen in one operation (`confirmPairingTicket`).
 
 ## Config Error Handling
 - Convert parse failures to `ProxyConfigError` with code `CONFIG_VALIDATION_FAILED`.

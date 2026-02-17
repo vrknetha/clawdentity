@@ -70,6 +70,14 @@ describe("cli", () => {
     expect(hasOpenclawCommand).toBe(true);
   });
 
+  it("registers the pair command", () => {
+    const hasPairCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("pair");
+
+    expect(hasPairCommand).toBe(true);
+  });
+
   it("registers the invite command", () => {
     const hasInviteCommand = createProgram()
       .commands.map((command) => command.name())

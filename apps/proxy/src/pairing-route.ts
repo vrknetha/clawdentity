@@ -3,12 +3,16 @@ import { AppError, type Logger } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 import {
-  DEFAULT_PAIRING_CODE_TTL_SECONDS,
-  MAX_PAIRING_CODE_TTL_SECONDS,
+  DEFAULT_PAIRING_TICKET_TTL_SECONDS,
+  MAX_PAIRING_TICKET_TTL_SECONDS,
   OWNER_PAT_HEADER,
   PAIR_CONFIRM_PATH,
   PAIR_START_PATH,
 } from "./pairing-constants.js";
+import {
+  PairingTicketParseError,
+  parsePairingTicket,
+} from "./pairing-ticket.js";
 import {
   type ProxyTrustStore,
   ProxyTrustStoreError,
@@ -34,6 +38,7 @@ type CreatePairStartHandlerOptions = PairStartRuntimeOptions & {
 };
 
 export type PairConfirmRuntimeOptions = {
+  fetchImpl?: typeof fetch;
   nowMs?: () => number;
 };
 
@@ -60,37 +65,9 @@ function normalizeRegistryUrl(registryUrl: string): string {
   return new URL(baseUrl).toString();
 }
 
-function parseAgentDid(value: unknown, inputName: string): string {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new AppError({
-      code: "PROXY_PAIR_INVALID_BODY",
-      message: `${inputName} is required`,
-      status: 400,
-      expose: true,
-    });
-  }
-
-  const candidate = value.trim();
-  try {
-    const parsed = parseDid(candidate);
-    if (parsed.kind !== "agent") {
-      throw new Error("Invalid kind");
-    }
-  } catch {
-    throw new AppError({
-      code: "PROXY_PAIR_INVALID_BODY",
-      message: `${inputName} must be a valid agent DID`,
-      status: 400,
-      expose: true,
-    });
-  }
-
-  return candidate;
-}
-
 function parseTtlSeconds(value: unknown): number {
   if (value === undefined) {
-    return DEFAULT_PAIRING_CODE_TTL_SECONDS;
+    return DEFAULT_PAIRING_TICKET_TTL_SECONDS;
   }
 
   if (typeof value !== "number" || !Number.isInteger(value)) {
@@ -102,10 +79,10 @@ function parseTtlSeconds(value: unknown): number {
     });
   }
 
-  if (value < 1 || value > MAX_PAIRING_CODE_TTL_SECONDS) {
+  if (value < 1 || value > MAX_PAIRING_TICKET_TTL_SECONDS) {
     throw new AppError({
       code: "PROXY_PAIR_INVALID_BODY",
-      message: `ttlSeconds must be between 1 and ${MAX_PAIRING_CODE_TTL_SECONDS}`,
+      message: `ttlSeconds must be between 1 and ${MAX_PAIRING_TICKET_TTL_SECONDS}`,
       status: 400,
       expose: true,
     });
@@ -222,7 +199,15 @@ async function assertPatOwnsInitiatorAgent(input: {
   });
 }
 
-function toPairingCodeAppError(error: unknown): AppError {
+async function parseJsonResponse(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+function toPairingStoreAppError(error: unknown): AppError {
   if (error instanceof ProxyTrustStoreError) {
     return new AppError({
       code: error.code,
@@ -238,6 +223,116 @@ function toPairingCodeAppError(error: unknown): AppError {
     status: 503,
     expose: true,
   });
+}
+
+function extractErrorCode(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  const error = (payload as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  return typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;
+}
+
+function extractErrorMessage(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  const error = (payload as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  return typeof (error as { message?: unknown }).message === "string"
+    ? (error as { message: string }).message
+    : undefined;
+}
+
+function normalizeProxyOrigin(value: string): string {
+  const parsed = new URL(value);
+  return parsed.origin;
+}
+
+function mapForwardedPairConfirmError(
+  status: number,
+  payload: unknown,
+): AppError {
+  const code = extractErrorCode(payload) ?? "PROXY_PAIR_CONFIRM_FAILED";
+  const message =
+    extractErrorMessage(payload) ??
+    (status >= 500
+      ? "Issuer proxy pairing service is unavailable"
+      : "Issuer proxy rejected pairing confirm");
+
+  return new AppError({
+    code,
+    message,
+    status,
+    expose: true,
+  });
+}
+
+function parsePairConfirmResponse(payload: unknown): {
+  paired: true;
+  initiatorAgentDid: string;
+  responderAgentDid: string;
+} {
+  if (typeof payload !== "object" || payload === null) {
+    throw new AppError({
+      code: "PROXY_PAIR_CONFIRM_INVALID_RESPONSE",
+      message: "Issuer proxy response is invalid",
+      status: 502,
+      expose: true,
+    });
+  }
+
+  const paired = (payload as { paired?: unknown }).paired === true;
+  const initiatorRaw = (payload as { initiatorAgentDid?: unknown })
+    .initiatorAgentDid;
+  const responderRaw = (payload as { responderAgentDid?: unknown })
+    .responderAgentDid;
+  const initiatorAgentDid =
+    typeof initiatorRaw === "string" ? initiatorRaw : "";
+  const responderAgentDid =
+    typeof responderRaw === "string" ? responderRaw : "";
+
+  if (!paired) {
+    throw new AppError({
+      code: "PROXY_PAIR_CONFIRM_INVALID_RESPONSE",
+      message: "Issuer proxy response is invalid",
+      status: 502,
+      expose: true,
+    });
+  }
+
+  try {
+    if (parseDid(initiatorAgentDid).kind !== "agent") {
+      throw new Error("invalid");
+    }
+    if (parseDid(responderAgentDid).kind !== "agent") {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_CONFIRM_INVALID_RESPONSE",
+      message: "Issuer proxy response is invalid",
+      status: 502,
+      expose: true,
+    });
+  }
+
+  return {
+    paired: true,
+    initiatorAgentDid,
+    responderAgentDid,
+  };
 }
 
 export function createPairStartHandler(
@@ -258,19 +353,8 @@ export function createPairStartHandler(
     }
 
     const body = (await parseJsonBody(c)) as {
-      agentDid?: unknown;
       ttlSeconds?: unknown;
     };
-
-    const responderAgentDid = parseAgentDid(body.agentDid, "agentDid");
-    if (responderAgentDid === auth.agentDid) {
-      throw new AppError({
-        code: "PROXY_PAIR_INVALID_BODY",
-        message: "agentDid must be different from caller agent DID",
-        status: 400,
-        expose: true,
-      });
-    }
 
     const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
     const ownerPat = parseOwnerPatHeader(c.req.header(OWNER_PAT_HEADER));
@@ -282,29 +366,29 @@ export function createPairStartHandler(
       registryUrl,
     });
 
-    const pairingCodeResult = await options.trustStore
-      .createPairingCode({
+    const issuerProxyUrl = normalizeProxyOrigin(c.req.url);
+    const pairingTicketResult = await options.trustStore
+      .createPairingTicket({
         initiatorAgentDid: auth.agentDid,
-        responderAgentDid,
+        issuerProxyUrl,
         ttlSeconds,
         nowMs: nowMs(),
       })
       .catch((error: unknown) => {
-        throw toPairingCodeAppError(error);
+        throw toPairingStoreAppError(error);
       });
 
     options.logger.info("proxy.pair.start", {
       requestId: c.get("requestId"),
       initiatorAgentDid: auth.agentDid,
-      responderAgentDid,
-      expiresAt: new Date(pairingCodeResult.expiresAtMs).toISOString(),
+      issuerProxyUrl: pairingTicketResult.issuerProxyUrl,
+      expiresAt: new Date(pairingTicketResult.expiresAtMs).toISOString(),
     });
 
     return c.json({
-      initiatorAgentDid: pairingCodeResult.initiatorAgentDid,
-      responderAgentDid: pairingCodeResult.responderAgentDid,
-      pairingCode: pairingCodeResult.pairingCode,
-      expiresAt: new Date(pairingCodeResult.expiresAtMs).toISOString(),
+      initiatorAgentDid: pairingTicketResult.initiatorAgentDid,
+      ticket: pairingTicketResult.ticket,
+      expiresAt: new Date(pairingTicketResult.expiresAtMs).toISOString(),
     });
   };
 }
@@ -313,6 +397,7 @@ export function createPairConfirmHandler(
   options: CreatePairConfirmHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
   const nowMs = options.nowMs ?? Date.now;
+  const fetchImpl = options.fetchImpl ?? fetch;
 
   return async (c) => {
     const auth = c.get("auth");
@@ -325,42 +410,135 @@ export function createPairConfirmHandler(
     }
 
     const body = (await parseJsonBody(c)) as {
-      pairingCode?: unknown;
+      ticket?: unknown;
     };
 
-    if (
-      typeof body.pairingCode !== "string" ||
-      body.pairingCode.trim() === ""
-    ) {
+    if (typeof body.ticket !== "string" || body.ticket.trim() === "") {
       throw new AppError({
         code: "PROXY_PAIR_INVALID_BODY",
-        message: "pairingCode is required",
+        message: "ticket is required",
         status: 400,
         expose: true,
       });
     }
 
-    const consumedPairingCode = await options.trustStore
-      .confirmPairingCode({
-        pairingCode: body.pairingCode.trim(),
+    const ticket = body.ticket.trim();
+
+    let parsedTicket: ReturnType<typeof parsePairingTicket>;
+    try {
+      parsedTicket = parsePairingTicket(ticket);
+    } catch (error) {
+      if (error instanceof PairingTicketParseError) {
+        throw new AppError({
+          code: error.code,
+          message: error.message,
+          status: 400,
+          expose: true,
+        });
+      }
+
+      throw new AppError({
+        code: "PROXY_PAIR_TICKET_INVALID_FORMAT",
+        message: "Pairing ticket format is invalid",
+        status: 400,
+        expose: true,
+      });
+    }
+
+    const localProxyOrigin = normalizeProxyOrigin(c.req.url);
+    const ticketIssuerOrigin = normalizeProxyOrigin(parsedTicket.iss);
+    const isIssuerLocal = ticketIssuerOrigin === localProxyOrigin;
+
+    if (!isIssuerLocal) {
+      const issuerConfirmUrl = new URL(
+        PAIR_CONFIRM_PATH,
+        ticketIssuerOrigin.endsWith("/")
+          ? ticketIssuerOrigin
+          : `${ticketIssuerOrigin}/`,
+      ).toString();
+
+      const forwardedResponse = await fetchImpl(issuerConfirmUrl, {
+        method: "POST",
+        headers: c.req.raw.headers,
+        body: JSON.stringify({ ticket }),
+      }).catch((error: unknown) => {
+        throw new AppError({
+          code: "PROXY_PAIR_STATE_UNAVAILABLE",
+          message: "Issuer proxy pairing service is unavailable",
+          status: 503,
+          details: {
+            reason: error instanceof Error ? error.message : "unknown",
+          },
+          expose: true,
+        });
+      });
+
+      const forwardedBody = await parseJsonResponse(forwardedResponse);
+      if (!forwardedResponse.ok) {
+        throw mapForwardedPairConfirmError(
+          forwardedResponse.status,
+          forwardedBody,
+        );
+      }
+
+      const confirmed = parsePairConfirmResponse(forwardedBody);
+      if (confirmed.responderAgentDid !== auth.agentDid) {
+        throw new AppError({
+          code: "PROXY_PAIR_CONFIRM_RESPONDER_MISMATCH",
+          message: "Issuer proxy response did not match caller responder DID",
+          status: 502,
+          expose: true,
+        });
+      }
+
+      await options.trustStore
+        .upsertPair({
+          initiatorAgentDid: confirmed.initiatorAgentDid,
+          responderAgentDid: confirmed.responderAgentDid,
+        })
+        .catch((error: unknown) => {
+          throw toPairingStoreAppError(error);
+        });
+
+      options.logger.info("proxy.pair.confirm.forwarded", {
+        requestId: c.get("requestId"),
+        initiatorAgentDid: confirmed.initiatorAgentDid,
+        responderAgentDid: confirmed.responderAgentDid,
+        issuerProxyUrl: ticketIssuerOrigin,
+      });
+
+      return c.json(
+        {
+          paired: true,
+          initiatorAgentDid: confirmed.initiatorAgentDid,
+          responderAgentDid: confirmed.responderAgentDid,
+        },
+        201,
+      );
+    }
+
+    const confirmedPairingTicket = await options.trustStore
+      .confirmPairingTicket({
+        ticket,
         responderAgentDid: auth.agentDid,
         nowMs: nowMs(),
       })
       .catch((error: unknown) => {
-        throw toPairingCodeAppError(error);
+        throw toPairingStoreAppError(error);
       });
 
     options.logger.info("proxy.pair.confirm", {
       requestId: c.get("requestId"),
-      initiatorAgentDid: consumedPairingCode.initiatorAgentDid,
-      responderAgentDid: consumedPairingCode.responderAgentDid,
+      initiatorAgentDid: confirmedPairingTicket.initiatorAgentDid,
+      responderAgentDid: confirmedPairingTicket.responderAgentDid,
+      issuerProxyUrl: confirmedPairingTicket.issuerProxyUrl,
     });
 
     return c.json(
       {
         paired: true,
-        initiatorAgentDid: consumedPairingCode.initiatorAgentDid,
-        responderAgentDid: consumedPairingCode.responderAgentDid,
+        initiatorAgentDid: confirmedPairingTicket.initiatorAgentDid,
+        responderAgentDid: confirmedPairingTicket.responderAgentDid,
       },
       201,
     );

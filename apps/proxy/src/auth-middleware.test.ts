@@ -313,7 +313,7 @@ describe("proxy auth middleware", () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
     });
-    const requestBody = JSON.stringify({ pairingCode: "missing-code" });
+    const requestBody = JSON.stringify({ ticket: "clwpair1_missing-ticket" });
     const headers = await harness.createSignedHeaders({
       body: requestBody,
       nonce: "nonce-pair-confirm-bootstrap",
@@ -326,9 +326,9 @@ describe("proxy auth middleware", () => {
       body: requestBody,
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PROXY_PAIR_CODE_NOT_FOUND");
+    expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
   });
 
   it("refreshes keyset and accepts valid AIT after registry key rotation", async () => {
@@ -425,9 +425,7 @@ describe("proxy auth middleware", () => {
     });
 
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
-      }),
+      config: parseProxyConfig({}),
       trustStore,
       auth: {
         fetchImpl: fetchMock as typeof fetch,
@@ -554,9 +552,7 @@ describe("proxy auth middleware", () => {
     });
 
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
-      }),
+      config: parseProxyConfig({}),
       trustStore,
       auth: {
         fetchImpl: fetchMock as typeof fetch,

@@ -40,6 +40,7 @@ const mockedWriteConfig = vi.mocked(writeConfig);
 const mockedSetConfigValue = vi.mocked(setConfigValue);
 const mockedGetConfigValue = vi.mocked(getConfigValue);
 const mockedResolveConfig = vi.mocked(resolveConfig);
+const previousEnv = process.env;
 
 const buildErrnoError = (code: string): NodeJS.ErrnoException => {
   const error = new Error(code) as NodeJS.ErrnoException;
@@ -97,6 +98,7 @@ const runConfigCommand = async (args: string[]) => {
 describe("config command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env = { ...previousEnv };
 
     mockedReadConfig.mockResolvedValue({
       registryUrl: "https://api.clawdentity.com",
@@ -107,6 +109,7 @@ describe("config command", () => {
   });
 
   afterEach(() => {
+    process.env = previousEnv;
     process.exitCode = undefined;
   });
 
@@ -123,6 +126,46 @@ describe("config command", () => {
       "Initialized config at /mock-home/.clawdentity/config.json",
     );
     expect(result.exitCode).toBeUndefined();
+  });
+
+  it("initializes config with --registry-url override", async () => {
+    mockedAccess.mockRejectedValueOnce(buildErrnoError("ENOENT"));
+
+    await runConfigCommand([
+      "init",
+      "--registry-url",
+      "https://dev.api.clawdentity.com",
+    ]);
+
+    expect(mockedWriteConfig).toHaveBeenCalledWith({
+      registryUrl: "https://dev.api.clawdentity.com",
+    });
+  });
+
+  it("initializes config with env registry override", async () => {
+    mockedAccess.mockRejectedValueOnce(buildErrnoError("ENOENT"));
+    process.env.CLAWDENTITY_REGISTRY = "https://dev.api.clawdentity.com";
+
+    await runConfigCommand(["init"]);
+
+    expect(mockedWriteConfig).toHaveBeenCalledWith({
+      registryUrl: "https://dev.api.clawdentity.com",
+    });
+  });
+
+  it("prefers --registry-url over env registry override", async () => {
+    mockedAccess.mockRejectedValueOnce(buildErrnoError("ENOENT"));
+    process.env.CLAWDENTITY_REGISTRY = "https://env.api.clawdentity.com";
+
+    await runConfigCommand([
+      "init",
+      "--registry-url",
+      "https://flag.api.clawdentity.com",
+    ]);
+
+    expect(mockedWriteConfig).toHaveBeenCalledWith({
+      registryUrl: "https://flag.api.clawdentity.com",
+    });
   });
 
   it("skips init when config already exists", async () => {

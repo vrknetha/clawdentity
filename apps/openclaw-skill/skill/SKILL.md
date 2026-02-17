@@ -38,8 +38,9 @@ Use this skill when any of the following are requested:
 
 ## Invite Input Assumption
 
-Provide a valid invite code string before running this skill.
-Invite creation is outside this skill scope; this skill focuses on setup, pairing, and relay validation.
+Invite creation is outside this skill scope. This skill consumes two invite types:
+- Registry onboarding invite code (`clw_inv_...`) to obtain PAT when local API key is missing.
+- OpenClaw peer relay invite code (`clawd1_...`) for `openclaw setup`.
 
 ## Human + Agent Flow (strict user-style)
 
@@ -59,14 +60,21 @@ Use these commands as the default execution path for skill utilization:
 
 - Initialize local CLI config:
   - `clawdentity config init`
+  - `clawdentity config init --registry-url <registry-url>` (supports first-run registry URL override)
+  - or set env before init: `CLAWDENTITY_REGISTRY_URL=<registry-url>` (primary global override)
+  - compatible alias: `CLAWDENTITY_REGISTRY=<registry-url>`
 - Configure registry URL and API key when missing:
   - `clawdentity config set registryUrl <registry-url>`
+- Complete registry onboarding when API key is missing:
+  - `clawdentity invite redeem <registry-invite-code>`
+  - `clawdentity invite redeem <registry-invite-code> --registry-url <registry-url>`
+- Configure API key only for non-invite fallback:
   - `clawdentity config set apiKey <api-key>`
 - Create and inspect local OpenClaw agent identity:
   - `clawdentity agent create <agent-name> --framework openclaw`
   - `clawdentity agent inspect <agent-name>`
 - Apply OpenClaw invite setup:
-  - `clawdentity openclaw setup <agent-name> --invite-code <invite-code>`
+  - `clawdentity openclaw setup <agent-name> --invite-code <peer-relay-invite-code>`
 - Start connector runtime for relay handoff:
   - `clawdentity connector start <agent-name>`
 - Optional persistent connector autostart:
@@ -75,47 +83,58 @@ Use these commands as the default execution path for skill utilization:
   - `clawdentity openclaw doctor`
   - `clawdentity openclaw relay test --peer <alias>`
 
-Pairing bootstrap for trust policy is API-based in the current release (no dedicated pairing CLI command yet):
+Pairing bootstrap uses CLI commands in the current release:
 
 - Owner/initiator starts pairing on initiator proxy:
-  - `POST /pair/start`
-  - Requires `Authorization: Claw <AIT>` and `x-claw-owner-pat`
-  - Body: `{"agentDid":"<responder-agent-did>"}`
+  - `clawdentity pair start <initiator-agent-name> --proxy-url <initiator-proxy-url> --qr`
+  - Optionally pass explicit owner PAT: `--owner-pat <token>`
 - Responder confirms on responder proxy:
-  - `POST /pair/confirm`
-  - Requires `Authorization: Claw <AIT>`
-  - Body: `{"pairingCode":"<code-from-start>"}`
+  - `clawdentity pair confirm <responder-agent-name> --qr-file <ticket-qr-file> --proxy-url <responder-proxy-url>`
+  - optional global proxy URL env fallback: `CLAWDENTITY_PROXY_URL=<proxy-url>`
 
 Successful confirm establishes mutual trust for the two agent DIDs. After confirm, both directions are allowed for trusted delivery.
 
 1. Confirm prerequisites with the human.
 - Confirm `clawdentity` CLI is installed and runnable.
-- Confirm API key exists for this agent (if missing, ask the human for it).
+- Confirm local agent name.
+- Confirm API key exists locally or registry onboarding invite code (`clw_inv_...`) is available.
+- Confirm OpenClaw peer relay invite code (`clawd1_...`) is available for setup.
+- Do not request API key and registry invite code in the same prompt.
+- Do not request registry invite code and peer relay invite code in the same prompt.
+- Only ask for API key when neither local API key nor registry onboarding invite code is available.
 - Confirm OpenClaw state directory path if non-default.
 - Confirm OpenClaw base URL if local endpoint is non-default.
+- Confirm each side proxy URL for pairing command execution.
 
 2. Confirm skill artifact exists in workspace skills directory.
 - Ensure `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/relay-to-peer.mjs` exists.
 - If missing, install/update skill package contents before setup.
 
-3. Configure local Clawdentity identity for this OpenClaw agent.
+3. Initialize local Clawdentity config.
 - Run `clawdentity config init`.
-- If needed, ask the human for API key and run `clawdentity config set apiKey <key>`.
+- Use `clawdentity config init --registry-url <registry-url>` when registry URL override is required.
+
+4. Complete registry onboarding auth before agent creation.
+- If API key already exists, continue.
+- Else redeem registry onboarding invite:
+  - `clawdentity invite redeem <registry-invite-code>`
+  - optional: `--registry-url <registry-url>`
+- If registry invite code is unavailable, fallback to API key path:
+  - ask human for API key
+  - run `clawdentity config set apiKey <api-key>`
+
+5. Configure local Clawdentity identity for this OpenClaw agent.
 - Create identity: `clawdentity agent create <agent-name> --framework openclaw`.
 - Verify identity: `clawdentity agent inspect <agent-name>`.
 
-4. Ask the human for invite code.
-- Prompt exactly for one invite code string.
-- Do not ask for DID/proxy URL when invite code is present.
-
-5. Run automated setup from invite code.
+6. Run automated setup from peer relay invite code.
 - Execute:
-  `clawdentity openclaw setup <agent-name> --invite-code <invite-code>`
+  `clawdentity openclaw setup <agent-name> --invite-code <peer-relay-invite-code>`
 - Use `--openclaw-dir <path>` when state directory is non-default.
 - Use `--openclaw-base-url <url>` when local OpenClaw HTTP endpoint is non-default.
 - Use `--peer-alias <alias>` only when alias override is required.
 
-6. Verify setup outputs.
+7. Verify setup outputs.
 - Confirm setup reports:
   - peer alias
   - peer DID
@@ -125,17 +144,19 @@ Successful confirm establishes mutual trust for the two agent DIDs. After confir
   - relay runtime config path
 - Confirm `~/.clawdentity/openclaw-agent-name` is set to the local agent name.
 
-7. Start connector runtime for local relay handoff.
+8. Start connector runtime for local relay handoff.
 - Run `clawdentity connector start <agent-name>`.
 - Optional: run `clawdentity connector service install <agent-name>` for persistent autostart.
 
-8. Complete trust pairing bootstrap.
-- Run pairing start (`POST /pair/start`) from the owner/initiator side.
-- Share returned one-time `pairingCode` with responder side.
-- Run pairing confirm (`POST /pair/confirm`) from responder side.
+9. Complete trust pairing bootstrap.
+- Run pairing start from owner/initiator side:
+  - `clawdentity pair start <initiator-agent-name> --proxy-url <initiator-proxy-url> --qr`
+- Share the one-time QR image with responder side.
+- Run pairing confirm from responder side:
+  - `clawdentity pair confirm <responder-agent-name> --qr-file <ticket-qr-file> --proxy-url <responder-proxy-url>`
 - Confirm pairing success before relay test.
 
-9. Validate with user-style relay test.
+10. Validate with user-style relay test.
 - Run `clawdentity openclaw doctor` to verify setup health and remediation hints.
 - Run `clawdentity openclaw relay test --peer <alias>` to execute a probe.
 - Confirm probe success and connector-mediated delivery logs.
@@ -144,10 +165,13 @@ Successful confirm establishes mutual trust for the two agent DIDs. After confir
 ## Required question policy
 
 Ask the human only when required inputs are missing:
-- Missing Clawdentity API key.
+- Missing local agent name.
+- Missing peer relay invite code (`clawd1_...`).
+- Missing registry onboarding invite code (`clw_inv_...`) when API key is absent.
+- Missing Clawdentity API key only when registry onboarding invite code is unavailable.
+- Missing initiator/responder proxy URLs for pairing commands.
 - Unclear OpenClaw state directory.
 - Non-default OpenClaw base URL.
-- Missing invite code.
 - Local connector runtime or peer network route is unknown or unreachable from agent runtime.
 
 ## Failure Handling
@@ -158,7 +182,7 @@ If setup or relay fails:
 - Ensure connector runtime is active (`clawdentity connector start <agent-name>`).
 - Re-run `clawdentity openclaw doctor`.
 - Re-run `clawdentity openclaw relay test --peer <alias>`.
-- Re-run the same user-style flow from step 5 onward only after health checks pass.
+- Re-run the same user-style flow from step 6 onward only after health checks pass.
 
 ## Bundled Resources
 

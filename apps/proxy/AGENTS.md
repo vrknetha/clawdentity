@@ -15,8 +15,8 @@
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
 - Keep deployment intent explicit: `local` is for local Wrangler dev runs only; `development` and `production` are remote cloud environments.
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
-- Keep OpenClaw env inputs (`OPENCLAW_BASE_URL`, `OPENCLAW_HOOK_TOKEN`) optional for relay-mode startup.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw vars, and policy/rate-limit vars).
+- Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw base URL, and policy/rate-limit vars).
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`, with legacy fallback to existing `~/.clawdbot` / `~/.moldbot` / `~/.moltbot`)
@@ -25,26 +25,26 @@
 - Treat blank env values as unset for fallback resolution:
   - empty/whitespace values (and null-like values) in inherited env must not block `.env` or config-file fallbacks
   - dotenv merge semantics must match parser semantics (non-empty value wins).
-- If hook token env vars are missing, resolve fallback token from `hooks.token` in `openclaw.json` (`OPENCLAW_CONFIG_PATH`, default `$OPENCLAW_STATE_DIR/openclaw.json`).
+- Do not read or require `OPENCLAW_HOOK_TOKEN` in proxy runtime; that token is connector-side only.
 - Route relay sessions via Durable Objects:
   - `GET /v1/relay/connect` keys connector sessions by authenticated caller agent DID.
   - `POST /hooks/agent` keys recipient delivery by `x-claw-recipient-agent-did`.
   - Do not route sessions via `OWNER_AGENT_DID`.
 - Keep env input contract explicit for operator UX:
   - `LISTEN_PORT` or `PORT`
-  - `OPENCLAW_HOOK_TOKEN`
+  - `OPENCLAW_BASE_URL`
   - `REGISTRY_URL` or `CLAWDENTITY_REGISTRY_URL`
-  - `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH`
+  - `OPENCLAW_STATE_DIR`
 
 ## Trust and Pairing
 - Keep trust state in Durable Objects (`ProxyTrustState`), not in static environment variables.
 - Do not add support for `ALLOW_LIST`, `ALLOWLIST_OWNERS`, or `ALLOWLIST_AGENTS`; trust is API-managed only.
 - Pairing is managed by API:
   - `POST /pair/start` (verified Claw auth + `x-claw-owner-pat` ownership check against registry `GET /v1/agents/:id/ownership`)
-  - `POST /pair/confirm` (verified Claw auth + one-time pairing code consume)
-- Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the code in one step (`confirmPairingCode`), never two separate calls.
-- Confirming a valid pairing code must establish mutual trust for the initiator/responder agent pair.
-- Keep pairing codes one-time and expiring; reject missing/expired/mismatched codes with explicit client errors.
+  - `POST /pair/confirm` (verified Claw auth + one-time pairing ticket consume)
+- Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the ticket in one step (`confirmPairingTicket`), never two separate calls.
+- Confirming a valid pairing ticket must establish mutual trust for the initiator/responder agent pair.
+- Keep pairing tickets one-time and expiring; reject missing/expired/malformed tickets with explicit client errors.
 - Reject deprecated `ALLOW_ALL_VERIFIED` at startup; never provide a global allow-all bypass for verified callers.
 
 ## Auth Verification

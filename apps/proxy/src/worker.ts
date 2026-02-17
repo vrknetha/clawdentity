@@ -21,7 +21,6 @@ export type ProxyWorkerBindings = {
   LISTEN_PORT?: string;
   PORT?: string;
   OPENCLAW_BASE_URL?: string;
-  OPENCLAW_HOOK_TOKEN?: string;
   AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
   REGISTRY_URL?: string;
@@ -51,7 +50,6 @@ let cachedRuntime: CachedProxyRuntime | undefined;
 function toCacheKey(env: ProxyWorkerBindings): string {
   const keyParts = [
     env.OPENCLAW_BASE_URL,
-    env.OPENCLAW_HOOK_TOKEN,
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,

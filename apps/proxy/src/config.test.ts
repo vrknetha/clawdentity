@@ -17,16 +17,13 @@ import {
   parseProxyConfig,
 } from "./config.js";
 
-const OPENCLAW_CONFIG_FILENAME = "openclaw.json";
-
 describe("proxy config", () => {
-  it("parses defaults without requiring OpenClaw token", () => {
+  it("parses defaults without requiring OpenClaw vars", () => {
     const config = parseProxyConfig({});
 
     expect(config).toEqual({
       listenPort: DEFAULT_PROXY_LISTEN_PORT,
       openclawBaseUrl: DEFAULT_OPENCLAW_BASE_URL,
-      openclawHookToken: undefined,
       registryUrl: DEFAULT_REGISTRY_URL,
       environment: DEFAULT_PROXY_ENVIRONMENT,
       crlRefreshIntervalMs: DEFAULT_CRL_REFRESH_INTERVAL_MS,
@@ -42,7 +39,6 @@ describe("proxy config", () => {
   it("supports canonical proxy env inputs", () => {
     const config = parseProxyConfig({
       PORT: "4100",
-      OPENCLAW_HOOK_TOKEN: "hooks-token",
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
       ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
@@ -52,7 +48,6 @@ describe("proxy config", () => {
     });
 
     expect(config.listenPort).toBe(4100);
-    expect(config.openclawHookToken).toBe("hooks-token");
     expect(config.registryUrl).toBe("https://registry.example.com");
     expect(config.environment).toBe("local");
     expect(config.crlStaleBehavior).toBe("fail-closed");
@@ -67,10 +62,6 @@ describe("proxy config", () => {
     });
 
     expect(config.injectIdentityIntoMessage).toBe(false);
-  });
-
-  it("accepts missing hook token for relay-only startup", () => {
-    expect(() => parseProxyConfig({})).not.toThrow();
   });
 
   it("throws when deprecated ALLOW_ALL_VERIFIED is set", () => {
@@ -136,14 +127,14 @@ describe("proxy config loading", () => {
         [
           "OPENCLAW_BASE_URL=https://cwd.example.com",
           "REGISTRY_URL=https://registry.cwd.example.com",
-          "OPENCLAW_HOOK_TOKEN=from-cwd-dotenv",
         ].join("\n"),
       );
       writeFileSync(
         join(sandbox.stateDir, ".env"),
-        ["OPENCLAW_HOOK_TOKEN=from-state-dotenv", "LISTEN_PORT=4444"].join(
-          "\n",
-        ),
+        [
+          "REGISTRY_URL=https://registry.state.example.com",
+          "LISTEN_PORT=4444",
+        ].join("\n"),
       );
 
       const config = loadProxyConfig(
@@ -157,7 +148,6 @@ describe("proxy config loading", () => {
       );
 
       expect(config.openclawBaseUrl).toBe("https://env.example.com");
-      expect(config.openclawHookToken).toBe("from-cwd-dotenv");
       expect(config.listenPort).toBe(4444);
       expect(config.registryUrl).toBe("https://registry.cwd.example.com");
     } finally {
@@ -165,7 +155,7 @@ describe("proxy config loading", () => {
     }
   });
 
-  it("allows loading config when no OpenClaw token fallback is present", () => {
+  it("loads config when optional OpenClaw vars are absent", () => {
     const sandbox = createSandbox();
     try {
       const config = loadProxyConfig(
@@ -176,8 +166,8 @@ describe("proxy config loading", () => {
         },
       );
 
-      expect(config.openclawHookToken).toBeUndefined();
       expect(config.openclawBaseUrl).toBe(DEFAULT_OPENCLAW_BASE_URL);
+      expect(config.registryUrl).toBe(DEFAULT_REGISTRY_URL);
     } finally {
       sandbox.cleanup();
     }
@@ -188,10 +178,7 @@ describe("proxy config loading", () => {
     try {
       writeFileSync(
         join(sandbox.cwd, ".env"),
-        [
-          "OPENCLAW_HOOK_TOKEN=from-cwd-dotenv",
-          "INJECT_IDENTITY_INTO_MESSAGE=true",
-        ].join("\n"),
+        "INJECT_IDENTITY_INTO_MESSAGE=true",
       );
 
       const config = loadProxyConfig(
@@ -213,12 +200,12 @@ describe("proxy config loading", () => {
     try {
       writeFileSync(
         join(sandbox.cwd, ".env"),
-        "OPENCLAW_HOOK_TOKEN=from-cwd-dotenv",
+        "REGISTRY_URL=https://registry.cwd.example.com",
       );
 
       const config = loadProxyConfig(
         {
-          OPENCLAW_HOOK_TOKEN: "",
+          REGISTRY_URL: "",
         },
         {
           cwd: sandbox.cwd,
@@ -226,36 +213,7 @@ describe("proxy config loading", () => {
         },
       );
 
-      expect(config.openclawHookToken).toBe("from-cwd-dotenv");
-    } finally {
-      sandbox.cleanup();
-    }
-  });
-
-  it("falls back to hooks.token from openclaw.json (JSON5) when env token is missing", () => {
-    const sandbox = createSandbox();
-    try {
-      writeFileSync(
-        join(sandbox.stateDir, OPENCLAW_CONFIG_FILENAME),
-        [
-          "{",
-          "  // JSON5 comment",
-          "  hooks: {",
-          '    token: "token-from-openclaw-config",',
-          "  },",
-          "}",
-        ].join("\n"),
-      );
-
-      const config = loadProxyConfig(
-        {},
-        {
-          cwd: sandbox.cwd,
-          homeDir: sandbox.root,
-        },
-      );
-
-      expect(config.openclawHookToken).toBe("token-from-openclaw-config");
+      expect(config.registryUrl).toBe("https://registry.cwd.example.com");
     } finally {
       sandbox.cleanup();
     }
@@ -277,9 +235,7 @@ describe("proxy config loading", () => {
       );
 
       const config = loadProxyConfig(
-        {
-          OPENCLAW_HOOK_TOKEN: "token",
-        },
+        {},
         {
           cwd: sandbox.cwd,
           homeDir: sandbox.root,
@@ -309,7 +265,6 @@ describe("proxy config loading", () => {
 
       const config = loadProxyConfig(
         {
-          OPENCLAW_HOOK_TOKEN: "token",
           OPENCLAW_BASE_URL: "http://127.0.0.1:19999",
         },
         {
@@ -330,10 +285,7 @@ describe("proxy config loading", () => {
       rmSync(sandbox.stateDir, { recursive: true, force: true });
       const legacyStateDir = join(sandbox.root, ".clawdbot");
       mkdirSync(legacyStateDir, { recursive: true });
-      writeFileSync(
-        join(legacyStateDir, ".env"),
-        "OPENCLAW_HOOK_TOKEN=legacy-token",
-      );
+      writeFileSync(join(legacyStateDir, ".env"), "LISTEN_PORT=4555");
 
       const config = loadProxyConfig(
         {},
@@ -343,17 +295,17 @@ describe("proxy config loading", () => {
         },
       );
 
-      expect(config.openclawHookToken).toBe("legacy-token");
+      expect(config.listenPort).toBe(4555);
     } finally {
       sandbox.cleanup();
     }
   });
 
-  it("throws when openclaw.json is invalid and token fallback is required", () => {
+  it("throws when openclaw-relay.json is invalid and base-url fallback is required", () => {
     const sandbox = createSandbox();
     try {
       writeFileSync(
-        join(sandbox.stateDir, OPENCLAW_CONFIG_FILENAME),
+        join(sandbox.clawdentityDir, "openclaw-relay.json"),
         "{bad-json",
       );
 

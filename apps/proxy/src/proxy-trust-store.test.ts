@@ -48,49 +48,17 @@ describe("in-memory proxy trust store", () => {
     expect(await store.isAgentKnown("did:claw:agent:charlie")).toBe(false);
   });
 
-  it("consumes one-time pairing codes", async () => {
+  it("confirms one-time pairing tickets and establishes trust", async () => {
     const store = createInMemoryProxyTrustStore();
-    const code = await store.createPairingCode({
+    const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
-      responderAgentDid: "did:claw:agent:bob",
+      issuerProxyUrl: "https://proxy-a.example.com",
       ttlSeconds: 60,
       nowMs: 1_700_000_000_000,
     });
 
-    const consumed = await store.consumePairingCode({
-      pairingCode: code.pairingCode,
-      responderAgentDid: "did:claw:agent:bob",
-      nowMs: 1_700_000_000_100,
-    });
-
-    expect(consumed).toEqual({
-      initiatorAgentDid: "did:claw:agent:alice",
-      responderAgentDid: "did:claw:agent:bob",
-    });
-
-    await expect(
-      store.consumePairingCode({
-        pairingCode: code.pairingCode,
-        responderAgentDid: "did:claw:agent:bob",
-        nowMs: 1_700_000_000_200,
-      }),
-    ).rejects.toMatchObject({
-      code: "PROXY_PAIR_CODE_NOT_FOUND",
-      status: 404,
-    });
-  });
-
-  it("confirms pairing code atomically and establishes trust", async () => {
-    const store = createInMemoryProxyTrustStore();
-    const code = await store.createPairingCode({
-      initiatorAgentDid: "did:claw:agent:alice",
-      responderAgentDid: "did:claw:agent:bob",
-      ttlSeconds: 60,
-      nowMs: 1_700_000_000_000,
-    });
-
-    const confirmed = await store.confirmPairingCode({
-      pairingCode: code.pairingCode,
+    const confirmed = await store.confirmPairingTicket({
+      ticket: ticket.ticket,
       responderAgentDid: "did:claw:agent:bob",
       nowMs: 1_700_000_000_100,
     });
@@ -98,31 +66,42 @@ describe("in-memory proxy trust store", () => {
     expect(confirmed).toEqual({
       initiatorAgentDid: "did:claw:agent:alice",
       responderAgentDid: "did:claw:agent:bob",
+      issuerProxyUrl: "https://proxy-a.example.com",
     });
-    expect(await store.isAgentKnown("did:claw:agent:alice")).toBe(true);
-    expect(await store.isAgentKnown("did:claw:agent:bob")).toBe(true);
-    expect(
-      await store.isPairAllowed({
-        initiatorAgentDid: "did:claw:agent:alice",
-        responderAgentDid: "did:claw:agent:bob",
-      }),
-    ).toBe(true);
-    expect(
-      await store.isPairAllowed({
-        initiatorAgentDid: "did:claw:agent:bob",
-        responderAgentDid: "did:claw:agent:alice",
-      }),
-    ).toBe(true);
 
     await expect(
-      store.consumePairingCode({
-        pairingCode: code.pairingCode,
+      store.confirmPairingTicket({
+        ticket: ticket.ticket,
         responderAgentDid: "did:claw:agent:bob",
         nowMs: 1_700_000_000_200,
       }),
     ).rejects.toMatchObject({
-      code: "PROXY_PAIR_CODE_NOT_FOUND",
+      code: "PROXY_PAIR_TICKET_NOT_FOUND",
       status: 404,
+    });
+
+    expect(await store.isAgentKnown("did:claw:agent:alice")).toBe(true);
+    expect(await store.isAgentKnown("did:claw:agent:bob")).toBe(true);
+  });
+
+  it("rejects expired tickets", async () => {
+    const store = createInMemoryProxyTrustStore();
+    const ticket = await store.createPairingTicket({
+      initiatorAgentDid: "did:claw:agent:alice",
+      issuerProxyUrl: "https://proxy-a.example.com",
+      ttlSeconds: 1,
+      nowMs: 1_700_000_000_000,
+    });
+
+    await expect(
+      store.confirmPairingTicket({
+        ticket: ticket.ticket,
+        responderAgentDid: "did:claw:agent:bob",
+        nowMs: 1_700_000_002_000,
+      }),
+    ).rejects.toMatchObject({
+      code: "PROXY_PAIR_TICKET_EXPIRED",
+      status: 410,
     });
   });
 });

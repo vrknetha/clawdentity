@@ -19,6 +19,7 @@
 - Prefer `@clawdentity/sdk` helpers (`decodeAIT`) when surfacing agent metadata instead of parsing JWTs manually.
 - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
 - Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
+- Keep publish artifacts ESM-compatible and avoid bundling CJS-only runtime deps that rely on dynamic `require` (for example `ws`); externalize them and declare them in CLI `dependencies` so installed binaries start cleanly.
 - npm `--skill` installer behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
 - Keep `skill-bundle/openclaw-skill/` in sync with `apps/openclaw-skill` via `pnpm -F clawdentity run sync:skill-bundle` before build/pack so `postinstall --skill` works in clean installs.
 - Keep `skill-bundle/openclaw-skill/dist/relay-to-peer.mjs` tracked in git so clean-checkout tests and packaged installs have the required relay artifact before workspace builds run.

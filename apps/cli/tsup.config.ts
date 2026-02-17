@@ -5,6 +5,7 @@ export default defineConfig({
   format: ["esm"],
   bundle: true,
   splitting: false,
+  external: ["ws"],
   noExternal: [
     "@clawdentity/connector",
     "@clawdentity/protocol",

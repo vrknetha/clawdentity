@@ -12,9 +12,7 @@ import { createProxyApp } from "./server.js";
 describe("proxy server", () => {
   it("returns health response with status, version, and environment", async () => {
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
-      }),
+      config: parseProxyConfig({}),
     });
 
     const res = await app.request("/health");
@@ -36,7 +34,6 @@ describe("proxy server", () => {
   it("uses ENVIRONMENT from config for health payload", async () => {
     const app = createProxyApp({
       config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
         ENVIRONMENT: "local",
       }),
     });
@@ -50,9 +47,7 @@ describe("proxy server", () => {
 
   it("uses provided app version when supplied by runtime", async () => {
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
-      }),
+      config: parseProxyConfig({}),
       version: "sha-123456",
     });
 
@@ -67,9 +62,7 @@ describe("proxy server", () => {
     const logSpy = vi.spyOn(console, "info").mockImplementation(() => {});
     try {
       const app = createProxyApp({
-        config: parseProxyConfig({
-          OPENCLAW_HOOK_TOKEN: "token",
-        }),
+        config: parseProxyConfig({}),
       });
 
       const res = await app.request("/health");
@@ -100,9 +93,7 @@ describe("proxy server", () => {
 
   it("returns 429 for repeated unauthenticated probes on /hooks/agent from same IP", async () => {
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
-      }),
+      config: parseProxyConfig({}),
       rateLimit: {
         publicIpMaxRequests: 2,
         publicIpWindowMs: 60_000,
@@ -137,9 +128,7 @@ describe("proxy server", () => {
 
   it("returns 429 for repeated unauthenticated probes on relay connect from same IP", async () => {
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "token",
-      }),
+      config: parseProxyConfig({}),
       rateLimit: {
         publicIpMaxRequests: 2,
         publicIpWindowMs: 60_000,

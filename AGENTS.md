@@ -85,6 +85,57 @@
 - Hono apps are tested via `app.request()` (Hono's built-in test client) — no wrangler or miniflare needed for unit tests.
 - Pass mock bindings as the third argument: `app.request("/path", {}, { DB: {}, ENVIRONMENT: "test" })`.
 
+## Dual OpenClaw Container Baseline (Skill E2E)
+- Runtime stack for local dual-agent tests lives in sibling repo `~/Workdir/clawdbot`:
+  - Compose file: `docker-compose.dual.yml`
+  - Env file: `.env.dual`
+  - Containers: `clawdbot-agent-alpha-1` (`localhost:18789`), `clawdbot-agent-beta-1` (`localhost:19001`)
+- Clean pre-skill baseline state is persisted as host snapshots:
+  - `~/.openclaw-baselines/alpha-kimi-preskill`
+  - `~/.openclaw-baselines/beta-kimi-preskill`
+- Latest paired-and-approved baseline (saved on 2026-02-17) is:
+  - `~/.openclaw-baselines/alpha-kimi-preskill-device-approved-20260217-194756`
+  - `~/.openclaw-baselines/beta-kimi-preskill-device-approved-20260217-194756`
+  - stable aliases:
+    - `~/.openclaw-baselines/alpha-kimi-preskill-device-approved-latest`
+    - `~/.openclaw-baselines/beta-kimi-preskill-device-approved-latest`
+- Current stable paired baseline (saved on 2026-02-17) is:
+  - `~/.openclaw-baselines/alpha-kimi-paired-stable-20260217-200909`
+  - `~/.openclaw-baselines/beta-kimi-paired-stable-20260217-200909`
+  - stable aliases:
+    - `~/.openclaw-baselines/alpha-kimi-paired-stable-latest`
+    - `~/.openclaw-baselines/beta-kimi-paired-stable-latest`
+- Baseline contract:
+  - OpenClaw config exists (`~/.openclaw/openclaw.json`) with `agents.defaults.model.primary = "kimi-coding/k2p5"`.
+  - No Clawdentity relay skill artifacts are installed in workspace yet.
+  - This is the restore point for repeated “install skill + onboard + pairing” user-flow tests.
+- Restore workflow before each skill test cycle:
+  - Stop dual compose stack.
+  - Replace `~/.openclaw-alpha` and `~/.openclaw-beta` contents from baseline snapshots.
+  - Start dual compose stack.
+  - Run skill-install/onboarding flow from that restored state.
+  - Recommended fast restore command:
+    - `rsync -a --delete ~/.openclaw-baselines/alpha-kimi-paired-stable-latest/ ~/.openclaw-alpha/ && rsync -a --delete ~/.openclaw-baselines/beta-kimi-paired-stable-latest/ ~/.openclaw-beta/`
+- Snapshot refresh workflow after reaching a new known-good state:
+  - Stop dual compose stack.
+  - Copy `~/.openclaw-alpha` and `~/.openclaw-beta` into new timestamped folders under `~/.openclaw-baselines`.
+  - Start dual compose stack.
+  - Update this section with the new snapshot folder names.
+- Pairing issue runbook (`Disconnected (1008): pairing required` in UI):
+  - Cause: OpenClaw device approval is pending; this is gateway pairing, not Clawdentity peer trust pairing.
+  - Scope clarification:
+    - This error is unrelated to proxy trust bootstrap (`/pair/start` + `/pair/confirm`).
+    - Fixing this error only restores OpenClaw UI/device access.
+    - Clawdentity trust pairing is a separate step for inter-agent relay authorization.
+  - Check pending requests:
+    - `docker exec clawdbot-agent-alpha-1 sh -lc 'node openclaw.mjs devices list --json'`
+    - `docker exec clawdbot-agent-beta-1 sh -lc 'node openclaw.mjs devices list --json'`
+  - Approve each pending request ID:
+    - `docker exec clawdbot-agent-alpha-1 sh -lc 'node openclaw.mjs devices approve <requestId>'`
+    - `docker exec clawdbot-agent-beta-1 sh -lc 'node openclaw.mjs devices approve <requestId>'`
+  - Re-open UI:
+    - `http://localhost:18789/` and `http://localhost:19001/`
+
 ## Scaffold Best Practices
 - Start by reviewing README, PRD, and the active execution tracker issue so documentation mirrors the execution model.
 - Define the workspace layout now: `apps/registry`, `apps/proxy`, `apps/cli`, `packages/sdk`, and `packages/protocol` (with shared tooling such as `pnpm-workspace.yaml`, `tsconfig.base.json`, and `biome.json`) so downstream tickets have a known structure.

@@ -1,22 +1,26 @@
-import { generateUlid } from "@clawdentity/protocol";
 import {
-  type PairingCodeConsumeInput,
-  type PairingCodeInput,
+  createPairingTicket,
+  PairingTicketParseError,
+  parsePairingTicket,
+} from "./pairing-ticket.js";
+import {
+  type PairingTicketConfirmInput,
+  type PairingTicketInput,
   TRUST_STORE_ROUTES,
 } from "./proxy-trust-store.js";
 
-type StoredPairingCode = {
+type StoredPairingTicket = {
   expiresAtMs: number;
   initiatorAgentDid: string;
-  responderAgentDid: string;
+  issuerProxyUrl: string;
 };
 
-type PairingCodeMap = Record<string, StoredPairingCode>;
+type PairingTicketMap = Record<string, StoredPairingTicket>;
 type AgentPeersIndex = Record<string, string[]>;
 
 const PAIRS_STORAGE_KEY = "trust:pairs";
 const AGENT_PEERS_STORAGE_KEY = "trust:agent-peers";
-const PAIRING_CODES_STORAGE_KEY = "trust:pairing-codes";
+const PAIRING_TICKETS_STORAGE_KEY = "trust:pairing-tickets";
 
 function toPairKey(
   initiatorAgentDid: string,
@@ -77,16 +81,12 @@ export class ProxyTrustState {
       return new Response("Not found", { status: 404 });
     }
 
-    if (url.pathname === TRUST_STORE_ROUTES.createPairingCode) {
-      return this.handleCreatePairingCode(request);
+    if (url.pathname === TRUST_STORE_ROUTES.createPairingTicket) {
+      return this.handleCreatePairingTicket(request);
     }
 
-    if (url.pathname === TRUST_STORE_ROUTES.consumePairingCode) {
-      return this.handleConsumePairingCode(request);
-    }
-
-    if (url.pathname === TRUST_STORE_ROUTES.confirmPairingCode) {
-      return this.handleConfirmPairingCode(request);
+    if (url.pathname === TRUST_STORE_ROUTES.confirmPairingTicket) {
+      return this.handleConfirmPairingTicket(request);
     }
 
     if (url.pathname === TRUST_STORE_ROUTES.upsertPair) {
@@ -106,185 +106,164 @@ export class ProxyTrustState {
 
   async alarm(): Promise<void> {
     const nowMs = Date.now();
-    const pairingCodes = await this.loadPairingCodes();
+    const pairingTickets = await this.loadPairingTickets();
 
     let mutated = false;
-    for (const [pairingCode, details] of Object.entries(pairingCodes)) {
+    for (const [ticket, details] of Object.entries(pairingTickets)) {
       if (details.expiresAtMs <= nowMs) {
-        delete pairingCodes[pairingCode];
+        delete pairingTickets[ticket];
         mutated = true;
       }
     }
 
     if (mutated) {
-      await this.savePairingCodes(pairingCodes);
+      await this.savePairingTickets(pairingTickets);
     }
 
-    await this.scheduleNextCodeCleanup(pairingCodes);
+    await this.scheduleNextCodeCleanup(pairingTickets);
   }
 
-  private async handleCreatePairingCode(request: Request): Promise<Response> {
+  private async handleCreatePairingTicket(request: Request): Promise<Response> {
     const body = (await parseBody(request)) as
-      | Partial<PairingCodeInput>
+      | Partial<PairingTicketInput>
       | undefined;
     if (
       !body ||
       !isNonEmptyString(body.initiatorAgentDid) ||
-      !isNonEmptyString(body.responderAgentDid) ||
+      !isNonEmptyString(body.issuerProxyUrl) ||
       typeof body.ttlSeconds !== "number" ||
       !Number.isInteger(body.ttlSeconds) ||
       body.ttlSeconds <= 0
     ) {
       return toErrorResponse({
         code: "PROXY_PAIR_START_INVALID_BODY",
-        message: "Pairing code create input is invalid",
+        message: "Pairing ticket create input is invalid",
         status: 400,
       });
     }
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
-    const pairingCode = generateUlid(nowMs);
     const expiresAtMs = nowMs + body.ttlSeconds * 1000;
 
-    const pairingCodes = await this.loadPairingCodes();
-    pairingCodes[pairingCode] = {
+    let created: ReturnType<typeof createPairingTicket>;
+    try {
+      created = createPairingTicket({
+        issuerProxyUrl: body.issuerProxyUrl,
+        expiresAtMs,
+        nowMs,
+      });
+    } catch (error) {
+      if (error instanceof PairingTicketParseError) {
+        return toErrorResponse({
+          code: error.code,
+          message: error.message,
+          status: 400,
+        });
+      }
+
+      throw error;
+    }
+
+    const pairingTickets = await this.loadPairingTickets();
+    pairingTickets[created.ticket] = {
       initiatorAgentDid: body.initiatorAgentDid,
-      responderAgentDid: body.responderAgentDid,
+      issuerProxyUrl: created.payload.iss,
       expiresAtMs,
     };
 
-    await this.savePairingCodes(pairingCodes);
-    await this.scheduleNextCodeCleanup(pairingCodes);
+    await this.savePairingTickets(pairingTickets);
+    await this.scheduleNextCodeCleanup(pairingTickets);
 
     return Response.json({
-      pairingCode,
+      ticket: created.ticket,
       expiresAtMs,
       initiatorAgentDid: body.initiatorAgentDid,
-      responderAgentDid: body.responderAgentDid,
+      issuerProxyUrl: created.payload.iss,
     });
   }
 
-  private async handleConsumePairingCode(request: Request): Promise<Response> {
+  private async handleConfirmPairingTicket(
+    request: Request,
+  ): Promise<Response> {
     const body = (await parseBody(request)) as
-      | Partial<PairingCodeConsumeInput>
+      | Partial<PairingTicketConfirmInput>
       | undefined;
     if (
       !body ||
-      !isNonEmptyString(body.pairingCode) ||
+      !isNonEmptyString(body.ticket) ||
       !isNonEmptyString(body.responderAgentDid)
     ) {
       return toErrorResponse({
         code: "PROXY_PAIR_CONFIRM_INVALID_BODY",
-        message: "Pairing code consume input is invalid",
+        message: "Pairing ticket confirm input is invalid",
         status: 400,
       });
     }
 
+    let parsedTicket: ReturnType<typeof parsePairingTicket>;
+    try {
+      parsedTicket = parsePairingTicket(body.ticket);
+    } catch (error) {
+      if (error instanceof PairingTicketParseError) {
+        return toErrorResponse({
+          code: error.code,
+          message: error.message,
+          status: 400,
+        });
+      }
+
+      throw error;
+    }
+
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
-    const pairingCodes = await this.loadPairingCodes();
-    const stored = pairingCodes[body.pairingCode];
+    const pairingTickets = await this.loadPairingTickets();
+    const stored = pairingTickets[body.ticket];
 
     if (!stored) {
       return toErrorResponse({
-        code: "PROXY_PAIR_CODE_NOT_FOUND",
-        message: "Pairing code not found",
+        code: "PROXY_PAIR_TICKET_NOT_FOUND",
+        message: "Pairing ticket not found",
         status: 404,
       });
     }
 
-    if (stored.expiresAtMs <= nowMs) {
-      delete pairingCodes[body.pairingCode];
-      await this.savePairingCodes(pairingCodes);
-      await this.scheduleNextCodeCleanup(pairingCodes);
+    if (stored.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
+      delete pairingTickets[body.ticket];
+      await this.savePairingTickets(pairingTickets);
+      await this.scheduleNextCodeCleanup(pairingTickets);
       return toErrorResponse({
-        code: "PROXY_PAIR_CODE_EXPIRED",
-        message: "Pairing code has expired",
+        code: "PROXY_PAIR_TICKET_EXPIRED",
+        message: "Pairing ticket has expired",
         status: 410,
       });
     }
 
-    if (stored.responderAgentDid !== body.responderAgentDid) {
+    if (stored.issuerProxyUrl !== parsedTicket.iss) {
       return toErrorResponse({
-        code: "PROXY_PAIR_CODE_AGENT_MISMATCH",
-        message: "Pairing code does not match caller agent DID",
-        status: 403,
-      });
-    }
-
-    delete pairingCodes[body.pairingCode];
-    await this.savePairingCodes(pairingCodes);
-    await this.scheduleNextCodeCleanup(pairingCodes);
-
-    return Response.json({
-      initiatorAgentDid: stored.initiatorAgentDid,
-      responderAgentDid: stored.responderAgentDid,
-    });
-  }
-
-  private async handleConfirmPairingCode(request: Request): Promise<Response> {
-    const body = (await parseBody(request)) as
-      | Partial<PairingCodeConsumeInput>
-      | undefined;
-    if (
-      !body ||
-      !isNonEmptyString(body.pairingCode) ||
-      !isNonEmptyString(body.responderAgentDid)
-    ) {
-      return toErrorResponse({
-        code: "PROXY_PAIR_CONFIRM_INVALID_BODY",
-        message: "Pairing code consume input is invalid",
+        code: "PROXY_PAIR_TICKET_INVALID_ISSUER",
+        message: "Pairing ticket issuer URL is invalid",
         status: 400,
-      });
-    }
-
-    const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
-    const pairingCodes = await this.loadPairingCodes();
-    const stored = pairingCodes[body.pairingCode];
-
-    if (!stored) {
-      return toErrorResponse({
-        code: "PROXY_PAIR_CODE_NOT_FOUND",
-        message: "Pairing code not found",
-        status: 404,
-      });
-    }
-
-    if (stored.expiresAtMs <= nowMs) {
-      delete pairingCodes[body.pairingCode];
-      await this.savePairingCodes(pairingCodes);
-      await this.scheduleNextCodeCleanup(pairingCodes);
-      return toErrorResponse({
-        code: "PROXY_PAIR_CODE_EXPIRED",
-        message: "Pairing code has expired",
-        status: 410,
-      });
-    }
-
-    if (stored.responderAgentDid !== body.responderAgentDid) {
-      return toErrorResponse({
-        code: "PROXY_PAIR_CODE_AGENT_MISMATCH",
-        message: "Pairing code does not match caller agent DID",
-        status: 403,
       });
     }
 
     const pairs = await this.loadPairs();
-    pairs.add(toPairKey(stored.initiatorAgentDid, stored.responderAgentDid));
+    pairs.add(toPairKey(stored.initiatorAgentDid, body.responderAgentDid));
 
     const agentPeers = await this.loadAgentPeers();
-    addPeer(agentPeers, stored.initiatorAgentDid, stored.responderAgentDid);
-    addPeer(agentPeers, stored.responderAgentDid, stored.initiatorAgentDid);
+    addPeer(agentPeers, stored.initiatorAgentDid, body.responderAgentDid);
+    addPeer(agentPeers, body.responderAgentDid, stored.initiatorAgentDid);
 
     await this.savePairs(pairs);
     await this.saveAgentPeers(agentPeers);
 
-    delete pairingCodes[body.pairingCode];
-    await this.savePairingCodes(pairingCodes);
-    await this.scheduleNextCodeCleanup(pairingCodes);
+    delete pairingTickets[body.ticket];
+    await this.savePairingTickets(pairingTickets);
+    await this.scheduleNextCodeCleanup(pairingTickets);
 
     return Response.json({
       initiatorAgentDid: stored.initiatorAgentDid,
-      responderAgentDid: stored.responderAgentDid,
+      responderAgentDid: body.responderAgentDid,
+      issuerProxyUrl: stored.issuerProxyUrl,
     });
   }
 
@@ -404,9 +383,9 @@ export class ProxyTrustState {
     await this.state.storage.put(AGENT_PEERS_STORAGE_KEY, agentPeers);
   }
 
-  private async loadPairingCodes(): Promise<PairingCodeMap> {
-    const raw = await this.state.storage.get<PairingCodeMap>(
-      PAIRING_CODES_STORAGE_KEY,
+  private async loadPairingTickets(): Promise<PairingTicketMap> {
+    const raw = await this.state.storage.get<PairingTicketMap>(
+      PAIRING_TICKETS_STORAGE_KEY,
     );
 
     if (typeof raw !== "object" || raw === null) {
@@ -416,14 +395,16 @@ export class ProxyTrustState {
     return raw;
   }
 
-  private async savePairingCodes(pairingCodes: PairingCodeMap): Promise<void> {
-    await this.state.storage.put(PAIRING_CODES_STORAGE_KEY, pairingCodes);
+  private async savePairingTickets(
+    pairingTickets: PairingTicketMap,
+  ): Promise<void> {
+    await this.state.storage.put(PAIRING_TICKETS_STORAGE_KEY, pairingTickets);
   }
 
   private async scheduleNextCodeCleanup(
-    pairingCodes: PairingCodeMap,
+    pairingTickets: PairingTicketMap,
   ): Promise<void> {
-    const expiryValues = Object.values(pairingCodes).map(
+    const expiryValues = Object.values(pairingTickets).map(
       (details) => details.expiresAtMs,
     );
 

@@ -7,6 +7,7 @@ import { createConfigCommand } from "./commands/config.js";
 import { createConnectorCommand } from "./commands/connector.js";
 import { createInviteCommand } from "./commands/invite.js";
 import { createOpenclawCommand } from "./commands/openclaw.js";
+import { createPairCommand } from "./commands/pair.js";
 import { createVerifyCommand } from "./commands/verify.js";
 
 const require = createRequire(import.meta.url);
@@ -37,5 +38,6 @@ export const createProgram = (): Command => {
     .addCommand(createConfigCommand())
     .addCommand(createInviteCommand())
     .addCommand(createOpenclawCommand())
+    .addCommand(createPairCommand())
     .addCommand(createVerifyCommand());
 };

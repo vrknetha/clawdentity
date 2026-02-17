@@ -21,6 +21,10 @@ const ENV_KEY_MAP: Record<CliConfigKey, string> = {
   apiKey: "CLAWDENTITY_API_KEY",
 };
 
+const LEGACY_ENV_KEY_MAP: Partial<Record<CliConfigKey, string[]>> = {
+  registryUrl: ["CLAWDENTITY_REGISTRY"],
+};
+
 const DEFAULT_CONFIG: CliConfig = {
   registryUrl: DEFAULT_REGISTRY_URL,
 };
@@ -85,7 +89,12 @@ export const resolveConfig = async (): Promise<CliConfig> => {
   const config = await readConfig();
 
   for (const key of Object.keys(ENV_KEY_MAP) as CliConfigKey[]) {
-    const envVar = process.env[ENV_KEY_MAP[key]];
+    const envKeys = [ENV_KEY_MAP[key], ...(LEGACY_ENV_KEY_MAP[key] ?? [])];
+    const envVar = envKeys
+      .map((envKey) => process.env[envKey])
+      .find((value): value is string => {
+        return typeof value === "string" && value.length > 0;
+      });
 
     if (typeof envVar === "string" && envVar.length > 0) {
       config[key] = envVar;

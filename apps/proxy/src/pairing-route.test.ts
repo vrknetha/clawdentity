@@ -1,9 +1,9 @@
 import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
+import { createPairingTicket } from "./pairing-ticket.js";
 
 const INITIATOR_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_000));
 const RESPONDER_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_100));
-const INTRUDER_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_300));
 
 vi.mock("./auth-middleware.js", async () => {
   const { createMiddleware } = await import("hono/factory");
@@ -47,6 +47,7 @@ function createPairingApp(input?: {
         nowMs: input?.nowMs,
       },
       confirm: {
+        fetchImpl: input?.fetchImpl,
         nowMs: input?.nowMs,
       },
     },
@@ -60,7 +61,7 @@ function createPairingApp(input?: {
 }
 
 describe(`POST ${PAIR_START_PATH}`, () => {
-  it("creates a pairing code when owner PAT controls caller agent DID", async () => {
+  it("creates a pairing ticket when owner PAT controls caller agent DID", async () => {
     const fetchMock = vi.fn(async (_requestInput: unknown) =>
       Response.json(
         {
@@ -82,23 +83,19 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         "content-type": "application/json",
         [OWNER_PAT_HEADER]: "clw_pat_owner_token",
       },
-      body: JSON.stringify({
-        agentDid: RESPONDER_AGENT_DID,
-      }),
+      body: JSON.stringify({}),
     });
 
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       expiresAt: string;
       initiatorAgentDid: string;
-      pairingCode: string;
-      responderAgentDid: string;
+      ticket: string;
     };
 
-    expect(body.pairingCode.length).toBeGreaterThan(0);
+    expect(body.ticket.startsWith("clwpair1_")).toBe(true);
     expect(body.initiatorAgentDid).toBe(INITIATOR_AGENT_DID);
-    expect(body.responderAgentDid).toBe(RESPONDER_AGENT_DID);
-    expect(body.expiresAt).toBe("2023-11-14T22:18:20.000Z");
+    expect(body.expiresAt).toBe("2023-11-14T22:28:20.000Z");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const fetchCallUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(fetchCallUrl).toContain("/v1/agents/");
@@ -117,9 +114,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         "content-type": "application/json",
         [OWNER_PAT_HEADER]: "clw_pat_invalid",
       },
-      body: JSON.stringify({
-        agentDid: RESPONDER_AGENT_DID,
-      }),
+      body: JSON.stringify({}),
     });
 
     expect(response.status).toBe(401);
@@ -144,9 +139,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         "content-type": "application/json",
         [OWNER_PAT_HEADER]: "clw_pat_owner",
       },
-      body: JSON.stringify({
-        agentDid: RESPONDER_AGENT_DID,
-      }),
+      body: JSON.stringify({}),
     });
 
     expect(response.status).toBe(403);
@@ -156,15 +149,15 @@ describe(`POST ${PAIR_START_PATH}`, () => {
 });
 
 describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
-  it("consumes pairing code and enables mutual trust", async () => {
+  it("confirms local issuer tickets and enables mutual trust", async () => {
     const { app, trustStore } = createPairingApp({
       nowMs: () => 1_700_000_000_000,
     });
 
-    const pairingCode = await trustStore.createPairingCode({
+    const ticket = await trustStore.createPairingTicket({
       initiatorAgentDid: INITIATOR_AGENT_DID,
-      responderAgentDid: RESPONDER_AGENT_DID,
-      ttlSeconds: 300,
+      issuerProxyUrl: "http://localhost",
+      ttlSeconds: 900,
       nowMs: 1_700_000_000_000,
     });
 
@@ -175,7 +168,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
         "x-test-agent-did": RESPONDER_AGENT_DID,
       },
       body: JSON.stringify({
-        pairingCode: pairingCode.pairingCode,
+        ticket: ticket.ticket,
       }),
     });
 
@@ -206,15 +199,32 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     ).toBe(true);
   });
 
-  it("rejects pair confirm when caller does not match target agent", async () => {
+  it("forwards confirm to issuer proxy when ticket issuer differs", async () => {
+    const forwardFetch = vi.fn(async (url: unknown, init?: RequestInit) => {
+      expect(String(url)).toBe("https://issuer.proxy.example/pair/confirm");
+      const forwardedBody = JSON.parse(String(init?.body ?? "{}")) as {
+        ticket: string;
+      };
+      expect(forwardedBody.ticket.startsWith("clwpair1_")).toBe(true);
+
+      return Response.json(
+        {
+          paired: true,
+          initiatorAgentDid: INITIATOR_AGENT_DID,
+          responderAgentDid: RESPONDER_AGENT_DID,
+        },
+        { status: 201 },
+      );
+    });
+
     const { app, trustStore } = createPairingApp({
+      fetchImpl: forwardFetch as unknown as typeof fetch,
       nowMs: () => 1_700_000_000_000,
     });
 
-    const pairingCode = await trustStore.createPairingCode({
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      responderAgentDid: RESPONDER_AGENT_DID,
-      ttlSeconds: 300,
+    const created = createPairingTicket({
+      issuerProxyUrl: "https://issuer.proxy.example",
+      expiresAtMs: 1_700_000_900_000,
       nowMs: 1_700_000_000_000,
     });
 
@@ -222,15 +232,20 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-agent-did": INTRUDER_AGENT_DID,
+        "x-test-agent-did": RESPONDER_AGENT_DID,
       },
       body: JSON.stringify({
-        pairingCode: pairingCode.pairingCode,
+        ticket: created.ticket,
       }),
     });
 
-    expect(response.status).toBe(403);
-    const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PROXY_PAIR_CODE_AGENT_MISMATCH");
+    expect(response.status).toBe(201);
+    expect(forwardFetch).toHaveBeenCalledTimes(1);
+    expect(
+      await trustStore.isPairAllowed({
+        initiatorAgentDid: INITIATOR_AGENT_DID,
+        responderAgentDid: RESPONDER_AGENT_DID,
+      }),
+    ).toBe(true);
   });
 });

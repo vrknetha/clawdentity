@@ -107,9 +107,8 @@ function createHookRouteApp(input: {
   now?: () => Date;
 }) {
   const trustStore: ProxyTrustStore = {
-    createPairingCode: vi.fn(),
-    consumePairingCode: vi.fn(),
-    confirmPairingCode: vi.fn(),
+    createPairingTicket: vi.fn(),
+    confirmPairingTicket: vi.fn(),
     isAgentKnown: vi.fn(async () => true),
     isPairAllowed: vi.fn(
       async (pair) =>
