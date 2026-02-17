@@ -8,6 +8,7 @@ import {
 } from "@clawdentity/protocol";
 import { AppError, createLogger, nowIso } from "@clawdentity/sdk";
 import { Command } from "commander";
+import { resolveConfig } from "../config/manager.js";
 import { writeStdoutLine } from "../io.js";
 import { assertValidAgentName } from "./agent-name.js";
 import { withErrorHandling } from "./helpers.js";
@@ -27,6 +28,7 @@ const SKILL_DIR_NAME = "clawdentity-openclaw-relay";
 const RELAY_MODULE_FILE_NAME = "relay-to-peer.mjs";
 const HOOK_MAPPING_ID = "clawdentity-send-to-peer";
 const HOOK_PATH_SEND_TO_PEER = "send-to-peer";
+const OPENCLAW_SEND_TO_PEER_HOOK_PATH = "hooks/send-to-peer";
 const DEFAULT_OPENCLAW_BASE_URL = "http://127.0.0.1:18789";
 const INVITE_CODE_PREFIX = "clawd1_";
 const PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -57,6 +59,27 @@ type OpenclawSetupOptions = {
   transformSource?: string;
   openclawBaseUrl?: string;
   homeDir?: string;
+};
+
+type OpenclawDoctorOptions = {
+  homeDir?: string;
+  openclawDir?: string;
+  peerAlias?: string;
+  resolveConfigImpl?: typeof resolveConfig;
+  json?: boolean;
+};
+
+type OpenclawRelayTestOptions = {
+  peer: string;
+  homeDir?: string;
+  openclawDir?: string;
+  openclawBaseUrl?: string;
+  hookToken?: string;
+  sessionId?: string;
+  message?: string;
+  fetchImpl?: typeof fetch;
+  resolveConfigImpl?: typeof resolveConfig;
+  json?: boolean;
 };
 
 type PeerEntry = {
@@ -90,6 +113,44 @@ export type OpenclawSetupResult = {
 type OpenclawRelayRuntimeConfig = {
   openclawBaseUrl: string;
   updatedAt?: string;
+};
+
+type OpenclawDoctorCheckId =
+  | "config.registry"
+  | "state.selectedAgent"
+  | "state.credentials"
+  | "state.peers"
+  | "state.transform"
+  | "state.hookMapping"
+  | "state.openclawBaseUrl";
+
+type OpenclawDoctorCheckStatus = "pass" | "fail";
+
+export type OpenclawDoctorCheckResult = {
+  id: OpenclawDoctorCheckId;
+  label: string;
+  status: OpenclawDoctorCheckStatus;
+  message: string;
+  remediationHint?: string;
+  details?: Record<string, unknown>;
+};
+
+export type OpenclawDoctorResult = {
+  status: "healthy" | "unhealthy";
+  checkedAt: string;
+  checks: OpenclawDoctorCheckResult[];
+};
+
+export type OpenclawRelayTestResult = {
+  status: "success" | "failure";
+  checkedAt: string;
+  peerAlias: string;
+  endpoint: string;
+  message: string;
+  httpStatus?: number;
+  remediationHint?: string;
+  details?: Record<string, unknown>;
+  preflight?: OpenclawDoctorResult;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -708,6 +769,594 @@ async function patchOpenclawConfig(openclawConfigPath: string): Promise<void> {
   );
 }
 
+function toDoctorCheck(
+  input: OpenclawDoctorCheckResult,
+): OpenclawDoctorCheckResult {
+  return input;
+}
+
+function toDoctorResult(
+  checks: OpenclawDoctorCheckResult[],
+): OpenclawDoctorResult {
+  return {
+    status: checks.every((check) => check.status === "pass")
+      ? "healthy"
+      : "unhealthy",
+    checkedAt: nowIso(),
+    checks,
+  };
+}
+
+function isRelayHookMapping(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (value.id === HOOK_MAPPING_ID) {
+    return true;
+  }
+
+  if (!isRecord(value.match)) {
+    return false;
+  }
+
+  return value.match.path === HOOK_PATH_SEND_TO_PEER;
+}
+
+function hasRelayTransformModule(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.transform)) {
+    return false;
+  }
+
+  return value.transform.module === RELAY_MODULE_FILE_NAME;
+}
+
+function parseDoctorPeerAlias(peerAlias?: string): string | undefined {
+  if (peerAlias === undefined) {
+    return undefined;
+  }
+
+  return parsePeerAlias(peerAlias);
+}
+
+function resolveHookToken(optionValue?: string): string | undefined {
+  const trimmedOption = optionValue?.trim();
+  if (trimmedOption !== undefined && trimmedOption.length > 0) {
+    return trimmedOption;
+  }
+
+  const envValue = process.env.OPENCLAW_HOOK_TOKEN?.trim();
+  if (envValue !== undefined && envValue.length > 0) {
+    return envValue;
+  }
+
+  return undefined;
+}
+
+function resolveProbeMessage(optionValue?: string): string {
+  const trimmed = optionValue?.trim();
+  if (trimmed !== undefined && trimmed.length > 0) {
+    return trimmed;
+  }
+
+  return "clawdentity relay probe";
+}
+
+function resolveProbeSessionId(optionValue?: string): string {
+  const trimmed = optionValue?.trim();
+  if (trimmed !== undefined && trimmed.length > 0) {
+    return trimmed;
+  }
+
+  return "clawdentity-relay-test";
+}
+
+function formatDoctorCheckLine(check: OpenclawDoctorCheckResult): string {
+  const icon = check.status === "pass" ? "✅" : "❌";
+  return `${icon} ${check.label}: ${check.message}`;
+}
+
+function printDoctorResult(result: OpenclawDoctorResult): void {
+  writeStdoutLine(`OpenClaw doctor status: ${result.status}`);
+  for (const check of result.checks) {
+    writeStdoutLine(formatDoctorCheckLine(check));
+    if (check.status === "fail" && check.remediationHint) {
+      writeStdoutLine(`Fix: ${check.remediationHint}`);
+    }
+  }
+}
+
+function printRelayTestResult(result: OpenclawRelayTestResult): void {
+  writeStdoutLine(`Relay test status: ${result.status}`);
+  writeStdoutLine(`Peer alias: ${result.peerAlias}`);
+  writeStdoutLine(`Endpoint: ${result.endpoint}`);
+  if (typeof result.httpStatus === "number") {
+    writeStdoutLine(`HTTP status: ${result.httpStatus}`);
+  }
+  writeStdoutLine(`Message: ${result.message}`);
+  if (result.remediationHint) {
+    writeStdoutLine(`Fix: ${result.remediationHint}`);
+  }
+}
+
+function toSendToPeerEndpoint(openclawBaseUrl: string): string {
+  const normalizedBase = openclawBaseUrl.endsWith("/")
+    ? openclawBaseUrl
+    : `${openclawBaseUrl}/`;
+  return new URL(OPENCLAW_SEND_TO_PEER_HOOK_PATH, normalizedBase).toString();
+}
+
+export async function runOpenclawDoctor(
+  options: OpenclawDoctorOptions = {},
+): Promise<OpenclawDoctorResult> {
+  const homeDir = resolveHomeDir(options.homeDir);
+  const openclawDir = resolveOpenclawDir(options.openclawDir, homeDir);
+  const peerAlias = parseDoctorPeerAlias(options.peerAlias);
+  const checks: OpenclawDoctorCheckResult[] = [];
+
+  const resolveConfigImpl = options.resolveConfigImpl ?? resolveConfig;
+  const resolvedConfig = await resolveConfigImpl();
+  if (
+    typeof resolvedConfig.registryUrl !== "string" ||
+    resolvedConfig.registryUrl.trim().length === 0
+  ) {
+    checks.push(
+      toDoctorCheck({
+        id: "config.registry",
+        label: "CLI config",
+        status: "fail",
+        message: "registryUrl is missing",
+        remediationHint:
+          "Run: clawdentity config set registryUrl <REGISTRY_URL>",
+      }),
+    );
+  } else if (
+    typeof resolvedConfig.apiKey !== "string" ||
+    resolvedConfig.apiKey.trim().length === 0
+  ) {
+    checks.push(
+      toDoctorCheck({
+        id: "config.registry",
+        label: "CLI config",
+        status: "fail",
+        message: "apiKey is missing",
+        remediationHint: "Run: clawdentity config set apiKey <API_KEY>",
+      }),
+    );
+  } else {
+    checks.push(
+      toDoctorCheck({
+        id: "config.registry",
+        label: "CLI config",
+        status: "pass",
+        message: "registryUrl and apiKey are configured",
+      }),
+    );
+  }
+
+  const selectedAgentPath = resolveOpenclawAgentNamePath(homeDir);
+  let selectedAgentName: string | undefined;
+  try {
+    const selectedAgentRaw = await readFile(selectedAgentPath, "utf8");
+    selectedAgentName = assertValidAgentName(selectedAgentRaw.trim());
+    checks.push(
+      toDoctorCheck({
+        id: "state.selectedAgent",
+        label: "Selected agent marker",
+        status: "pass",
+        message: `selected agent is ${selectedAgentName}`,
+      }),
+    );
+  } catch (error) {
+    const missing = getErrorCode(error) === "ENOENT";
+    checks.push(
+      toDoctorCheck({
+        id: "state.selectedAgent",
+        label: "Selected agent marker",
+        status: "fail",
+        message: missing
+          ? `missing ${selectedAgentPath}`
+          : "selected agent marker is invalid",
+        remediationHint:
+          "Run: clawdentity openclaw setup <agentName> --invite-code <code>",
+      }),
+    );
+  }
+
+  if (selectedAgentName === undefined) {
+    checks.push(
+      toDoctorCheck({
+        id: "state.credentials",
+        label: "Local agent credentials",
+        status: "fail",
+        message: "cannot validate credentials without selected agent marker",
+        remediationHint:
+          "Run: clawdentity openclaw setup <agentName> --invite-code <code>",
+      }),
+    );
+  } else {
+    try {
+      await ensureLocalAgentCredentials(homeDir, selectedAgentName);
+      checks.push(
+        toDoctorCheck({
+          id: "state.credentials",
+          label: "Local agent credentials",
+          status: "pass",
+          message: "ait.jwt and secret.key are present",
+        }),
+      );
+    } catch (error) {
+      const details = error instanceof AppError ? error.details : undefined;
+      const filePath =
+        details && typeof details.filePath === "string"
+          ? details.filePath
+          : undefined;
+      checks.push(
+        toDoctorCheck({
+          id: "state.credentials",
+          label: "Local agent credentials",
+          status: "fail",
+          message:
+            filePath === undefined
+              ? "agent credentials are missing or invalid"
+              : `credential file missing or empty: ${filePath}`,
+          remediationHint:
+            "Run: clawdentity agent create <agentName> --framework openclaw",
+          details:
+            filePath === undefined
+              ? undefined
+              : { filePath, selectedAgentName },
+        }),
+      );
+    }
+  }
+
+  const peersPath = resolvePeersPath(homeDir);
+  let peersConfig: PeersConfig | undefined;
+  try {
+    peersConfig = await loadPeersConfig(peersPath);
+    const peerAliases = Object.keys(peersConfig.peers);
+    if (peerAlias !== undefined) {
+      if (peersConfig.peers[peerAlias] === undefined) {
+        checks.push(
+          toDoctorCheck({
+            id: "state.peers",
+            label: "Peers map",
+            status: "fail",
+            message: `peer alias is missing: ${peerAlias}`,
+            remediationHint:
+              "Run: clawdentity openclaw setup <agentName> --invite-code <code> --peer-alias <alias>",
+            details: { peersPath, peerAlias },
+          }),
+        );
+      } else {
+        checks.push(
+          toDoctorCheck({
+            id: "state.peers",
+            label: "Peers map",
+            status: "pass",
+            message: `peer alias exists: ${peerAlias}`,
+            details: { peersPath, peerAlias },
+          }),
+        );
+      }
+    } else if (peerAliases.length === 0) {
+      checks.push(
+        toDoctorCheck({
+          id: "state.peers",
+          label: "Peers map",
+          status: "fail",
+          message: "no peers are configured",
+          remediationHint:
+            "Run: clawdentity openclaw setup <agentName> --invite-code <code>",
+          details: { peersPath },
+        }),
+      );
+    } else {
+      checks.push(
+        toDoctorCheck({
+          id: "state.peers",
+          label: "Peers map",
+          status: "pass",
+          message: `configured peers: ${peerAliases.length}`,
+          details: { peersPath },
+        }),
+      );
+    }
+  } catch {
+    checks.push(
+      toDoctorCheck({
+        id: "state.peers",
+        label: "Peers map",
+        status: "fail",
+        message: `invalid peers config at ${peersPath}`,
+        remediationHint:
+          "Fix JSON in ~/.clawdentity/peers.json or rerun openclaw setup",
+        details: { peersPath },
+      }),
+    );
+  }
+
+  const transformTargetPath = resolveTransformTargetPath(openclawDir);
+  try {
+    const transformContents = await readFile(transformTargetPath, "utf8");
+    if (transformContents.trim().length === 0) {
+      checks.push(
+        toDoctorCheck({
+          id: "state.transform",
+          label: "Relay transform",
+          status: "fail",
+          message: `transform file is empty: ${transformTargetPath}`,
+          remediationHint: "Run: npm install clawdentity --skill",
+          details: { transformTargetPath },
+        }),
+      );
+    } else {
+      checks.push(
+        toDoctorCheck({
+          id: "state.transform",
+          label: "Relay transform",
+          status: "pass",
+          message: "relay transform file exists",
+          details: { transformTargetPath },
+        }),
+      );
+    }
+  } catch {
+    checks.push(
+      toDoctorCheck({
+        id: "state.transform",
+        label: "Relay transform",
+        status: "fail",
+        message: `missing transform file: ${transformTargetPath}`,
+        remediationHint: "Run: npm install clawdentity --skill",
+        details: { transformTargetPath },
+      }),
+    );
+  }
+
+  const openclawConfigPath = resolveOpenclawConfigPath(openclawDir);
+  try {
+    const openclawConfig = await readJsonFile(openclawConfigPath);
+    if (!isRecord(openclawConfig)) {
+      throw new Error("root");
+    }
+    const hooks = isRecord(openclawConfig.hooks) ? openclawConfig.hooks : {};
+    const mappings = Array.isArray(hooks.mappings)
+      ? hooks.mappings.filter(isRecord)
+      : [];
+    const relayMapping = mappings.find((mapping) =>
+      isRelayHookMapping(mapping),
+    );
+    if (relayMapping === undefined || !hasRelayTransformModule(relayMapping)) {
+      checks.push(
+        toDoctorCheck({
+          id: "state.hookMapping",
+          label: "OpenClaw hook mapping",
+          status: "fail",
+          message: `missing send-to-peer mapping in ${openclawConfigPath}`,
+          remediationHint:
+            "Run: clawdentity openclaw setup <agentName> --invite-code <code>",
+          details: { openclawConfigPath },
+        }),
+      );
+    } else {
+      checks.push(
+        toDoctorCheck({
+          id: "state.hookMapping",
+          label: "OpenClaw hook mapping",
+          status: "pass",
+          message: "send-to-peer mapping is configured",
+          details: { openclawConfigPath },
+        }),
+      );
+    }
+  } catch {
+    checks.push(
+      toDoctorCheck({
+        id: "state.hookMapping",
+        label: "OpenClaw hook mapping",
+        status: "fail",
+        message: `unable to read ${openclawConfigPath}`,
+        remediationHint:
+          "Ensure ~/.openclaw/openclaw.json exists and rerun openclaw setup",
+        details: { openclawConfigPath },
+      }),
+    );
+  }
+
+  const relayRuntimeConfigPath = resolveRelayRuntimeConfigPath(homeDir);
+  try {
+    const openclawBaseUrl = await resolveOpenclawBaseUrl({
+      relayRuntimeConfigPath,
+    });
+    checks.push(
+      toDoctorCheck({
+        id: "state.openclawBaseUrl",
+        label: "OpenClaw base URL",
+        status: "pass",
+        message: `resolved to ${openclawBaseUrl}`,
+      }),
+    );
+  } catch {
+    checks.push(
+      toDoctorCheck({
+        id: "state.openclawBaseUrl",
+        label: "OpenClaw base URL",
+        status: "fail",
+        message: `unable to resolve OpenClaw base URL from ${relayRuntimeConfigPath}`,
+        remediationHint:
+          "Run: clawdentity openclaw setup <agentName> --invite-code <code> --openclaw-base-url <url>",
+      }),
+    );
+  }
+
+  return toDoctorResult(checks);
+}
+
+function parseRelayProbeFailure(input: {
+  status: number;
+  responseBody: string;
+}): Pick<OpenclawRelayTestResult, "message" | "remediationHint"> {
+  if (input.status === 401 || input.status === 403) {
+    return {
+      message: "OpenClaw hook token was rejected",
+      remediationHint:
+        "Pass a valid token with --hook-token or set OPENCLAW_HOOK_TOKEN",
+    };
+  }
+
+  if (input.status === 404) {
+    return {
+      message: "OpenClaw send-to-peer hook is unavailable",
+      remediationHint:
+        "Run: clawdentity openclaw setup <agentName> --invite-code <code>",
+    };
+  }
+
+  if (input.status === 500) {
+    return {
+      message: "Relay probe failed inside local relay pipeline",
+      remediationHint:
+        "Check connector runtime and peer alias; rerun clawdentity openclaw doctor --peer <alias>",
+    };
+  }
+
+  return {
+    message: `Relay probe failed with HTTP ${input.status}`,
+    remediationHint:
+      input.responseBody.trim().length > 0
+        ? `Inspect response body: ${input.responseBody.trim()}`
+        : "Check local OpenClaw and connector logs",
+  };
+}
+
+export async function runOpenclawRelayTest(
+  options: OpenclawRelayTestOptions,
+): Promise<OpenclawRelayTestResult> {
+  const homeDir = resolveHomeDir(options.homeDir);
+  const openclawDir = resolveOpenclawDir(options.openclawDir, homeDir);
+  const peerAlias = parsePeerAlias(options.peer);
+  const preflight = await runOpenclawDoctor({
+    homeDir,
+    openclawDir,
+    peerAlias,
+    resolveConfigImpl: options.resolveConfigImpl,
+  });
+  const checkedAt = nowIso();
+
+  const relayRuntimeConfigPath = resolveRelayRuntimeConfigPath(homeDir);
+  let openclawBaseUrl = DEFAULT_OPENCLAW_BASE_URL;
+  try {
+    openclawBaseUrl = await resolveOpenclawBaseUrl({
+      optionValue: options.openclawBaseUrl,
+      relayRuntimeConfigPath,
+    });
+  } catch {
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      endpoint: toSendToPeerEndpoint(DEFAULT_OPENCLAW_BASE_URL),
+      message: "Unable to resolve OpenClaw base URL",
+      remediationHint:
+        "Set OPENCLAW_BASE_URL or run openclaw setup with --openclaw-base-url",
+      preflight,
+    };
+  }
+
+  const endpoint = toSendToPeerEndpoint(openclawBaseUrl);
+  if (preflight.status === "unhealthy") {
+    const firstFailure = preflight.checks.find(
+      (check) => check.status === "fail",
+    );
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      endpoint,
+      message:
+        firstFailure === undefined
+          ? "Preflight checks failed"
+          : `Preflight failed: ${firstFailure.label}`,
+      remediationHint: firstFailure?.remediationHint,
+      preflight,
+    };
+  }
+
+  const hookToken = resolveHookToken(options.hookToken);
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      endpoint,
+      message: "fetch implementation is unavailable",
+      remediationHint: "Run relay test in a Node runtime with fetch support",
+      preflight,
+    };
+  }
+
+  let response: Response;
+  try {
+    response = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(hookToken === undefined ? {} : { "x-openclaw-token": hookToken }),
+      },
+      body: JSON.stringify({
+        peer: peerAlias,
+        sessionId: resolveProbeSessionId(options.sessionId),
+        message: resolveProbeMessage(options.message),
+      }),
+    });
+  } catch {
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      endpoint,
+      message: "Relay probe request failed",
+      remediationHint: "Ensure local OpenClaw is running and reachable",
+      preflight,
+    };
+  }
+
+  if (response.ok) {
+    return {
+      status: "success",
+      checkedAt,
+      peerAlias,
+      endpoint,
+      httpStatus: response.status,
+      message: "Relay probe accepted",
+      preflight,
+    };
+  }
+
+  const responseBody = await response.text();
+  const failure = parseRelayProbeFailure({
+    status: response.status,
+    responseBody,
+  });
+  return {
+    status: "failure",
+    checkedAt,
+    peerAlias,
+    endpoint,
+    httpStatus: response.status,
+    message: failure.message,
+    remediationHint: failure.remediationHint,
+    details:
+      responseBody.trim().length > 0
+        ? { responseBody: responseBody.trim() }
+        : undefined,
+    preflight,
+  };
+}
+
 export function createOpenclawInviteCode(
   options: OpenclawInviteOptions,
 ): OpenclawInviteResult {
@@ -892,6 +1541,89 @@ export const createOpenclawCommand = (): Command => {
           writeStdoutLine(
             `Relay runtime config: ${result.relayRuntimeConfigPath}`,
           );
+        },
+      ),
+    );
+
+  openclawCommand
+    .command("doctor")
+    .description("Validate local OpenClaw relay setup and print remediation")
+    .option("--peer <alias>", "Validate that a specific peer alias exists")
+    .option(
+      "--openclaw-dir <path>",
+      "OpenClaw state directory (default ~/.openclaw)",
+    )
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      withErrorHandling(
+        "openclaw doctor",
+        async (options: OpenclawDoctorOptions) => {
+          const result = await runOpenclawDoctor(options);
+          if (options.json) {
+            writeStdoutLine(JSON.stringify(result, null, 2));
+          } else {
+            printDoctorResult(result);
+          }
+
+          if (result.status === "unhealthy") {
+            process.exitCode = 1;
+          }
+        },
+      ),
+    );
+
+  const relayCommand = openclawCommand
+    .command("relay")
+    .description("Run OpenClaw relay diagnostics");
+
+  relayCommand
+    .command("test")
+    .description("Send a relay probe to a configured peer alias")
+    .requiredOption("--peer <alias>", "Peer alias in ~/.clawdentity/peers.json")
+    .option(
+      "--openclaw-base-url <url>",
+      "Base URL for local OpenClaw hook API (default OPENCLAW_BASE_URL or relay runtime config)",
+    )
+    .option(
+      "--hook-token <token>",
+      "OpenClaw hook token (default OPENCLAW_HOOK_TOKEN)",
+    )
+    .option("--session-id <id>", "Session id for the probe payload")
+    .option("--message <text>", "Probe message body")
+    .option(
+      "--openclaw-dir <path>",
+      "OpenClaw state directory (default ~/.openclaw)",
+    )
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      withErrorHandling(
+        "openclaw relay test",
+        async (options: OpenclawRelayTestOptions) => {
+          const result = await runOpenclawRelayTest(options);
+
+          if (options.json) {
+            writeStdoutLine(JSON.stringify(result, null, 2));
+          } else {
+            printRelayTestResult(result);
+            if (
+              result.preflight !== undefined &&
+              result.preflight.status === "unhealthy"
+            ) {
+              writeStdoutLine("Preflight details:");
+              for (const check of result.preflight.checks) {
+                if (check.status === "fail") {
+                  writeStdoutLine(formatDoctorCheckLine(check));
+                  if (check.remediationHint) {
+                    writeStdoutLine(`Fix: ${check.remediationHint}`);
+                  }
+                }
+              }
+            }
+          }
+
+          if (result.status === "failure") {
+            process.exitCode = 1;
+          }
         },
       ),
     );
