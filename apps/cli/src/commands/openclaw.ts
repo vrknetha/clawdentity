@@ -792,15 +792,15 @@ function isRelayHookMapping(value: unknown): boolean {
     return false;
   }
 
-  if (value.id === HOOK_MAPPING_ID) {
-    return true;
-  }
-
-  if (!isRecord(value.match)) {
+  if (!isRecord(value.match) || value.match.path !== HOOK_PATH_SEND_TO_PEER) {
     return false;
   }
 
-  return value.match.path === HOOK_PATH_SEND_TO_PEER;
+  if (typeof value.id === "string" && value.id !== HOOK_MAPPING_ID) {
+    return false;
+  }
+
+  return true;
 }
 
 function hasRelayTransformModule(value: unknown): boolean {
@@ -895,41 +895,54 @@ export async function runOpenclawDoctor(
   const checks: OpenclawDoctorCheckResult[] = [];
 
   const resolveConfigImpl = options.resolveConfigImpl ?? resolveConfig;
-  const resolvedConfig = await resolveConfigImpl();
-  if (
-    typeof resolvedConfig.registryUrl !== "string" ||
-    resolvedConfig.registryUrl.trim().length === 0
-  ) {
+  try {
+    const resolvedConfig = await resolveConfigImpl();
+    if (
+      typeof resolvedConfig.registryUrl !== "string" ||
+      resolvedConfig.registryUrl.trim().length === 0
+    ) {
+      checks.push(
+        toDoctorCheck({
+          id: "config.registry",
+          label: "CLI config",
+          status: "fail",
+          message: "registryUrl is missing",
+          remediationHint:
+            "Run: clawdentity config set registryUrl <REGISTRY_URL>",
+        }),
+      );
+    } else if (
+      typeof resolvedConfig.apiKey !== "string" ||
+      resolvedConfig.apiKey.trim().length === 0
+    ) {
+      checks.push(
+        toDoctorCheck({
+          id: "config.registry",
+          label: "CLI config",
+          status: "fail",
+          message: "apiKey is missing",
+          remediationHint: "Run: clawdentity config set apiKey <API_KEY>",
+        }),
+      );
+    } else {
+      checks.push(
+        toDoctorCheck({
+          id: "config.registry",
+          label: "CLI config",
+          status: "pass",
+          message: "registryUrl and apiKey are configured",
+        }),
+      );
+    }
+  } catch {
     checks.push(
       toDoctorCheck({
         id: "config.registry",
         label: "CLI config",
         status: "fail",
-        message: "registryUrl is missing",
+        message: "unable to resolve CLI config",
         remediationHint:
-          "Run: clawdentity config set registryUrl <REGISTRY_URL>",
-      }),
-    );
-  } else if (
-    typeof resolvedConfig.apiKey !== "string" ||
-    resolvedConfig.apiKey.trim().length === 0
-  ) {
-    checks.push(
-      toDoctorCheck({
-        id: "config.registry",
-        label: "CLI config",
-        status: "fail",
-        message: "apiKey is missing",
-        remediationHint: "Run: clawdentity config set apiKey <API_KEY>",
-      }),
-    );
-  } else {
-    checks.push(
-      toDoctorCheck({
-        id: "config.registry",
-        label: "CLI config",
-        status: "pass",
-        message: "registryUrl and apiKey are configured",
+          "Fix ~/.clawdentity/config.json or rerun: clawdentity config init",
       }),
     );
   }
