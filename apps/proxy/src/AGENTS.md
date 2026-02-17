@@ -39,6 +39,8 @@
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep pairing bootstrap explicit: `/pair/start` and `/pair/confirm` must bypass known-agent gate in auth middleware.
 - Keep `/pair/start` ownership validation against registry `GET /v1/agents/:id/ownership` using `x-claw-owner-pat`, and map dependency failures to `503`.
+- Keep cross-proxy `/pair/confirm` forwarding SSRF-safe by default: reject localhost/private/reserved issuer origins when the current proxy origin is non-local.
+- Preserve the original request JSON bytes when forwarding `/pair/confirm` so forwarded PoP/body-signature headers remain valid.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
 - Keep `/hooks/agent` trust check explicit: sender/recipient pair must be authorized by trust state before relay delivery.

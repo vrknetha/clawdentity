@@ -104,6 +104,27 @@ async function parseJsonBody(c: PairingRouteContext): Promise<unknown> {
   }
 }
 
+async function parseRawJsonBody(c: PairingRouteContext): Promise<{
+  rawBody: string;
+  json: unknown;
+}> {
+  const rawBody = await c.req.raw.clone().text();
+
+  try {
+    return {
+      rawBody,
+      json: JSON.parse(rawBody) as unknown,
+    };
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "Request body must be valid JSON",
+      status: 400,
+      expose: true,
+    });
+  }
+}
+
 async function parseRegistryOwnershipResponse(response: Response): Promise<{
   ownsAgent: boolean;
 }> {
@@ -260,6 +281,226 @@ function normalizeProxyOrigin(value: string): string {
   return parsed.origin;
 }
 
+function normalizeHostName(value: string): string {
+  const lowered = value.trim().toLowerCase();
+  return lowered.endsWith(".") ? lowered.slice(0, -1) : lowered;
+}
+
+function parseIpv4Literal(
+  hostname: string,
+): [number, number, number, number] | null {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const bytes: number[] = [];
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) {
+      return null;
+    }
+
+    const value = Number(part);
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      return null;
+    }
+
+    bytes.push(value);
+  }
+
+  return bytes as [number, number, number, number];
+}
+
+function isBlockedIpv4Literal(hostname: string): boolean {
+  const ipv4 = parseIpv4Literal(hostname);
+  if (ipv4 === null) {
+    return false;
+  }
+
+  const [a, b, c, d] = ipv4;
+
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 192 && b === 0 && c === 0) return true;
+  if (a === 192 && b === 0 && c === 2) return true;
+  if (a === 198 && b === 18) return true;
+  if (a === 198 && b === 19) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
+  if (a >= 224) return true;
+  if (a === 255 && b === 255 && c === 255 && d === 255) return true;
+
+  return false;
+}
+
+function parseIpv6Literal(hostname: string): number[] | null {
+  const raw =
+    hostname.startsWith("[") && hostname.endsWith("]")
+      ? hostname.slice(1, -1)
+      : hostname;
+  const noZoneId = raw.split("%")[0] ?? raw;
+  if (!noZoneId.includes(":")) {
+    return null;
+  }
+
+  const parts = noZoneId.split("::");
+  if (parts.length > 2) {
+    return null;
+  }
+
+  const parseGroupList = (value: string): number[] | null => {
+    if (value.length === 0) {
+      return [];
+    }
+
+    const groups = value.split(":");
+    const words: number[] = [];
+    for (const group of groups) {
+      if (
+        group.length === 0 ||
+        group.length > 4 ||
+        !/^[0-9a-f]+$/i.test(group)
+      ) {
+        return null;
+      }
+
+      words.push(Number.parseInt(group, 16));
+    }
+
+    return words;
+  };
+
+  const left = parseGroupList(parts[0] ?? "");
+  const right = parseGroupList(parts[1] ?? "");
+  if (left === null || right === null) {
+    return null;
+  }
+
+  if (parts.length === 1) {
+    if (left.length !== 8) {
+      return null;
+    }
+
+    return left;
+  }
+
+  const missing = 8 - (left.length + right.length);
+  if (missing < 1) {
+    return null;
+  }
+
+  return [...left, ...new Array<number>(missing).fill(0), ...right];
+}
+
+function isBlockedIpv6Literal(hostname: string): boolean {
+  const ipv6 = parseIpv6Literal(hostname);
+  if (ipv6 === null) {
+    return false;
+  }
+
+  const [a, b, c, d, e, f, g, h] = ipv6;
+
+  const isUnspecified =
+    a === 0 &&
+    b === 0 &&
+    c === 0 &&
+    d === 0 &&
+    e === 0 &&
+    f === 0 &&
+    g === 0 &&
+    h === 0;
+  if (isUnspecified) {
+    return true;
+  }
+
+  const isLoopback =
+    a === 0 &&
+    b === 0 &&
+    c === 0 &&
+    d === 0 &&
+    e === 0 &&
+    f === 0 &&
+    g === 0 &&
+    h === 1;
+  if (isLoopback) {
+    return true;
+  }
+
+  if ((a & 0xfe00) === 0xfc00) {
+    return true;
+  }
+
+  if ((a & 0xffc0) === 0xfe80) {
+    return true;
+  }
+
+  if ((a & 0xff00) === 0xff00) {
+    return true;
+  }
+
+  if (a === 0x2001 && b === 0x0db8) {
+    return true;
+  }
+
+  const isIpv4Mapped =
+    a === 0 &&
+    b === 0 &&
+    c === 0 &&
+    d === 0 &&
+    e === 0 &&
+    (f === 0xffff || f === 0);
+
+  if (isIpv4Mapped) {
+    const mappedA = g >> 8;
+    const mappedB = g & 0xff;
+    const mappedC = h >> 8;
+    const mappedD = h & 0xff;
+    return isBlockedIpv4Literal(`${mappedA}.${mappedB}.${mappedC}.${mappedD}`);
+  }
+
+  return false;
+}
+
+function isLocalLikeHostname(hostname: string): boolean {
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return true;
+  }
+
+  if (hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    return true;
+  }
+
+  if (!hostname.includes(".") && parseIpv4Literal(hostname) === null) {
+    return true;
+  }
+
+  return false;
+}
+
+function isBlockedForwardOrigin(origin: string): boolean {
+  const parsed = new URL(origin);
+  const hostname = normalizeHostName(parsed.hostname);
+
+  if (isLocalLikeHostname(hostname)) {
+    return true;
+  }
+
+  if (isBlockedIpv4Literal(hostname)) {
+    return true;
+  }
+
+  if (isBlockedIpv6Literal(hostname)) {
+    return true;
+  }
+
+  return false;
+}
+
 function mapForwardedPairConfirmError(
   status: number,
   payload: unknown,
@@ -409,7 +650,8 @@ export function createPairConfirmHandler(
       });
     }
 
-    const body = (await parseJsonBody(c)) as {
+    const parsedBody = await parseRawJsonBody(c);
+    const body = parsedBody.json as {
       ticket?: unknown;
     };
 
@@ -450,6 +692,21 @@ export function createPairConfirmHandler(
     const isIssuerLocal = ticketIssuerOrigin === localProxyOrigin;
 
     if (!isIssuerLocal) {
+      const localProxyAllowsPrivateForwarding =
+        isBlockedForwardOrigin(localProxyOrigin);
+
+      if (
+        !localProxyAllowsPrivateForwarding &&
+        isBlockedForwardOrigin(ticketIssuerOrigin)
+      ) {
+        throw new AppError({
+          code: "PROXY_PAIR_TICKET_ISSUER_BLOCKED",
+          message: "Pairing ticket issuer origin is blocked",
+          status: 403,
+          expose: true,
+        });
+      }
+
       const issuerConfirmUrl = new URL(
         PAIR_CONFIRM_PATH,
         ticketIssuerOrigin.endsWith("/")
@@ -460,7 +717,7 @@ export function createPairConfirmHandler(
       const forwardedResponse = await fetchImpl(issuerConfirmUrl, {
         method: "POST",
         headers: c.req.raw.headers,
-        body: JSON.stringify({ ticket }),
+        body: parsedBody.rawBody,
       }).catch((error: unknown) => {
         throw new AppError({
           code: "PROXY_PAIR_STATE_UNAVAILABLE",

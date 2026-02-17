@@ -42,6 +42,7 @@
 - Pairing is managed by API:
   - `POST /pair/start` (verified Claw auth + `x-claw-owner-pat` ownership check against registry `GET /v1/agents/:id/ownership`)
   - `POST /pair/confirm` (verified Claw auth + one-time pairing ticket consume)
+- Cross-proxy `/pair/confirm` forwarding must enforce built-in SSRF protections (block localhost/private/reserved destinations for non-local proxy origins).
 - Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the ticket in one step (`confirmPairingTicket`), never two separate calls.
 - Confirming a valid pairing ticket must establish mutual trust for the initiator/responder agent pair.
 - Keep pairing tickets one-time and expiring; reject missing/expired/malformed tickets with explicit client errors.

@@ -248,4 +248,85 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       }),
     ).toBe(true);
   });
+
+  it("rejects forwarding to blocked issuer origin for non-local proxy origins", async () => {
+    const forwardFetch = vi.fn(async () => {
+      throw new Error("forward fetch should not be called");
+    });
+
+    const { app } = createPairingApp({
+      fetchImpl: forwardFetch as unknown as typeof fetch,
+      nowMs: () => 1_700_000_000_000,
+    });
+
+    const created = createPairingTicket({
+      issuerProxyUrl: "http://127.0.0.1:8787",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const response = await app.request(
+      "https://proxy.public.example/pair/confirm",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-agent-did": RESPONDER_AGENT_DID,
+        },
+        body: JSON.stringify({
+          ticket: created.ticket,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_PAIR_TICKET_ISSUER_BLOCKED");
+    expect(forwardFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves original signed JSON body when forwarding to issuer proxy", async () => {
+    let expectedBody = "";
+    const forwardFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(String(init?.body ?? "")).toBe(expectedBody);
+
+      return Response.json(
+        {
+          paired: true,
+          initiatorAgentDid: INITIATOR_AGENT_DID,
+          responderAgentDid: RESPONDER_AGENT_DID,
+        },
+        { status: 201 },
+      );
+    });
+
+    const { app } = createPairingApp({
+      fetchImpl: forwardFetch as unknown as typeof fetch,
+      nowMs: () => 1_700_000_000_000,
+    });
+
+    const created = createPairingTicket({
+      issuerProxyUrl: "https://issuer.proxy.example",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+    const bodyRaw = `{  "ticket":"${created.ticket}",  "extra":"value" }`;
+    expectedBody = bodyRaw;
+
+    const response = await app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": RESPONDER_AGENT_DID,
+      },
+      body: bodyRaw,
+    });
+
+    expect(response.status).toBe(201);
+    expect(forwardFetch).toHaveBeenCalledTimes(1);
+    const forwardedBody = String(
+      (forwardFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.body ?? "",
+    );
+    expect(forwardedBody).toBe(bodyRaw);
+  });
 });
