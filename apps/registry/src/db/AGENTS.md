@@ -10,10 +10,12 @@
 
 ## Baseline Requirements
 - Required tables: `humans`, `agents`, `revocations`, `api_keys`, `agent_auth_sessions`, `agent_auth_events`.
+- Pairing-key trust table: `proxy_pairing_keys` for issuer-origin + key-id lookups used by cross-proxy pairing verification.
 - Required index: `idx_agents_owner_status` on `agents(owner_id, status)`.
 - Revocation `jti` lookup can be unique or non-unique; current baseline uses `revocations_jti_unique`.
 - Agent auth refresh lookups require prefix indexes on `agent_auth_sessions.refresh_key_prefix` and `agent_auth_sessions.access_key_prefix`.
 - One session per agent is enforced by `agent_auth_sessions_agent_id_unique`.
+- Proxy pairing key lookups require unique (`issuer_origin`, `pkid`) index and expiry index on `proxy_pairing_keys.expires_at`.
 
 ## Query Rules
 - Prefer Drizzle (`createDb`) for application reads/writes.

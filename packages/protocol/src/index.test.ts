@@ -23,6 +23,8 @@ import {
   makeAgentDid,
   makeHumanDid,
   PROTOCOL_VERSION,
+  PROXY_PAIRING_KEYS_PATH,
+  PROXY_PAIRING_KEYS_RESOLVE_PATH,
   ProtocolParseError,
   parseAitClaims,
   parseCrlClaims,
@@ -46,6 +48,10 @@ describe("protocol", () => {
     expect(INVITES_PATH).toBe("/v1/invites");
     expect(INVITES_REDEEM_PATH).toBe("/v1/invites/redeem");
     expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");
+    expect(PROXY_PAIRING_KEYS_PATH).toBe("/v1/proxy-pairing-keys");
+    expect(PROXY_PAIRING_KEYS_RESOLVE_PATH).toBe(
+      "/v1/proxy-pairing-keys/resolve",
+    );
     expect(RELAY_CONNECT_PATH).toBe("/v1/relay/connect");
     expect(RELAY_RECIPIENT_AGENT_DID_HEADER).toBe("x-claw-recipient-agent-did");
   });

@@ -331,6 +331,49 @@ describe("proxy auth middleware", () => {
     expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
   });
 
+  it("allows forwarded /pair/confirm without Authorization when responder DID query is present", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+    });
+
+    const response = await harness.app.request(
+      `${PAIR_CONFIRM_PATH}?responderAgentDid=${encodeURIComponent(KNOWN_PEER_DID)}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ticket: "clwpair1_missing-ticket",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
+  });
+
+  it("rejects /pair/confirm without Authorization when responder DID query is missing", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+    });
+
+    const response = await harness.app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        ticket: "clwpair1_missing-ticket",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_MISSING_TOKEN");
+  });
+
   it("refreshes keyset and accepts valid AIT after registry key rotation", async () => {
     const oldKid = "registry-old-kid";
     const newKid = "registry-new-kid";

@@ -1,4 +1,8 @@
-import { parseDid } from "@clawdentity/protocol";
+import {
+  PROXY_PAIRING_KEYS_PATH,
+  PROXY_PAIRING_KEYS_RESOLVE_PATH,
+  parseDid,
+} from "@clawdentity/protocol";
 import { AppError, type Logger } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
@@ -10,8 +14,11 @@ import {
   PAIR_START_PATH,
 } from "./pairing-constants.js";
 import {
+  createPairingTicket,
+  createPairingTicketSigningKey,
   PairingTicketParseError,
   parsePairingTicket,
+  verifyPairingTicketSignature,
 } from "./pairing-ticket.js";
 import {
   type ProxyTrustStore,
@@ -46,6 +53,7 @@ export type PairConfirmRuntimeOptions = {
 type CreatePairConfirmHandlerOptions = PairConfirmRuntimeOptions & {
   logger: Logger;
   trustStore: ProxyTrustStore;
+  registryUrl: string;
 };
 
 function parseOwnerPatHeader(headerValue: string | undefined): string {
@@ -146,6 +154,44 @@ async function parseRegistryOwnershipResponse(response: Response): Promise<{
   };
 }
 
+async function parseJsonResponse(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+function extractErrorCode(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  const error = (payload as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  return typeof (error as { code?: unknown }).code === "string"
+    ? (error as { code: string }).code
+    : undefined;
+}
+
+function extractErrorMessage(payload: unknown): string | undefined {
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  const error = (payload as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  return typeof (error as { message?: unknown }).message === "string"
+    ? (error as { message: string }).message
+    : undefined;
+}
+
 async function assertPatOwnsInitiatorAgent(input: {
   fetchImpl: typeof fetch;
   initiatorAgentDid: string;
@@ -221,14 +267,6 @@ async function assertPatOwnsInitiatorAgent(input: {
   });
 }
 
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
-}
-
 function toPairingStoreAppError(error: unknown): AppError {
   if (error instanceof ProxyTrustStoreError) {
     return new AppError({
@@ -245,36 +283,6 @@ function toPairingStoreAppError(error: unknown): AppError {
     status: 503,
     expose: true,
   });
-}
-
-function extractErrorCode(payload: unknown): string | undefined {
-  if (typeof payload !== "object" || payload === null) {
-    return undefined;
-  }
-
-  const error = (payload as { error?: unknown }).error;
-  if (typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  return typeof (error as { code?: unknown }).code === "string"
-    ? (error as { code: string }).code
-    : undefined;
-}
-
-function extractErrorMessage(payload: unknown): string | undefined {
-  if (typeof payload !== "object" || payload === null) {
-    return undefined;
-  }
-
-  const error = (payload as { error?: unknown }).error;
-  if (typeof error !== "object" || error === null) {
-    return undefined;
-  }
-
-  return typeof (error as { message?: unknown }).message === "string"
-    ? (error as { message: string }).message
-    : undefined;
 }
 
 function normalizeProxyOrigin(value: string): string {
@@ -577,6 +585,165 @@ function parsePairConfirmResponse(payload: unknown): {
   };
 }
 
+function buildForwardedConfirmHeaders(source: Headers): Headers {
+  const headers = new Headers();
+  const contentType = source.get("content-type");
+  if (contentType !== null) {
+    headers.set("content-type", contentType);
+  }
+
+  return headers;
+}
+
+function parseResponderDidFromQuery(
+  responderDidQuery: string | undefined,
+): string {
+  if (
+    typeof responderDidQuery !== "string" ||
+    responderDidQuery.trim().length === 0
+  ) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "responderAgentDid query parameter is required",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const responderAgentDid = responderDidQuery.trim();
+  try {
+    const parsedResponderDid = parseDid(responderAgentDid);
+    if (parsedResponderDid.kind !== "agent") {
+      throw new Error("invalid responder did kind");
+    }
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "responderAgentDid must be a valid agent DID",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return responderAgentDid;
+}
+
+async function registerPairingKey(input: {
+  fetchImpl: typeof fetch;
+  ownerPat: string;
+  registryUrl: string;
+  issuerOrigin: string;
+  pkid: string;
+  publicKeyX: string;
+  expiresAtMs: number;
+}): Promise<void> {
+  let response: Response;
+  try {
+    response = await input.fetchImpl(
+      new URL(PROXY_PAIRING_KEYS_PATH, input.registryUrl),
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${input.ownerPat}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          issuerOrigin: input.issuerOrigin,
+          pkid: input.pkid,
+          publicKeyX: input.publicKeyX,
+          expiresAt: new Date(input.expiresAtMs).toISOString(),
+        }),
+      },
+    );
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_TICKET_SIGNING_UNAVAILABLE",
+      message: "Registry pairing-key registration is unavailable",
+      status: 503,
+      expose: true,
+    });
+  }
+
+  if (response.status === 401) {
+    throw new AppError({
+      code: "PROXY_PAIR_OWNER_PAT_INVALID",
+      message: "Owner PAT is invalid or expired",
+      status: 401,
+      expose: true,
+    });
+  }
+
+  if (!response.ok) {
+    throw new AppError({
+      code: "PROXY_PAIR_TICKET_SIGNING_UNAVAILABLE",
+      message: "Registry pairing-key registration is unavailable",
+      status: 503,
+      expose: true,
+    });
+  }
+}
+
+async function resolvePairingKey(input: {
+  fetchImpl: typeof fetch;
+  registryUrl: string;
+  issuerOrigin: string;
+  pkid: string;
+}): Promise<{ publicKeyX: string }> {
+  const resolveUrl = new URL(
+    PROXY_PAIRING_KEYS_RESOLVE_PATH,
+    input.registryUrl,
+  );
+  resolveUrl.searchParams.set("issuerOrigin", input.issuerOrigin);
+  resolveUrl.searchParams.set("pkid", input.pkid);
+
+  let response: Response;
+  try {
+    response = await input.fetchImpl(resolveUrl, {
+      method: "GET",
+    });
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_TICKET_VERIFY_UNAVAILABLE",
+      message: "Registry pairing-key lookup is unavailable",
+      status: 503,
+      expose: true,
+    });
+  }
+
+  if (response.status === 404) {
+    throw new AppError({
+      code: "PROXY_PAIR_TICKET_UNTRUSTED_ISSUER",
+      message: "Pairing ticket issuer could not be verified",
+      status: 403,
+      expose: true,
+    });
+  }
+
+  if (!response.ok) {
+    throw new AppError({
+      code: "PROXY_PAIR_TICKET_VERIFY_UNAVAILABLE",
+      message: "Registry pairing-key lookup is unavailable",
+      status: 503,
+      expose: true,
+    });
+  }
+
+  const payload = (await parseJsonResponse(response)) as {
+    key?: { publicKeyX?: unknown };
+  };
+  const publicKeyX = payload?.key?.publicKeyX;
+  if (typeof publicKeyX !== "string" || publicKeyX.trim().length === 0) {
+    throw new AppError({
+      code: "PROXY_PAIR_TICKET_VERIFY_UNAVAILABLE",
+      message: "Registry pairing-key lookup payload is invalid",
+      status: 503,
+      expose: true,
+    });
+  }
+
+  return { publicKeyX: publicKeyX.trim() };
+}
+
 export function createPairStartHandler(
   options: CreatePairStartHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
@@ -612,14 +779,57 @@ export function createPairStartHandler(
       registryUrl,
     });
 
+    const issuedAtMs = nowMs();
+    const requestedExpiresAtMs = issuedAtMs + ttlSeconds * 1000;
     const issuerProxyUrl =
       configuredIssuerProxyUrl ?? normalizeProxyOrigin(c.req.url);
+
+    const signingKey = await createPairingTicketSigningKey({
+      nowMs: issuedAtMs,
+    }).catch(() => {
+      throw new AppError({
+        code: "PROXY_PAIR_TICKET_SIGNING_UNAVAILABLE",
+        message: "Pairing ticket signing is unavailable",
+        status: 503,
+        expose: true,
+      });
+    });
+
+    const createdTicket = await createPairingTicket({
+      issuerProxyUrl,
+      expiresAtMs: requestedExpiresAtMs,
+      nowMs: issuedAtMs,
+      signingKey: {
+        pkid: signingKey.pkid,
+        privateKey: signingKey.privateKey,
+      },
+    }).catch(() => {
+      throw new AppError({
+        code: "PROXY_PAIR_TICKET_SIGNING_UNAVAILABLE",
+        message: "Pairing ticket signing is unavailable",
+        status: 503,
+        expose: true,
+      });
+    });
+    const expiresAtMs = createdTicket.payload.exp * 1000;
+
+    await registerPairingKey({
+      fetchImpl,
+      ownerPat,
+      registryUrl,
+      issuerOrigin: issuerProxyUrl,
+      pkid: signingKey.pkid,
+      publicKeyX: signingKey.publicKeyX,
+      expiresAtMs,
+    });
+
     const pairingTicketResult = await options.trustStore
       .createPairingTicket({
         initiatorAgentDid: auth.agentDid,
         issuerProxyUrl,
-        ttlSeconds,
-        nowMs: nowMs(),
+        ticket: createdTicket.ticket,
+        expiresAtMs,
+        nowMs: issuedAtMs,
       })
       .catch((error: unknown) => {
         throw toPairingStoreAppError(error);
@@ -630,6 +840,7 @@ export function createPairStartHandler(
       initiatorAgentDid: auth.agentDid,
       issuerProxyUrl: pairingTicketResult.issuerProxyUrl,
       expiresAt: new Date(pairingTicketResult.expiresAtMs).toISOString(),
+      pkid: signingKey.pkid,
     });
 
     return c.json({
@@ -645,16 +856,10 @@ export function createPairConfirmHandler(
 ): (c: PairingRouteContext) => Promise<Response> {
   const nowMs = options.nowMs ?? Date.now;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const registryUrl = normalizeRegistryUrl(options.registryUrl);
 
   return async (c) => {
     const auth = c.get("auth");
-    if (auth === undefined) {
-      throw new AppError({
-        code: "PROXY_PAIR_AUTH_CONTEXT_MISSING",
-        message: "Verified auth context is required",
-        status: 500,
-      });
-    }
 
     const parsedBody = await parseRawJsonBody(c);
     const body = parsedBody.json as {
@@ -698,6 +903,36 @@ export function createPairConfirmHandler(
     const isIssuerLocal = ticketIssuerOrigin === localProxyOrigin;
 
     if (!isIssuerLocal) {
+      if (auth === undefined) {
+        throw new AppError({
+          code: "PROXY_PAIR_AUTH_REQUIRED",
+          message: "Authorization is required for cross-proxy confirm",
+          status: 401,
+          expose: true,
+        });
+      }
+
+      const resolvedKey = await resolvePairingKey({
+        fetchImpl,
+        registryUrl,
+        issuerOrigin: ticketIssuerOrigin,
+        pkid: parsedTicket.pkid,
+      });
+
+      const verified = await verifyPairingTicketSignature({
+        payload: parsedTicket,
+        publicKeyX: resolvedKey.publicKeyX,
+      }).catch(() => false);
+
+      if (!verified) {
+        throw new AppError({
+          code: "PROXY_PAIR_TICKET_UNTRUSTED_ISSUER",
+          message: "Pairing ticket issuer could not be verified",
+          status: 403,
+          expose: true,
+        });
+      }
+
       const localProxyAllowsPrivateForwarding =
         isBlockedForwardOrigin(localProxyOrigin);
       const issuerOriginUrl = new URL(ticketIssuerOrigin);
@@ -727,11 +962,12 @@ export function createPairConfirmHandler(
         ticketIssuerOrigin.endsWith("/")
           ? ticketIssuerOrigin
           : `${ticketIssuerOrigin}/`,
-      ).toString();
+      );
+      issuerConfirmUrl.searchParams.set("responderAgentDid", auth.agentDid);
 
       const forwardedResponse = await fetchImpl(issuerConfirmUrl, {
         method: "POST",
-        headers: c.req.raw.headers,
+        headers: buildForwardedConfirmHeaders(c.req.raw.headers),
         body: parsedBody.rawBody,
       }).catch((error: unknown) => {
         throw new AppError({
@@ -789,10 +1025,14 @@ export function createPairConfirmHandler(
       );
     }
 
+    const responderAgentDid =
+      auth?.agentDid ??
+      parseResponderDidFromQuery(c.req.query("responderAgentDid"));
+
     const confirmedPairingTicket = await options.trustStore
       .confirmPairingTicket({
         ticket,
-        responderAgentDid: auth.agentDid,
+        responderAgentDid,
         nowMs: nowMs(),
       })
       .catch((error: unknown) => {

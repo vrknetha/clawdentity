@@ -79,7 +79,7 @@ Current pairing contract is ticket-based with CLI support:
 
 ```json
 {
-  "ttlSeconds": 900
+  "ttlSeconds": 300
 }
 ```
 
@@ -97,7 +97,7 @@ Current pairing contract is ticket-based with CLI support:
 ```
 
 Rules:
-- `ticket` is one-time and expires (default 15 minutes).
+- `ticket` is one-time and expires (default 5 minutes, max 15 minutes).
 - Confirm establishes mutual trust for the initiator/responder pair.
 - Same-agent sender/recipient is allowed by policy without explicit pair entry.
 

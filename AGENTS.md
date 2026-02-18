@@ -3,6 +3,10 @@
 ## Purpose
 - Define repository-wide engineering and documentation guardrails for Clawdentity.
 - Keep product docs and issue governance in sync with the active GitHub tracker.
+- When shipping features, UX of the user is most important aspect.
+- Remember users run clawdentity in the machines which are not exposed to internet.
+- The location of the openclaw aka clawdbot is here at /Users/dev/Workdir/clawdbot which is what we are building the current 
+- Based on the changes made to the cli, always plan for changes in skills as well. Both go together
 
 ## Core Rules
 - Ship maintainable, non-duplicative changes.

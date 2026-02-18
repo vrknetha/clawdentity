@@ -96,7 +96,9 @@
 - `pair start <agentName>` must call proxy `/pair/start` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
 - `pair start` must send owner PAT via `x-claw-owner-pat`, defaulting to configured API key unless explicitly overridden by `--owner-pat`.
 - `pair start --qr` must generate a one-time local PNG QR containing the returned ticket and print the filesystem path.
+- `pair start --qr` must sweep expired QR artifacts in `~/.clawdentity/pairing` before writing a new file.
 - `pair confirm <agentName>` must call proxy `/pair/confirm` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
 - `pair confirm` must accept either `--qr-file <path>` (primary) or `--ticket <clwpair1_...>` (fallback), never both.
+- `pair confirm --qr-file` must delete the consumed QR file after successful confirm (best effort, non-fatal on cleanup failure).
 - `pair` commands must accept proxy URL via `--proxy-url` and fallback to env `CLAWDENTITY_PROXY_URL` when the flag is absent.
 - `pair` commands must fail with deterministic operator messages for invalid ticket/QR input, missing local agent proof material, and proxy auth/state errors.

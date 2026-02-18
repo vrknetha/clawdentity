@@ -157,6 +157,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     PAIR_CONFIRM_PATH,
     createPairConfirmHandler({
       logger,
+      registryUrl: options.config.registryUrl,
       trustStore,
       ...options.pairing?.confirm,
     }),

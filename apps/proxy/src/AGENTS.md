@@ -41,9 +41,12 @@
 - Keep pairing bootstrap explicit: `/pair/start` and `/pair/confirm` must bypass known-agent gate in auth middleware.
 - Keep `/pair/start` ownership validation against registry `GET /v1/agents/:id/ownership` using `x-claw-owner-pat`, and map dependency failures to `503`.
 - Allow optional `PAIRING_ISSUER_URL` override for `/pair/start` ticket issuer origin so cross-proxy forwarding can work when inbound hostnames differ from proxy-to-proxy reachability hostnames.
+- Keep pairing tickets issuer-authenticated: `/pair/start` must sign each ticket and register the signing public key in registry (`/v1/proxy-pairing-keys`) before returning ticket data.
 - Keep cross-proxy `/pair/confirm` forwarding SSRF-safe by default: reject localhost/private/reserved issuer origins when the current proxy origin is non-local.
 - Enforce that forwarded `/pair/confirm` issuer origins use HTTPS once the proxy origin is non-local, while continuing to allow HTTP when both the proxy and issuer are on local/dev hosts.
-- Preserve the original request JSON bytes when forwarding `/pair/confirm` so forwarded PoP/body-signature headers remain valid.
+- Before cross-proxy forwarding, resolve issuer signing key from registry (`/v1/proxy-pairing-keys/resolve`) and reject unverified tickets with `403` fail-closed behavior.
+- Preserve the original request JSON bytes when forwarding `/pair/confirm`; issuer-side confirmation must validate the ticket payload, not responder PoP headers.
+- Forward only minimal `/pair/confirm` headers (`content-type`); never forward responder `Authorization`/PoP headers or arbitrary inbound headers to issuer proxy.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
 - Keep `/hooks/agent` trust check explicit: sender/recipient pair must be authorized by trust state before relay delivery.
@@ -59,5 +62,6 @@
 - Keep relay delivery failure mapping explicit for `/hooks/agent`: DO delivery/RPC failures -> `502`, unavailable DO namespace -> `503`.
 - Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
+- Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.

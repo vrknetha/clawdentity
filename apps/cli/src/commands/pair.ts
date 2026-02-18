@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { decodeBase64url } from "@clawdentity/protocol";
 import { AppError, createLogger, signHttpRequest } from "@clawdentity/sdk";
@@ -28,6 +28,8 @@ const PAIR_CONFIRM_PATH = "/pair/confirm";
 const OWNER_PAT_HEADER = "x-claw-owner-pat";
 const NONCE_SIZE = 24;
 const PAIRING_TICKET_PREFIX = "clwpair1_";
+const PAIRING_QR_MAX_AGE_SECONDS = 900;
+const PAIRING_QR_FILENAME_PATTERN = /-pair-(\d+)\.png$/;
 
 export type PairStartOptions = {
   ownerPat?: string;
@@ -51,6 +53,8 @@ type PairRequestOptions = {
   readFileImpl?: typeof readFile;
   writeFileImpl?: typeof writeFile;
   mkdirImpl?: typeof mkdir;
+  readdirImpl?: typeof readdir;
+  unlinkImpl?: typeof unlink;
   resolveConfigImpl?: () => Promise<CliConfig>;
   qrEncodeImpl?: (ticket: string) => Promise<Uint8Array>;
   qrDecodeImpl?: (imageBytes: Uint8Array) => string;
@@ -501,6 +505,8 @@ async function persistPairingQr(input: {
   nowSeconds: number;
 }): Promise<string> {
   const mkdirImpl = input.dependencies.mkdirImpl ?? mkdir;
+  const readdirImpl = input.dependencies.readdirImpl ?? readdir;
+  const unlinkImpl = input.dependencies.unlinkImpl ?? unlink;
   const writeFileImpl = input.dependencies.writeFileImpl ?? writeFile;
   const getConfigDirImpl = input.dependencies.getConfigDirImpl ?? getConfigDir;
   const qrEncodeImpl = input.dependencies.qrEncodeImpl ?? encodeTicketQrPng;
@@ -512,6 +518,44 @@ async function persistPairingQr(input: {
         baseDir,
         `${assertValidAgentName(input.agentName)}-pair-${input.nowSeconds}.png`,
       );
+
+  const existingFiles = await readdirImpl(baseDir).catch((error) => {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return [] as string[];
+    }
+
+    throw error;
+  });
+  for (const fileName of existingFiles) {
+    if (typeof fileName !== "string") {
+      continue;
+    }
+
+    const match = PAIRING_QR_FILENAME_PATTERN.exec(fileName);
+    if (!match) {
+      continue;
+    }
+
+    const issuedAtSeconds = Number.parseInt(match[1] ?? "", 10);
+    if (!Number.isInteger(issuedAtSeconds)) {
+      continue;
+    }
+
+    if (issuedAtSeconds + PAIRING_QR_MAX_AGE_SECONDS > input.nowSeconds) {
+      continue;
+    }
+
+    const stalePath = join(baseDir, fileName);
+    await unlinkImpl(stalePath).catch((error) => {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === "ENOENT") {
+        return;
+      }
+
+      throw error;
+    });
+  }
 
   await mkdirImpl(dirname(outputPath), { recursive: true });
   const imageBytes = await qrEncodeImpl(input.ticket);
@@ -731,6 +775,23 @@ export async function confirmPairing(
   }
 
   const parsed = parsePairConfirmResponse(responseBody);
+  if (ticketSource.source === "qr-file" && ticketSource.qrFilePath) {
+    const unlinkImpl = dependencies.unlinkImpl ?? unlink;
+    await unlinkImpl(ticketSource.qrFilePath).catch((error) => {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError.code === "ENOENT") {
+        return;
+      }
+
+      logger.warn("cli.pair.confirm.qr_cleanup_failed", {
+        path: ticketSource.qrFilePath,
+        reason:
+          error instanceof Error && error.message.length > 0
+            ? error.message
+            : "unknown",
+      });
+    });
+  }
 
   return {
     ...parsed,

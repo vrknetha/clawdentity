@@ -1,5 +1,4 @@
 import {
-  createPairingTicket,
   PairingTicketParseError,
   parsePairingTicket,
 } from "./pairing-ticket.js";
@@ -10,6 +9,7 @@ import {
 } from "./proxy-trust-store.js";
 
 type StoredPairingTicket = {
+  ticket: string;
   expiresAtMs: number;
   initiatorAgentDid: string;
   issuerProxyUrl: string;
@@ -109,9 +109,9 @@ export class ProxyTrustState {
     const pairingTickets = await this.loadPairingTickets();
 
     let mutated = false;
-    for (const [ticket, details] of Object.entries(pairingTickets)) {
+    for (const [ticketKid, details] of Object.entries(pairingTickets)) {
       if (details.expiresAtMs <= nowMs) {
-        delete pairingTickets[ticket];
+        delete pairingTickets[ticketKid];
         mutated = true;
       }
     }
@@ -131,9 +131,10 @@ export class ProxyTrustState {
       !body ||
       !isNonEmptyString(body.initiatorAgentDid) ||
       !isNonEmptyString(body.issuerProxyUrl) ||
-      typeof body.ttlSeconds !== "number" ||
-      !Number.isInteger(body.ttlSeconds) ||
-      body.ttlSeconds <= 0
+      !isNonEmptyString(body.ticket) ||
+      typeof body.expiresAtMs !== "number" ||
+      !Number.isInteger(body.expiresAtMs) ||
+      body.expiresAtMs <= 0
     ) {
       return toErrorResponse({
         code: "PROXY_PAIR_START_INVALID_BODY",
@@ -143,15 +144,9 @@ export class ProxyTrustState {
     }
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
-    const expiresAtMs = nowMs + body.ttlSeconds * 1000;
-
-    let created: ReturnType<typeof createPairingTicket>;
+    let parsedTicket: ReturnType<typeof parsePairingTicket>;
     try {
-      created = createPairingTicket({
-        issuerProxyUrl: body.issuerProxyUrl,
-        expiresAtMs,
-        nowMs,
-      });
+      parsedTicket = parsePairingTicket(body.ticket);
     } catch (error) {
       if (error instanceof PairingTicketParseError) {
         return toErrorResponse({
@@ -164,21 +159,46 @@ export class ProxyTrustState {
       throw error;
     }
 
+    if (parsedTicket.iss !== body.issuerProxyUrl) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_TICKET_INVALID_ISSUER",
+        message: "Pairing ticket issuer URL is invalid",
+        status: 400,
+      });
+    }
+
+    if (parsedTicket.exp * 1000 !== body.expiresAtMs) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_START_INVALID_BODY",
+        message: "Pairing ticket expiry is invalid",
+        status: 400,
+      });
+    }
+
+    if (body.expiresAtMs <= nowMs) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_TICKET_EXPIRED",
+        message: "Pairing ticket has expired",
+        status: 410,
+      });
+    }
+
     const pairingTickets = await this.loadPairingTickets();
-    pairingTickets[created.ticket] = {
+    pairingTickets[parsedTicket.kid] = {
+      ticket: body.ticket,
       initiatorAgentDid: body.initiatorAgentDid,
-      issuerProxyUrl: created.payload.iss,
-      expiresAtMs,
+      issuerProxyUrl: parsedTicket.iss,
+      expiresAtMs: body.expiresAtMs,
     };
 
     await this.savePairingTickets(pairingTickets);
     await this.scheduleNextCodeCleanup(pairingTickets);
 
     return Response.json({
-      ticket: created.ticket,
-      expiresAtMs,
+      ticket: body.ticket,
+      expiresAtMs: body.expiresAtMs,
       initiatorAgentDid: body.initiatorAgentDid,
-      issuerProxyUrl: created.payload.iss,
+      issuerProxyUrl: parsedTicket.iss,
     });
   }
 
@@ -217,9 +237,9 @@ export class ProxyTrustState {
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
     const pairingTickets = await this.loadPairingTickets();
-    const stored = pairingTickets[body.ticket];
+    const stored = pairingTickets[parsedTicket.kid];
 
-    if (!stored) {
+    if (!stored || stored.ticket !== body.ticket) {
       return toErrorResponse({
         code: "PROXY_PAIR_TICKET_NOT_FOUND",
         message: "Pairing ticket not found",
@@ -228,7 +248,7 @@ export class ProxyTrustState {
     }
 
     if (stored.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
-      delete pairingTickets[body.ticket];
+      delete pairingTickets[parsedTicket.kid];
       await this.savePairingTickets(pairingTickets);
       await this.scheduleNextCodeCleanup(pairingTickets);
       return toErrorResponse({
@@ -256,7 +276,7 @@ export class ProxyTrustState {
     await this.savePairs(pairs);
     await this.saveAgentPeers(agentPeers);
 
-    delete pairingTickets[body.ticket];
+    delete pairingTickets[parsedTicket.kid];
     await this.savePairingTickets(pairingTickets);
     await this.scheduleNextCodeCleanup(pairingTickets);
 
@@ -392,7 +412,46 @@ export class ProxyTrustState {
       return {};
     }
 
-    return raw;
+    const normalized: PairingTicketMap = {};
+    for (const [entryKey, value] of Object.entries(raw)) {
+      if (typeof value !== "object" || value === null) {
+        continue;
+      }
+
+      const entry = value as {
+        ticket?: unknown;
+        expiresAtMs?: unknown;
+        initiatorAgentDid?: unknown;
+        issuerProxyUrl?: unknown;
+      };
+      if (
+        !isNonEmptyString(entry.initiatorAgentDid) ||
+        !isNonEmptyString(entry.issuerProxyUrl) ||
+        typeof entry.expiresAtMs !== "number" ||
+        !Number.isInteger(entry.expiresAtMs)
+      ) {
+        continue;
+      }
+
+      const ticketCandidate = isNonEmptyString(entry.ticket)
+        ? entry.ticket
+        : entryKey;
+      let parsedTicket: ReturnType<typeof parsePairingTicket>;
+      try {
+        parsedTicket = parsePairingTicket(ticketCandidate);
+      } catch {
+        continue;
+      }
+
+      normalized[parsedTicket.kid] = {
+        ticket: ticketCandidate,
+        expiresAtMs: entry.expiresAtMs,
+        initiatorAgentDid: entry.initiatorAgentDid,
+        issuerProxyUrl: parsedTicket.iss,
+      };
+    }
+
+    return normalized;
   }
 
   private async savePairingTickets(

@@ -1,5 +1,47 @@
+import { decodeBase64url, encodeBase64url } from "@clawdentity/protocol";
 import { describe, expect, it } from "vitest";
+import {
+  createPairingTicket,
+  createPairingTicketSigningKey,
+} from "./pairing-ticket.js";
 import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
+
+function tamperTicketNonce(ticket: string): string {
+  const prefix = "clwpair1_";
+  if (!ticket.startsWith(prefix)) {
+    throw new Error("invalid test ticket format");
+  }
+  const encodedPayload = ticket.slice(prefix.length);
+
+  const payload = JSON.parse(
+    new TextDecoder().decode(decodeBase64url(encodedPayload)),
+  ) as {
+    nonce?: string;
+  };
+  payload.nonce = "tampered-nonce";
+
+  return `${prefix}${encodeBase64url(new TextEncoder().encode(JSON.stringify(payload)))}`;
+}
+
+async function createSignedTicket(input: {
+  issuerProxyUrl: string;
+  nowMs: number;
+  expiresAtMs: number;
+}) {
+  const signingKey = await createPairingTicketSigningKey({
+    nowMs: input.nowMs,
+  });
+
+  return createPairingTicket({
+    issuerProxyUrl: input.issuerProxyUrl,
+    expiresAtMs: input.expiresAtMs,
+    nowMs: input.nowMs,
+    signingKey: {
+      pkid: signingKey.pkid,
+      privateKey: signingKey.privateKey,
+    },
+  });
+}
 
 describe("in-memory proxy trust store", () => {
   it("allows same-agent sender and recipient without explicit pair entry", async () => {
@@ -50,10 +92,16 @@ describe("in-memory proxy trust store", () => {
 
   it("confirms one-time pairing tickets and establishes trust", async () => {
     const store = createInMemoryProxyTrustStore();
+    const created = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       issuerProxyUrl: "https://proxy-a.example.com",
-      ttlSeconds: 60,
+      ticket: created.ticket,
+      expiresAtMs: 1_700_000_060_000,
       nowMs: 1_700_000_000_000,
     });
 
@@ -84,12 +132,45 @@ describe("in-memory proxy trust store", () => {
     expect(await store.isAgentKnown("did:claw:agent:bob")).toBe(true);
   });
 
-  it("rejects expired tickets", async () => {
+  it("rejects tampered ticket text when kid matches stored entry", async () => {
     const store = createInMemoryProxyTrustStore();
+    const created = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       issuerProxyUrl: "https://proxy-a.example.com",
-      ttlSeconds: 1,
+      ticket: created.ticket,
+      expiresAtMs: 1_700_000_060_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    await expect(
+      store.confirmPairingTicket({
+        ticket: tamperTicketNonce(ticket.ticket),
+        responderAgentDid: "did:claw:agent:bob",
+        nowMs: 1_700_000_000_100,
+      }),
+    ).rejects.toMatchObject({
+      code: "PROXY_PAIR_TICKET_NOT_FOUND",
+      status: 404,
+    });
+  });
+
+  it("rejects expired tickets", async () => {
+    const store = createInMemoryProxyTrustStore();
+    const created = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_001_000,
+    });
+    const ticket = await store.createPairingTicket({
+      initiatorAgentDid: "did:claw:agent:alice",
+      issuerProxyUrl: "https://proxy-a.example.com",
+      ticket: created.ticket,
+      expiresAtMs: 1_700_000_001_000,
       nowMs: 1_700_000_000_000,
     });
 
@@ -108,17 +189,29 @@ describe("in-memory proxy trust store", () => {
   it("cleans up unrelated expired tickets during confirm lookups", async () => {
     const store = createInMemoryProxyTrustStore();
 
+    const expired = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_001_000,
+    });
     const expiredTicket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       issuerProxyUrl: "https://proxy-a.example.com",
-      ttlSeconds: 1,
+      ticket: expired.ticket,
+      expiresAtMs: 1_700_000_001_000,
       nowMs: 1_700_000_000_000,
     });
 
+    const valid = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
     const validTicket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       issuerProxyUrl: "https://proxy-a.example.com",
-      ttlSeconds: 60,
+      ticket: valid.ticket,
+      expiresAtMs: 1_700_000_060_000,
       nowMs: 1_700_000_000_000,
     });
 

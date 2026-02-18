@@ -63,6 +63,12 @@ describe("pair command helpers", () => {
   it("starts pairing with local agent proof and configured owner PAT", async () => {
     const fixture = await createPairFixture();
     const readFileImpl = createReadFileMock(fixture);
+    const readdirImpl = vi.fn(async () => [
+      "alpha-pair-1699999000.png",
+      "alpha-pair-1699999500.png",
+      "notes.txt",
+    ]);
+    const unlinkImpl = vi.fn(async () => undefined);
     const writeFileImpl = vi.fn(async () => undefined);
     const mkdirImpl = vi.fn(async () => undefined);
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => {
@@ -93,6 +99,10 @@ describe("pair command helpers", () => {
           writeFileImpl as unknown as typeof import("node:fs/promises").writeFile,
         mkdirImpl:
           mkdirImpl as unknown as typeof import("node:fs/promises").mkdir,
+        readdirImpl:
+          readdirImpl as unknown as typeof import("node:fs/promises").readdir,
+        unlinkImpl:
+          unlinkImpl as unknown as typeof import("node:fs/promises").unlink,
         qrEncodeImpl: async () => new Uint8Array([1, 2, 3]),
         resolveConfigImpl: async () => ({
           registryUrl: "https://dev.api.clawdentity.com/",
@@ -106,6 +116,11 @@ describe("pair command helpers", () => {
     expect(result.proxyUrl).toBe("https://alpha.proxy.example/");
     expect(result.qrPath).toContain(
       "/tmp/.clawdentity/pairing/alpha-pair-1700000000.png",
+    );
+    expect(readdirImpl).toHaveBeenCalledTimes(1);
+    expect(unlinkImpl).toHaveBeenCalledTimes(1);
+    expect(unlinkImpl).toHaveBeenCalledWith(
+      "/tmp/.clawdentity/pairing/alpha-pair-1699999000.png",
     );
     expect(writeFileImpl).toHaveBeenCalledTimes(1);
     expect(mkdirImpl).toHaveBeenCalledTimes(1);
@@ -181,6 +196,7 @@ describe("pair command helpers", () => {
 
   it("confirms pairing with qr-file ticket decode", async () => {
     const fixture = await createPairFixture();
+    const unlinkImpl = vi.fn(async () => undefined);
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => {
       return Response.json(
         {
@@ -205,6 +221,8 @@ describe("pair command helpers", () => {
         readFileImpl: createReadFileMock(
           fixture,
         ) as unknown as typeof import("node:fs/promises").readFile,
+        unlinkImpl:
+          unlinkImpl as unknown as typeof import("node:fs/promises").unlink,
         qrDecodeImpl: () => "clwpair1_ticket",
         getConfigDirImpl: () => "/tmp/.clawdentity",
       },
@@ -221,6 +239,8 @@ describe("pair command helpers", () => {
     expect(headers.get("x-claw-timestamp")).toBe("1700000000");
     expect(headers.get("x-claw-nonce")).toBe("nonce-confirm");
     expect(String(init?.body ?? "")).toContain("clwpair1_ticket");
+    expect(unlinkImpl).toHaveBeenCalledTimes(1);
+    expect(unlinkImpl).toHaveBeenCalledWith("/tmp/pair.png");
   });
 });
 

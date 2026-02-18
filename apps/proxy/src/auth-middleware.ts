@@ -481,7 +481,20 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         return;
       }
 
-      const token = parseClawAuthorizationHeader(c.req.header("authorization"));
+      const authorizationHeader = c.req.header("authorization");
+      const forwardedResponderDid = c.req.query("responderAgentDid");
+      const isAnonymousForwardedPairConfirm =
+        c.req.path === PAIR_CONFIRM_PATH &&
+        (typeof authorizationHeader !== "string" ||
+          authorizationHeader.trim().length === 0) &&
+        typeof forwardedResponderDid === "string" &&
+        forwardedResponderDid.trim().length > 0;
+      if (isAnonymousForwardedPairConfirm) {
+        await next();
+        return;
+      }
+
+      const token = parseClawAuthorizationHeader(authorizationHeader);
       const claims = await verifyAitClaims(token);
 
       const timestampHeader = c.req.header("x-claw-timestamp");
