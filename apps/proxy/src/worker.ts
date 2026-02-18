@@ -10,12 +10,9 @@ import {
 } from "./config.js";
 import { resolveProxyVersion } from "./index.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
-import {
-  createDurableProxyTrustStore,
-  createInMemoryProxyTrustStore,
-  type ProxyTrustStateNamespace,
-} from "./proxy-trust-store.js";
+import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
+import { resolveWorkerTrustStore } from "./trust-store-backend.js";
 
 export type ProxyWorkerBindings = {
   LISTEN_PORT?: string;
@@ -25,6 +22,7 @@ export type ProxyWorkerBindings = {
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
+  PAIRING_ISSUER_URL?: string;
   ENVIRONMENT?: string;
   ALLOW_ALL_VERIFIED?: string;
   CRL_REFRESH_INTERVAL_MS?: string;
@@ -53,6 +51,7 @@ function toCacheKey(env: ProxyWorkerBindings): string {
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,
+    env.PAIRING_ISSUER_URL,
     env.ENVIRONMENT,
     env.ALLOW_ALL_VERIFIED,
     env.CRL_REFRESH_INTERVAL_MS,
@@ -75,13 +74,20 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
   }
 
   const config = parseProxyConfig(env);
+  const trustStoreResolution = resolveWorkerTrustStore({
+    environment: config.environment,
+    trustStateNamespace: env.PROXY_TRUST_STATE,
+  });
+  if (trustStoreResolution.backend === "memory") {
+    logger.warn("proxy.trust_store.memory_fallback", {
+      environment: config.environment,
+      reason: "PROXY_TRUST_STATE binding is unavailable",
+    });
+  }
   const app = createProxyApp({
     config,
     logger,
-    trustStore:
-      env.PROXY_TRUST_STATE !== undefined
-        ? createDurableProxyTrustStore(env.PROXY_TRUST_STATE)
-        : createInMemoryProxyTrustStore(),
+    trustStore: trustStoreResolution.trustStore,
     version: resolveProxyVersion(env),
   });
 

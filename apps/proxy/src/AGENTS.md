@@ -17,6 +17,7 @@
 - Do not add `OPENCLAW_HOOK_TOKEN` handling to proxy runtime; hook token auth belongs to connector -> OpenClaw delivery path.
 - Keep fallback semantics consistent across merge + parse stages: empty/whitespace env values are treated as missing, so non-empty `.env`/file values can be used.
 - Do not derive runtime environment from `NODE_ENV`; use validated `ENVIRONMENT` from proxy config.
+- Keep trust-store backend policy explicit: only `local` may fallback to in-memory trust when `PROXY_TRUST_STATE` binding is absent; `development` and `production` must fail startup without durable trust binding.
 - Keep static allowlist env vars removed (`ALLOW_LIST`, `ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`); trust must come from pairing state, not env.
 - Keep `/pair/confirm` write path atomic at the trust-store API level: trust persistence and one-time ticket consumption must happen in one operation (`confirmPairingTicket`).
 

@@ -91,6 +91,24 @@ describe("proxy server", () => {
     ).toThrow(ProxyConfigError);
   });
 
+  it("fails node runtime startup for non-local environments", () => {
+    expect(() =>
+      startProxyServer({
+        config: parseProxyConfig({
+          ENVIRONMENT: "development",
+        }),
+      }),
+    ).toThrow(ProxyConfigError);
+
+    expect(() =>
+      startProxyServer({
+        config: parseProxyConfig({
+          ENVIRONMENT: "production",
+        }),
+      }),
+    ).toThrow(ProxyConfigError);
+  });
+
   it("returns 429 for repeated unauthenticated probes on /hooks/agent from same IP", async () => {
     const app = createProxyApp({
       config: parseProxyConfig({}),
