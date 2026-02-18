@@ -33,7 +33,7 @@
 - When `src/transforms/relay-to-peer.ts` relay envelope, endpoint defaults, or failure mapping changes, update:
   - `skill/SKILL.md`
   - `skill/references/clawdentity-protocol.md`
-  - bundled copies in `apps/cli/skill-bundle/openclaw-skill/skill/*`
+  - regenerate CLI bundle via `pnpm -F @clawdentity/openclaw-skill build && pnpm -F clawdentity run sync:skill-bundle`
 
 ## Validation Commands
 - `pnpm -F @clawdentity/openclaw-skill typecheck`

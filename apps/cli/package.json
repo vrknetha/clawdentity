@@ -22,12 +22,13 @@
     "skill-bundle"
   ],
   "scripts": {
-    "build": "pnpm run sync:skill-bundle && tsup",
+    "build": "pnpm -F @clawdentity/openclaw-skill build && pnpm run sync:skill-bundle && pnpm run verify:skill-bundle && tsup",
     "format": "biome format .",
     "lint": "biome lint .",
     "prepack": "pnpm run build",
     "postinstall": "node ./postinstall.mjs",
     "sync:skill-bundle": "node ./scripts/sync-skill-bundle.mjs",
+    "verify:skill-bundle": "node ./scripts/verify-skill-bundle.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

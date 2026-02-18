@@ -5,7 +5,8 @@
 
 ## Rules
 - Treat this folder as generated release input; do not hand-edit bundled files.
-- Regenerate by running `pnpm -F clawdentity run sync:skill-bundle` after changes in `apps/openclaw-skill`.
+- Keep `openclaw-skill/` generated-only and gitignored; commit only this `AGENTS.md`.
+- Regenerate by running `pnpm -F @clawdentity/openclaw-skill build && pnpm -F clawdentity run sync:skill-bundle`.
 - Required bundled files:
   - `openclaw-skill/skill/SKILL.md`
   - `openclaw-skill/skill/references/*`
