@@ -104,4 +104,39 @@ describe("in-memory proxy trust store", () => {
       status: 410,
     });
   });
+
+  it("cleans up unrelated expired tickets during confirm lookups", async () => {
+    const store = createInMemoryProxyTrustStore();
+
+    const expiredTicket = await store.createPairingTicket({
+      initiatorAgentDid: "did:claw:agent:alice",
+      issuerProxyUrl: "https://proxy-a.example.com",
+      ttlSeconds: 1,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const validTicket = await store.createPairingTicket({
+      initiatorAgentDid: "did:claw:agent:alice",
+      issuerProxyUrl: "https://proxy-a.example.com",
+      ttlSeconds: 60,
+      nowMs: 1_700_000_000_000,
+    });
+
+    await store.confirmPairingTicket({
+      ticket: validTicket.ticket,
+      responderAgentDid: "did:claw:agent:bob",
+      nowMs: 1_700_000_002_000,
+    });
+
+    await expect(
+      store.confirmPairingTicket({
+        ticket: expiredTicket.ticket,
+        responderAgentDid: "did:claw:agent:bob",
+        nowMs: 1_700_000_002_100,
+      }),
+    ).rejects.toMatchObject({
+      code: "PROXY_PAIR_TICKET_NOT_FOUND",
+      status: 404,
+    });
+  });
 });

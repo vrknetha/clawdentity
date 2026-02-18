@@ -700,11 +700,20 @@ export function createPairConfirmHandler(
     if (!isIssuerLocal) {
       const localProxyAllowsPrivateForwarding =
         isBlockedForwardOrigin(localProxyOrigin);
+      const issuerOriginUrl = new URL(ticketIssuerOrigin);
+      const issuerOriginIsBlocked = isBlockedForwardOrigin(ticketIssuerOrigin);
 
-      if (
-        !localProxyAllowsPrivateForwarding &&
-        isBlockedForwardOrigin(ticketIssuerOrigin)
-      ) {
+      if (!issuerOriginIsBlocked && issuerOriginUrl.protocol !== "https:") {
+        throw new AppError({
+          code: "PROXY_PAIR_CONFIRM_ISSUER_INSECURE",
+          message:
+            "Forwarded issuer proxy pairing origin must use HTTPS outside of local hosts",
+          status: 403,
+          expose: true,
+        });
+      }
+
+      if (!localProxyAllowsPrivateForwarding && issuerOriginIsBlocked) {
         throw new AppError({
           code: "PROXY_PAIR_TICKET_ISSUER_BLOCKED",
           message: "Pairing ticket issuer origin is blocked",

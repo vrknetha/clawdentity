@@ -319,6 +319,88 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     expect(forwardFetch).not.toHaveBeenCalled();
   });
 
+  it("rejects HTTP issuer origin when proxy is non-local", async () => {
+    const forwardFetch = vi.fn(async () => {
+      throw new Error("forward fetch should not be called");
+    });
+
+    const { app } = createPairingApp({
+      fetchImpl: forwardFetch as unknown as typeof fetch,
+      nowMs: () => 1_700_000_000_000,
+    });
+
+    const created = createPairingTicket({
+      issuerProxyUrl: "http://issuer.proxy.example",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const response = await app.request(
+      "https://proxy.public.example/pair/confirm",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-agent-did": RESPONDER_AGENT_DID,
+        },
+        body: JSON.stringify({
+          ticket: created.ticket,
+        }),
+      },
+    );
+
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_PAIR_CONFIRM_ISSUER_INSECURE");
+    expect(forwardFetch).not.toHaveBeenCalled();
+  });
+
+  it("allows HTTP issuer origin when both proxy and issuer are local", async () => {
+    const forwardFetch = vi.fn(async (url: unknown) => {
+      expect(String(url)).toBe("http://127.0.0.1:8787/pair/confirm");
+
+      return Response.json(
+        {
+          paired: true,
+          initiatorAgentDid: INITIATOR_AGENT_DID,
+          responderAgentDid: RESPONDER_AGENT_DID,
+        },
+        { status: 201 },
+      );
+    });
+
+    const { app, trustStore } = createPairingApp({
+      fetchImpl: forwardFetch as unknown as typeof fetch,
+      nowMs: () => 1_700_000_000_000,
+    });
+
+    const created = createPairingTicket({
+      issuerProxyUrl: "http://127.0.0.1:8787",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const response = await app.request("http://localhost/pair/confirm", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": RESPONDER_AGENT_DID,
+      },
+      body: JSON.stringify({
+        ticket: created.ticket,
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(forwardFetch).toHaveBeenCalledTimes(1);
+    expect(
+      await trustStore.isPairAllowed({
+        initiatorAgentDid: INITIATOR_AGENT_DID,
+        responderAgentDid: RESPONDER_AGENT_DID,
+      }),
+    ).toBe(true);
+  });
+
   it("preserves original signed JSON body when forwarding to issuer proxy", async () => {
     let expectedBody = "";
     const forwardFetch = vi.fn(async (_url: unknown, init?: RequestInit) => {

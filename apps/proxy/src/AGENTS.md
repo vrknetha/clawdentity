@@ -41,6 +41,7 @@
 - Keep `/pair/start` ownership validation against registry `GET /v1/agents/:id/ownership` using `x-claw-owner-pat`, and map dependency failures to `503`.
 - Allow optional `PAIRING_ISSUER_URL` override for `/pair/start` ticket issuer origin so cross-proxy forwarding can work when inbound hostnames differ from proxy-to-proxy reachability hostnames.
 - Keep cross-proxy `/pair/confirm` forwarding SSRF-safe by default: reject localhost/private/reserved issuer origins when the current proxy origin is non-local.
+- Enforce that forwarded `/pair/confirm` issuer origins use HTTPS once the proxy origin is non-local, while continuing to allow HTTP when both the proxy and issuer are on local/dev hosts.
 - Preserve the original request JSON bytes when forwarding `/pair/confirm` so forwarded PoP/body-signature headers remain valid.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.

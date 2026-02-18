@@ -212,8 +212,12 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     }
   >();
 
-  function cleanup(nowMs: number): void {
+  function cleanup(nowMs: number, skipTicket?: string): void {
     for (const [ticket, details] of pairingTickets.entries()) {
+      if (skipTicket === ticket) {
+        continue;
+      }
+
       if (details.expiresAtMs <= nowMs) {
         pairingTickets.delete(ticket);
       }
@@ -230,6 +234,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     input: PairingTicketConfirmInput,
   ): PairingTicketConfirmResult {
     const nowMs = input.nowMs ?? Date.now();
+    cleanup(nowMs, input.ticket);
 
     let parsedTicket: ReturnType<typeof parsePairingTicket>;
     try {
