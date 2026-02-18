@@ -45,6 +45,13 @@
 - For unknown IDs, return `404 AGENT_NOT_FOUND` with no ownership-leak variants.
 - Keep framework output stable as a non-empty string for legacy rows missing `framework`.
 
+## Proxy Pairing Key Contracts
+- `POST /v1/proxy-pairing-keys` requires PAT auth (`createApiKeyAuth`) and stores issuer-scoped pairing signing keys for proxy ticket verification.
+- Validate payload strictly: `issuerOrigin` must be URL origin (`http`/`https`), `pkid` non-empty, `publicKeyX` non-empty, `expiresAt` valid future ISO timestamp.
+- Keep writes idempotent on (`issuer_origin`, `pkid`) and update key material/expiry when repeated registration arrives.
+- `GET /v1/proxy-pairing-keys/resolve` is public and returns only active (non-expired) key metadata needed for proxy ticket verification.
+- For unknown/expired keys, return `404 PROXY_PAIRING_KEY_NOT_FOUND`; do not leak extra owner data.
+
 ## Validation
 - Run `pnpm -F @clawdentity/registry run test` after changing routes or config loading.
 - Run `pnpm -F @clawdentity/registry run typecheck` before commit.

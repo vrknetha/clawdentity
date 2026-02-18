@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import dotenv from "dotenv";
-import JSON5 from "json5";
 import { z } from "zod";
 
 export type ProxyCrlStaleBehavior = "fail-open" | "fail-closed";
@@ -43,10 +42,8 @@ export class ProxyConfigError extends Error {
   }
 }
 
-const OPENCLAW_CONFIG_FILENAME = "openclaw.json";
 const CLAWDENTITY_CONFIG_DIR = ".clawdentity";
 const OPENCLAW_RELAY_CONFIG_FILENAME = "openclaw-relay.json";
-const LEGACY_STATE_DIR_NAMES = [".clawdbot", ".moldbot", ".moltbot"] as const;
 
 const envBooleanSchema = z.preprocess((value) => {
   if (typeof value === "string") {
@@ -81,8 +78,8 @@ const proxyRuntimeEnvSchema = z.object({
     .max(65535)
     .default(DEFAULT_PROXY_LISTEN_PORT),
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
-  OPENCLAW_HOOK_TOKEN: z.string().trim().min(1).optional(),
   REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
+  PAIRING_ISSUER_URL: z.string().trim().url().optional(),
   ENVIRONMENT: z
     .enum(proxyEnvironmentValues)
     .default(DEFAULT_PROXY_ENVIRONMENT),
@@ -117,8 +114,8 @@ const proxyRuntimeEnvSchema = z.object({
 export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
   openclawBaseUrl: z.string().url(),
-  openclawHookToken: z.string().min(1).optional(),
   registryUrl: z.string().url(),
+  pairingIssuerUrl: z.string().url().optional(),
   environment: z.enum(proxyEnvironmentValues),
   crlRefreshIntervalMs: z.number().int().positive(),
   crlMaxAgeMs: z.number().int().positive(),
@@ -134,9 +131,9 @@ type RuntimeEnvInput = {
   LISTEN_PORT?: unknown;
   PORT?: unknown;
   OPENCLAW_BASE_URL?: unknown;
-  OPENCLAW_HOOK_TOKEN?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
+  PAIRING_ISSUER_URL?: unknown;
   ENVIRONMENT?: unknown;
   ALLOW_ALL_VERIFIED?: unknown;
   CRL_REFRESH_INTERVAL_MS?: unknown;
@@ -146,7 +143,6 @@ type RuntimeEnvInput = {
   AGENT_RATE_LIMIT_WINDOW_MS?: unknown;
   INJECT_IDENTITY_INTO_MESSAGE?: unknown;
   OPENCLAW_STATE_DIR?: unknown;
-  OPENCLAW_CONFIG_PATH?: unknown;
   HOME?: unknown;
   USERPROFILE?: unknown;
 };
@@ -261,34 +257,7 @@ function resolveStateDir(
   }
 
   const canonicalStateDir = join(home, ".openclaw");
-  if (existsSync(canonicalStateDir)) {
-    return canonicalStateDir;
-  }
-
-  for (const legacyDirName of LEGACY_STATE_DIR_NAMES) {
-    const legacyStateDir = join(home, legacyDirName);
-    if (existsSync(legacyStateDir)) {
-      return legacyStateDir;
-    }
-  }
-
   return canonicalStateDir;
-}
-
-function resolveOpenClawConfigPath(
-  env: RuntimeEnvInput,
-  options: ProxyConfigLoadOptions,
-): string {
-  const cwd = options.cwd ?? resolveDefaultCwd();
-  const home = resolveHomeDir(env, options.homeDir);
-  const stateDir = resolveStateDir(env, options);
-  const configPathOverride = firstNonEmptyString(env, ["OPENCLAW_CONFIG_PATH"]);
-
-  if (configPathOverride !== undefined) {
-    return resolvePathWithHome(configPathOverride, cwd, home);
-  }
-
-  return join(stateDir, OPENCLAW_CONFIG_FILENAME);
 }
 
 function resolveOpenclawRelayConfigPath(
@@ -353,60 +322,6 @@ function loadEnvWithDotEnvFallback(
   }
 
   return mergedEnv;
-}
-
-function resolveHookTokenFromOpenClawConfig(
-  env: RuntimeEnvInput,
-  options: ProxyConfigLoadOptions,
-): string | undefined {
-  const configPath = resolveOpenClawConfigPath(env, options);
-  if (!existsSync(configPath)) {
-    return undefined;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON5.parse(readFileSync(configPath, "utf8"));
-  } catch (error) {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_CONFIG_PATH: [
-          `Unable to parse OpenClaw config at ${configPath}`,
-        ],
-      },
-      formErrors: [
-        error instanceof Error
-          ? error.message
-          : "Unknown OpenClaw config parse error",
-      ],
-    });
-  }
-
-  if (typeof parsed !== "object" || parsed === null) {
-    return undefined;
-  }
-
-  const hooksValue = (parsed as Record<string, unknown>).hooks;
-  if (typeof hooksValue !== "object" || hooksValue === null) {
-    return undefined;
-  }
-
-  const tokenValue = (hooksValue as Record<string, unknown>).token;
-  if (tokenValue === undefined || tokenValue === null) {
-    return undefined;
-  }
-
-  if (typeof tokenValue !== "string") {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_CONFIG_PATH: ["hooks.token must be a string when set"],
-      },
-      formErrors: [],
-    });
-  }
-
-  const trimmedToken = tokenValue.trim();
-  return trimmedToken.length > 0 ? trimmedToken : undefined;
 }
 
 function resolveBaseUrlFromRelayConfig(
@@ -496,11 +411,11 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
   return {
     LISTEN_PORT: firstNonEmpty(env, ["LISTEN_PORT", "PORT"]),
     OPENCLAW_BASE_URL: firstNonEmpty(env, ["OPENCLAW_BASE_URL"]),
-    OPENCLAW_HOOK_TOKEN: firstNonEmpty(env, ["OPENCLAW_HOOK_TOKEN"]),
     REGISTRY_URL: firstNonEmpty(env, [
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",
     ]),
+    PAIRING_ISSUER_URL: firstNonEmpty(env, ["PAIRING_ISSUER_URL"]),
     ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
     CRL_MAX_AGE_MS: firstNonEmpty(env, ["CRL_MAX_AGE_MS"]),
@@ -533,25 +448,6 @@ function assertNoDeprecatedAllowAllVerified(env: RuntimeEnvInput): void {
     },
     formErrors: [],
   });
-}
-
-function loadHookTokenFromFallback(
-  env: MutableEnv,
-  options: ProxyConfigLoadOptions,
-): void {
-  if (
-    firstNonEmpty(env as RuntimeEnvInput, ["OPENCLAW_HOOK_TOKEN"]) !== undefined
-  ) {
-    return;
-  }
-
-  const token = resolveHookTokenFromOpenClawConfig(
-    env as RuntimeEnvInput,
-    options,
-  );
-  if (token !== undefined) {
-    env.OPENCLAW_HOOK_TOKEN = token;
-  }
 }
 
 function loadOpenclawBaseUrlFromFallback(
@@ -587,10 +483,9 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     });
   }
 
-  const candidateConfig = {
+  const candidateConfig: Record<string, unknown> = {
     listenPort: parsedRuntimeEnv.data.LISTEN_PORT,
     openclawBaseUrl: parsedRuntimeEnv.data.OPENCLAW_BASE_URL,
-    openclawHookToken: parsedRuntimeEnv.data.OPENCLAW_HOOK_TOKEN,
     registryUrl: parsedRuntimeEnv.data.REGISTRY_URL,
     environment: parsedRuntimeEnv.data.ENVIRONMENT,
     crlRefreshIntervalMs: parsedRuntimeEnv.data.CRL_REFRESH_INTERVAL_MS,
@@ -602,6 +497,9 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     injectIdentityIntoMessage:
       parsedRuntimeEnv.data.INJECT_IDENTITY_INTO_MESSAGE,
   };
+  if (parsedRuntimeEnv.data.PAIRING_ISSUER_URL !== undefined) {
+    candidateConfig.pairingIssuerUrl = parsedRuntimeEnv.data.PAIRING_ISSUER_URL;
+  }
 
   const parsedConfig = proxyConfigSchema.safeParse(candidateConfig);
   if (parsedConfig.success) {
@@ -620,6 +518,5 @@ export function loadProxyConfig(
 ): ProxyConfig {
   const mergedEnv = loadEnvWithDotEnvFallback(env, options);
   loadOpenclawBaseUrlFromFallback(mergedEnv, options);
-  loadHookTokenFromFallback(mergedEnv, options);
   return parseProxyConfig(mergedEnv);
 }

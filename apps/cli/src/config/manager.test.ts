@@ -107,6 +107,25 @@ describe("config manager", () => {
     });
   });
 
+  it("applies CLAWDENTITY_REGISTRY when CLAWDENTITY_REGISTRY_URL is unset", async () => {
+    mockedReadFile.mockResolvedValueOnce('{"registryUrl":"http://file:8787"}');
+    process.env.CLAWDENTITY_REGISTRY = "http://legacy-env:8787";
+
+    await expect(resolveConfig()).resolves.toEqual({
+      registryUrl: "http://legacy-env:8787",
+    });
+  });
+
+  it("prefers CLAWDENTITY_REGISTRY_URL over CLAWDENTITY_REGISTRY", async () => {
+    mockedReadFile.mockResolvedValueOnce('{"registryUrl":"http://file:8787"}');
+    process.env.CLAWDENTITY_REGISTRY_URL = "http://primary-env:8787";
+    process.env.CLAWDENTITY_REGISTRY = "http://legacy-env:8787";
+
+    await expect(resolveConfig()).resolves.toEqual({
+      registryUrl: "http://primary-env:8787",
+    });
+  });
+
   it("prefers env apiKey over config file", async () => {
     mockedReadFile.mockResolvedValueOnce('{"apiKey":"from-file"}');
     process.env.CLAWDENTITY_API_KEY = "from-env";

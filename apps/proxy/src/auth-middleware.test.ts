@@ -313,7 +313,7 @@ describe("proxy auth middleware", () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
     });
-    const requestBody = JSON.stringify({ pairingCode: "missing-code" });
+    const requestBody = JSON.stringify({ ticket: "clwpair1_missing-ticket" });
     const headers = await harness.createSignedHeaders({
       body: requestBody,
       nonce: "nonce-pair-confirm-bootstrap",
@@ -326,9 +326,52 @@ describe("proxy auth middleware", () => {
       body: requestBody,
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PROXY_PAIR_CODE_NOT_FOUND");
+    expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
+  });
+
+  it("allows forwarded /pair/confirm without Authorization when responder DID query is present", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+    });
+
+    const response = await harness.app.request(
+      `${PAIR_CONFIRM_PATH}?responderAgentDid=${encodeURIComponent(KNOWN_PEER_DID)}`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          ticket: "clwpair1_missing-ticket",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
+  });
+
+  it("rejects /pair/confirm without Authorization when responder DID query is missing", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+    });
+
+    const response = await harness.app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        ticket: "clwpair1_missing-ticket",
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_MISSING_TOKEN");
   });
 
   it("refreshes keyset and accepts valid AIT after registry key rotation", async () => {
@@ -425,9 +468,7 @@ describe("proxy auth middleware", () => {
     });
 
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
-      }),
+      config: parseProxyConfig({}),
       trustStore,
       auth: {
         fetchImpl: fetchMock as typeof fetch,
@@ -554,9 +595,7 @@ describe("proxy auth middleware", () => {
     });
 
     const app = createProxyApp({
-      config: parseProxyConfig({
-        OPENCLAW_HOOK_TOKEN: "openclaw-hook-token",
-      }),
+      config: parseProxyConfig({}),
       trustStore,
       auth: {
         fetchImpl: fetchMock as typeof fetch,

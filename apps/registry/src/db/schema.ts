@@ -175,3 +175,25 @@ export const invites = sqliteTable("invites", {
   expires_at: text("expires_at"),
   created_at: text("created_at").notNull(),
 });
+
+export const proxy_pairing_keys = sqliteTable(
+  "proxy_pairing_keys",
+  {
+    id: text("id").primaryKey(),
+    issuer_origin: text("issuer_origin").notNull(),
+    pkid: text("pkid").notNull(),
+    public_key_x: text("public_key_x").notNull(),
+    created_by: text("created_by")
+      .notNull()
+      .references(() => humans.id),
+    expires_at: text("expires_at").notNull(),
+    created_at: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_proxy_pairing_keys_issuer_pkid").on(
+      table.issuer_origin,
+      table.pkid,
+    ),
+    index("idx_proxy_pairing_keys_expires_at").on(table.expires_at),
+  ],
+);

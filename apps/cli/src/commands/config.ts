@@ -55,6 +55,21 @@ const getValidatedKey = (key: string): CliConfigKey | undefined => {
   return undefined;
 };
 
+interface ConfigInitOptions {
+  registryUrl?: string;
+}
+
+const getEnvRegistryUrlOverride = (): string | undefined => {
+  const envCandidates = [
+    process.env.CLAWDENTITY_REGISTRY_URL,
+    process.env.CLAWDENTITY_REGISTRY,
+  ];
+
+  return envCandidates.find((value): value is string => {
+    return typeof value === "string" && value.length > 0;
+  });
+};
+
 export const createConfigCommand = (): Command => {
   const configCommand = new Command("config").description(
     "Manage local CLI configuration",
@@ -63,8 +78,9 @@ export const createConfigCommand = (): Command => {
   configCommand
     .command("init")
     .description("Initialize local config file")
+    .option("--registry-url <url>", "Initialize config with registry URL")
     .action(
-      withErrorHandling("config init", async () => {
+      withErrorHandling("config init", async (options: ConfigInitOptions) => {
         const configFilePath = getConfigFilePath();
 
         try {
@@ -78,10 +94,20 @@ export const createConfigCommand = (): Command => {
         }
 
         const config = await readConfig();
-        await writeConfig(config);
+        const registryUrl =
+          options.registryUrl ??
+          getEnvRegistryUrlOverride() ??
+          config.registryUrl;
+
+        await writeConfig({
+          ...config,
+          registryUrl,
+        });
 
         writeStdoutLine(`Initialized config at ${configFilePath}`);
-        writeStdoutLine(JSON.stringify(maskApiKey(config), null, 2));
+        writeStdoutLine(
+          JSON.stringify(maskApiKey({ ...config, registryUrl }), null, 2),
+        );
       }),
     );
 

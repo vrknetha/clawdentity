@@ -19,10 +19,13 @@
 - Prefer `@clawdentity/sdk` helpers (`decodeAIT`) when surfacing agent metadata instead of parsing JWTs manually.
 - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
 - Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
+- Keep publish artifacts ESM-compatible and avoid bundling CJS-only runtime deps that rely on dynamic `require` (for example `ws`); externalize them and declare them in CLI `dependencies` so installed binaries start cleanly.
 - npm `--skill` installer behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
-- Keep `skill-bundle/openclaw-skill/` in sync with `apps/openclaw-skill` via `pnpm -F clawdentity run sync:skill-bundle` before build/pack so `postinstall --skill` works in clean installs.
-- Keep `skill-bundle/openclaw-skill/dist/relay-to-peer.mjs` tracked in git so clean-checkout tests and packaged installs have the required relay artifact before workspace builds run.
-- When running the CLI test suite (`pnpm -F clawdentity test`), build `@clawdentity/openclaw-skill` and resync the skill bundle first so `relay-to-peer.mjs` exists on clean checkout and tests pass with deterministic artifacts.
+- Keep `skill-bundle/openclaw-skill/` generated from `apps/openclaw-skill` only; do not hand-edit bundled files.
+- Keep generated bundle policy strict: `sync-skill-bundle` must copy from `apps/openclaw-skill/dist/relay-to-peer.mjs` and fail if source build artifacts are missing.
+- Keep generated bundle files out of git; rely on `build`/`prepack` to rebuild `skill-bundle` before `npm pack`/`npm publish`.
+- Keep `verify:skill-bundle` aligned with required install artifacts so CI validates tarball readiness before publish.
+- Keep CLI tests independent from repo-committed bundle artifacts by using sandbox skill roots or explicit `CLAWDENTITY_SKILL_PACKAGE_ROOT` overrides.
 - Keep runtime dependencies publish-safe: avoid `workspace:*` entries in published runtime deps (`dependencies`, `peerDependencies`, `optionalDependencies`), and bundle internal packages into CLI dist.
 - Keep release automation in `.github/workflows/publish-cli.yml` manual-only with explicit semver input and npm provenance.
 

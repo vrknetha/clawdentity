@@ -47,7 +47,7 @@ function createSkillSandbox(): SkillSandbox {
   );
   writeFileSync(
     join(skillPackageRoot, "dist", "relay-to-peer.mjs"),
-    "export default async function relayToPeer(){ return null; }\n",
+    "// relay-to-peer transform\nexport default async function relayToPeer(){ return null; }\n",
     "utf8",
   );
 
@@ -132,7 +132,7 @@ describe("installOpenclawSkillArtifacts", () => {
 
       expect(readFileSync(skillPath, "utf8")).toContain("Clawdentity");
       expect(readFileSync(workspaceRelayPath, "utf8")).toContain("relayToPeer");
-      expect(readFileSync(hooksRelayPath, "utf8")).toContain("relayToPeer");
+      expect(readFileSync(hooksRelayPath, "utf8")).toContain("relay-to-peer");
       expect(readFileSync(referencePath, "utf8")).toContain("Protocol");
 
       const secondRun = await installOpenclawSkillArtifacts({
@@ -212,17 +212,19 @@ describe("runNpmSkillInstall", () => {
     expect(result.skipped).toBe(true);
   });
 
-  it("installs bundled skill artifacts when --skill is set", async () => {
-    const root = mkdtempSync(join(tmpdir(), "clawdentity-skill-bundle-"));
-    const openclawDir = join(root, ".openclaw");
+  it("installs skill artifacts when --skill is set", async () => {
+    const sandbox = createSkillSandbox();
     const stdout: string[] = [];
     const stderr: string[] = [];
 
     try {
       const result = await runNpmSkillInstall({
-        env: { npm_config_skill: "true" },
-        homeDir: root,
-        openclawDir,
+        env: {
+          npm_config_skill: "true",
+          CLAWDENTITY_SKILL_PACKAGE_ROOT: sandbox.skillPackageRoot,
+        },
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
         writeStdout: (line) => stdout.push(line),
         writeStderr: (line) => stderr.push(line),
       });
@@ -234,23 +236,23 @@ describe("runNpmSkillInstall", () => {
       );
 
       const skillPath = join(
-        openclawDir,
+        sandbox.openclawDir,
         "workspace",
         "skills",
         "clawdentity-openclaw-relay",
         "SKILL.md",
       );
       const hooksRelayPath = join(
-        openclawDir,
+        sandbox.openclawDir,
         "hooks",
         "transforms",
         "relay-to-peer.mjs",
       );
 
       expect(readFileSync(skillPath, "utf8")).toContain("OpenClaw Relay");
-      expect(readFileSync(hooksRelayPath, "utf8")).toContain("relay-to-peer");
+      expect(readFileSync(hooksRelayPath, "utf8")).toContain("relayToPeer");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      sandbox.cleanup();
     }
   });
 });

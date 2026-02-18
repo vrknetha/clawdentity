@@ -74,6 +74,9 @@ jobs:
       - name: Build CLI package
         run: pnpm -F clawdentity build
 
+      - name: Verify generated skill bundle
+        run: pnpm -F clawdentity verify:skill-bundle
+
       - name: Set package version for release
         run: npm --prefix apps/cli pkg set version=${{ inputs.version }}
 
@@ -107,7 +110,12 @@ jobs:
           NODE
 
       - name: Dry-run package contents
-        run: npm --prefix apps/cli pack --dry-run
+        run: |
+          PACK_OUTPUT="$(npm --prefix apps/cli pack --dry-run)"
+          printf "%s\n" "$PACK_OUTPUT"
+          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/SKILL.md"
+          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/references/clawdentity-protocol.md"
+          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/dist/relay-to-peer.mjs"
 
       - name: Publish package
         run: npm --prefix apps/cli publish --access public --provenance --tag ${{ inputs.dist_tag }}

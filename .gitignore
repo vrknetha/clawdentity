@@ -1,7 +1,6 @@
 node_modules/
 dist/
-!apps/cli/skill-bundle/openclaw-skill/dist/
-!apps/cli/skill-bundle/openclaw-skill/dist/relay-to-peer.mjs
+apps/cli/skill-bundle/openclaw-skill/
 .nx/
 nx
 nx.bat

@@ -12,12 +12,9 @@ describe("proxy", () => {
   });
 
   it("initializes runtime with validated config", () => {
-    const runtime = initializeProxyRuntime({
-      OPENCLAW_HOOK_TOKEN: "hook-token",
-    });
+    const runtime = initializeProxyRuntime({});
 
     expect(runtime.version).toBe(PROXY_VERSION);
-    expect(runtime.config.openclawHookToken).toBe("hook-token");
     expect(runtime.config.listenPort).toBe(4000);
   });
 
@@ -31,7 +28,7 @@ describe("proxy", () => {
     const runtime = initializeProxyRuntime({});
 
     expect(runtime.version).toBe(PROXY_VERSION);
-    expect(runtime.config.openclawHookToken).toBeUndefined();
+    expect(runtime.config.openclawBaseUrl).toBe("http://127.0.0.1:18789");
   });
 
   it("prefers APP_VERSION for runtime version", () => {

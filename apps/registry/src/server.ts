@@ -8,6 +8,8 @@ import {
   INVITES_REDEEM_PATH,
   ME_API_KEYS_PATH,
   makeHumanDid,
+  PROXY_PAIRING_KEYS_PATH,
+  PROXY_PAIRING_KEYS_RESOLVE_PATH,
 } from "@clawdentity/protocol";
 import {
   AppError,
@@ -22,7 +24,7 @@ import {
   signAIT,
   signCRL,
 } from "@clawdentity/sdk";
-import { and, desc, eq, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { parseAdminBootstrapPayload } from "./admin-bootstrap.js";
 import {
@@ -85,6 +87,7 @@ import {
   api_keys,
   humans,
   invites,
+  proxy_pairing_keys,
   revocations,
 } from "./db/schema.js";
 import {
@@ -494,6 +497,121 @@ function parseAgentAccessHeaderToken(token: string | undefined): string {
       expose: true,
     });
   }
+}
+
+function parseIssuerOrigin(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value.trim());
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return parsed.origin;
+}
+
+function parseProxyPairingKeyRegisterPayload(payload: unknown): {
+  issuerOrigin: string;
+  pkid: string;
+  publicKeyX: string;
+  expiresAt: string;
+} {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const value = payload as Record<string, unknown>;
+  const pkid = typeof value.pkid === "string" ? value.pkid.trim() : "";
+  const publicKeyX =
+    typeof value.publicKeyX === "string" ? value.publicKeyX.trim() : "";
+  const expiresAt =
+    typeof value.expiresAt === "string" ? value.expiresAt.trim() : "";
+  const issuerOrigin = parseIssuerOrigin(value.issuerOrigin);
+
+  if (pkid.length === 0 || publicKeyX.length === 0 || expiresAt.length === 0) {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const expiresAtMillis = Date.parse(expiresAt);
+  if (!Number.isFinite(expiresAtMillis)) {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (expiresAtMillis <= Date.now()) {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return {
+    issuerOrigin,
+    pkid,
+    publicKeyX,
+    expiresAt: new Date(expiresAtMillis).toISOString(),
+  };
+}
+
+function parseProxyPairingKeyResolveQuery(requestUrl: string): {
+  issuerOrigin: string;
+  pkid: string;
+} {
+  const url = new URL(requestUrl);
+  const issuerOrigin = parseIssuerOrigin(url.searchParams.get("issuerOrigin"));
+  const pkid = url.searchParams.get("pkid")?.trim() ?? "";
+  if (pkid.length === 0) {
+    throw new AppError({
+      code: "PROXY_PAIRING_KEY_INVALID",
+      message: "Pairing key query is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return {
+    issuerOrigin,
+    pkid,
+  };
 }
 
 async function insertAgentAuthEvent(input: {
@@ -920,6 +1038,94 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     }
 
     return c.json(mapResolvedAgentRow(row));
+  });
+
+  app.post(PROXY_PAIRING_KEYS_PATH, createApiKeyAuth(), async (c) => {
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      throw new AppError({
+        code: "PROXY_PAIRING_KEY_INVALID",
+        message: "Pairing key payload is invalid",
+        status: 400,
+        expose: true,
+      });
+    }
+
+    const parsed = parseProxyPairingKeyRegisterPayload(payload);
+    const human = c.get("human");
+    const db = createDb(c.env.DB);
+    const createdAt = nowIso();
+
+    await db
+      .insert(proxy_pairing_keys)
+      .values({
+        id: generateUlid(Date.now()),
+        issuer_origin: parsed.issuerOrigin,
+        pkid: parsed.pkid,
+        public_key_x: parsed.publicKeyX,
+        created_by: human.id,
+        expires_at: parsed.expiresAt,
+        created_at: createdAt,
+      })
+      .onConflictDoUpdate({
+        target: [proxy_pairing_keys.issuer_origin, proxy_pairing_keys.pkid],
+        set: {
+          public_key_x: parsed.publicKeyX,
+          created_by: human.id,
+          expires_at: parsed.expiresAt,
+          created_at: createdAt,
+        },
+      });
+
+    return c.json(
+      {
+        key: {
+          issuerOrigin: parsed.issuerOrigin,
+          pkid: parsed.pkid,
+          expiresAt: parsed.expiresAt,
+        },
+      },
+      201,
+    );
+  });
+
+  app.get(PROXY_PAIRING_KEYS_RESOLVE_PATH, async (c) => {
+    const query = parseProxyPairingKeyResolveQuery(c.req.url);
+    const db = createDb(c.env.DB);
+    const now = nowIso();
+
+    const rows = await db
+      .select({
+        issuerOrigin: proxy_pairing_keys.issuer_origin,
+        pkid: proxy_pairing_keys.pkid,
+        publicKeyX: proxy_pairing_keys.public_key_x,
+        expiresAt: proxy_pairing_keys.expires_at,
+      })
+      .from(proxy_pairing_keys)
+      .where(
+        and(
+          eq(proxy_pairing_keys.issuer_origin, query.issuerOrigin),
+          eq(proxy_pairing_keys.pkid, query.pkid),
+          gt(proxy_pairing_keys.expires_at, now),
+        ),
+      )
+      .limit(1);
+
+    const row = rows[0];
+    if (!row) {
+      throw new AppError({
+        code: "PROXY_PAIRING_KEY_NOT_FOUND",
+        message: "Pairing key is not available",
+        status: 404,
+        expose: true,
+      });
+    }
+
+    return c.json({
+      key: row,
+    });
   });
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {

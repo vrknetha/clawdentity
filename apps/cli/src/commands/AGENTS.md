@@ -11,6 +11,11 @@
 - For new command-domain errors, use SDK `AppError` with stable `code` values.
 - Normalize Commander option keys at the command boundary when helper/runtime option names differ (for example `--peer` -> `peerAlias`) so flags are never silently ignored.
 
+## Config Command Rules
+- `config init` must support first-run registry override from both `--registry-url` and environment variables.
+- Precedence for initial registry URL is: CLI flag, then `CLAWDENTITY_REGISTRY_URL`, then `CLAWDENTITY_REGISTRY`, then default production URL.
+- `config init` must stay non-destructive: if config file already exists, do not overwrite.
+
 ## Verification Command Rules
 - `verify` must preserve the `✅`/`❌` output contract with explicit reasons.
 - Token argument can be either a raw token or file path; missing file paths should fall back to raw token mode.
@@ -24,6 +29,9 @@
 - `openclaw setup --openclaw-base-url` should only be needed when OpenClaw is not reachable on the default `http://127.0.0.1:18789`.
 - `openclaw setup` must set `hooks.allowRequestSessionKey=false` by default and retain `hooks.allowedSessionKeyPrefixes` enforcement for safer `/hooks/agent` session routing.
 - Keep thrown command errors static (no interpolated runtime values); include variable context in error details/log fields. Diagnostic check output (`openclaw doctor`, `openclaw relay test`) may include concrete paths/aliases so operators can remediate quickly.
+- Keep invite-type distinction explicit in output/docs:
+  - `clw_inv_...` = registry onboarding invite (`invite redeem`)
+  - `clawd1_...` = OpenClaw peer relay invite (`openclaw setup`)
 
 ## Connector Command Rules
 - `connector start <agentName>` is the runtime entrypoint for local relay handoff and must remain long-running when connector runtime provides a wait/closed primitive.
@@ -83,3 +91,14 @@
 - Relay probe must target local OpenClaw `POST /hooks/send-to-peer` with deterministic payload fields (`peer`, `sessionId`, `message`).
 - Relay test output must summarize endpoint, HTTP status, and remediation guidance when delivery fails.
 - `openclaw relay test --json` must emit a stable result envelope and include preflight details when preflight failed.
+
+## Pair Command Rules
+- `pair start <agentName>` must call proxy `/pair/start` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
+- `pair start` must send owner PAT via `x-claw-owner-pat`, defaulting to configured API key unless explicitly overridden by `--owner-pat`.
+- `pair start --qr` must generate a one-time local PNG QR containing the returned ticket and print the filesystem path.
+- `pair start --qr` must sweep expired QR artifacts in `~/.clawdentity/pairing` before writing a new file.
+- `pair confirm <agentName>` must call proxy `/pair/confirm` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
+- `pair confirm` must accept either `--qr-file <path>` (primary) or `--ticket <clwpair1_...>` (fallback), never both.
+- `pair confirm --qr-file` must delete the consumed QR file after successful confirm (best effort, non-fatal on cleanup failure).
+- `pair` commands must accept proxy URL via `--proxy-url` and fallback to env `CLAWDENTITY_PROXY_URL` when the flag is absent.
+- `pair` commands must fail with deterministic operator messages for invalid ticket/QR input, missing local agent proof material, and proxy auth/state errors.

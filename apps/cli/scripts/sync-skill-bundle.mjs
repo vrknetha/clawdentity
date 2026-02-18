@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,26 +21,9 @@ async function assertReadable(path, label) {
   }
 }
 
-async function tryRead(path) {
-  try {
-    return await readFile(path);
-  } catch {
-    return undefined;
-  }
-}
-
 async function main() {
   await assertReadable(sourceSkillDirectory, "skill directory");
-
-  const sourceRelayContent = await tryRead(sourceRelayModule);
-  const bundledRelayContent = await tryRead(targetRelayModule);
-  const relayModuleContent = sourceRelayContent ?? bundledRelayContent;
-
-  if (relayModuleContent === undefined) {
-    throw new Error(
-      `[sync-skill-bundle] Missing required relay module at ${sourceRelayModule}. Build @clawdentity/openclaw-skill first.`,
-    );
-  }
+  await assertReadable(sourceRelayModule, "relay module");
 
   await rm(targetSkillRoot, { recursive: true, force: true });
   await mkdir(join(targetSkillRoot, "dist"), { recursive: true });
@@ -48,16 +31,11 @@ async function main() {
   await cp(sourceSkillDirectory, join(targetSkillRoot, "skill"), {
     recursive: true,
   });
-  await writeFile(targetRelayModule, relayModuleContent);
+  await copyFile(sourceRelayModule, targetRelayModule);
 
   process.stdout.write(
     `[sync-skill-bundle] Bundled skill assets into ${targetSkillRoot}\n`,
   );
-  if (sourceRelayContent === undefined) {
-    process.stdout.write(
-      "[sync-skill-bundle] Source relay build missing; reused existing bundled relay artifact.\n",
-    );
-  }
 }
 
 main().catch((error) => {

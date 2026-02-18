@@ -1,6 +1,28 @@
+import { decodeBase64url, encodeBase64url } from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
+import {
+  createPairingTicket,
+  createPairingTicketSigningKey,
+} from "./pairing-ticket.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
 import { TRUST_STORE_ROUTES } from "./proxy-trust-store.js";
+
+function tamperTicketNonce(ticket: string): string {
+  const prefix = "clwpair1_";
+  if (!ticket.startsWith(prefix)) {
+    throw new Error("invalid test ticket format");
+  }
+  const encodedPayload = ticket.slice(prefix.length);
+
+  const payload = JSON.parse(
+    new TextDecoder().decode(decodeBase64url(encodedPayload)),
+  ) as {
+    nonce?: string;
+  };
+  payload.nonce = "tampered-nonce";
+
+  return `${prefix}${encodeBase64url(new TextEncoder().encode(JSON.stringify(payload)))}`;
+}
 
 function createStorageHarness(initial: Record<string, unknown> = {}) {
   const values = new Map<string, unknown>(Object.entries(initial));
@@ -42,6 +64,25 @@ function makeRequest(path: string, body: unknown): Request {
   });
 }
 
+async function createSignedTicket(input: {
+  issuerProxyUrl: string;
+  nowMs: number;
+  expiresAtMs: number;
+}) {
+  const signingKey = await createPairingTicketSigningKey({
+    nowMs: input.nowMs,
+  });
+  return createPairingTicket({
+    issuerProxyUrl: input.issuerProxyUrl,
+    expiresAtMs: input.expiresAtMs,
+    nowMs: input.nowMs,
+    signingKey: {
+      pkid: signingKey.pkid,
+      privateKey: signingKey.privateKey,
+    },
+  });
+}
+
 describe("ProxyTrustState", () => {
   it("persists and answers known-agent checks via agent peer index", async () => {
     const { proxyTrustState, harness } = createProxyTrustState();
@@ -68,40 +109,28 @@ describe("ProxyTrustState", () => {
     expect(harness.values.has("trust:agent-peers")).toBe(true);
   });
 
-  it("does not treat pairs as known agents without agent-peer index", async () => {
-    const { proxyTrustState, harness } = createProxyTrustState({
-      "trust:pairs": ["did:claw:agent:alice|did:claw:agent:bob"],
-    });
-
-    const knownResponse = await proxyTrustState.fetch(
-      makeRequest(TRUST_STORE_ROUTES.isAgentKnown, {
-        agentDid: "did:claw:agent:alice",
-      }),
-    );
-
-    expect(knownResponse.status).toBe(200);
-    expect((await knownResponse.json()) as { known: boolean }).toEqual({
-      known: false,
-    });
-
-    expect(harness.values.get("trust:agent-peers")).toBeUndefined();
-  });
-
-  it("confirms pairing code in one operation and persists trust", async () => {
+  it("confirms pairing ticket in one operation and persists trust", async () => {
     const { proxyTrustState } = createProxyTrustState();
-    const codeResponse = await proxyTrustState.fetch(
-      makeRequest(TRUST_STORE_ROUTES.createPairingCode, {
+    const createdTicket = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
+
+    const ticketResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
         initiatorAgentDid: "did:claw:agent:alice",
-        responderAgentDid: "did:claw:agent:bob",
-        ttlSeconds: 60,
+        issuerProxyUrl: "https://proxy-a.example.com",
+        ticket: createdTicket.ticket,
+        expiresAtMs: 1_700_000_060_000,
         nowMs: 1_700_000_000_000,
       }),
     );
-    const codeBody = (await codeResponse.json()) as { pairingCode: string };
+    const ticketBody = (await ticketResponse.json()) as { ticket: string };
 
     const confirmResponse = await proxyTrustState.fetch(
-      makeRequest(TRUST_STORE_ROUTES.confirmPairingCode, {
-        pairingCode: codeBody.pairingCode,
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
+        ticket: ticketBody.ticket,
         responderAgentDid: "did:claw:agent:bob",
         nowMs: 1_700_000_000_100,
       }),
@@ -109,10 +138,15 @@ describe("ProxyTrustState", () => {
 
     expect(confirmResponse.status).toBe(200);
     expect(
-      (await confirmResponse.json()) as { initiatorAgentDid: string },
+      (await confirmResponse.json()) as {
+        initiatorAgentDid: string;
+        responderAgentDid: string;
+        issuerProxyUrl: string;
+      },
     ).toEqual({
       initiatorAgentDid: "did:claw:agent:alice",
       responderAgentDid: "did:claw:agent:bob",
+      issuerProxyUrl: "https://proxy-a.example.com",
     });
 
     const pairCheckResponse = await proxyTrustState.fetch(
@@ -123,6 +157,44 @@ describe("ProxyTrustState", () => {
     );
     expect((await pairCheckResponse.json()) as { allowed: boolean }).toEqual({
       allowed: true,
+    });
+  });
+
+  it("rejects tampered ticket text when kid matches stored entry", async () => {
+    const { proxyTrustState } = createProxyTrustState();
+    const createdTicket = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
+
+    const ticketResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
+        initiatorAgentDid: "did:claw:agent:alice",
+        issuerProxyUrl: "https://proxy-a.example.com",
+        ticket: createdTicket.ticket,
+        expiresAtMs: 1_700_000_060_000,
+        nowMs: 1_700_000_000_000,
+      }),
+    );
+    const ticketBody = (await ticketResponse.json()) as { ticket: string };
+
+    const confirmResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
+        ticket: tamperTicketNonce(ticketBody.ticket),
+        responderAgentDid: "did:claw:agent:bob",
+        nowMs: 1_700_000_000_100,
+      }),
+    );
+
+    expect(confirmResponse.status).toBe(404);
+    expect(
+      (await confirmResponse.json()) as { error: { code: string } },
+    ).toEqual({
+      error: {
+        code: "PROXY_PAIR_TICKET_NOT_FOUND",
+        message: "Pairing ticket not found",
+      },
     });
   });
 });

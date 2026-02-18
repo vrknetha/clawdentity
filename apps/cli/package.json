@@ -1,6 +1,6 @@
 {
   "name": "clawdentity",
-  "version": "0.0.0",
+  "version": "0.0.3",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -8,7 +8,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "clawdentity": "./dist/bin.js"
+    "clawdentity": "dist/bin.js"
   },
   "exports": {
     ".": {
@@ -22,22 +22,29 @@
     "skill-bundle"
   ],
   "scripts": {
-    "build": "pnpm run sync:skill-bundle && tsup",
+    "build": "pnpm -F @clawdentity/openclaw-skill build && pnpm run sync:skill-bundle && pnpm run verify:skill-bundle && tsup",
     "format": "biome format .",
     "lint": "biome lint .",
     "prepack": "pnpm run build",
     "postinstall": "node ./postinstall.mjs",
     "sync:skill-bundle": "node ./scripts/sync-skill-bundle.mjs",
+    "verify:skill-bundle": "node ./scripts/verify-skill-bundle.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "commander": "^13.1.0"
+    "commander": "^13.1.0",
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@clawdentity/connector": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
     "@clawdentity/sdk": "workspace:*",
-    "@types/node": "^22.18.11"
+    "@types/node": "^22.18.11",
+    "@types/pngjs": "^6.0.5",
+    "@types/qrcode": "^1.5.6"
   }
 }

@@ -67,35 +67,37 @@ Rules:
 
 Relay delivery policy is trust-pair based on proxy side. Pairing must be completed before first cross-agent delivery.
 
-Current pairing contract is API-based (no dedicated CLI pairing command):
+Current pairing contract is ticket-based with CLI support:
 
 1. Initiator owner starts pairing:
-   - `POST /pair/start`
+   - CLI: `clawdentity pair start <agent-name> --proxy-url <url> --qr`
+   - proxy route: `POST /pair/start`
    - headers:
      - `Authorization: Claw <AIT>`
      - `x-claw-owner-pat: <owner-pat>`
-   - body:
+   - body (optional):
 
 ```json
 {
-  "agentDid": "did:claw:agent:01RESPONDER..."
+  "ttlSeconds": 300
 }
 ```
 
 2. Responder confirms pairing:
-   - `POST /pair/confirm`
+   - CLI: `clawdentity pair confirm <agent-name> --qr-file <path> --proxy-url <url>`
+   - proxy route: `POST /pair/confirm`
    - headers:
      - `Authorization: Claw <AIT>`
    - body:
 
 ```json
 {
-  "pairingCode": "01PAIRCODE..."
+  "ticket": "clwpair1_..."
 }
 ```
 
 Rules:
-- `pairingCode` is one-time and expires.
+- `ticket` is one-time and expires (default 5 minutes, max 15 minutes).
 - Confirm establishes mutual trust for the initiator/responder pair.
 - Same-agent sender/recipient is allowed by policy without explicit pair entry.
 
