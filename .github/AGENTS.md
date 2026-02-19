@@ -50,7 +50,7 @@
   - `REGISTRY_INTERNAL_SERVICE_ID`
   - `REGISTRY_INTERNAL_SERVICE_SECRET`
 - Mirror to `CF_API_TOKEN` and `CF_ACCOUNT_ID` for tooling compatibility.
-- Optional deploy secret: `PROXY_HEALTH_URL` (only needed if proxy workers.dev URL cannot be resolved in CI output).
+- Optional deploy secret: `PROXY_HEALTH_URL` (only needed when dev proxy health endpoint is not `https://dev.proxy.clawdentity.com`; CI now falls back to that URL if workers.dev output is unavailable).
 - Required publish secret: `NPM_TOKEN`.
 - Keep Cloudflare token scope minimal for current workflows:
   - `Workers Scripts:Edit`

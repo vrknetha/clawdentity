@@ -176,11 +176,8 @@ jobs:
             PROXY_HEALTH_URL="${PROXY_WORKERS_DEV_URL}/health"
           elif [ -n "${PROXY_HEALTH_URL_OVERRIDE}" ]; then
             PROXY_HEALTH_URL="${PROXY_HEALTH_URL_OVERRIDE%/}/health"
-          fi
-
-          if [ -z "${PROXY_HEALTH_URL}" ]; then
-            echo "Unable to resolve proxy health URL. Set optional PROXY_HEALTH_URL secret if workers.dev URL is unavailable." >&2
-            exit 1
+          else
+            PROXY_HEALTH_URL="https://dev.proxy.clawdentity.com/health"
           fi
 
           echo "PROXY_HEALTH_URL=${PROXY_HEALTH_URL}" >> "${GITHUB_ENV}"
