@@ -24,7 +24,7 @@
 - Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so deploy/runtime failures are visible without ad-hoc debugging.
-- Keep `worker-configuration.d.ts` committed and regenerate with `wrangler types --env dev` after `wrangler.jsonc` or binding changes.
+- Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/registry run types:dev`) after `wrangler.jsonc` or binding changes.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `PROXY_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 - Use memory event bus in `development` while no downstream consumers exist (`EVENT_BUS_BACKEND=memory`).
 - Keep production queue-backed (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`) until rollout policy changes.

@@ -10,7 +10,7 @@
 - Duplicate Durable Object `bindings` and `migrations` inside each Wrangler env block; env sections do not inherit top-level DO config.
 - Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so relay/auth failures are visible in Cloudflare logs.
-- Keep `worker-configuration.d.ts` committed and regenerate with `wrangler types --env dev` after `wrangler.jsonc` or binding changes.
+- Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/proxy run types:dev`) after `wrangler.jsonc` or binding changes.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
