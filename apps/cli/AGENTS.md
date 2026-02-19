@@ -8,6 +8,7 @@
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
 - Keep `src/postinstall.ts` as a no-op compatibility shim; skill installation is command-driven via `clawdentity skill install`.
+- Keep `postinstall.mjs` fail-safe for source checkouts and CI: if `dist/postinstall.js` is absent, it must no-op and never fail `pnpm install`.
 - Keep package identity clear: workspace package name is `clawdentity`.
 - Keep runtime version parity: source `CLI_VERSION` from the package metadata (`package.json`) at runtime, never from a hardcoded literal in `src/index.ts`.
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
