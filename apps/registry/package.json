@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsup",
+    "types:dev": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev",
     "format": "biome format .",
     "lint": "biome lint .",
     "dev": "wrangler dev --env dev --port 8788",

@@ -53,8 +53,8 @@ jobs:
 
       - name: Verify Worker type bindings are up to date
         run: |
-          pnpm exec wrangler --cwd apps/registry types --env dev
-          pnpm exec wrangler --cwd apps/proxy types --env dev
+          pnpm -F @clawdentity/registry run types:dev
+          pnpm -F @clawdentity/proxy run types:dev
           git diff --exit-code -- apps/registry/worker-configuration.d.ts apps/proxy/worker-configuration.d.ts
 
       - name: Lint

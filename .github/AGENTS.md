@@ -22,7 +22,7 @@
   - registry (`apps/registry`, env `dev`) with D1 migration apply before deploy
   - proxy (`apps/proxy`, env `dev`) after registry health passes
 - Install dependencies before any `pnpm exec wrangler ...` command so Wrangler is available on clean runners.
-- Regenerate Worker type bindings in CI (`wrangler types --env dev`) and fail on git diff drift for `worker-configuration.d.ts` to prevent stale runtime binding types from shipping.
+- Regenerate Worker type bindings in CI with dotenv overlays disabled (`pnpm -F @clawdentity/registry run types:dev` and `pnpm -F @clawdentity/proxy run types:dev`) and fail on git diff drift for `worker-configuration.d.ts` to prevent stale runtime binding types from shipping.
 - Sync proxy internal-service credentials from GitHub secrets on every deploy:
   - `REGISTRY_INTERNAL_SERVICE_ID`
   - `REGISTRY_INTERNAL_SERVICE_SECRET`
