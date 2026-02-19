@@ -108,6 +108,7 @@
 - Relay probe must target local OpenClaw `POST /hooks/send-to-peer` with deterministic payload fields (`peer`, `sessionId`, `message`).
 - Relay test output must summarize endpoint, HTTP status, and remediation guidance when delivery fails.
 - `openclaw relay test --json` must emit a stable result envelope and include preflight details when preflight failed.
+- `openclaw relay ws-test --peer <alias>` must verify paired-peer selection plus connector websocket readiness using connector `/v1/status`, and return deterministic remediation when websocket connectivity is down.
 
 ## Pair Command Rules
 - `pair start <agentName>` must call proxy `/pair/start` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.

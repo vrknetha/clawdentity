@@ -23,9 +23,12 @@
   - proxy (`apps/proxy`, env `dev`) after registry health passes
 - Install dependencies before any `pnpm exec wrangler ...` command so Wrangler is available on clean runners.
 - Regenerate Worker type bindings in CI (`wrangler types --env dev`) and fail on git diff drift for `worker-configuration.d.ts` to prevent stale runtime binding types from shipping.
-- Sync proxy internal-service credentials from GitHub secrets after dependency install and before proxy deploy:
-  - `REGISTRY_INTERNAL_SERVICE_ID`
-  - `REGISTRY_INTERNAL_SERVICE_SECRET`
+- Resolve proxy internal-service credentials during deploy after registry health verification:
+  - Use `REGISTRY_ADMIN_API_KEY` if present.
+  - Otherwise bootstrap one-time admin using `REGISTRY_BOOTSTRAP_SECRET` (fresh DB only).
+  - Create or rotate internal service `proxy-dev` with scope `identity.read`.
+  - Sync resulting `REGISTRY_INTERNAL_SERVICE_ID` and `REGISTRY_INTERNAL_SERVICE_SECRET` into proxy Worker secrets before proxy deploy.
+  - Never print auth payload bodies from bootstrap/internal-service API failures; keep error logs code-only to avoid secret leakage.
 - Add a Wrangler preflight dry-run for both workers before mutating remote state (migrations/deploy):
   - `wrangler deploy --env dev --dry-run --var APP_VERSION:<sha>`
 - Verify registry health at `https://dev.registry.clawdentity.com/health` and verify proxy health via deployed URL (workers.dev or explicit override) with expected `APP_VERSION`.
@@ -43,7 +46,9 @@
 - Use npm provenance (`--provenance`) and require `NPM_TOKEN` secret.
 
 ## Secrets and Permissions
-- Required deploy secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `REGISTRY_INTERNAL_SERVICE_ID`, `REGISTRY_INTERNAL_SERVICE_SECRET`.
+- Required deploy secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and one of:
+  - `REGISTRY_ADMIN_API_KEY` (recommended for steady-state deploys)
+  - `REGISTRY_BOOTSTRAP_SECRET` (required for first deploy on fresh DB)
 - Mirror to `CF_API_TOKEN` and `CF_ACCOUNT_ID` for tooling compatibility.
 - Optional deploy secret: `PROXY_HEALTH_URL` (only needed if proxy workers.dev URL cannot be resolved in CI output).
 - Required publish secret: `NPM_TOKEN`.

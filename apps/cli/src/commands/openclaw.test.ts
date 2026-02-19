@@ -14,6 +14,7 @@ import {
   decodeOpenclawInviteCode,
   runOpenclawDoctor,
   runOpenclawRelayTest,
+  runOpenclawRelayWebsocketTest,
   setupOpenclawRelay,
   setupOpenclawRelayFromInvite,
   setupOpenclawSelfReady,
@@ -1794,6 +1795,142 @@ describe("openclaw command helpers", () => {
       expect(result.httpStatus).toBe(500);
       expect(result.message).toBe(
         "Relay probe failed inside local relay pipeline",
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("returns relay websocket test success when connector websocket is connected", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      const invite = createOpenclawInviteCode({
+        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        proxyUrl: "https://beta.example.com/hooks/agent",
+        peerAlias: "beta",
+      });
+
+      await setupOpenclawRelayFromInvite("alpha", {
+        inviteCode: invite.code,
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+      seedPeersConfig(sandbox.homeDir, {
+        beta: {
+          did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          proxyUrl: "https://beta.example.com/hooks/agent",
+        },
+      });
+
+      const result = await runOpenclawRelayWebsocketTest({
+        peer: "beta",
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        fetchImpl: connectorReadyFetch(),
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          proxyUrl: "https://proxy.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.message).toBe(
+        "Connector websocket is connected for paired relay",
+      );
+      expect(result.connectorStatusUrl).toBe(
+        "http://127.0.0.1:19400/v1/status",
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("auto-selects peer for relay websocket test when exactly one peer is configured", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+      seedPeersConfig(sandbox.homeDir, {
+        beta: {
+          did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          proxyUrl: "https://beta.example.com/hooks/agent",
+        },
+      });
+
+      const result = await runOpenclawRelayWebsocketTest({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        fetchImpl: connectorReadyFetch(),
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          proxyUrl: "https://proxy.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("success");
+      expect(result.peerAlias).toBe("beta");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("returns relay websocket test failure when connector websocket is disconnected", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+      seedPeersConfig(sandbox.homeDir, {
+        beta: {
+          did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          proxyUrl: "https://beta.example.com/hooks/agent",
+        },
+      });
+
+      const disconnectedConnectorFetch: typeof fetch = async () =>
+        new Response(
+          JSON.stringify({
+            status: "ok",
+            websocketConnected: false,
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+
+      const result = await runOpenclawRelayWebsocketTest({
+        peer: "beta",
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        fetchImpl: disconnectedConnectorFetch,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          proxyUrl: "https://proxy.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("failure");
+      expect(result.message).toBe("Connector websocket is not connected");
+      expect(result.remediationHint).toBe(
+        "Run: clawdentity openclaw setup <agentName>",
       );
     } finally {
       sandbox.cleanup();

@@ -149,6 +149,15 @@ type OpenclawRelayTestOptions = {
   json?: boolean;
 };
 
+type OpenclawRelayWebsocketTestOptions = {
+  peer?: string;
+  homeDir?: string;
+  openclawDir?: string;
+  fetchImpl?: typeof fetch;
+  resolveConfigImpl?: typeof resolveConfig;
+  json?: boolean;
+};
+
 type OpenclawGatewayDeviceApprovalInput = {
   requestId: string;
   openclawDir: string;
@@ -281,6 +290,18 @@ export type OpenclawRelayTestResult = {
   endpoint: string;
   message: string;
   httpStatus?: number;
+  remediationHint?: string;
+  details?: Record<string, unknown>;
+  preflight?: OpenclawDoctorResult;
+};
+
+export type OpenclawRelayWebsocketTestResult = {
+  status: "success" | "failure";
+  checkedAt: string;
+  peerAlias: string;
+  message: string;
+  connectorBaseUrl?: string;
+  connectorStatusUrl?: string;
   remediationHint?: string;
   details?: Record<string, unknown>;
   preflight?: OpenclawDoctorResult;
@@ -2096,11 +2117,97 @@ function printRelayTestResult(result: OpenclawRelayTestResult): void {
   }
 }
 
+function printRelayWebsocketTestResult(
+  result: OpenclawRelayWebsocketTestResult,
+): void {
+  writeStdoutLine(`Relay websocket test status: ${result.status}`);
+  writeStdoutLine(`Peer alias: ${result.peerAlias}`);
+  if (typeof result.connectorBaseUrl === "string") {
+    writeStdoutLine(`Connector base URL: ${result.connectorBaseUrl}`);
+  }
+  if (typeof result.connectorStatusUrl === "string") {
+    writeStdoutLine(`Connector status URL: ${result.connectorStatusUrl}`);
+  }
+  writeStdoutLine(`Message: ${result.message}`);
+  if (result.remediationHint) {
+    writeStdoutLine(`Fix: ${result.remediationHint}`);
+  }
+}
+
 function toSendToPeerEndpoint(openclawBaseUrl: string): string {
   const normalizedBase = openclawBaseUrl.endsWith("/")
     ? openclawBaseUrl
     : `${openclawBaseUrl}/`;
   return new URL(OPENCLAW_SEND_TO_PEER_HOOK_PATH, normalizedBase).toString();
+}
+
+async function resolveSelectedAgentName(input: {
+  homeDir: string;
+}): Promise<{ agentName: string; selectedAgentPath: string }> {
+  const selectedAgentPath = resolveOpenclawAgentNamePath(input.homeDir);
+  let selectedAgentRaw: string;
+  try {
+    selectedAgentRaw = await readFile(selectedAgentPath, "utf8");
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      throw createCliError(
+        "CLI_OPENCLAW_SELECTED_AGENT_MISSING",
+        "Selected agent marker is missing",
+        { selectedAgentPath },
+      );
+    }
+    throw createCliError(
+      "CLI_OPENCLAW_SELECTED_AGENT_INVALID",
+      "Selected agent marker is invalid",
+      { selectedAgentPath },
+    );
+  }
+
+  try {
+    return {
+      agentName: assertValidAgentName(selectedAgentRaw.trim()),
+      selectedAgentPath,
+    };
+  } catch {
+    throw createCliError(
+      "CLI_OPENCLAW_SELECTED_AGENT_INVALID",
+      "Selected agent marker is invalid",
+      { selectedAgentPath },
+    );
+  }
+}
+
+async function resolveConnectorAssignment(input: {
+  homeDir: string;
+  agentName: string;
+}): Promise<{
+  connectorAssignmentsPath: string;
+  connectorBaseUrl: string;
+  connectorStatusUrl: string;
+}> {
+  const connectorAssignmentsPath = resolveConnectorAssignmentsPath(
+    input.homeDir,
+  );
+  const connectorAssignments = await loadConnectorAssignments(
+    connectorAssignmentsPath,
+  );
+  const assignment = connectorAssignments.agents[input.agentName];
+  if (assignment === undefined) {
+    throw createCliError(
+      "CLI_OPENCLAW_CONNECTOR_ASSIGNMENT_MISSING",
+      "Connector assignment is missing for selected agent",
+      {
+        connectorAssignmentsPath,
+        agentName: input.agentName,
+      },
+    );
+  }
+
+  return {
+    connectorAssignmentsPath,
+    connectorBaseUrl: assignment.connectorBaseUrl,
+    connectorStatusUrl: resolveConnectorStatusUrl(assignment.connectorBaseUrl),
+  };
 }
 
 export async function runOpenclawDoctor(
@@ -3272,6 +3379,129 @@ export async function runOpenclawRelayTest(
   };
 }
 
+export async function runOpenclawRelayWebsocketTest(
+  options: OpenclawRelayWebsocketTestOptions,
+): Promise<OpenclawRelayWebsocketTestResult> {
+  const homeDir = resolveHomeDir(options.homeDir);
+  const openclawDir = resolveOpenclawDir(options.openclawDir, homeDir);
+  const checkedAt = nowIso();
+
+  let peerAlias: string;
+  try {
+    peerAlias = await resolveRelayProbePeerAlias({
+      homeDir,
+      peerAliasOption: options.peer,
+    });
+  } catch (error) {
+    const appError = error instanceof AppError ? error : undefined;
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias: "unresolved",
+      message: appError?.message ?? "Unable to resolve relay peer alias",
+      remediationHint: OPENCLAW_PAIRING_COMMAND_HINT,
+      details: appError?.details as Record<string, unknown> | undefined,
+    };
+  }
+
+  const preflight = await runOpenclawDoctor({
+    homeDir,
+    openclawDir,
+    peerAlias,
+    resolveConfigImpl: options.resolveConfigImpl,
+    includeConnectorRuntimeCheck: false,
+  });
+  if (preflight.status === "unhealthy") {
+    const firstFailure = preflight.checks.find(
+      (check) => check.status === "fail",
+    );
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      message:
+        firstFailure === undefined
+          ? "Preflight checks failed"
+          : `Preflight failed: ${firstFailure.label}`,
+      remediationHint: firstFailure?.remediationHint,
+      preflight,
+    };
+  }
+
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl !== "function") {
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      message: "fetch implementation is unavailable",
+      remediationHint:
+        "Run relay websocket test in a Node runtime with fetch support",
+      preflight,
+    };
+  }
+
+  let connectorBaseUrl: string | undefined;
+  let connectorStatusUrl: string | undefined;
+  try {
+    const selectedAgent = await resolveSelectedAgentName({ homeDir });
+    const connectorAssignment = await resolveConnectorAssignment({
+      homeDir,
+      agentName: selectedAgent.agentName,
+    });
+    connectorBaseUrl = connectorAssignment.connectorBaseUrl;
+    connectorStatusUrl = connectorAssignment.connectorStatusUrl;
+  } catch (error) {
+    const appError = error instanceof AppError ? error : undefined;
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      connectorBaseUrl,
+      connectorStatusUrl,
+      message:
+        appError?.message ??
+        "Unable to resolve connector assignment for websocket test",
+      remediationHint: OPENCLAW_SETUP_COMMAND_HINT,
+      details: appError?.details as Record<string, unknown> | undefined,
+      preflight,
+    };
+  }
+
+  const connectorStatus = await fetchConnectorHealthStatus({
+    connectorBaseUrl,
+    fetchImpl,
+  });
+  if (!connectorStatus.connected) {
+    return {
+      status: "failure",
+      checkedAt,
+      peerAlias,
+      connectorBaseUrl,
+      connectorStatusUrl: connectorStatus.statusUrl,
+      message: "Connector websocket is not connected",
+      remediationHint: OPENCLAW_SETUP_COMMAND_HINT,
+      details:
+        connectorStatus.reason === undefined
+          ? undefined
+          : {
+              reason: connectorStatus.reason,
+            },
+      preflight,
+    };
+  }
+
+  return {
+    status: "success",
+    checkedAt,
+    peerAlias,
+    connectorBaseUrl,
+    connectorStatusUrl: connectorStatus.statusUrl,
+    message: "Connector websocket is connected for paired relay",
+    preflight,
+  };
+}
+
 export function createOpenclawInviteCode(
   options: OpenclawInviteOptions,
 ): OpenclawInviteResult {
@@ -3758,6 +3988,49 @@ export const createOpenclawCommand = (): Command => {
             writeStdoutLine(JSON.stringify(result, null, 2));
           } else {
             printRelayTestResult(result);
+            if (
+              result.preflight !== undefined &&
+              result.preflight.status === "unhealthy"
+            ) {
+              writeStdoutLine("Preflight details:");
+              for (const check of result.preflight.checks) {
+                if (check.status === "fail") {
+                  writeStdoutLine(formatDoctorCheckLine(check));
+                  if (check.remediationHint) {
+                    writeStdoutLine(`Fix: ${check.remediationHint}`);
+                  }
+                }
+              }
+            }
+          }
+
+          if (result.status === "failure") {
+            process.exitCode = 1;
+          }
+        },
+      ),
+    );
+
+  relayCommand
+    .command("ws-test")
+    .description(
+      "Validate connector websocket connectivity for a paired relay peer",
+    )
+    .option("--peer <alias>", "Peer alias in local peers map")
+    .option(
+      "--openclaw-dir <path>",
+      "OpenClaw state directory (default ~/.openclaw)",
+    )
+    .option("--json", "Print machine-readable JSON output")
+    .action(
+      withErrorHandling(
+        "openclaw relay ws-test",
+        async (options: OpenclawRelayWebsocketTestOptions) => {
+          const result = await runOpenclawRelayWebsocketTest(options);
+          if (options.json) {
+            writeStdoutLine(JSON.stringify(result, null, 2));
+          } else {
+            printRelayWebsocketTestResult(result);
             if (
               result.preflight !== undefined &&
               result.preflight.status === "unhealthy"
