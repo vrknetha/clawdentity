@@ -1,16 +1,19 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
+  ADMIN_INTERNAL_SERVICES_PATH,
   AGENT_AUTH_REFRESH_PATH,
   AGENT_AUTH_VALIDATE_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   canonicalizeAgentRegistrationProof,
   encodeBase64url,
   generateUlid,
+  INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   INVITES_PATH,
   INVITES_REDEEM_PATH,
   ME_API_KEYS_PATH,
   makeAgentDid,
   makeHumanDid,
+  REGISTRY_METADATA_PATH,
 } from "@clawdentity/protocol";
 import {
   encodeEd25519SignatureBase64url,
@@ -2404,6 +2407,37 @@ describe("GET /health", () => {
   });
 });
 
+describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
+  it("returns environment metadata including resolved proxy URL", async () => {
+    const res = await createRegistryApp().request(
+      `https://registry.example.test${REGISTRY_METADATA_PATH}`,
+      {},
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "development",
+        APP_VERSION: "sha-meta-123",
+        PROXY_URL: "https://dev.proxy.clawdentity.com",
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      status: string;
+      environment: string;
+      version: string;
+      registryUrl: string;
+      proxyUrl: string;
+    };
+    expect(body).toEqual({
+      status: "ok",
+      environment: "development",
+      version: "sha-meta-123",
+      registryUrl: "https://registry.example.test",
+      proxyUrl: "https://dev.proxy.clawdentity.com",
+    });
+  });
+});
+
 describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   it("returns 503 when bootstrap secret is not configured", async () => {
     const { database } = createFakeDb([]);
@@ -3030,7 +3064,7 @@ describe("GET /v1/crl", () => {
 
     const claims = await verifyCRL({
       token: body.crl,
-      expectedIssuer: "https://dev.api.clawdentity.com",
+      expectedIssuer: "https://dev.registry.clawdentity.com",
       registryKeys: keysBody.keys
         .filter((key) => key.status === "active")
         .map((key) => ({
@@ -3704,11 +3738,13 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
         name: string;
         token: string;
       };
+      proxyUrl: string;
     };
     expect(redeemBody.human.displayName).toBe("Invitee Alpha");
     expect(redeemBody.human.role).toBe("user");
     expect(redeemBody.apiKey.name).toBe("primary-invite-key");
     expect(redeemBody.apiKey.token.startsWith("clw_pat_")).toBe(true);
+    expect(redeemBody.proxyUrl).toBe("https://dev.proxy.clawdentity.com");
 
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
@@ -4606,6 +4642,41 @@ describe("GET /v1/agents/:id/ownership", () => {
   });
 });
 
+describe("internal service-auth routes", () => {
+  it("returns 401 when internal service credential headers are missing", async () => {
+    const res = await createRegistryApp().request(
+      INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("INTERNAL_SERVICE_UNAUTHORIZED");
+  });
+
+  // Service-scope and payload-validation integration is covered by
+  // dedicated auth + route-level tests that exercise real D1-backed flows.
+  it("requires PAT auth for admin internal service endpoints", async () => {
+    const res = await createRegistryApp().request(
+      ADMIN_INTERNAL_SERVICES_PATH,
+      {
+        method: "GET",
+      },
+      { DB: {} as D1Database, ENVIRONMENT: "test" },
+    );
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("DELETE /v1/agents/:id", () => {
   it("returns 401 when PAT is missing", async () => {
     const agentId = generateUlid(1700200000000);
@@ -5100,7 +5171,7 @@ describe("POST /v1/agents/:id/reissue", () => {
 
     const claims = await verifyAIT({
       token: body.ait,
-      expectedIssuer: "https://dev.api.clawdentity.com",
+      expectedIssuer: "https://dev.registry.clawdentity.com",
       registryKeys: keysBody.keys
         .filter((key) => key.status === "active")
         .map((key) => ({
@@ -5259,7 +5330,7 @@ describe("POST /v1/agents/:id/reissue", () => {
 
     const claims = await verifyAIT({
       token: body.ait,
-      expectedIssuer: "https://dev.api.clawdentity.com",
+      expectedIssuer: "https://dev.registry.clawdentity.com",
       registryKeys: [
         {
           kid: "reg-key-1",
@@ -6014,7 +6085,7 @@ describe("POST /v1/agents", () => {
 
     const claims = await verifyAIT({
       token: registerBody.ait,
-      expectedIssuer: "https://dev.api.clawdentity.com",
+      expectedIssuer: "https://dev.registry.clawdentity.com",
       registryKeys: keysBody.keys
         .filter((key) => key.status === "active")
         .map((key) => ({
@@ -6027,7 +6098,7 @@ describe("POST /v1/agents", () => {
         })),
     });
 
-    expect(claims.iss).toBe("https://dev.api.clawdentity.com");
+    expect(claims.iss).toBe("https://dev.registry.clawdentity.com");
     expect(claims.sub).toBe(registerBody.agent.did);
     expect(claims.ownerDid).toBe(registerBody.agent.ownerDid);
     expect(claims.name).toBe(registerBody.agent.name);
@@ -6136,7 +6207,7 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
     const refreshTokenHash = await hashAgentToken(refreshToken);
     const ait = await signAIT({
       claims: {
-        iss: "https://dev.api.clawdentity.com",
+        iss: "https://dev.registry.clawdentity.com",
         sub: agentDid,
         ownerDid: makeHumanDid(generateUlid(Date.now() + 2)),
         name: "agent-refresh-01",

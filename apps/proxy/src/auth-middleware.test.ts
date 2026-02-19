@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RELAY_RECIPIENT_AGENT_DID_HEADER } from "./agent-hook-route.js";
 import type { AgentRelaySessionNamespace } from "./agent-relay-session.js";
 import { parseProxyConfig } from "./config.js";
-import { PAIR_CONFIRM_PATH } from "./pairing-constants.js";
+import { PAIR_CONFIRM_PATH, PAIR_STATUS_PATH } from "./pairing-constants.js";
 import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
 import { RELAY_CONNECT_PATH } from "./relay-connect-route.js";
 import { createProxyApp } from "./server.js";
@@ -19,7 +19,7 @@ import { createProxyApp } from "./server.js";
 const REGISTRY_KID = "registry-active-kid";
 const NOW_MS = Date.now();
 const NOW_SECONDS = Math.floor(NOW_MS / 1000);
-const ISSUER = "https://api.clawdentity.com";
+const ISSUER = "https://registry.clawdentity.com";
 const BODY_JSON = JSON.stringify({ message: "hello" });
 const KNOWN_PEER_DID = "did:claw:agent:known-peer";
 
@@ -313,7 +313,13 @@ describe("proxy auth middleware", () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
     });
-    const requestBody = JSON.stringify({ ticket: "clwpair1_missing-ticket" });
+    const requestBody = JSON.stringify({
+      ticket: "clwpair1_missing-ticket",
+      responderProfile: {
+        agentName: "beta",
+        humanName: "Ira",
+      },
+    });
     const headers = await harness.createSignedHeaders({
       body: requestBody,
       nonce: "nonce-pair-confirm-bootstrap",
@@ -331,30 +337,29 @@ describe("proxy auth middleware", () => {
     expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
   });
 
-  it("allows forwarded /pair/confirm without Authorization when responder DID query is present", async () => {
+  it("allows unknown agents to reach /pair/status for initiator polling bootstrap", async () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
     });
+    const requestBody = JSON.stringify({ ticket: "clwpair1_missing-ticket" });
+    const headers = await harness.createSignedHeaders({
+      body: requestBody,
+      nonce: "nonce-pair-status-bootstrap",
+      pathWithQuery: PAIR_STATUS_PATH,
+    });
 
-    const response = await harness.app.request(
-      `${PAIR_CONFIRM_PATH}?responderAgentDid=${encodeURIComponent(KNOWN_PEER_DID)}`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          ticket: "clwpair1_missing-ticket",
-        }),
-      },
-    );
+    const response = await harness.app.request(PAIR_STATUS_PATH, {
+      method: "POST",
+      headers,
+      body: requestBody,
+    });
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_PAIR_TICKET_INVALID_FORMAT");
   });
 
-  it("rejects /pair/confirm without Authorization when responder DID query is missing", async () => {
+  it("rejects /pair/confirm without Authorization", async () => {
     const harness = await createAuthHarness({
       allowCurrentAgent: false,
     });
@@ -718,6 +723,28 @@ describe("proxy auth middleware", () => {
       method: "GET",
       pathWithQuery: RELAY_CONNECT_PATH,
       nonce: "nonce-relay-connect-agent-access-valid",
+    });
+    const response = await harness.app.request(RELAY_CONNECT_PATH, {
+      method: "GET",
+      headers: {
+        ...headers,
+        upgrade: "websocket",
+        "x-claw-agent-access": "clw_agt_validtoken",
+      },
+    });
+
+    expect(response.status).toBe(204);
+  });
+
+  it("allows unknown agents to connect relay websocket when auth validates", async () => {
+    const harness = await createAuthHarness({
+      allowCurrentAgent: false,
+      validateStatus: 204,
+    });
+    const headers = await harness.createSignedHeaders({
+      method: "GET",
+      pathWithQuery: RELAY_CONNECT_PATH,
+      nonce: "nonce-relay-connect-unknown-agent",
     });
     const response = await harness.app.request(RELAY_CONNECT_PATH, {
       method: "GET",

@@ -20,8 +20,8 @@
 - Run full quality gates before deployment: `pnpm lint`, `pnpm -r typecheck`, `pnpm -r build`, `pnpm -r test`.
 - Deploy both workers in the same workflow:
   - registry (`apps/registry`, env `dev`) with D1 migration apply before deploy
-  - proxy (`apps/proxy`, env `development`) after registry health passes
-- Verify registry health at `https://dev.api.clawdentity.com/health` and verify proxy health via deployed URL (workers.dev or explicit override) with expected `APP_VERSION`.
+  - proxy (`apps/proxy`, env `dev`) after registry health passes
+- Verify registry health at `https://dev.registry.clawdentity.com/health` and verify proxy health via deployed URL (workers.dev or explicit override) with expected `APP_VERSION`.
 - Health verification should use bounded retries (for example 3 minutes with 10-second polling) and `Cache-Control: no-cache` requests to tolerate short edge propagation delays after deploy.
 - When using Python `urllib` for health checks, always set explicit request headers (`Accept: application/json` and a custom `User-Agent` such as `Clawdentity-CI/1.0`) because Cloudflare may return `403`/`1010` for the default `Python-urllib/*` user agent.
 - Use workflow concurrency groups to prevent overlapping deploys for the same environment.
@@ -48,12 +48,12 @@
 ## Migration Rollback Strategy (Develop)
 - Capture pre-deploy artifacts:
   - `pnpm exec wrangler --cwd apps/registry deployments list --env dev --json`
-  - `pnpm exec wrangler --cwd apps/proxy deployments list --env development --json || true` (non-blocking for first deploy before proxy Worker exists)
+  - `pnpm exec wrangler --cwd apps/proxy deployments list --env dev --json || true` (non-blocking for first deploy before proxy Worker exists)
   - `pnpm exec wrangler d1 time-travel info clawdentity-db-dev --timestamp <predeploy-ts> --json`
   - `pnpm exec wrangler d1 export clawdentity-db-dev --remote --output "${GITHUB_WORKSPACE}/artifacts/<file.sql>"`
 - Keep deploy snapshot collection non-blocking for Worker deployment listings (pre and post) so rollback artifact capture does not fail the workflow when a Worker has no prior deployment history.
 - Upload artifacts on every run for operator recovery.
 - On failed deploy:
   - Registry rollback: `pnpm exec wrangler --cwd apps/registry rollback <version-id> --env dev`
-  - Proxy rollback: `pnpm exec wrangler --cwd apps/proxy rollback <version-id> --env development`
+  - Proxy rollback: `pnpm exec wrangler --cwd apps/proxy rollback <version-id> --env dev`
   - DB rollback: `pnpm exec wrangler d1 time-travel restore clawdentity-db-dev --env dev --timestamp <predeploy-ts>`

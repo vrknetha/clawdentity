@@ -233,28 +233,20 @@ CLI (operator's machine)              Registry
 | `iss` | Registry URL — who vouches for this identity |
 | `exp` | Expiry — credential lifetime (1-90 days) |
 
-### Step 3: Peer Discovery (Out-of-Band Invite)
+### Step 3: Peer Routing Setup (Out-of-Band Metadata)
 
-Alice creates an invite code for Bob. No secrets are exchanged — only a DID and endpoint.
+Operators exchange peer metadata out-of-band (alias, DID, proxy URL). No relay invite code is required.
 
 ```
 Alice's Operator                        Bob's Operator
   │                                        │
-  │  clawdentity openclaw invite create    │
-  │  → Encodes: {                          │
-  │      did: "did:claw:agent:...",        │
-  │      proxyUrl: "https://alice-proxy/   │
-  │        hooks/agent",                   │
-  │      alias: "bob",                     │
-  │      name: "Bob Agent"                 │
-  │    }                                   │
-  │  → Base64url invite code               │
-  │                                        │
-  │  Shares code out-of-band ─────────────►│
-  │  (email, QR, chat, etc.)               │
+  │  Shares metadata out-of-band ─────────►│
+  │  alias, DID, proxy URL                 │
   │                                        │
   │                                        │  clawdentity openclaw setup
-  │                                        │    bob --invite-code <code>
+  │                                        │    bob --peer-alias alice
+  │                                        │        --peer-did did:claw:agent:...
+  │                                        │        --peer-proxy-url https://alice-proxy/hooks/agent
   │                                        │
   │                                        │  Stores peer in peers.json:
   │                                        │  { "alice": {
@@ -266,7 +258,7 @@ Alice's Operator                        Bob's Operator
   │                                        │  Configures OpenClaw hooks
 ```
 
-**Security:** The invite contains only public information (DID + proxy URL). No keys, tokens, or secrets are exchanged. Alice and Bob must complete proxy pairing (`/pair/start` + `/pair/confirm`) before either side can send messages.
+**Security:** Setup uses only public peer metadata (DID + proxy URL + alias). No keys, tokens, or secrets are exchanged. Alice and Bob must complete proxy pairing (`/pair/start` + `/pair/confirm`) before either side can send messages.
 
 ### Step 4: First Message (Bob → Alice)
 
@@ -465,12 +457,17 @@ clawdentity/
 
 ### Proxy Worker local runs
 
-- Local env (`ENVIRONMENT=local`): `pnpm dev:proxy`
-- Development env (`ENVIRONMENT=development`): `pnpm dev:proxy:development`
+- Development env (`ENVIRONMENT=development`): `pnpm dev:proxy`
+- Local env (`ENVIRONMENT=local`): `pnpm dev:proxy:local`
 - Fresh deploy-like env: `pnpm dev:proxy:fresh`
 - Development deploy command: `pnpm -F @clawdentity/proxy run deploy:dev`
 - Production deploy command: `pnpm -F @clawdentity/proxy run deploy:production`
 - Environment intent: `local` is local Wrangler development only; `development` and `production` are cloud deployment environments.
+
+### Registry Worker local runs
+
+- Development env (`ENVIRONMENT=development`): `pnpm dev:registry`
+- Development env with local D1 migration apply: `pnpm dev:registry:local`
 
 ### Develop deployment automation
 
@@ -478,9 +475,9 @@ clawdentity/
 - Trigger: push to `develop`
 - Runs full quality gates, then deploys:
   - registry (`apps/registry`, env `dev`) with D1 migrations
-  - proxy (`apps/proxy`, env `development`)
+  - proxy (`apps/proxy`, env `dev`)
 - Health checks must pass with `version == $GITHUB_SHA` for:
-  - `https://dev.api.clawdentity.com/health`
+  - `https://dev.registry.clawdentity.com/health`
   - deployed proxy `/health` URL (workers.dev URL extracted from wrangler output, or optional `PROXY_HEALTH_URL` secret override)
 - Required GitHub secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`
 
@@ -497,6 +494,7 @@ clawdentity/
 - `clawdentity connector start <agentName>` to run local relay connector runtime.
 - `clawdentity connector service install <agentName>` to configure connector autostart after reboot/login (`launchd` on macOS, `systemd --user` on Linux).
 - `clawdentity connector service uninstall <agentName>` to remove connector autostart service.
+- `clawdentity skill install` to install/update OpenClaw relay skill artifacts under `~/.openclaw`.
 
 ### 5) Onboarding and control model
 
@@ -514,18 +512,18 @@ clawdentity/
 
 ---
 
-## OpenClaw skill install (npm-first)
+## OpenClaw skill install (CLI command)
 
-Expected operator flow starts from npm:
+Expected operator flow starts from the CLI command:
 
 ```bash
-npm install clawdentity --skill
+clawdentity skill install
 ```
 
-When `--skill` mode is detected, installer logic prepares OpenClaw runtime artifacts automatically:
-- `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/SKILL.md`
-- `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/references/*`
-- `~/.openclaw/workspace/skills/clawdentity-openclaw-relay/relay-to-peer.mjs`
+Installer logic prepares OpenClaw runtime artifacts automatically:
+- `~/.openclaw/skills/clawdentity-openclaw-relay/SKILL.md`
+- `~/.openclaw/skills/clawdentity-openclaw-relay/references/*`
+- `~/.openclaw/skills/clawdentity-openclaw-relay/relay-to-peer.mjs`
 - `~/.openclaw/hooks/transforms/relay-to-peer.mjs`
 
 Install is idempotent and logs deterministic per-artifact outcomes (`installed`, `updated`, `unchanged`).

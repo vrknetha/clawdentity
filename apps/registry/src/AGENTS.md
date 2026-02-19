@@ -50,6 +50,8 @@
 - Validate payload strictly: `issuerOrigin` must be URL origin (`http`/`https`), `pkid` non-empty, `publicKeyX` non-empty, `expiresAt` valid future ISO timestamp.
 - Keep writes idempotent on (`issuer_origin`, `pkid`) and update key material/expiry when repeated registration arrives.
 - `GET /v1/proxy-pairing-keys/resolve` is public and returns only active (non-expired) key metadata needed for proxy ticket verification.
+- `POST /internal/v1/proxy-pairing-keys` requires service auth and must resolve `ownerDid -> humans.id` before persisting `created_by`.
+- `GET /internal/v1/proxy-pairing-keys/resolve` requires service auth and mirrors the same active-key lookup contract.
 - For unknown/expired keys, return `404 PROXY_PAIRING_KEY_NOT_FOUND`; do not leak extra owner data.
 
 ## Validation
@@ -77,6 +79,12 @@
 - Return `{ ownsAgent: true }` when the caller owns the agent and `{ ownsAgent: false }` for foreign or missing IDs.
 - Keep this endpoint ownership-only; do not return agent metadata.
 
+## POST /internal/v1/ownership/check Contract
+- Require service auth via internal service token middleware.
+- Validate `ownerDid` and `agentDid` as DID strings (`human` and `agent` kinds respectively).
+- Return `{ ownsAgent, agentStatus }` where `agentStatus` is `active | revoked | null`.
+- Keep this endpoint internal-only for proxy service-to-service ownership checks.
+
 ## POST /v1/invites Contract
 - Require PAT auth via `createApiKeyAuth`.
 - Enforce admin-only access with explicit `403 INVITE_CREATE_FORBIDDEN` for authenticated non-admin callers.
@@ -90,6 +98,7 @@
 - One-time semantics are enforced by guarded update (`redeemed_by IS NULL`); repeated redeem attempts must return explicit invite lifecycle errors.
 - Expired invites must be rejected with `INVITE_REDEEM_EXPIRED` before token issuance.
 - Successful redeem must create a new active user human and mint a PAT in the same mutation unit as invite consumption.
+- Successful redeem response must include `proxyUrl` sourced from registry config (`PROXY_URL`) so onboarding clients can persist relay routing without prompting for proxy details.
 - Keep mutation flow transaction-first; on local fallback (no transaction support), apply compensation rollback so failed redeem attempts do not leave partially-created humans or consumed invites.
 
 ## POST /v1/me/api-keys Contract
@@ -136,7 +145,7 @@
 - Consume challenge with guarded state transition (`pending` -> `used`) in the same mutation unit as agent insert; reject zero-row updates as replayed challenge.
 - Use shared SDK datetime helpers (`nowIso`, `addSeconds`) for issuance/expiry math instead of ad-hoc `Date.now()` arithmetic in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
-- Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.api.clawdentity.com`, `production` -> `https://api.clawdentity.com`) rather than request-origin inference.
+- Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
 - Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.
 - Response shape is `{ agent, ait, agentAuth }` where `agentAuth` returns short-lived access credentials and rotating refresh credentials.
 

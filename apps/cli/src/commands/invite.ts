@@ -6,6 +6,11 @@ import {
   resolveConfig,
   setConfigValue,
 } from "../config/manager.js";
+import {
+  fetchRegistryMetadata,
+  normalizeRegistryUrl,
+  toRegistryRequestUrl,
+} from "../config/registry-metadata.js";
 import { writeStdoutLine } from "../io.js";
 import { withErrorHandling } from "./helpers.js";
 
@@ -18,6 +23,8 @@ type InviteCreateOptions = {
 
 type InviteRedeemOptions = {
   registryUrl?: string;
+  displayName?: string;
+  apiKeyName?: string;
 };
 
 type InviteRecord = {
@@ -36,6 +43,8 @@ export type InviteRedeemResult = {
   apiKeyToken: string;
   apiKeyId?: string;
   apiKeyName?: string;
+  humanName: string;
+  proxyUrl: string;
   registryUrl: string;
 };
 
@@ -84,21 +93,29 @@ function createCliError(code: string, message: string): AppError {
   });
 }
 
+function normalizeProxyUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("invalid protocol");
+    }
+
+    return parsed.toString();
+  } catch {
+    throw createCliError(
+      "CLI_INVITE_REDEEM_INVALID_RESPONSE",
+      "Invite redeem response is invalid",
+    );
+  }
+}
+
 function resolveRegistryUrl(input: {
   overrideRegistryUrl: string | undefined;
   configRegistryUrl: string;
 }): string {
   const candidate =
     parseNonEmptyString(input.overrideRegistryUrl) || input.configRegistryUrl;
-
-  try {
-    return new URL(candidate).toString();
-  } catch {
-    throw createCliError(
-      "CLI_INVITE_INVALID_REGISTRY_URL",
-      "Registry URL is invalid",
-    );
-  }
+  return normalizeRegistryUrl(candidate);
 }
 
 function requireApiKey(config: CliConfig): string {
@@ -110,14 +127,6 @@ function requireApiKey(config: CliConfig): string {
     "CLI_INVITE_MISSING_LOCAL_CREDENTIALS",
     "API key is not configured. Run `clawdentity config set apiKey <token>` or set CLAWDENTITY_API_KEY.",
   );
-}
-
-function toRegistryRequestUrl(registryUrl: string, path: string): string {
-  const normalizedBaseUrl = registryUrl.endsWith("/")
-    ? registryUrl
-    : `${registryUrl}/`;
-
-  return new URL(path.slice(1), normalizedBaseUrl).toString();
 }
 
 function extractRegistryErrorCode(payload: unknown): string | undefined {
@@ -308,11 +317,23 @@ function parseInviteRedeemResponse(
 
   const apiKeyId = parseNonEmptyString(apiKeySource.id);
   const apiKeyName = parseNonEmptyString(apiKeySource.name);
+  const humanSource = isRecord(payload.human) ? payload.human : undefined;
+  const humanName = parseNonEmptyString(humanSource?.displayName);
+  const proxyUrl = parseNonEmptyString(payload.proxyUrl);
+
+  if (humanName.length === 0) {
+    throw createCliError(
+      "CLI_INVITE_REDEEM_INVALID_RESPONSE",
+      "Invite redeem response is invalid",
+    );
+  }
 
   return {
     apiKeyToken,
     apiKeyId: apiKeyId.length > 0 ? apiKeyId : undefined,
     apiKeyName: apiKeyName.length > 0 ? apiKeyName : undefined,
+    humanName,
+    proxyUrl,
   };
 }
 
@@ -384,6 +405,15 @@ export async function redeemInvite(
     );
   }
 
+  const displayName = parseNonEmptyString(options.displayName);
+  if (displayName.length === 0) {
+    throw createCliError(
+      "CLI_INVITE_REDEEM_DISPLAY_NAME_REQUIRED",
+      "Display name is required. Pass --display-name <name>.",
+    );
+  }
+  const apiKeyName = parseNonEmptyString(options.apiKeyName);
+
   const runtime = await resolveInviteRuntime(options.registryUrl, dependencies);
   const response = await executeInviteRequest({
     fetchImpl: runtime.fetchImpl,
@@ -393,7 +423,11 @@ export async function redeemInvite(
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ code: inviteCode }),
+      body: JSON.stringify({
+        code: inviteCode,
+        displayName,
+        apiKeyName: apiKeyName.length > 0 ? apiKeyName : undefined,
+      }),
     },
   });
 
@@ -405,8 +439,19 @@ export async function redeemInvite(
     );
   }
 
+  const parsedRedeem = parseInviteRedeemResponse(responseBody);
+  const proxyUrl =
+    parsedRedeem.proxyUrl.length > 0
+      ? parsedRedeem.proxyUrl
+      : (
+          await fetchRegistryMetadata(runtime.registryUrl, {
+            fetchImpl: runtime.fetchImpl,
+          })
+        ).proxyUrl;
+
   return {
-    ...parseInviteRedeemResponse(responseBody),
+    ...parsedRedeem,
+    proxyUrl: normalizeProxyUrl(proxyUrl),
     registryUrl: runtime.registryUrl,
   };
 }
@@ -414,6 +459,8 @@ export async function redeemInvite(
 export async function persistRedeemConfig(
   registryUrl: string,
   apiKeyToken: string,
+  proxyUrl: string,
+  humanName: string,
   dependencies: InvitePersistenceDependencies = {},
 ): Promise<void> {
   const setConfigValueImpl = dependencies.setConfigValueImpl ?? setConfigValue;
@@ -421,6 +468,8 @@ export async function persistRedeemConfig(
   try {
     await setConfigValueImpl("registryUrl", registryUrl);
     await setConfigValueImpl("apiKey", apiKeyToken);
+    await setConfigValueImpl("proxyUrl", proxyUrl);
+    await setConfigValueImpl("humanName", humanName);
   } catch (error) {
     logger.warn("cli.invite_redeem_config_persist_failed", {
       errorName: error instanceof Error ? error.name : "unknown",
@@ -470,6 +519,11 @@ export const createInviteCommand = (
   inviteCommand
     .command("redeem <code>")
     .description("Redeem a registry invite code and store PAT locally")
+    .requiredOption(
+      "--display-name <name>",
+      "Human display name used for onboarding",
+    )
+    .option("--api-key-name <name>", "Optional API key label")
     .option("--registry-url <url>", "Override registry URL")
     .action(
       withErrorHandling(
@@ -480,10 +534,12 @@ export const createInviteCommand = (
           logger.info("cli.invite_redeemed", {
             apiKeyId: result.apiKeyId,
             apiKeyName: result.apiKeyName,
+            humanName: result.humanName,
             registryUrl: result.registryUrl,
           });
 
           writeStdoutLine("Invite redeemed");
+          writeStdoutLine(`Human name: ${result.humanName}`);
           if (result.apiKeyName) {
             writeStdoutLine(`API key name: ${result.apiKeyName}`);
           }
@@ -494,6 +550,8 @@ export const createInviteCommand = (
           await persistRedeemConfig(
             result.registryUrl,
             result.apiKeyToken,
+            result.proxyUrl,
+            result.humanName,
             dependencies,
           );
           writeStdoutLine("API key saved to local config");

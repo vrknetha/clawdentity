@@ -19,7 +19,8 @@
 - Keep T02 canonicalization minimal and deterministic; replay/skew/nonce policy enforcement is handled in later tickets (`T07`, `T08`, `T09`).
 - Define shared API route fragments in protocol exports (for example `ADMIN_BOOTSTRAP_PATH`) so CLI/SDK/apps avoid hardcoded duplicate endpoint literals.
 - Keep lifecycle route constants together in `endpoints.ts` (e.g., `ADMIN_BOOTSTRAP_PATH`, `AGENT_REGISTRATION_CHALLENGE_PATH`, `AGENT_AUTH_REFRESH_PATH`, `AGENT_AUTH_VALIDATE_PATH`, `ME_API_KEYS_PATH`) so registry, proxy, and CLI stay contract-synchronized.
-- Keep proxy pairing key route constants in protocol exports (`PROXY_PAIRING_KEYS_PATH`, `PROXY_PAIRING_KEYS_RESOLVE_PATH`) so registry write/read APIs and proxy verification paths remain synchronized.
+- Keep protocol route constants scoped to active contracts only; remove deprecated endpoint exports immediately when a flow is retired.
+- Keep internal identity route constants in protocol exports (`INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH`) so service-to-service ownership checks stay synchronized.
 - Keep relay contract constants in protocol exports (`RELAY_CONNECT_PATH`, `RELAY_RECIPIENT_AGENT_DID_HEADER`) so connector and hook routing stay synchronized across apps.
 - Keep registration-proof canonicalization in protocol exports (`canonicalizeAgentRegistrationProof`) so CLI signing and registry verification use an identical message format.
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.

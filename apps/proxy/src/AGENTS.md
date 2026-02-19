@@ -12,6 +12,7 @@
 - Keep per-agent DID throttling in `agent-rate-limit-middleware.ts`; do not blend rate-limit state or counters into `auth-middleware.ts`.
 - Keep pre-auth public-route IP throttling in `public-rate-limit-middleware.ts`; do not blend unauthenticated probe controls into `auth-middleware.ts`.
 - Keep `.env` fallback loading inside `config.ts` so runtime behavior is deterministic.
+- Keep runtime bootstrap tests hermetic: when asserting default fallback behavior, use temp `HOME`/`OPENCLAW_STATE_DIR` to avoid host-local config leakage.
 - Keep OpenClaw base URL fallback logic in `config.ts`: `OPENCLAW_BASE_URL` env -> `~/.clawdentity/openclaw-relay.json` -> default.
 - Keep OpenClaw compatibility vars optional for relay-mode runtime; never require `OPENCLAW_BASE_URL` for cloud relay startup.
 - Do not add `OPENCLAW_HOOK_TOKEN` handling to proxy runtime; hook token auth belongs to connector -> OpenClaw delivery path.
@@ -20,6 +21,7 @@
 - Keep trust-store backend policy explicit: only `local` may fallback to in-memory trust when `PROXY_TRUST_STATE` binding is absent; `development` and `production` must fail startup without durable trust binding.
 - Keep static allowlist env vars removed (`ALLOW_LIST`, `ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`); trust must come from pairing state, not env.
 - Keep `/pair/confirm` write path atomic at the trust-store API level: trust persistence and one-time ticket consumption must happen in one operation (`confirmPairingTicket`).
+- Keep pairing ticket status durable until expiry: `/pair/status` must return `pending` before confirm and `confirmed` after confirm so initiators can sync peers without reverse pairing.
 
 ## Config Error Handling
 - Convert parse failures to `ProxyConfigError` with code `CONFIG_VALIDATION_FAILED`.
@@ -29,6 +31,8 @@
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
 - Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state.ts` (Durable Object backed).
+- Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
+- Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
 - Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
@@ -38,15 +42,14 @@
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
-- Keep pairing bootstrap explicit: `/pair/start` and `/pair/confirm` must bypass known-agent gate in auth middleware.
-- Keep `/pair/start` ownership validation against registry `GET /v1/agents/:id/ownership` using `x-claw-owner-pat`, and map dependency failures to `503`.
-- Allow optional `PAIRING_ISSUER_URL` override for `/pair/start` ticket issuer origin so cross-proxy forwarding can work when inbound hostnames differ from proxy-to-proxy reachability hostnames.
-- Keep pairing tickets issuer-authenticated: `/pair/start` must sign each ticket and register the signing public key in registry (`/v1/proxy-pairing-keys`) before returning ticket data.
-- Keep cross-proxy `/pair/confirm` forwarding SSRF-safe by default: reject localhost/private/reserved issuer origins when the current proxy origin is non-local.
-- Enforce that forwarded `/pair/confirm` issuer origins use HTTPS once the proxy origin is non-local, while continuing to allow HTTP when both the proxy and issuer are on local/dev hosts.
-- Before cross-proxy forwarding, resolve issuer signing key from registry (`/v1/proxy-pairing-keys/resolve`) and reject unverified tickets with `403` fail-closed behavior.
-- Preserve the original request JSON bytes when forwarding `/pair/confirm`; issuer-side confirmation must validate the ticket payload, not responder PoP headers.
-- Forward only minimal `/pair/confirm` headers (`content-type`); never forward responder `Authorization`/PoP headers or arbitrary inbound headers to issuer proxy.
+- Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.
+- Keep `/pair/start` ownership validation against registry `/internal/v1/identity/agent-ownership` using internal service credentials (`x-claw-service-id` + `x-claw-service-secret`), and map dependency failures to `503`.
+- Keep `/pair/start` fail-closed: do not bypass registry ownership dependencies.
+- Keep pairing profile contract strict:
+  - `/pair/start` requires `initiatorProfile.{agentName,humanName}`
+  - `/pair/confirm` requires `responderProfile.{agentName,humanName}`
+  - `/pair/status` returns stored profile fields for initiator and responder
+- Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
 - Keep `/hooks/agent` trust check explicit: sender/recipient pair must be authorized by trust state before relay delivery.
@@ -60,6 +63,9 @@
 - Keep `/hooks/agent` input contract strict: require `Content-Type: application/json` and reject malformed JSON with explicit client errors.
 - Keep agent-access validation centralized in `auth-middleware.ts` and call registry `POST /v1/agents/auth/validate`; treat non-`204` non-`401` responses as dependency failures (`503`).
 - Keep relay delivery failure mapping explicit for `/hooks/agent`: DO delivery/RPC failures -> `502`, unavailable DO namespace -> `503`.
+- Keep relay delivery semantics asynchronous and durable: `/hooks/agent` accepts queued deliveries with `202` (`state=queued`) when recipient connector is offline.
+- Keep relay queue saturation explicit: reject new deliveries with `507 PROXY_RELAY_QUEUE_FULL`; do not evict queued messages implicitly.
+- Keep relay retries inside `agent-relay-session.ts` with bounded backoff (`RELAY_RETRY_*`) and per-agent queue caps/TTL (`RELAY_QUEUE_*`); do not add ad-hoc retry loops in route handlers.
 - Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.

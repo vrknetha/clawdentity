@@ -35,6 +35,19 @@ export {
   verifyEd25519,
 } from "./crypto/ed25519.js";
 export { addSeconds, isExpired, nowIso } from "./datetime.js";
+export type {
+  EventBus,
+  EventEnvelope,
+  EventEnvelopeInput,
+  EventHandler,
+  InMemoryEventBus,
+  QueuePublisher,
+} from "./event-bus.js";
+export {
+  createEventEnvelope,
+  createInMemoryEventBus,
+  createQueueEventBus,
+} from "./event-bus.js";
 export {
   AppError,
   createHonoErrorHandler,
@@ -66,6 +79,12 @@ export type {
 export { CrlJwtError, signCRL, verifyCRL } from "./jwt/crl-jwt.js";
 export type { Logger } from "./logging.js";
 export { createLogger, createRequestLoggingMiddleware } from "./logging.js";
+export type { AgentOwnershipResult } from "./registry-identity-client.js";
+export {
+  createRegistryIdentityClient,
+  INTERNAL_SERVICE_ID_HEADER,
+  INTERNAL_SERVICE_SECRET_HEADER,
+} from "./registry-identity-client.js";
 export type { RequestContextVariables } from "./request-context.js";
 export {
   createRequestContextMiddleware,

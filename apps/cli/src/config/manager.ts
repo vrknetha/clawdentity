@@ -2,11 +2,13 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const DEFAULT_REGISTRY_URL = "https://api.clawdentity.com";
+export const DEFAULT_REGISTRY_URL = "https://registry.clawdentity.com";
 
 export interface CliConfig {
   registryUrl: string;
+  proxyUrl?: string;
   apiKey?: string;
+  humanName?: string;
 }
 
 export type CliConfigKey = keyof CliConfig;
@@ -18,7 +20,9 @@ const FILE_MODE = 0o600;
 
 const ENV_KEY_MAP: Record<CliConfigKey, string> = {
   registryUrl: "CLAWDENTITY_REGISTRY_URL",
+  proxyUrl: "CLAWDENTITY_PROXY_URL",
   apiKey: "CLAWDENTITY_API_KEY",
+  humanName: "CLAWDENTITY_HUMAN_NAME",
 };
 
 const LEGACY_ENV_KEY_MAP: Partial<Record<CliConfigKey, string[]>> = {
@@ -46,8 +50,16 @@ const normalizeConfig = (raw: unknown): CliConfig => {
     config.registryUrl = raw.registryUrl;
   }
 
+  if (typeof raw.proxyUrl === "string" && raw.proxyUrl.length > 0) {
+    config.proxyUrl = raw.proxyUrl;
+  }
+
   if (typeof raw.apiKey === "string" && raw.apiKey.length > 0) {
     config.apiKey = raw.apiKey;
+  }
+
+  if (typeof raw.humanName === "string" && raw.humanName.length > 0) {
+    config.humanName = raw.humanName;
   }
 
   return config;

@@ -25,7 +25,8 @@ function createRelaySandbox(): RelaySandbox {
           beta: {
             did: "did:claw:agent:01BETA",
             proxyUrl: "https://peer.example.com/hooks/agent?source=skill",
-            name: "Beta",
+            agentName: "beta",
+            humanName: "Ira",
           },
         },
       },

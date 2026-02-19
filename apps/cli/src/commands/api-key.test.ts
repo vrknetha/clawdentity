@@ -48,7 +48,7 @@ async function runApiKeyCommand(args: string[]) {
   const command = createApiKeyCommand({
     fetchImpl: mockFetch as unknown as typeof fetch,
     resolveConfigImpl: async () => ({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
       apiKey: "clw_pat_local",
     }),
   });
@@ -84,7 +84,7 @@ describe("api-key command helpers", () => {
     mockFetch.mockReset();
 
     mockedResolveConfig.mockResolvedValue({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
       apiKey: "clw_pat_local",
     });
   });
@@ -112,7 +112,7 @@ describe("api-key command helpers", () => {
       {
         fetchImpl: mockFetch as unknown as typeof fetch,
         resolveConfigImpl: async () => ({
-          registryUrl: "https://api.clawdentity.com",
+          registryUrl: "https://registry.clawdentity.com",
           apiKey: "clw_pat_local",
         }),
       },
@@ -120,7 +120,7 @@ describe("api-key command helpers", () => {
 
     expect(result.apiKey.token).toBe("clw_pat_created");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clawdentity.com/v1/me/api-keys",
+      "https://registry.clawdentity.com/v1/me/api-keys",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -157,7 +157,7 @@ describe("api-key command helpers", () => {
       {
         fetchImpl: mockFetch as unknown as typeof fetch,
         resolveConfigImpl: async () => ({
-          registryUrl: "https://api.clawdentity.com",
+          registryUrl: "https://registry.clawdentity.com",
           apiKey: "clw_pat_local",
         }),
       },
@@ -177,7 +177,7 @@ describe("api-key command helpers", () => {
       {
         fetchImpl: mockFetch as unknown as typeof fetch,
         resolveConfigImpl: async () => ({
-          registryUrl: "https://api.clawdentity.com",
+          registryUrl: "https://registry.clawdentity.com",
           apiKey: "clw_pat_local",
         }),
       },
@@ -185,7 +185,7 @@ describe("api-key command helpers", () => {
 
     expect(result.apiKeyId).toBe("01KJ8E2A4F8B10V8R8A6T8XKZ9");
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clawdentity.com/v1/me/api-keys/01KJ8E2A4F8B10V8R8A6T8XKZ9",
+      "https://registry.clawdentity.com/v1/me/api-keys/01KJ8E2A4F8B10V8R8A6T8XKZ9",
       expect.objectContaining({
         method: "DELETE",
         headers: expect.objectContaining({
@@ -197,7 +197,7 @@ describe("api-key command helpers", () => {
 
   it("fails create when local API key is not configured", async () => {
     mockedResolveConfig.mockResolvedValueOnce({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
     });
 
     await expect(
@@ -222,7 +222,7 @@ describe("api-key command helpers", () => {
         {
           fetchImpl: mockFetch as unknown as typeof fetch,
           resolveConfigImpl: async () => ({
-            registryUrl: "https://api.clawdentity.com",
+            registryUrl: "https://registry.clawdentity.com",
             apiKey: "clw_pat_local",
           }),
         },
@@ -251,7 +251,7 @@ describe("api-key command helpers", () => {
         {
           fetchImpl: mockFetch as unknown as typeof fetch,
           resolveConfigImpl: async () => ({
-            registryUrl: "https://api.clawdentity.com",
+            registryUrl: "https://registry.clawdentity.com",
             apiKey: "clw_pat_local",
           }),
         },

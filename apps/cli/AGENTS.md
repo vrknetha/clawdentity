@@ -7,11 +7,11 @@
 ## Command Architecture
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
-- Keep `src/postinstall.ts` as a thin install entrypoint only; it should detect npm `--skill` mode and call shared installer helpers without mutating runtime CLI command wiring.
-- Keep package identity clear: workspace package name is `clawdentity` and published install entrypoint remains `npm install clawdentity --skill`.
+- Keep `src/postinstall.ts` as a no-op compatibility shim; skill installation is command-driven via `clawdentity skill install`.
+- Keep package identity clear: workspace package name is `clawdentity`.
 - Keep runtime version parity: source `CLI_VERSION` from the package metadata (`package.json`) at runtime, never from a hardcoded literal in `src/index.ts`.
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
-- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`, `connector`) so automation and docs do not drift.
+- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`, `connector`, `skill`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
 - Use `process.exitCode` instead of `process.exit()`.
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
@@ -20,7 +20,7 @@
 - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
 - Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
 - Keep publish artifacts ESM-compatible and avoid bundling CJS-only runtime deps that rely on dynamic `require` (for example `ws`); externalize them and declare them in CLI `dependencies` so installed binaries start cleanly.
-- npm `--skill` installer behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
+- `skill install` behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
 - Keep `skill-bundle/openclaw-skill/` generated from `apps/openclaw-skill` only; do not hand-edit bundled files.
 - Keep generated bundle policy strict: `sync-skill-bundle` must copy from `apps/openclaw-skill/dist/relay-to-peer.mjs` and fail if source build artifacts are missing.
 - Keep generated bundle files out of git; rely on `build`/`prepack` to rebuild `skill-bundle` before `npm pack`/`npm publish`.

@@ -4,7 +4,6 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { writeStderrLine, writeStdoutLine } from "./io.js";
 
 const OPENCLAW_DIR_NAME = ".openclaw";
 const SKILL_PACKAGE_NAME = "@clawdentity/openclaw-skill";
@@ -27,25 +26,11 @@ export type SkillInstallResult = {
   records: SkillInstallRecord[];
 };
 
-export type RunNpmSkillInstallResult =
-  | {
-      skipped: true;
-    }
-  | ({
-      skipped: false;
-    } & SkillInstallResult);
-
 type SkillInstallOptions = {
   homeDir?: string;
   openclawDir?: string;
   skillPackageRoot?: string;
   env?: NodeJS.ProcessEnv;
-};
-
-type RunNpmSkillInstallOptions = SkillInstallOptions & {
-  env?: NodeJS.ProcessEnv;
-  writeStdout?: (line: string) => void;
-  writeStderr?: (line: string) => void;
 };
 
 type SkillInstallArtifact = {
@@ -84,61 +69,6 @@ function getErrorCode(error: unknown): string | undefined {
   }
 
   return typeof error.code === "string" ? error.code : undefined;
-}
-
-function parseBooleanFlag(value: string | undefined): boolean | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "" ||
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes"
-  ) {
-    return true;
-  }
-
-  if (normalized === "0" || normalized === "false" || normalized === "no") {
-    return false;
-  }
-
-  return undefined;
-}
-
-function hasSkillFlagInNpmArgv(rawArgv: string | undefined): boolean {
-  if (!rawArgv || rawArgv.trim().length === 0) {
-    return false;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawArgv);
-  } catch {
-    return false;
-  }
-
-  if (!isRecord(parsed)) {
-    return false;
-  }
-
-  const original = parsed.original;
-  if (!Array.isArray(original)) {
-    return false;
-  }
-
-  return original.some((entry) => entry === "--skill");
-}
-
-export function isSkillInstallRequested(env: NodeJS.ProcessEnv = process.env) {
-  const envFlag = parseBooleanFlag(env.npm_config_skill);
-  if (envFlag !== undefined) {
-    return envFlag;
-  }
-
-  return hasSkillFlagInNpmArgv(env.npm_config_argv);
 }
 
 function resolveHomeDir(inputHomeDir?: string): string {
@@ -209,7 +139,7 @@ function resolveSkillPackageRoot(input: {
     throw new SkillInstallError({
       code: "CLI_SKILL_PACKAGE_NOT_FOUND",
       message:
-        "Skill artifacts are unavailable. Set CLAWDENTITY_SKILL_PACKAGE_ROOT or provide bundled skill assets before using --skill mode.",
+        "Skill artifacts are unavailable. Set CLAWDENTITY_SKILL_PACKAGE_ROOT or provide bundled skill assets before running skill install.",
       details: {
         packageName: SKILL_PACKAGE_NAME,
         bundledSkillRoot,
@@ -310,12 +240,7 @@ async function resolveArtifacts(input: {
     });
   }
 
-  const targetSkillRoot = join(
-    input.openclawDir,
-    "workspace",
-    "skills",
-    SKILL_DIR_NAME,
-  );
+  const targetSkillRoot = join(input.openclawDir, "skills", SKILL_DIR_NAME);
 
   const artifacts: SkillInstallArtifact[] = [
     {
@@ -408,22 +333,9 @@ export async function installOpenclawSkillArtifacts(
     homeDir,
     openclawDir,
     skillPackageRoot,
-    targetSkillDirectory: join(
-      openclawDir,
-      "workspace",
-      "skills",
-      SKILL_DIR_NAME,
-    ),
+    targetSkillDirectory: join(openclawDir, "skills", SKILL_DIR_NAME),
     records,
   };
-}
-
-function toSummaryCounts(records: SkillInstallRecord[]): string {
-  const installed = records.filter((record) => record.action === "installed");
-  const updated = records.filter((record) => record.action === "updated");
-  const unchanged = records.filter((record) => record.action === "unchanged");
-
-  return `installed=${installed.length} updated=${updated.length} unchanged=${unchanged.length}`;
 }
 
 export function formatSkillInstallError(error: unknown): string {
@@ -444,45 +356,4 @@ export function formatSkillInstallError(error: unknown): string {
   }
 
   return String(error);
-}
-
-export async function runNpmSkillInstall(
-  options: RunNpmSkillInstallOptions = {},
-): Promise<RunNpmSkillInstallResult> {
-  const env = options.env ?? process.env;
-  const writeStdout = options.writeStdout ?? writeStdoutLine;
-  const writeStderr = options.writeStderr ?? writeStderrLine;
-
-  if (!isSkillInstallRequested(env)) {
-    return { skipped: true };
-  }
-
-  writeStdout("[clawdentity] skill install mode detected (--skill)");
-
-  try {
-    const result = await installOpenclawSkillArtifacts({
-      env,
-      homeDir: options.homeDir,
-      openclawDir: options.openclawDir,
-      skillPackageRoot: options.skillPackageRoot,
-    });
-
-    for (const record of result.records) {
-      writeStdout(
-        `[clawdentity] ${record.action}: ${record.targetPath} (source: ${record.sourcePath})`,
-      );
-    }
-
-    writeStdout(`[clawdentity] ${toSummaryCounts(result.records)}`);
-
-    return {
-      skipped: false,
-      ...result,
-    };
-  } catch (error) {
-    writeStderr(
-      `[clawdentity] skill install failed: ${formatSkillInstallError(error)}`,
-    );
-    throw error;
-  }
 }

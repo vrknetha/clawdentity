@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import {
   decodeBase64url,
   encodeBase64url,
+  RELAY_CONNECT_PATH,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
 import {
@@ -25,10 +26,23 @@ import { ConnectorClient, type ConnectorWebSocket } from "./client.js";
 import {
   AGENT_ACCESS_HEADER,
   DEFAULT_CONNECTOR_BASE_URL,
+  DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_BYTES,
+  DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_MESSAGES,
+  DEFAULT_CONNECTOR_INBOUND_REPLAY_BATCH_SIZE,
+  DEFAULT_CONNECTOR_INBOUND_REPLAY_INTERVAL_MS,
+  DEFAULT_CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR,
+  DEFAULT_CONNECTOR_INBOUND_RETRY_INITIAL_DELAY_MS,
+  DEFAULT_CONNECTOR_INBOUND_RETRY_MAX_DELAY_MS,
   DEFAULT_CONNECTOR_OUTBOUND_PATH,
+  DEFAULT_CONNECTOR_STATUS_PATH,
   DEFAULT_OPENCLAW_BASE_URL,
+  DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
   DEFAULT_OPENCLAW_HOOK_PATH,
 } from "./constants.js";
+import {
+  type ConnectorInboundInboxSnapshot,
+  createConnectorInboundInbox,
+} from "./inbound-inbox.js";
 
 type ConnectorRuntimeCredentials = {
   accessExpiresAt?: string;
@@ -138,6 +152,10 @@ function normalizeWebSocketUrl(urlInput: string | undefined): string {
     throw new Error("Proxy websocket URL must use ws:// or wss://");
   }
 
+  if (parsed.pathname === "/") {
+    parsed.pathname = RELAY_CONNECT_PATH;
+  }
+
   return parsed.toString();
 }
 
@@ -163,6 +181,187 @@ function resolveOpenclawHookToken(input?: string): string | undefined {
     return undefined;
   }
   return value;
+}
+
+function toOpenclawHookUrl(baseUrl: string, hookPath: string): string {
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  const normalizedHookPath = hookPath.startsWith("/")
+    ? hookPath.slice(1)
+    : hookPath;
+  return new URL(normalizedHookPath, normalizedBase).toString();
+}
+
+function parsePositiveIntEnv(
+  key: string,
+  fallback: number,
+  minimum = 1,
+): number {
+  const raw = process.env[key]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < minimum) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function sanitizeErrorReason(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Unknown error";
+  }
+
+  return error.message.trim().slice(0, 240) || "Unknown error";
+}
+
+class LocalOpenclawDeliveryError extends Error {
+  readonly retryable: boolean;
+
+  constructor(input: { message: string; retryable: boolean }) {
+    super(input.message);
+    this.name = "LocalOpenclawDeliveryError";
+    this.retryable = input.retryable;
+  }
+}
+
+type InboundReplayPolicy = {
+  batchSize: number;
+  inboxMaxBytes: number;
+  inboxMaxMessages: number;
+  replayIntervalMs: number;
+  retryBackoffFactor: number;
+  retryInitialDelayMs: number;
+  retryMaxDelayMs: number;
+};
+
+type InboundReplayStatus = {
+  lastReplayAt?: string;
+  lastReplayError?: string;
+  lastAttemptAt?: string;
+  lastAttemptStatus?: "ok" | "failed";
+  replayerActive: boolean;
+};
+
+type InboundReplayView = {
+  lastReplayAt?: string;
+  lastReplayError?: string;
+  pending: ConnectorInboundInboxSnapshot;
+  replayerActive: boolean;
+  openclawHook: {
+    lastAttemptAt?: string;
+    lastAttemptStatus?: "ok" | "failed";
+    url: string;
+  };
+};
+
+function loadInboundReplayPolicy(): InboundReplayPolicy {
+  const retryBackoffFactor = Number.parseFloat(
+    process.env.CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR ?? "",
+  );
+
+  return {
+    inboxMaxMessages: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_INBOX_MAX_MESSAGES",
+      DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_MESSAGES,
+    ),
+    inboxMaxBytes: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_INBOX_MAX_BYTES",
+      DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_BYTES,
+    ),
+    replayIntervalMs: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_REPLAY_INTERVAL_MS",
+      DEFAULT_CONNECTOR_INBOUND_REPLAY_INTERVAL_MS,
+    ),
+    batchSize: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_REPLAY_BATCH_SIZE",
+      DEFAULT_CONNECTOR_INBOUND_REPLAY_BATCH_SIZE,
+    ),
+    retryInitialDelayMs: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_RETRY_INITIAL_DELAY_MS",
+      DEFAULT_CONNECTOR_INBOUND_RETRY_INITIAL_DELAY_MS,
+    ),
+    retryMaxDelayMs: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_RETRY_MAX_DELAY_MS",
+      DEFAULT_CONNECTOR_INBOUND_RETRY_MAX_DELAY_MS,
+    ),
+    retryBackoffFactor:
+      Number.isFinite(retryBackoffFactor) && retryBackoffFactor >= 1
+        ? retryBackoffFactor
+        : DEFAULT_CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR,
+  };
+}
+
+function computeReplayDelayMs(input: {
+  attemptCount: number;
+  policy: InboundReplayPolicy;
+}): number {
+  const exponent = Math.max(0, input.attemptCount - 1);
+  const delay = Math.min(
+    input.policy.retryMaxDelayMs,
+    Math.floor(
+      input.policy.retryInitialDelayMs *
+        input.policy.retryBackoffFactor ** exponent,
+    ),
+  );
+  return Math.max(1, delay);
+}
+
+async function deliverToOpenclawHook(input: {
+  fetchImpl: typeof fetch;
+  openclawHookToken?: string;
+  openclawHookUrl: string;
+  payload: unknown;
+  requestId: string;
+}): Promise<void> {
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => {
+    controller.abort();
+  }, DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS);
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-request-id": input.requestId,
+  };
+  if (input.openclawHookToken !== undefined) {
+    headers["x-openclaw-token"] = input.openclawHookToken;
+  }
+
+  try {
+    const response = await input.fetchImpl(input.openclawHookUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input.payload),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new LocalOpenclawDeliveryError({
+        message: `Local OpenClaw hook rejected payload with status ${response.status}`,
+        retryable:
+          response.status >= 500 ||
+          response.status === 404 ||
+          response.status === 429,
+      });
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new LocalOpenclawDeliveryError({
+        message: "Local OpenClaw hook request timed out",
+        retryable: true,
+      });
+    }
+    if (error instanceof LocalOpenclawDeliveryError) {
+      throw error;
+    }
+    throw new LocalOpenclawDeliveryError({
+      message: sanitizeErrorReason(error),
+      retryable: true,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
 }
 
 function toInitialAuthBundle(
@@ -297,6 +496,89 @@ async function writeRegistryAuthAtomic(input: {
   await rename(tmpPath, targetPath);
 }
 
+function parseRegistryAuthFromDisk(
+  payload: unknown,
+): AgentAuthBundle | undefined {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const tokenType = payload.tokenType;
+  const accessToken = payload.accessToken;
+  const accessExpiresAt = payload.accessExpiresAt;
+  const refreshToken = payload.refreshToken;
+  const refreshExpiresAt = payload.refreshExpiresAt;
+
+  if (
+    tokenType !== "Bearer" ||
+    typeof accessToken !== "string" ||
+    typeof accessExpiresAt !== "string" ||
+    typeof refreshToken !== "string" ||
+    typeof refreshExpiresAt !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    tokenType,
+    accessToken,
+    accessExpiresAt,
+    refreshToken,
+    refreshExpiresAt,
+  };
+}
+
+async function readRegistryAuthFromDisk(input: {
+  configDir: string;
+  agentName: string;
+  logger: Logger;
+}): Promise<AgentAuthBundle | undefined> {
+  const authPath = join(
+    input.configDir,
+    AGENTS_DIR_NAME,
+    input.agentName,
+    REGISTRY_AUTH_FILENAME,
+  );
+
+  let raw: string;
+  try {
+    raw = await readFile(authPath, "utf8");
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "ENOENT"
+    ) {
+      return undefined;
+    }
+
+    input.logger.warn("connector.runtime.registry_auth_read_failed", {
+      authPath,
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    input.logger.warn("connector.runtime.registry_auth_invalid_json", {
+      authPath,
+    });
+    return undefined;
+  }
+
+  const auth = parseRegistryAuthFromDisk(parsed);
+  if (auth === undefined) {
+    input.logger.warn("connector.runtime.registry_auth_invalid_shape", {
+      authPath,
+    });
+  }
+  return auth;
+}
+
 async function readRequestJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -386,7 +668,37 @@ export async function startConnectorRuntime(
 
   let currentAuth = toInitialAuthBundle(input.credentials);
 
-  if (shouldRefreshAccessToken(currentAuth, Date.now())) {
+  const syncAuthFromDisk = async (): Promise<void> => {
+    const diskAuth = await readRegistryAuthFromDisk({
+      configDir: input.configDir,
+      agentName: input.agentName,
+      logger,
+    });
+    if (!diskAuth) {
+      return;
+    }
+
+    if (
+      diskAuth.accessToken === currentAuth.accessToken &&
+      diskAuth.accessExpiresAt === currentAuth.accessExpiresAt &&
+      diskAuth.refreshToken === currentAuth.refreshToken &&
+      diskAuth.refreshExpiresAt === currentAuth.refreshExpiresAt
+    ) {
+      return;
+    }
+
+    currentAuth = diskAuth;
+    logger.info("connector.runtime.registry_auth_synced", {
+      agentName: input.agentName,
+    });
+  };
+
+  const refreshCurrentAuthIfNeeded = async (): Promise<void> => {
+    await syncAuthFromDisk();
+    if (!shouldRefreshAccessToken(currentAuth, Date.now())) {
+      return;
+    }
+
     currentAuth = await refreshAgentAuthWithClawProof({
       registryUrl: input.registryUrl,
       ait: input.credentials.ait,
@@ -399,33 +711,162 @@ export async function startConnectorRuntime(
       agentName: input.agentName,
       auth: currentAuth,
     });
-  }
+  };
+
+  await refreshCurrentAuthIfNeeded();
 
   const wsUrl = normalizeWebSocketUrl(input.proxyWebsocketUrl);
   const wsParsed = new URL(wsUrl);
-  const upgradeHeaders = await buildUpgradeHeaders({
-    wsUrl: wsParsed,
-    ait: input.credentials.ait,
-    accessToken: currentAuth.accessToken,
-    secretKey,
+  const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
+  const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
+  const openclawHookToken = resolveOpenclawHookToken(input.openclawHookToken);
+  const openclawHookUrl = toOpenclawHookUrl(openclawBaseUrl, openclawHookPath);
+  const inboundReplayPolicy = loadInboundReplayPolicy();
+  const inboundInbox = createConnectorInboundInbox({
+    configDir: input.configDir,
+    agentName: input.agentName,
+    maxPendingMessages: inboundReplayPolicy.inboxMaxMessages,
+    maxPendingBytes: inboundReplayPolicy.inboxMaxBytes,
   });
+  const inboundReplayStatus: InboundReplayStatus = {
+    replayerActive: false,
+  };
+  let runtimeStopping = false;
+  let replayInFlight = false;
+  let replayIntervalHandle: ReturnType<typeof setInterval> | undefined;
+
+  const resolveUpgradeHeaders = async (): Promise<Record<string, string>> => {
+    await refreshCurrentAuthIfNeeded();
+    return buildUpgradeHeaders({
+      wsUrl: wsParsed,
+      ait: input.credentials.ait,
+      accessToken: currentAuth.accessToken,
+      secretKey,
+    });
+  };
+
+  const replayPendingInboundMessages = async (): Promise<void> => {
+    if (runtimeStopping || replayInFlight) {
+      return;
+    }
+
+    replayInFlight = true;
+    inboundReplayStatus.replayerActive = true;
+
+    try {
+      const dueItems = await inboundInbox.listDuePending({
+        nowMs: Date.now(),
+        limit: inboundReplayPolicy.batchSize,
+      });
+      for (const pending of dueItems) {
+        inboundReplayStatus.lastAttemptAt = new Date().toISOString();
+        try {
+          await deliverToOpenclawHook({
+            fetchImpl,
+            openclawHookUrl,
+            openclawHookToken,
+            requestId: pending.requestId,
+            payload: pending.payload,
+          });
+          await inboundInbox.markDelivered(pending.requestId);
+          inboundReplayStatus.lastReplayAt = new Date().toISOString();
+          inboundReplayStatus.lastReplayError = undefined;
+          inboundReplayStatus.lastAttemptStatus = "ok";
+          logger.info("connector.inbound.replay_succeeded", {
+            requestId: pending.requestId,
+            attemptCount: pending.attemptCount + 1,
+          });
+        } catch (error) {
+          const reason = sanitizeErrorReason(error);
+          const retryable =
+            error instanceof LocalOpenclawDeliveryError
+              ? error.retryable
+              : true;
+          const nextAttemptAt = new Date(
+            Date.now() +
+              computeReplayDelayMs({
+                attemptCount: pending.attemptCount + 1,
+                policy: inboundReplayPolicy,
+              }) *
+                (retryable ? 1 : 10),
+          ).toISOString();
+          await inboundInbox.markReplayFailure({
+            requestId: pending.requestId,
+            errorMessage: reason,
+            nextAttemptAt,
+          });
+          inboundReplayStatus.lastReplayError = reason;
+          inboundReplayStatus.lastAttemptStatus = "failed";
+          logger.warn("connector.inbound.replay_failed", {
+            requestId: pending.requestId,
+            attemptCount: pending.attemptCount + 1,
+            retryable,
+            nextAttemptAt,
+            reason,
+          });
+        }
+      }
+    } finally {
+      replayInFlight = false;
+      inboundReplayStatus.replayerActive = false;
+    }
+  };
+
+  const readInboundReplayView = async (): Promise<InboundReplayView> => {
+    const pending = await inboundInbox.getSnapshot();
+    return {
+      pending,
+      replayerActive: inboundReplayStatus.replayerActive || replayInFlight,
+      lastReplayAt: inboundReplayStatus.lastReplayAt,
+      lastReplayError: inboundReplayStatus.lastReplayError,
+      openclawHook: {
+        url: openclawHookUrl,
+        lastAttemptAt: inboundReplayStatus.lastAttemptAt,
+        lastAttemptStatus: inboundReplayStatus.lastAttemptStatus,
+      },
+    };
+  };
 
   const connectorClient = new ConnectorClient({
     connectorUrl: wsParsed.toString(),
-    connectionHeaders: upgradeHeaders,
-    openclawBaseUrl: resolveOpenclawBaseUrl(input.openclawBaseUrl),
-    openclawHookPath: resolveOpenclawHookPath(input.openclawHookPath),
-    openclawHookToken: resolveOpenclawHookToken(input.openclawHookToken),
+    connectionHeadersProvider: resolveUpgradeHeaders,
+    openclawBaseUrl,
+    openclawHookPath,
+    openclawHookToken,
     fetchImpl,
     logger,
+    inboundDeliverHandler: async (frame) => {
+      const persisted = await inboundInbox.enqueue(frame);
+      if (!persisted.accepted) {
+        logger.warn("connector.inbound.persist_rejected", {
+          requestId: frame.id,
+          reason: persisted.reason ?? "inbox limit reached",
+          pendingCount: persisted.pendingCount,
+        });
+        return {
+          accepted: false,
+          reason: persisted.reason,
+        };
+      }
+
+      logger.info("connector.inbound.persisted", {
+        requestId: frame.id,
+        duplicate: persisted.duplicate,
+        pendingCount: persisted.pendingCount,
+      });
+      void replayPendingInboundMessages();
+      return { accepted: true };
+    },
     webSocketFactory: createWebSocketFactory(),
   });
 
   const outboundBaseUrl = normalizeOutboundBaseUrl(input.outboundBaseUrl);
   const outboundPath = normalizeOutboundPath(input.outboundPath);
+  const statusPath = DEFAULT_CONNECTOR_STATUS_PATH;
   const outboundUrl = new URL(outboundPath, outboundBaseUrl).toString();
 
   const relayToPeer = async (request: OutboundRelayRequest): Promise<void> => {
+    await syncAuthFromDisk();
     const peerUrl = new URL(request.peerProxyUrl);
     const body = JSON.stringify(request.payload ?? {});
     const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}`;
@@ -475,7 +916,10 @@ export async function startConnectorRuntime(
     await executeWithAgentAuthRefreshRetry({
       key: refreshKey,
       shouldRetry: isRetryableRelayAuthError,
-      getAuth: async () => currentAuth,
+      getAuth: async () => {
+        await syncAuthFromDisk();
+        return currentAuth;
+      },
       persistAuth: async (nextAuth) => {
         currentAuth = nextAuth;
         await writeRegistryAuthAtomic({
@@ -500,6 +944,52 @@ export async function startConnectorRuntime(
     const requestPath = req.url
       ? new URL(req.url, outboundBaseUrl).pathname
       : "/";
+
+    if (requestPath === statusPath) {
+      if (req.method !== "GET") {
+        res.statusCode = 405;
+        res.setHeader("allow", "GET");
+        writeJson(res, 405, { error: "Method Not Allowed" });
+        return;
+      }
+
+      let inboundReplayView: InboundReplayView;
+      try {
+        inboundReplayView = await readInboundReplayView();
+      } catch (error) {
+        logger.warn("connector.status.inbound_inbox_unavailable", {
+          reason: sanitizeErrorReason(error),
+        });
+        writeJson(res, 500, {
+          status: "error",
+          error: {
+            code: "CONNECTOR_INBOUND_INBOX_UNAVAILABLE",
+            message: "Connector inbound inbox status is unavailable",
+          },
+          outboundUrl,
+          websocketUrl: wsUrl,
+          websocketConnected: connectorClient.isConnected(),
+        });
+        return;
+      }
+      writeJson(res, 200, {
+        status: "ok",
+        outboundUrl,
+        websocketUrl: wsUrl,
+        websocketConnected: connectorClient.isConnected(),
+        inboundInbox: {
+          pendingCount: inboundReplayView.pending.pendingCount,
+          pendingBytes: inboundReplayView.pending.pendingBytes,
+          oldestPendingAt: inboundReplayView.pending.oldestPendingAt,
+          nextAttemptAt: inboundReplayView.pending.nextAttemptAt,
+          replayerActive: inboundReplayView.replayerActive,
+          lastReplayAt: inboundReplayView.lastReplayAt,
+          lastReplayError: inboundReplayView.lastReplayError,
+        },
+        openclawHook: inboundReplayView.openclawHook,
+      });
+      return;
+    }
 
     if (requestPath !== outboundPath) {
       writeJson(res, 404, { error: "Not Found" });
@@ -552,6 +1042,11 @@ export async function startConnectorRuntime(
   });
 
   const stop = async (): Promise<void> => {
+    runtimeStopping = true;
+    if (replayIntervalHandle !== undefined) {
+      clearInterval(replayIntervalHandle);
+      replayIntervalHandle = undefined;
+    }
     connectorClient.disconnect();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -578,6 +1073,11 @@ export async function startConnectorRuntime(
   });
 
   connectorClient.connect();
+  await inboundInbox.pruneDelivered();
+  void replayPendingInboundMessages();
+  replayIntervalHandle = setInterval(() => {
+    void replayPendingInboundMessages();
+  }, inboundReplayPolicy.replayIntervalMs);
 
   logger.info("connector.runtime.started", {
     outboundUrl,

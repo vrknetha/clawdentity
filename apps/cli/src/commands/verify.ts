@@ -82,12 +82,12 @@ const toRegistryUrl = (registryUrl: string, path: string): string => {
 const toExpectedIssuer = (registryUrl: string): string | undefined => {
   try {
     const hostname = new URL(registryUrl).hostname;
-    if (hostname === "api.clawdentity.com") {
-      return "https://api.clawdentity.com";
+    if (hostname === "registry.clawdentity.com") {
+      return "https://registry.clawdentity.com";
     }
 
-    if (hostname === "dev.api.clawdentity.com") {
-      return "https://dev.api.clawdentity.com";
+    if (hostname === "dev.registry.clawdentity.com") {
+      return "https://dev.registry.clawdentity.com";
     }
 
     return undefined;

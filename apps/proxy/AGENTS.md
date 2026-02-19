@@ -6,14 +6,15 @@
 
 ## Runtime Configuration
 - Keep runtime config centralized in `src/config.ts`.
-- Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `development`, and `production` environments.
+- Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `dev`, and `production` environments.
 - Duplicate Durable Object `bindings` and `migrations` inside each Wrangler env block; env sections do not inherit top-level DO config.
 - Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
-- Keep deployment intent explicit: `local` is for local Wrangler dev runs only; `development` and `production` are remote cloud environments.
+- Keep deployment intent explicit: Wrangler `dev` maps to runtime `ENVIRONMENT=development`; `local` is for local Wrangler dev runs only, and `production` is the live cloud environment.
+- Keep script intent explicit: `pnpm -F @clawdentity/proxy run dev` must run Wrangler with `--env dev --port 8787`, and `dev:local` is the only script that should run `--env local --port 8787`.
 - Keep trust-store backend policy environment-scoped:
   - `local`: allow in-memory trust-store fallback when `PROXY_TRUST_STATE` binding is unavailable.
   - `development` and `production`: require `PROXY_TRUST_STATE`; fail startup when missing.
@@ -37,19 +38,23 @@
   - `LISTEN_PORT` or `PORT`
   - `OPENCLAW_BASE_URL`
   - `REGISTRY_URL` or `CLAWDENTITY_REGISTRY_URL`
-  - `PAIRING_ISSUER_URL` (optional stable issuer origin used in pairing tickets)
+  - `REGISTRY_INTERNAL_SERVICE_ID` + `REGISTRY_INTERNAL_SERVICE_SECRET` (required together for proxy-to-registry identity ownership checks)
   - `OPENCLAW_STATE_DIR`
+  - `RELAY_QUEUE_MAX_MESSAGES_PER_AGENT`, `RELAY_QUEUE_TTL_SECONDS`, `RELAY_RETRY_INITIAL_MS`, `RELAY_RETRY_MAX_MS`, `RELAY_RETRY_MAX_ATTEMPTS`, `RELAY_RETRY_JITTER_RATIO`
 
 ## Trust and Pairing
 - Keep trust state in Durable Objects (`ProxyTrustState`), not in static environment variables.
 - Do not add support for `ALLOW_LIST`, `ALLOWLIST_OWNERS`, or `ALLOWLIST_AGENTS`; trust is API-managed only.
 - Pairing is managed by API:
-  - `POST /pair/start` (verified Claw auth + `x-claw-owner-pat` ownership check against registry `GET /v1/agents/:id/ownership`)
+  - `POST /pair/start` (verified Claw auth + internal ownership check via registry `/internal/v1/identity/agent-ownership`)
   - `POST /pair/confirm` (verified Claw auth + one-time pairing ticket consume)
-- Cross-proxy `/pair/confirm` forwarding must enforce built-in SSRF protections (block localhost/private/reserved destinations for non-local proxy origins).
+- Pairing flow is single-proxy only: `POST /pair/confirm` must consume local tickets from trust state and never forward confirm requests.
 - Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the ticket in one step (`confirmPairingTicket`), never two separate calls.
 - Confirming a valid pairing ticket must establish mutual trust for the initiator/responder agent pair.
 - Keep pairing tickets one-time and expiring; reject missing/expired/malformed tickets with explicit client errors.
+- Normalize pairing ticket expiry to whole seconds when persisting trust state (`exp` is second-granularity in ticket payload); do not reject valid tickets due millisecond offsets.
+- Keep pairing fail-closed: do not bypass registry ownership dependency.
+- Keep strict dependency enforcement as the default for `development` and `production`; do not infer bypass from hostnames.
 - Reject deprecated `ALLOW_ALL_VERIFIED` at startup; never provide a global allow-all bypass for verified callers.
 
 ## Auth Verification
@@ -69,6 +74,8 @@
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` authorization strict: after auth succeeds, require trusted initiator/responder pair before relay delivery.
+- Keep `/hooks/agent` delivery contract async-first: accepted deliveries return `202` with delivery state (`delivered` or `queued`), not `502` for transient recipient offline cases.
+- Keep queue overflow behavior explicit and stable: return `507 PROXY_RELAY_QUEUE_FULL` and preserve existing queued deliveries.
 - Keep `/v1/relay/connect` auth strict with verified Claw auth + PoP headers, but do not require `x-claw-agent-access`.
 
 ## CRL Policy

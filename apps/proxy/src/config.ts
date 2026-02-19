@@ -20,7 +20,7 @@ export type ProxyConfigLoadOptions = {
 
 export const DEFAULT_PROXY_LISTEN_PORT = 4000;
 export const DEFAULT_OPENCLAW_BASE_URL = "http://127.0.0.1:18789";
-export const DEFAULT_REGISTRY_URL = "https://api.clawdentity.com";
+export const DEFAULT_REGISTRY_URL = "https://registry.clawdentity.com";
 export const DEFAULT_PROXY_ENVIRONMENT: ProxyEnvironment = "development";
 export const DEFAULT_CRL_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 export const DEFAULT_CRL_MAX_AGE_MS = 15 * 60 * 1000;
@@ -28,6 +28,12 @@ export const DEFAULT_CRL_STALE_BEHAVIOR: ProxyCrlStaleBehavior = "fail-open";
 export const DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE = 60;
 export const DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS = 60 * 1000;
 export const DEFAULT_INJECT_IDENTITY_INTO_MESSAGE = true;
+export const DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT = 500;
+export const DEFAULT_RELAY_QUEUE_TTL_SECONDS = 3600;
+export const DEFAULT_RELAY_RETRY_INITIAL_MS = 1000;
+export const DEFAULT_RELAY_RETRY_MAX_MS = 30_000;
+export const DEFAULT_RELAY_RETRY_MAX_ATTEMPTS = 25;
+export const DEFAULT_RELAY_RETRY_JITTER_RATIO = 0.2;
 
 export class ProxyConfigError extends Error {
   readonly code = "CONFIG_VALIDATION_FAILED";
@@ -79,7 +85,8 @@ const proxyRuntimeEnvSchema = z.object({
     .default(DEFAULT_PROXY_LISTEN_PORT),
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
   REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
-  PAIRING_ISSUER_URL: z.string().trim().url().optional(),
+  REGISTRY_INTERNAL_SERVICE_ID: z.string().trim().min(1).optional(),
+  REGISTRY_INTERNAL_SERVICE_SECRET: z.string().trim().min(1).optional(),
   ENVIRONMENT: z
     .enum(proxyEnvironmentValues)
     .default(DEFAULT_PROXY_ENVIRONMENT),
@@ -109,13 +116,44 @@ const proxyRuntimeEnvSchema = z.object({
   INJECT_IDENTITY_INTO_MESSAGE: envBooleanSchema.default(
     DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
   ),
+  RELAY_QUEUE_MAX_MESSAGES_PER_AGENT: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT),
+  RELAY_QUEUE_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_QUEUE_TTL_SECONDS),
+  RELAY_RETRY_INITIAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_RETRY_INITIAL_MS),
+  RELAY_RETRY_MAX_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_RETRY_MAX_MS),
+  RELAY_RETRY_MAX_ATTEMPTS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_RETRY_MAX_ATTEMPTS),
+  RELAY_RETRY_JITTER_RATIO: z.coerce
+    .number()
+    .min(0)
+    .max(1)
+    .default(DEFAULT_RELAY_RETRY_JITTER_RATIO),
 });
 
 export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
   openclawBaseUrl: z.string().url(),
   registryUrl: z.string().url(),
-  pairingIssuerUrl: z.string().url().optional(),
+  registryInternalServiceId: z.string().min(1).optional(),
+  registryInternalServiceSecret: z.string().min(1).optional(),
   environment: z.enum(proxyEnvironmentValues),
   crlRefreshIntervalMs: z.number().int().positive(),
   crlMaxAgeMs: z.number().int().positive(),
@@ -123,6 +161,12 @@ export const proxyConfigSchema = z.object({
   agentRateLimitRequestsPerMinute: z.number().int().positive(),
   agentRateLimitWindowMs: z.number().int().positive(),
   injectIdentityIntoMessage: z.boolean(),
+  relayQueueMaxMessagesPerAgent: z.number().int().positive(),
+  relayQueueTtlSeconds: z.number().int().positive(),
+  relayRetryInitialMs: z.number().int().positive(),
+  relayRetryMaxMs: z.number().int().positive(),
+  relayRetryMaxAttempts: z.number().int().positive(),
+  relayRetryJitterRatio: z.number().min(0).max(1),
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
@@ -133,7 +177,8 @@ type RuntimeEnvInput = {
   OPENCLAW_BASE_URL?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
-  PAIRING_ISSUER_URL?: unknown;
+  REGISTRY_INTERNAL_SERVICE_ID?: unknown;
+  REGISTRY_INTERNAL_SERVICE_SECRET?: unknown;
   ENVIRONMENT?: unknown;
   ALLOW_ALL_VERIFIED?: unknown;
   CRL_REFRESH_INTERVAL_MS?: unknown;
@@ -142,6 +187,12 @@ type RuntimeEnvInput = {
   AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE?: unknown;
   AGENT_RATE_LIMIT_WINDOW_MS?: unknown;
   INJECT_IDENTITY_INTO_MESSAGE?: unknown;
+  RELAY_QUEUE_MAX_MESSAGES_PER_AGENT?: unknown;
+  RELAY_QUEUE_TTL_SECONDS?: unknown;
+  RELAY_RETRY_INITIAL_MS?: unknown;
+  RELAY_RETRY_MAX_MS?: unknown;
+  RELAY_RETRY_MAX_ATTEMPTS?: unknown;
+  RELAY_RETRY_JITTER_RATIO?: unknown;
   OPENCLAW_STATE_DIR?: unknown;
   HOME?: unknown;
   USERPROFILE?: unknown;
@@ -415,7 +466,12 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",
     ]),
-    PAIRING_ISSUER_URL: firstNonEmpty(env, ["PAIRING_ISSUER_URL"]),
+    REGISTRY_INTERNAL_SERVICE_ID: firstNonEmpty(env, [
+      "REGISTRY_INTERNAL_SERVICE_ID",
+    ]),
+    REGISTRY_INTERNAL_SERVICE_SECRET: firstNonEmpty(env, [
+      "REGISTRY_INTERNAL_SERVICE_SECRET",
+    ]),
     ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
     CRL_MAX_AGE_MS: firstNonEmpty(env, ["CRL_MAX_AGE_MS"]),
@@ -429,6 +485,14 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
     INJECT_IDENTITY_INTO_MESSAGE: firstNonEmpty(env, [
       "INJECT_IDENTITY_INTO_MESSAGE",
     ]),
+    RELAY_QUEUE_MAX_MESSAGES_PER_AGENT: firstNonEmpty(env, [
+      "RELAY_QUEUE_MAX_MESSAGES_PER_AGENT",
+    ]),
+    RELAY_QUEUE_TTL_SECONDS: firstNonEmpty(env, ["RELAY_QUEUE_TTL_SECONDS"]),
+    RELAY_RETRY_INITIAL_MS: firstNonEmpty(env, ["RELAY_RETRY_INITIAL_MS"]),
+    RELAY_RETRY_MAX_MS: firstNonEmpty(env, ["RELAY_RETRY_MAX_MS"]),
+    RELAY_RETRY_MAX_ATTEMPTS: firstNonEmpty(env, ["RELAY_RETRY_MAX_ATTEMPTS"]),
+    RELAY_RETRY_JITTER_RATIO: firstNonEmpty(env, ["RELAY_RETRY_JITTER_RATIO"]),
   };
 }
 
@@ -496,13 +560,57 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
     agentRateLimitWindowMs: parsedRuntimeEnv.data.AGENT_RATE_LIMIT_WINDOW_MS,
     injectIdentityIntoMessage:
       parsedRuntimeEnv.data.INJECT_IDENTITY_INTO_MESSAGE,
+    relayQueueMaxMessagesPerAgent:
+      parsedRuntimeEnv.data.RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
+    relayQueueTtlSeconds: parsedRuntimeEnv.data.RELAY_QUEUE_TTL_SECONDS,
+    relayRetryInitialMs: parsedRuntimeEnv.data.RELAY_RETRY_INITIAL_MS,
+    relayRetryMaxMs: parsedRuntimeEnv.data.RELAY_RETRY_MAX_MS,
+    relayRetryMaxAttempts: parsedRuntimeEnv.data.RELAY_RETRY_MAX_ATTEMPTS,
+    relayRetryJitterRatio: parsedRuntimeEnv.data.RELAY_RETRY_JITTER_RATIO,
   };
-  if (parsedRuntimeEnv.data.PAIRING_ISSUER_URL !== undefined) {
-    candidateConfig.pairingIssuerUrl = parsedRuntimeEnv.data.PAIRING_ISSUER_URL;
+  if (parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_ID !== undefined) {
+    candidateConfig.registryInternalServiceId =
+      parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_ID;
+  }
+  if (parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_SECRET !== undefined) {
+    candidateConfig.registryInternalServiceSecret =
+      parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_SECRET;
   }
 
   const parsedConfig = proxyConfigSchema.safeParse(candidateConfig);
   if (parsedConfig.success) {
+    const hasServiceId =
+      typeof parsedConfig.data.registryInternalServiceId === "string";
+    const hasServiceSecret =
+      typeof parsedConfig.data.registryInternalServiceSecret === "string";
+    if (hasServiceId !== hasServiceSecret) {
+      throw toConfigValidationError({
+        fieldErrors: {
+          REGISTRY_INTERNAL_SERVICE_ID: [
+            "REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET must be set together.",
+          ],
+          REGISTRY_INTERNAL_SERVICE_SECRET: [
+            "REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET must be set together.",
+          ],
+        },
+        formErrors: [],
+      });
+    }
+    if (
+      parsedConfig.data.relayRetryMaxMs < parsedConfig.data.relayRetryInitialMs
+    ) {
+      throw toConfigValidationError({
+        fieldErrors: {
+          RELAY_RETRY_MAX_MS: [
+            "RELAY_RETRY_MAX_MS must be greater than or equal to RELAY_RETRY_INITIAL_MS.",
+          ],
+          RELAY_RETRY_INITIAL_MS: [
+            "RELAY_RETRY_MAX_MS must be greater than or equal to RELAY_RETRY_INITIAL_MS.",
+          ],
+        },
+        formErrors: [],
+      });
+    }
     return parsedConfig.data;
   }
 

@@ -10,20 +10,21 @@
 - Keep D1 database IDs version-controlled; manage secrets with `wrangler secret put`.
 - Keep `migrations_dir` aligned with Drizzle output directory (`drizzle`).
 - Prefer branded custom domains over `*.workers.dev` for public endpoints.
-  - Development: `dev.api.clawdentity.com`
-  - Production: `api.clawdentity.com`
+  - Development: `dev.registry.clawdentity.com`
+  - Production: `registry.clawdentity.com`
 
 ## Deployment Rules
 - Always deploy with explicit environment: `--env dev` or `--env production`.
 - Deploy scripts must run D1 migrations before Worker deployment.
-- For local development, run local migrations before `wrangler dev --env dev` (use `pnpm -F @clawdentity/registry run dev:local`).
+- For local development, run local migrations before `wrangler dev --env dev --port 8788` (use `pnpm -F @clawdentity/registry run dev:local`).
 - Verify `GET /health` returns `status: "ok"` and environment (`development` or `production`).
 
 ## Runtime and API
 - Preserve `/health` response contract: `{ status, version, environment }`.
 - Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `PROXY_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Use queue-backed event bus in `development`/`production` (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE` binding) and memory backend in local development overrides (`EVENT_BUS_BACKEND=memory`).
 
 ## Validation
 - Validate config changes with `wrangler check` before deployment.

@@ -5,6 +5,7 @@ import { runtimeEnvironmentValues } from "./runtime-environment.js";
 
 const environmentSchema = z.enum(runtimeEnvironmentValues);
 const registrySigningKeyStatusSchema = z.enum(["active", "revoked"]);
+const registryEventBusBackendSchema = z.enum(["memory", "queue"]);
 const ED25519_PUBLIC_KEY_LENGTH = 32;
 
 const registrySigningPublicKeySchema = z
@@ -89,6 +90,9 @@ const registrySigningKeysEnvSchema = z
 export const registryConfigSchema = z.object({
   ENVIRONMENT: environmentSchema,
   APP_VERSION: z.string().min(1).optional(),
+  PROXY_URL: z.string().url().optional(),
+  REGISTRY_ISSUER_URL: z.string().url().optional(),
+  EVENT_BUS_BACKEND: registryEventBusBackendSchema.optional(),
   BOOTSTRAP_SECRET: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEY: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEYS: registrySigningKeysEnvSchema.optional(),

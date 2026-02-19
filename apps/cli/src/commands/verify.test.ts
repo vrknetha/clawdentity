@@ -114,7 +114,7 @@ const activeSigningKey = {
 } as const;
 
 const tokenClaims = {
-  iss: "https://api.clawdentity.com",
+  iss: "https://registry.clawdentity.com",
   sub: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
   ownerDid: "did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT5",
   name: "agent-01",
@@ -133,7 +133,7 @@ const tokenClaims = {
 } as const;
 
 const crlClaims = {
-  iss: "https://api.clawdentity.com",
+  iss: "https://registry.clawdentity.com",
   jti: "01HF7YAT4TXP6AW5QNXA2Y9K43",
   iat: 1_700_000_000,
   exp: 1_900_000_000,
@@ -153,7 +153,7 @@ describe("verify command", () => {
 
     mockedTokenReadFile.mockRejectedValue(buildErrnoError("ENOENT"));
     mockedResolveConfig.mockResolvedValue({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
     });
     mockedReadCacheFile.mockResolvedValue(undefined);
     mockedWriteCacheFile.mockResolvedValue(undefined);
@@ -278,7 +278,7 @@ describe("verify command", () => {
     mockedReadCacheFile.mockImplementation(async (fileName: string) => {
       if (fileName === "registry-keys.json") {
         return JSON.stringify({
-          registryUrl: "https://api.clawdentity.com/",
+          registryUrl: "https://registry.clawdentity.com/",
           fetchedAtMs: Date.now() - 1_000,
           keys: [activeSigningKey],
         });
@@ -286,7 +286,7 @@ describe("verify command", () => {
 
       if (fileName === "crl-claims.json") {
         return JSON.stringify({
-          registryUrl: "https://api.clawdentity.com/",
+          registryUrl: "https://registry.clawdentity.com/",
           fetchedAtMs: Date.now() - 1_000,
           claims: crlClaims,
         });
@@ -312,7 +312,7 @@ describe("verify command", () => {
     mockedReadCacheFile.mockImplementation(async (fileName: string) => {
       if (fileName === "registry-keys.json") {
         return JSON.stringify({
-          registryUrl: "https://api.clawdentity.com/",
+          registryUrl: "https://registry.clawdentity.com/",
           fetchedAtMs: Date.now() - 60 * 60 * 1000 - 1,
           keys: [activeSigningKey],
         });
@@ -320,7 +320,7 @@ describe("verify command", () => {
 
       if (fileName === "crl-claims.json") {
         return JSON.stringify({
-          registryUrl: "https://api.clawdentity.com/",
+          registryUrl: "https://registry.clawdentity.com/",
           fetchedAtMs: Date.now() - 15 * 60 * 1000 - 1,
           claims: crlClaims,
         });

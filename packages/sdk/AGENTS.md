@@ -17,6 +17,7 @@
 - `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash.
 - `security/nonce-cache`: in-memory TTL nonce replay protection keyed by `agentDid + nonce`.
 - `agent-auth-client`: shared agent auth refresh client + retry orchestration (`executeWithAgentAuthRefreshRetry`) for CLI/runtime integrations.
+- `event-bus`: shared event envelope + transport abstractions (`createInMemoryEventBus`, `createQueueEventBus`) for environment-based async delivery.
 - `testing/*`: shared deterministic test fixtures (e.g. AIT claims) for app/package tests.
 - Tests should prove tamper cases (payload change, header kid swap, signature corruption).
 
@@ -41,11 +42,13 @@
 - Nonce cache accept path must prune expired entries across all agent buckets to keep memory bounded under high-cardinality agent traffic.
 - Nonce cache must validate the top-level input shape before reading fields so invalid JS callers receive structured `AppError`s instead of runtime `TypeError`s.
 - Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
+- Registry config parsing must validate `PROXY_URL` as an absolute URL so invite onboarding responses can safely publish proxy routing hints.
 - Registry keyset validation must reject duplicate `kid` values and malformed `x` key material (non-base64url or non-32-byte Ed25519) so verifier behavior cannot become order-dependent.
 - Use `RuntimeEnvironment` + `shouldExposeVerboseErrors` from `runtime-environment` for environment-based error-detail behavior; do not duplicate ad-hoc `NODE_ENV`/string checks.
 - Keep `agent-auth-client` runtime-portable (no Node-only filesystem APIs); delegate persistence/locking to callers.
 - Keep refresh retry policy strict: a single refresh attempt and a single request retry on retryable auth failures.
 - Keep per-agent refresh single-flight keyed by explicit caller-provided key to avoid duplicate refresh races.
+- Keep event envelopes versioned and explicit (`id`, `version`, `timestampUtc`, `initiatedByAccountId`, `data`) with past-tense event names.
 - Keep shared test fixtures in `src/testing/*` and consume via `@clawdentity/sdk/testing` to avoid copy/paste helpers across apps.
 
 ## Testing Rules

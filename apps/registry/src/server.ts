@@ -1,30 +1,38 @@
 import {
   ADMIN_BOOTSTRAP_PATH,
+  ADMIN_INTERNAL_SERVICES_PATH,
   AGENT_AUTH_REFRESH_PATH,
   AGENT_AUTH_VALIDATE_PATH,
   AGENT_REGISTRATION_CHALLENGE_PATH,
   generateUlid,
+  INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   INVITES_PATH,
   INVITES_REDEEM_PATH,
   ME_API_KEYS_PATH,
   makeHumanDid,
-  PROXY_PAIRING_KEYS_PATH,
-  PROXY_PAIRING_KEYS_RESOLVE_PATH,
+  parseDid,
+  parseUlid,
+  REGISTRY_METADATA_PATH,
 } from "@clawdentity/protocol";
 import {
   AppError,
+  createEventEnvelope,
   createHonoErrorHandler,
+  createInMemoryEventBus,
   createLogger,
+  createQueueEventBus,
   createRequestContextMiddleware,
   createRequestLoggingMiddleware,
+  type EventBus,
   nowIso,
   parseRegistryConfig,
+  type QueuePublisher,
   type RegistryConfig,
   shouldExposeVerboseErrors,
   signAIT,
   signCRL,
 } from "@clawdentity/sdk";
-import { and, desc, eq, gt, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt } from "drizzle-orm";
 import { Hono } from "hono";
 import { parseAdminBootstrapPayload } from "./admin-bootstrap.js";
 import {
@@ -78,6 +86,14 @@ import {
   generateApiKeyToken,
   hashApiKeyToken,
 } from "./auth/api-key-token.js";
+import { parseInternalServiceScopesPayload } from "./auth/internal-service-scopes.js";
+import {
+  type AuthenticatedService,
+  createServiceAuth,
+  deriveInternalServiceSecretPrefix,
+  generateInternalServiceSecret,
+  hashInternalServiceSecret,
+} from "./auth/service-auth.js";
 import { createDb } from "./db/client.js";
 import {
   agent_auth_events,
@@ -86,8 +102,8 @@ import {
   agents,
   api_keys,
   humans,
+  internal_services,
   invites,
-  proxy_pairing_keys,
   revocations,
 } from "./db/schema.js";
 import {
@@ -116,6 +132,10 @@ type Bindings = {
   DB: D1Database;
   ENVIRONMENT: string;
   APP_VERSION?: string;
+  PROXY_URL?: string;
+  REGISTRY_ISSUER_URL?: string;
+  EVENT_BUS_BACKEND?: "memory" | "queue";
+  EVENT_BUS_QUEUE?: QueuePublisher;
   BOOTSTRAP_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_KEYS?: string;
@@ -130,8 +150,25 @@ const CRL_TTL_SECONDS =
   REGISTRY_CACHE_MAX_AGE_SECONDS +
   REGISTRY_CACHE_STALE_WHILE_REVALIDATE_SECONDS +
   CRL_EXPIRY_SAFETY_BUFFER_SECONDS;
+const PROXY_URL_BY_ENVIRONMENT: Record<RegistryConfig["ENVIRONMENT"], string> =
+  {
+    development: "https://dev.proxy.clawdentity.com",
+    production: "https://proxy.clawdentity.com",
+    test: "https://dev.proxy.clawdentity.com",
+  };
 // Deterministic bootstrap identity guarantees one-time admin creation under races.
 const BOOTSTRAP_ADMIN_HUMAN_ID = "00000000000000000000000000";
+const REGISTRY_SERVICE_EVENT_VERSION = "v1";
+
+const AGENT_AUTH_EVENT_NAME_BY_TYPE: Record<
+  "issued" | "refreshed" | "revoked" | "refresh_rejected",
+  string
+> = {
+  issued: "agent.auth.issued",
+  refreshed: "agent.auth.refreshed",
+  revoked: "agent.auth.revoked",
+  refresh_rejected: "agent.auth.refresh_rejected",
+};
 
 type OwnedAgent = {
   id: string;
@@ -204,6 +241,7 @@ type RegistryRateLimitRuntimeOptions = {
 
 type CreateRegistryAppOptions = {
   rateLimit?: RegistryRateLimitRuntimeOptions;
+  eventBus?: EventBus;
 };
 
 function crlBuildError(options: {
@@ -499,118 +537,247 @@ function parseAgentAccessHeaderToken(token: string | undefined): string {
   }
 }
 
-function parseIssuerOrigin(value: unknown): string {
-  if (typeof value !== "string") {
+function parseInternalServiceName(value: unknown): string {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!/^[a-z0-9][a-z0-9-_]{1,63}$/i.test(normalized)) {
     throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
+      code: "INTERNAL_SERVICE_INVALID",
+      message: "Internal service payload is invalid",
       status: 400,
       expose: true,
     });
   }
 
-  let parsed: URL;
-  try {
-    parsed = new URL(value.trim());
-  } catch {
-    throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  return parsed.origin;
+  return normalized;
 }
 
-function parseProxyPairingKeyRegisterPayload(payload: unknown): {
-  issuerOrigin: string;
-  pkid: string;
-  publicKeyX: string;
-  expiresAt: string;
+function parseInternalServiceCreatePayload(payload: unknown): {
+  name: string;
+  scopes: string[];
 } {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
+      code: "INTERNAL_SERVICE_INVALID",
+      message: "Internal service payload is invalid",
       status: 400,
       expose: true,
     });
   }
 
   const value = payload as Record<string, unknown>;
-  const pkid = typeof value.pkid === "string" ? value.pkid.trim() : "";
-  const publicKeyX =
-    typeof value.publicKeyX === "string" ? value.publicKeyX.trim() : "";
-  const expiresAt =
-    typeof value.expiresAt === "string" ? value.expiresAt.trim() : "";
-  const issuerOrigin = parseIssuerOrigin(value.issuerOrigin);
-
-  if (pkid.length === 0 || publicKeyX.length === 0 || expiresAt.length === 0) {
-    throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  const expiresAtMillis = Date.parse(expiresAt);
-  if (!Number.isFinite(expiresAtMillis)) {
-    throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  if (expiresAtMillis <= Date.now()) {
-    throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key payload is invalid",
-      status: 400,
-      expose: true,
-    });
-  }
-
   return {
-    issuerOrigin,
-    pkid,
-    publicKeyX,
-    expiresAt: new Date(expiresAtMillis).toISOString(),
+    name: parseInternalServiceName(value.name),
+    scopes: parseInternalServiceScopesPayload(value.scopes),
   };
 }
 
-function parseProxyPairingKeyResolveQuery(requestUrl: string): {
-  issuerOrigin: string;
-  pkid: string;
-} {
-  const url = new URL(requestUrl);
-  const issuerOrigin = parseIssuerOrigin(url.searchParams.get("issuerOrigin"));
-  const pkid = url.searchParams.get("pkid")?.trim() ?? "";
-  if (pkid.length === 0) {
+function parseInternalServicePathId(input: {
+  id: string;
+  environment: RegistryConfig["ENVIRONMENT"];
+}): string {
+  const candidate = input.id.trim();
+  try {
+    return parseUlid(candidate).value;
+  } catch {
     throw new AppError({
-      code: "PROXY_PAIRING_KEY_INVALID",
-      message: "Pairing key query is invalid",
+      code: "INTERNAL_SERVICE_INVALID_PATH",
+      message:
+        input.environment === "production"
+          ? "Request could not be processed"
+          : "Internal service path is invalid",
+      status: 400,
+      expose: input.environment !== "production",
+      details:
+        input.environment === "production"
+          ? undefined
+          : {
+              fieldErrors: { id: ["id must be a valid ULID"] },
+              formErrors: [],
+            },
+    });
+  }
+}
+
+function parseInternalServiceRotatePayload(payload: unknown): {
+  scopes?: string[];
+} {
+  if (payload === undefined || payload === null) {
+    return {};
+  }
+  if (typeof payload !== "object" || Array.isArray(payload)) {
+    throw new AppError({
+      code: "INTERNAL_SERVICE_INVALID",
+      message: "Internal service payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const value = payload as Record<string, unknown>;
+  if (value.scopes === undefined) {
+    return {};
+  }
+
+  return {
+    scopes: parseInternalServiceScopesPayload(value.scopes),
+  };
+}
+
+function resolveEventBusBackend(
+  config: RegistryConfig,
+): NonNullable<RegistryConfig["EVENT_BUS_BACKEND"]> {
+  if (config.EVENT_BUS_BACKEND === "memory") {
+    return "memory";
+  }
+
+  if (config.EVENT_BUS_BACKEND === "queue") {
+    return "queue";
+  }
+
+  return config.ENVIRONMENT === "development" ||
+    config.ENVIRONMENT === "production"
+    ? "queue"
+    : "memory";
+}
+
+function resolveRegistryEventBus(input: {
+  config: RegistryConfig;
+  bindings: Bindings;
+  explicitBus?: EventBus;
+}): EventBus {
+  if (input.explicitBus !== undefined) {
+    return input.explicitBus;
+  }
+
+  const backend = resolveEventBusBackend(input.config);
+  if (backend === "memory") {
+    return createInMemoryEventBus();
+  }
+
+  const queue = input.bindings.EVENT_BUS_QUEUE;
+  if (queue === undefined) {
+    throw new AppError({
+      code: "CONFIG_VALIDATION_FAILED",
+      message: "Registry configuration is invalid",
+      status: 500,
+      expose: true,
+      details: {
+        fieldErrors: {
+          EVENT_BUS_QUEUE: [
+            "EVENT_BUS_QUEUE is required when EVENT_BUS_BACKEND is queue",
+          ],
+        },
+        formErrors: [],
+      },
+    });
+  }
+
+  return createQueueEventBus(queue);
+}
+
+function parseHumanDid(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const candidate = value.trim();
+  try {
+    const parsed = parseDid(candidate);
+    if (parsed.kind !== "human") {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (candidate.length === 0) {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return candidate;
+}
+
+function parseAgentDid(value: unknown): string {
+  if (typeof value !== "string") {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const candidate = value.trim();
+  try {
+    const parsed = parseDid(candidate);
+    if (parsed.kind !== "agent") {
+      throw new Error("invalid");
+    }
+  } catch {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (candidate.length === 0) {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return candidate;
+}
+
+function parseInternalOwnershipCheckPayload(payload: unknown): {
+  ownerDid: string;
+  agentDid: string;
+} {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const value = payload as Record<string, unknown>;
+  let ownerDid: string;
+  try {
+    ownerDid = parseHumanDid(value.ownerDid);
+  } catch {
+    throw new AppError({
+      code: "AGENT_OWNERSHIP_INVALID",
+      message: "Ownership payload is invalid",
       status: 400,
       expose: true,
     });
   }
 
   return {
-    issuerOrigin,
-    pkid,
+    ownerDid,
+    agentDid: parseAgentDid(value.agentDid),
   };
 }
 
@@ -622,7 +789,10 @@ async function insertAgentAuthEvent(input: {
   reason?: string;
   metadata?: Record<string, unknown>;
   createdAt?: string;
+  eventBus?: EventBus;
+  initiatedByAccountId?: string | null;
 }): Promise<void> {
+  const createdAt = input.createdAt ?? nowIso();
   await input.db.insert(agent_auth_events).values({
     id: generateUlid(Date.now()),
     agent_id: input.agentId,
@@ -631,8 +801,40 @@ async function insertAgentAuthEvent(input: {
     reason: input.reason ?? null,
     metadata_json:
       input.metadata === undefined ? null : JSON.stringify(input.metadata),
-    created_at: input.createdAt ?? nowIso(),
+    created_at: createdAt,
   });
+
+  if (input.eventBus === undefined) {
+    return;
+  }
+
+  const eventData: Record<string, unknown> = {
+    agentId: input.agentId,
+    sessionId: input.sessionId,
+  };
+  if (input.reason !== undefined) {
+    eventData.reason = input.reason;
+  }
+  if (input.metadata !== undefined) {
+    eventData.metadata = input.metadata;
+  }
+
+  try {
+    await input.eventBus.publish(
+      createEventEnvelope({
+        type: AGENT_AUTH_EVENT_NAME_BY_TYPE[input.eventType],
+        version: REGISTRY_SERVICE_EVENT_VERSION,
+        initiatedByAccountId: input.initiatedByAccountId ?? null,
+        timestampUtc: createdAt,
+        data: eventData,
+      }),
+    );
+  } catch (error) {
+    logger.warn("registry.event_bus.publish_failed", {
+      eventType: input.eventType,
+      errorName: error instanceof Error ? error.name : "unknown",
+    });
+  }
 }
 
 async function resolveInviteRedeemStateError(input: {
@@ -755,8 +957,14 @@ function adminBootstrapAlreadyCompletedError(): AppError {
   });
 }
 
+function resolveProxyUrl(config: RegistryConfig): string {
+  return config.PROXY_URL ?? PROXY_URL_BY_ENVIRONMENT[config.ENVIRONMENT];
+}
+
 function createRegistryApp(options: CreateRegistryAppOptions = {}) {
   let cachedConfig: RegistryConfig | undefined;
+  let cachedEventBus: EventBus | undefined;
+  let cachedEventBusKey: string | undefined;
 
   function getConfig(bindings: Bindings): RegistryConfig {
     if (cachedConfig) {
@@ -767,9 +975,37 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     return cachedConfig;
   }
 
+  function getEventBus(bindings: Bindings): EventBus {
+    if (options.eventBus !== undefined) {
+      return options.eventBus;
+    }
+
+    const config = getConfig(bindings);
+    const resolvedBackend = resolveEventBusBackend(config);
+    const key = `${config.ENVIRONMENT}|${resolvedBackend}|${
+      bindings.EVENT_BUS_QUEUE === undefined ? "no-queue" : "has-queue"
+    }`;
+    if (cachedEventBus && cachedEventBusKey === key) {
+      return cachedEventBus;
+    }
+
+    const resolved = resolveRegistryEventBus({
+      config,
+      bindings,
+      explicitBus: options.eventBus,
+    });
+    cachedEventBus = resolved;
+    cachedEventBusKey = key;
+    return resolved;
+  }
+
   const app = new Hono<{
     Bindings: Bindings;
-    Variables: { requestId: string; human: AuthenticatedHuman };
+    Variables: {
+      requestId: string;
+      human: AuthenticatedHuman;
+      service: AuthenticatedService;
+    };
   }>();
   const rateLimitOptions = options.rateLimit;
   const resolveRateLimit = createInMemoryRateLimit({
@@ -817,6 +1053,17 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       status: "ok",
       version: config.APP_VERSION ?? "0.0.0",
       environment: config.ENVIRONMENT,
+    });
+  });
+
+  app.get(REGISTRY_METADATA_PATH, (c) => {
+    const config = getConfig(c.env);
+    return c.json({
+      status: "ok",
+      environment: config.ENVIRONMENT,
+      version: config.APP_VERSION ?? "0.0.0",
+      registryUrl: c.req.url ? new URL(c.req.url).origin : undefined,
+      proxyUrl: resolveProxyUrl(config),
     });
   });
 
@@ -997,7 +1244,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const claims = buildCrlClaims({
       rows,
       environment: config.ENVIRONMENT,
-      issuer: resolveRegistryIssuer(config.ENVIRONMENT),
+      issuer: resolveRegistryIssuer(config),
       nowSeconds,
     });
     const crl = await signCRL({
@@ -1040,93 +1287,232 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     return c.json(mapResolvedAgentRow(row));
   });
 
-  app.post(PROXY_PAIRING_KEYS_PATH, createApiKeyAuth(), async (c) => {
+  app.post(ADMIN_INTERNAL_SERVICES_PATH, createApiKeyAuth(), async (c) => {
+    const human = c.get("human");
+    if (human.role !== "admin") {
+      throw new AppError({
+        code: "INTERNAL_SERVICE_CREATE_FORBIDDEN",
+        message: "Admin role is required",
+        status: 403,
+        expose: true,
+      });
+    }
+
     let payload: unknown;
     try {
       payload = await c.req.json();
     } catch {
       throw new AppError({
-        code: "PROXY_PAIRING_KEY_INVALID",
-        message: "Pairing key payload is invalid",
+        code: "INTERNAL_SERVICE_INVALID",
+        message: "Internal service payload is invalid",
         status: 400,
         expose: true,
       });
     }
 
-    const parsed = parseProxyPairingKeyRegisterPayload(payload);
-    const human = c.get("human");
+    const parsed = parseInternalServiceCreatePayload(payload);
     const db = createDb(c.env.DB);
-    const createdAt = nowIso();
-
-    await db
-      .insert(proxy_pairing_keys)
-      .values({
-        id: generateUlid(Date.now()),
-        issuer_origin: parsed.issuerOrigin,
-        pkid: parsed.pkid,
-        public_key_x: parsed.publicKeyX,
-        created_by: human.id,
-        expires_at: parsed.expiresAt,
-        created_at: createdAt,
+    const existingRows = await db
+      .select({
+        id: internal_services.id,
       })
-      .onConflictDoUpdate({
-        target: [proxy_pairing_keys.issuer_origin, proxy_pairing_keys.pkid],
-        set: {
-          public_key_x: parsed.publicKeyX,
-          created_by: human.id,
-          expires_at: parsed.expiresAt,
-          created_at: createdAt,
-        },
+      .from(internal_services)
+      .where(eq(internal_services.name, parsed.name))
+      .limit(1);
+    if (existingRows[0]) {
+      throw new AppError({
+        code: "INTERNAL_SERVICE_ALREADY_EXISTS",
+        message: "Internal service already exists",
+        status: 409,
+        expose: true,
       });
+    }
+
+    const secret = generateInternalServiceSecret();
+    const secretHash = await hashInternalServiceSecret(secret);
+    const secretPrefix = deriveInternalServiceSecretPrefix(secret);
+    const createdAt = nowIso();
+    const serviceId = generateUlid(Date.now());
+    await db.insert(internal_services).values({
+      id: serviceId,
+      name: parsed.name,
+      secret_hash: secretHash,
+      secret_prefix: secretPrefix,
+      scopes_json: JSON.stringify(parsed.scopes),
+      status: "active",
+      created_by: human.id,
+      rotated_at: null,
+      last_used_at: null,
+      created_at: createdAt,
+      updated_at: createdAt,
+    });
 
     return c.json(
       {
-        key: {
-          issuerOrigin: parsed.issuerOrigin,
-          pkid: parsed.pkid,
-          expiresAt: parsed.expiresAt,
+        internalService: {
+          id: serviceId,
+          name: parsed.name,
+          scopes: parsed.scopes,
+          status: "active",
+          createdAt,
+          updatedAt: createdAt,
+          rotatedAt: null,
+          lastUsedAt: null,
+          secret,
         },
       },
       201,
     );
   });
 
-  app.get(PROXY_PAIRING_KEYS_RESOLVE_PATH, async (c) => {
-    const query = parseProxyPairingKeyResolveQuery(c.req.url);
-    const db = createDb(c.env.DB);
-    const now = nowIso();
-
-    const rows = await db
-      .select({
-        issuerOrigin: proxy_pairing_keys.issuer_origin,
-        pkid: proxy_pairing_keys.pkid,
-        publicKeyX: proxy_pairing_keys.public_key_x,
-        expiresAt: proxy_pairing_keys.expires_at,
-      })
-      .from(proxy_pairing_keys)
-      .where(
-        and(
-          eq(proxy_pairing_keys.issuer_origin, query.issuerOrigin),
-          eq(proxy_pairing_keys.pkid, query.pkid),
-          gt(proxy_pairing_keys.expires_at, now),
-        ),
-      )
-      .limit(1);
-
-    const row = rows[0];
-    if (!row) {
+  app.get(ADMIN_INTERNAL_SERVICES_PATH, createApiKeyAuth(), async (c) => {
+    const human = c.get("human");
+    if (human.role !== "admin") {
       throw new AppError({
-        code: "PROXY_PAIRING_KEY_NOT_FOUND",
-        message: "Pairing key is not available",
-        status: 404,
+        code: "INTERNAL_SERVICE_LIST_FORBIDDEN",
+        message: "Admin role is required",
+        status: 403,
         expose: true,
       });
     }
 
+    const db = createDb(c.env.DB);
+    const rows = await db
+      .select({
+        id: internal_services.id,
+        name: internal_services.name,
+        scopesJson: internal_services.scopes_json,
+        status: internal_services.status,
+        createdAt: internal_services.created_at,
+        updatedAt: internal_services.updated_at,
+        rotatedAt: internal_services.rotated_at,
+        lastUsedAt: internal_services.last_used_at,
+      })
+      .from(internal_services)
+      .orderBy(desc(internal_services.created_at), desc(internal_services.id));
+
     return c.json({
-      key: row,
+      internalServices: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        scopes: JSON.parse(row.scopesJson) as string[],
+        status: row.status,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        rotatedAt: row.rotatedAt,
+        lastUsedAt: row.lastUsedAt,
+      })),
     });
   });
+
+  app.post(
+    `${ADMIN_INTERNAL_SERVICES_PATH}/:id/rotate`,
+    createApiKeyAuth(),
+    async (c) => {
+      const config = getConfig(c.env);
+      const human = c.get("human");
+      if (human.role !== "admin") {
+        throw new AppError({
+          code: "INTERNAL_SERVICE_ROTATE_FORBIDDEN",
+          message: "Admin role is required",
+          status: 403,
+          expose: true,
+        });
+      }
+
+      const serviceId = parseInternalServicePathId({
+        id: c.req.param("id"),
+        environment: config.ENVIRONMENT,
+      });
+
+      let payload: unknown = {};
+      try {
+        const rawBody = await c.req.text();
+        if (rawBody.trim().length > 0) {
+          payload = JSON.parse(rawBody);
+        }
+      } catch {
+        throw new AppError({
+          code: "INTERNAL_SERVICE_INVALID",
+          message: "Internal service payload is invalid",
+          status: 400,
+          expose: true,
+        });
+      }
+
+      const parsedPayload = parseInternalServiceRotatePayload(payload);
+      const db = createDb(c.env.DB);
+      const rows = await db
+        .select({
+          id: internal_services.id,
+          name: internal_services.name,
+          scopesJson: internal_services.scopes_json,
+          status: internal_services.status,
+        })
+        .from(internal_services)
+        .where(eq(internal_services.id, serviceId))
+        .limit(1);
+      const service = rows[0];
+      if (!service) {
+        throw new AppError({
+          code: "INTERNAL_SERVICE_NOT_FOUND",
+          message: "Internal service was not found",
+          status: 404,
+          expose: true,
+        });
+      }
+      if (service.status !== "active") {
+        throw new AppError({
+          code: "INTERNAL_SERVICE_INVALID_STATE",
+          message: "Internal service cannot be rotated",
+          status: 409,
+          expose: true,
+        });
+      }
+
+      const scopes =
+        parsedPayload.scopes ??
+        ((JSON.parse(service.scopesJson) as unknown[]).filter(
+          (scope): scope is string =>
+            typeof scope === "string" && scope.trim().length > 0,
+        ) as string[]);
+      if (scopes.length === 0) {
+        throw new AppError({
+          code: "INTERNAL_SERVICE_INVALID",
+          message: "Internal service payload is invalid",
+          status: 400,
+          expose: true,
+        });
+      }
+
+      const secret = generateInternalServiceSecret();
+      const secretHash = await hashInternalServiceSecret(secret);
+      const secretPrefix = deriveInternalServiceSecretPrefix(secret);
+      const rotatedAt = nowIso();
+      await db
+        .update(internal_services)
+        .set({
+          secret_hash: secretHash,
+          secret_prefix: secretPrefix,
+          scopes_json: JSON.stringify(scopes),
+          rotated_at: rotatedAt,
+          updated_at: rotatedAt,
+        })
+        .where(eq(internal_services.id, service.id));
+
+      return c.json({
+        internalService: {
+          id: service.id,
+          name: service.name,
+          scopes,
+          status: "active",
+          rotatedAt,
+          updatedAt: rotatedAt,
+          secret,
+        },
+      });
+    },
+  );
 
   app.get("/v1/me", createApiKeyAuth(), (c) => {
     return c.json({ human: c.get("human") });
@@ -1358,6 +1744,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
           name: parsedPayload.apiKeyName,
           token: apiKeyToken,
         },
+        proxyUrl: resolveProxyUrl(config),
       },
       201,
     );
@@ -1551,6 +1938,45 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     });
   });
 
+  app.post(
+    INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
+    createServiceAuth({
+      requiredScopes: ["identity.read"],
+    }),
+    async (c) => {
+      let payload: unknown;
+      try {
+        payload = await c.req.json();
+      } catch {
+        throw new AppError({
+          code: "AGENT_OWNERSHIP_INVALID",
+          message: "Ownership payload is invalid",
+          status: 400,
+          expose: true,
+        });
+      }
+
+      const parsed = parseInternalOwnershipCheckPayload(payload);
+      const db = createDb(c.env.DB);
+
+      const rows = await db
+        .select({
+          ownerDid: humans.did,
+          status: agents.status,
+        })
+        .from(agents)
+        .innerJoin(humans, eq(agents.owner_id, humans.id))
+        .where(eq(agents.did, parsed.agentDid))
+        .limit(1);
+
+      const row = rows[0];
+      return c.json({
+        ownsAgent: row !== undefined && row.ownerDid === parsed.ownerDid,
+        agentStatus: row?.status ?? null,
+      });
+    },
+  );
+
   app.post(AGENT_REGISTRATION_CHALLENGE_PATH, createApiKeyAuth(), async (c) => {
     const config = getConfig(c.env);
     const exposeDetails = shouldExposeVerboseErrors(config.ENVIRONMENT);
@@ -1649,7 +2075,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const registration = buildAgentRegistrationFromParsed({
       parsedBody,
       ownerDid: human.did,
-      issuer: resolveRegistryIssuer(config.ENVIRONMENT),
+      issuer: resolveRegistryIssuer(config),
     });
     const signer = await resolveRegistrySigner(config);
     const ait = await signAIT({
@@ -1734,6 +2160,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
           metadata: {
             actor: "agent_registration",
           },
+          eventBus: getEventBus(c.env),
+          initiatedByAccountId: human.did,
         });
       } catch (error) {
         if (options.rollbackOnAgentInsertFailure) {
@@ -1896,6 +2324,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
         sessionId: existingSession.id,
         eventType: "refresh_rejected",
         reason: "invalid_refresh_token",
+        eventBus: getEventBus(c.env),
+        initiatedByAccountId: claims.ownerDid,
       });
       throw agentAuthRefreshRejectedError({
         code: "AGENT_AUTH_REFRESH_INVALID",
@@ -1920,6 +2350,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
         eventType: "revoked",
         reason: "refresh_token_expired",
         createdAt: revokedAt,
+        eventBus: getEventBus(c.env),
+        initiatedByAccountId: claims.ownerDid,
       });
       throw agentAuthRefreshRejectedError({
         code: "AGENT_AUTH_REFRESH_EXPIRED",
@@ -1968,6 +2400,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
         sessionId: existingSession.id,
         eventType: "refreshed",
         createdAt: refreshedAt,
+        eventBus: getEventBus(c.env),
+        initiatedByAccountId: claims.ownerDid,
       });
     };
 
@@ -2145,6 +2579,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
         eventType: "revoked",
         reason: "owner_auth_revoke",
         createdAt: revokedAt,
+        eventBus: getEventBus(c.env),
+        initiatedByAccountId: human.did,
       });
     };
 
@@ -2244,6 +2680,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
           eventType: "revoked",
           reason: "agent_revoked",
           createdAt: revokedAt,
+          eventBus: getEventBus(c.env),
+          initiatedByAccountId: human.did,
         });
       }
     };
@@ -2307,7 +2745,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       framework: existingAgent.framework,
       publicKey: existingAgent.public_key,
       previousExpiresAt: existingAgent.expires_at,
-      issuer: resolveRegistryIssuer(config.ENVIRONMENT),
+      issuer: resolveRegistryIssuer(config),
     });
     const signer = await resolveRegistrySigner(config);
     const ait = await signAIT({

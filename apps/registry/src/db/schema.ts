@@ -176,24 +176,27 @@ export const invites = sqliteTable("invites", {
   created_at: text("created_at").notNull(),
 });
 
-export const proxy_pairing_keys = sqliteTable(
-  "proxy_pairing_keys",
+export const internal_services = sqliteTable(
+  "internal_services",
   {
     id: text("id").primaryKey(),
-    issuer_origin: text("issuer_origin").notNull(),
-    pkid: text("pkid").notNull(),
-    public_key_x: text("public_key_x").notNull(),
+    name: text("name").notNull().unique(),
+    secret_hash: text("secret_hash").notNull(),
+    secret_prefix: text("secret_prefix").notNull(),
+    scopes_json: text("scopes_json").notNull(),
+    status: text("status", { enum: ["active", "revoked"] })
+      .notNull()
+      .default("active"),
     created_by: text("created_by")
       .notNull()
       .references(() => humans.id),
-    expires_at: text("expires_at").notNull(),
+    rotated_at: text("rotated_at"),
+    last_used_at: text("last_used_at"),
     created_at: text("created_at").notNull(),
+    updated_at: text("updated_at").notNull(),
   },
   (table) => [
-    uniqueIndex("idx_proxy_pairing_keys_issuer_pkid").on(
-      table.issuer_origin,
-      table.pkid,
-    ),
-    index("idx_proxy_pairing_keys_expires_at").on(table.expires_at),
+    index("idx_internal_services_secret_prefix").on(table.secret_prefix),
+    index("idx_internal_services_status").on(table.status),
   ],
 );

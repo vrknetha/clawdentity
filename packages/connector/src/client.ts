@@ -56,6 +56,9 @@ export type ConnectorClientHooks = {
 export type ConnectorClientOptions = {
   connectorUrl: string;
   connectionHeaders?: Record<string, string>;
+  connectionHeadersProvider?:
+    | (() => Record<string, string> | Promise<Record<string, string>>)
+    | undefined;
   openclawBaseUrl: string;
   openclawHookToken?: string;
   openclawHookPath?: string;
@@ -77,6 +80,9 @@ export type ConnectorClientOptions = {
   fetchImpl?: typeof fetch;
   logger?: Logger;
   hooks?: ConnectorClientHooks;
+  inboundDeliverHandler?:
+    | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
+    | undefined;
   now?: () => number;
   random?: () => number;
   ulidFactory?: (time?: number) => string;
@@ -202,6 +208,9 @@ function normalizeConnectionHeaders(
 export class ConnectorClient {
   private readonly connectorUrl: string;
   private readonly connectionHeaders: Record<string, string>;
+  private readonly connectionHeadersProvider:
+    | (() => Record<string, string> | Promise<Record<string, string>>)
+    | undefined;
   private readonly openclawHookUrl: string;
   private readonly openclawHookToken?: string;
   private readonly heartbeatIntervalMs: number;
@@ -222,6 +231,9 @@ export class ConnectorClient {
   private readonly fetchImpl: typeof fetch;
   private readonly logger: Logger;
   private readonly hooks: ConnectorClientHooks;
+  private readonly inboundDeliverHandler:
+    | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
+    | undefined;
   private readonly now: () => number;
   private readonly random: () => number;
   private readonly ulidFactory: (time?: number) => string;
@@ -238,6 +250,7 @@ export class ConnectorClient {
     this.connectionHeaders = normalizeConnectionHeaders(
       options.connectionHeaders,
     );
+    this.connectionHeadersProvider = options.connectionHeadersProvider;
     this.openclawHookToken = options.openclawHookToken;
     this.heartbeatIntervalMs =
       options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
@@ -290,6 +303,7 @@ export class ConnectorClient {
       options.logger ??
       createLogger({ service: "connector", module: "client" });
     this.hooks = options.hooks ?? {};
+    this.inboundDeliverHandler = options.inboundDeliverHandler;
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
     this.ulidFactory = options.ulidFactory ?? generateUlid;
@@ -306,7 +320,7 @@ export class ConnectorClient {
     }
 
     this.started = true;
-    this.connectSocket();
+    void this.connectSocket();
   }
 
   disconnect(): void {
@@ -346,14 +360,30 @@ export class ConnectorClient {
     return frame;
   }
 
-  private connectSocket(): void {
+  private async connectSocket(): Promise<void> {
     this.clearReconnectTimeout();
 
+    let connectionHeaders = this.connectionHeaders;
+    if (this.connectionHeadersProvider) {
+      try {
+        connectionHeaders = normalizeConnectionHeaders(
+          await this.connectionHeadersProvider(),
+        );
+      } catch (error) {
+        this.logger.warn("connector.websocket.create_failed", {
+          reason: sanitizeErrorReason(error),
+        });
+        this.scheduleReconnect();
+        return;
+      }
+    }
+
+    if (!this.started) {
+      return;
+    }
+
     try {
-      this.socket = this.webSocketFactory(
-        this.connectorUrl,
-        this.connectionHeaders,
-      );
+      this.socket = this.webSocketFactory(this.connectorUrl, connectionHeaders);
     } catch (error) {
       this.logger.warn("connector.websocket.create_failed", {
         reason: sanitizeErrorReason(error),
@@ -424,7 +454,7 @@ export class ConnectorClient {
     this.reconnectAttempt += 1;
 
     this.reconnectTimeout = setTimeout(() => {
-      this.connectSocket();
+      void this.connectSocket();
     }, delayMs);
   }
 
@@ -534,6 +564,47 @@ export class ConnectorClient {
   }
 
   private async handleDeliverFrame(frame: DeliverFrame): Promise<void> {
+    if (this.inboundDeliverHandler !== undefined) {
+      try {
+        const result = await this.inboundDeliverHandler(frame);
+        const ackFrame: DeliverAckFrame = {
+          v: CONNECTOR_FRAME_VERSION,
+          type: "deliver_ack",
+          id: this.makeFrameId(),
+          ts: this.makeTimestamp(),
+          ackId: frame.id,
+          accepted: result.accepted,
+          reason: result.reason,
+        };
+
+        this.sendFrame(ackFrame);
+        if (result.accepted) {
+          this.hooks.onDeliverSucceeded?.(frame);
+        } else {
+          this.hooks.onDeliverFailed?.(
+            frame,
+            new Error(
+              result.reason ??
+                "Inbound delivery was rejected by runtime handler",
+            ),
+          );
+        }
+      } catch (error) {
+        const ackFrame: DeliverAckFrame = {
+          v: CONNECTOR_FRAME_VERSION,
+          type: "deliver_ack",
+          id: this.makeFrameId(),
+          ts: this.makeTimestamp(),
+          ackId: frame.id,
+          accepted: false,
+          reason: sanitizeErrorReason(error),
+        };
+        this.sendFrame(ackFrame);
+        this.hooks.onDeliverFailed?.(frame, error);
+      }
+      return;
+    }
+
     try {
       await this.deliverToLocalOpenclawWithRetry(frame);
       const ackFrame: DeliverAckFrame = {

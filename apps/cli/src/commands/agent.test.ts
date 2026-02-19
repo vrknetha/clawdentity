@@ -144,7 +144,7 @@ describe("agent create command", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     mockedResolveConfig.mockResolvedValue({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
       apiKey: "pat_123",
     });
 
@@ -217,7 +217,7 @@ describe("agent create command", () => {
       Uint8Array.from([1, 2, 3]),
     );
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clawdentity.com/v1/agents/challenge",
+      "https://registry.clawdentity.com/v1/agents/challenge",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -227,7 +227,7 @@ describe("agent create command", () => {
       }),
     );
     expect(mockFetch).toHaveBeenCalledWith(
-      "https://api.clawdentity.com/v1/agents",
+      "https://registry.clawdentity.com/v1/agents",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
@@ -275,7 +275,7 @@ describe("agent create command", () => {
 
   it("fails when API key is missing", async () => {
     mockedResolveConfig.mockResolvedValueOnce({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
     });
 
     const result = await runAgentCommand(["create", "agent-01"]);
@@ -409,7 +409,7 @@ describe("agent auth refresh command", () => {
       if (filePath.endsWith("/identity.json")) {
         return JSON.stringify({
           did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-          registryUrl: "https://api.clawdentity.com",
+          registryUrl: "https://registry.clawdentity.com",
         });
       }
       if (filePath.endsWith("/secret.key")) {
@@ -447,7 +447,7 @@ describe("agent auth refresh command", () => {
 
     expect(mockedRefreshAgentAuthWithClawProof).toHaveBeenCalledWith(
       expect.objectContaining({
-        registryUrl: "https://api.clawdentity.com",
+        registryUrl: "https://registry.clawdentity.com",
         ait: "ait.jwt.value",
         refreshToken: "clw_rft_old_refresh",
       }),
@@ -484,7 +484,7 @@ describe("agent auth refresh command", () => {
       if (filePath.endsWith("/identity.json")) {
         return JSON.stringify({
           did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-          registryUrl: "https://api.clawdentity.com",
+          registryUrl: "https://registry.clawdentity.com",
         });
       }
       if (filePath.endsWith("/secret.key")) {
@@ -510,7 +510,7 @@ describe("agent auth refresh command", () => {
       if (filePath.endsWith("/identity.json")) {
         return JSON.stringify({
           did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-          registryUrl: "https://api.clawdentity.com/registry",
+          registryUrl: "https://registry.clawdentity.com/registry",
         });
       }
       if (filePath.endsWith("/secret.key")) {
@@ -533,7 +533,7 @@ describe("agent auth refresh command", () => {
 
     expect(mockedRefreshAgentAuthWithClawProof).toHaveBeenCalledWith(
       expect.objectContaining({
-        registryUrl: "https://api.clawdentity.com/registry",
+        registryUrl: "https://registry.clawdentity.com/registry",
       }),
     );
   });
@@ -549,7 +549,7 @@ describe("agent revoke command", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     mockedResolveConfig.mockResolvedValue({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
       apiKey: "pat_123",
     });
 
@@ -579,7 +579,7 @@ describe("agent revoke command", () => {
       "utf-8",
     );
     expect(mockFetch).toHaveBeenCalledWith(
-      `https://api.clawdentity.com/v1/agents/${agentId}`,
+      `https://registry.clawdentity.com/v1/agents/${agentId}`,
       expect.objectContaining({
         method: "DELETE",
         headers: expect.objectContaining({
@@ -610,7 +610,7 @@ describe("agent revoke command", () => {
 
   it("fails when API key is missing", async () => {
     mockedResolveConfig.mockResolvedValueOnce({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
     });
 
     const result = await runAgentCommand(["revoke", "agent-01"]);

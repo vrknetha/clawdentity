@@ -23,7 +23,11 @@ async function runInviteCommand(
   args: string[],
   input: {
     fetchImpl?: typeof fetch;
-    resolveConfigImpl?: () => Promise<{ registryUrl: string; apiKey?: string }>;
+    resolveConfigImpl?: () => Promise<{
+      registryUrl: string;
+      apiKey?: string;
+      humanName?: string;
+    }>;
     setConfigValueImpl?: typeof setConfigValue;
   } = {},
 ) {
@@ -159,12 +163,16 @@ describe("invite command helpers", () => {
           name: "invite-issued",
           token: "clw_pat_invite_token",
         },
+        human: {
+          displayName: "Invitee Alpha",
+        },
+        proxyUrl: "https://proxy.clawdentity.com",
       }),
     );
 
     const result = await redeemInvite(
       "clw_invite_123",
-      {},
+      { displayName: "Invitee Alpha" },
       {
         fetchImpl: mockFetch as unknown as typeof fetch,
         resolveConfigImpl: async () => ({
@@ -175,6 +183,8 @@ describe("invite command helpers", () => {
 
     expect(result.apiKeyToken).toBe("clw_pat_invite_token");
     expect(result.apiKeyName).toBe("invite-issued");
+    expect(result.humanName).toBe("Invitee Alpha");
+    expect(result.proxyUrl).toBe("https://proxy.clawdentity.com/");
     const [calledUrl, calledInit] = mockFetch.mock.calls[0] as [
       string,
       RequestInit,
@@ -186,6 +196,8 @@ describe("invite command helpers", () => {
     );
     expect(JSON.parse(String(calledInit.body))).toEqual({
       code: "clw_invite_123",
+      displayName: "Invitee Alpha",
+      apiKeyName: undefined,
     });
   });
 
@@ -195,7 +207,7 @@ describe("invite command helpers", () => {
     await expect(
       redeemInvite(
         "clw_invite_123",
-        {},
+        { displayName: "Invitee Alpha" },
         {
           fetchImpl: mockFetch as unknown as typeof fetch,
           resolveConfigImpl: async () => ({
@@ -208,15 +220,39 @@ describe("invite command helpers", () => {
       message: "Invite redeem response is invalid",
     });
   });
+
+  it("requires display name for invite redeem", async () => {
+    await expect(
+      redeemInvite(
+        "clw_invite_123",
+        {},
+        {
+          fetchImpl: mockFetch as unknown as typeof fetch,
+          resolveConfigImpl: async () => ({
+            registryUrl: "https://api.clawdentity.com",
+          }),
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLI_INVITE_REDEEM_DISPLAY_NAME_REQUIRED",
+    });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
 });
 
 describe("persist redeem config", () => {
-  it("saves registry url and api key sequentially", async () => {
+  it("saves registry url, api key, and proxy url sequentially", async () => {
     const setConfigValueMock = vi.fn(async () => {});
 
-    await persistRedeemConfig("https://api.clawdentity.com/", "token", {
-      setConfigValueImpl: setConfigValueMock,
-    });
+    await persistRedeemConfig(
+      "https://api.clawdentity.com/",
+      "token",
+      "https://proxy.clawdentity.com/",
+      "Invitee Alpha",
+      {
+        setConfigValueImpl: setConfigValueMock,
+      },
+    );
 
     expect(setConfigValueMock).toHaveBeenNthCalledWith(
       1,
@@ -224,6 +260,16 @@ describe("persist redeem config", () => {
       "https://api.clawdentity.com/",
     );
     expect(setConfigValueMock).toHaveBeenNthCalledWith(2, "apiKey", "token");
+    expect(setConfigValueMock).toHaveBeenNthCalledWith(
+      3,
+      "proxyUrl",
+      "https://proxy.clawdentity.com/",
+    );
+    expect(setConfigValueMock).toHaveBeenNthCalledWith(
+      4,
+      "humanName",
+      "Invitee Alpha",
+    );
   });
 
   it("throws CLI error when config persistence fails", async () => {
@@ -232,9 +278,15 @@ describe("persist redeem config", () => {
     });
 
     await expect(
-      persistRedeemConfig("https://api.clawdentity.com/", "token", {
-        setConfigValueImpl: setConfigValueMock,
-      }),
+      persistRedeemConfig(
+        "https://api.clawdentity.com/",
+        "token",
+        "https://proxy.clawdentity.com/",
+        "Invitee Alpha",
+        {
+          setConfigValueImpl: setConfigValueMock,
+        },
+      ),
     ).rejects.toMatchObject({
       code: "CLI_INVITE_REDEEM_CONFIG_PERSISTENCE_FAILED",
       message: "Failed to save redeemed API key locally",
@@ -279,19 +331,24 @@ describe("invite command output", () => {
           name: "invite-issued",
           token: "clw_pat_invite_token",
         },
+        human: {
+          displayName: "Invitee Alpha",
+        },
+        proxyUrl: "https://proxy.clawdentity.com",
       }),
     );
     const setConfigValueMock = vi.fn(async () => {});
 
-    const result = await runInviteCommand(["redeem", "clw_invite_123"], {
-      setConfigValueImpl: setConfigValueMock,
-      resolveConfigImpl: async () => ({
-        registryUrl: "https://api.clawdentity.com",
-      }),
-    });
+    const result = await runInviteCommand(
+      ["redeem", "clw_invite_123", "--display-name", "Invitee Alpha"],
+      {
+        setConfigValueImpl: setConfigValueMock,
+      },
+    );
 
     expect(result.exitCode).toBeUndefined();
     expect(result.stdout).toContain("Invite redeemed");
+    expect(result.stdout).toContain("Human name: Invitee Alpha");
     expect(result.stdout).toContain("API key token (shown once):");
     expect(result.stdout).toContain("clw_pat_invite_token");
     expect(result.stdout).toContain("API key saved to local config");
@@ -304,6 +361,16 @@ describe("invite command output", () => {
       2,
       "apiKey",
       "clw_pat_invite_token",
+    );
+    expect(setConfigValueMock).toHaveBeenNthCalledWith(
+      3,
+      "proxyUrl",
+      "https://proxy.clawdentity.com/",
+    );
+    expect(setConfigValueMock).toHaveBeenNthCalledWith(
+      4,
+      "humanName",
+      "Invitee Alpha",
     );
   });
 

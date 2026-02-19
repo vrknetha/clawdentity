@@ -1,7 +1,7 @@
 # AGENTS.md (apps/cli/skill-bundle)
 
 ## Purpose
-- Store bundled skill artifacts shipped with the CLI package for npm `--skill` postinstall.
+- Store bundled skill artifacts shipped with the CLI package for `clawdentity skill install`.
 
 ## Rules
 - Treat this folder as generated release input; do not hand-edit bundled files.

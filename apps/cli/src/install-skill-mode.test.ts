@@ -9,11 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SkillInstallError } from "./install-skill-mode.js";
-import {
-  installOpenclawSkillArtifacts,
-  isSkillInstallRequested,
-  runNpmSkillInstall,
-} from "./install-skill-mode.js";
+import { installOpenclawSkillArtifacts } from "./install-skill-mode.js";
 
 type SkillSandbox = {
   cleanup: () => void;
@@ -60,32 +56,6 @@ function createSkillSandbox(): SkillSandbox {
   };
 }
 
-describe("install skill mode detection", () => {
-  it("detects --skill from npm_config_skill env", () => {
-    expect(isSkillInstallRequested({ npm_config_skill: "true" })).toBe(true);
-    expect(isSkillInstallRequested({ npm_config_skill: "1" })).toBe(true);
-    expect(isSkillInstallRequested({ npm_config_skill: "false" })).toBe(false);
-  });
-
-  it("detects --skill from npm_config_argv", () => {
-    expect(
-      isSkillInstallRequested({
-        npm_config_argv: JSON.stringify({
-          original: ["install", "clawdentity", "--skill"],
-        }),
-      }),
-    ).toBe(true);
-
-    expect(
-      isSkillInstallRequested({
-        npm_config_argv: JSON.stringify({
-          original: ["install", "clawdentity"],
-        }),
-      }),
-    ).toBe(false);
-  });
-});
-
 describe("installOpenclawSkillArtifacts", () => {
   it("installs skill artifacts and remains idempotent on rerun", async () => {
     const sandbox = createSkillSandbox();
@@ -103,14 +73,12 @@ describe("installOpenclawSkillArtifacts", () => {
 
       const skillPath = join(
         sandbox.openclawDir,
-        "workspace",
         "skills",
         "clawdentity-openclaw-relay",
         "SKILL.md",
       );
-      const workspaceRelayPath = join(
+      const skillRelayPath = join(
         sandbox.openclawDir,
-        "workspace",
         "skills",
         "clawdentity-openclaw-relay",
         "relay-to-peer.mjs",
@@ -123,7 +91,6 @@ describe("installOpenclawSkillArtifacts", () => {
       );
       const referencePath = join(
         sandbox.openclawDir,
-        "workspace",
         "skills",
         "clawdentity-openclaw-relay",
         "references",
@@ -131,9 +98,12 @@ describe("installOpenclawSkillArtifacts", () => {
       );
 
       expect(readFileSync(skillPath, "utf8")).toContain("Clawdentity");
-      expect(readFileSync(workspaceRelayPath, "utf8")).toContain("relayToPeer");
+      expect(readFileSync(skillRelayPath, "utf8")).toContain("relayToPeer");
       expect(readFileSync(hooksRelayPath, "utf8")).toContain("relay-to-peer");
       expect(readFileSync(referencePath, "utf8")).toContain("Protocol");
+      expect(firstRun.targetSkillDirectory).toBe(
+        join(sandbox.openclawDir, "skills", "clawdentity-openclaw-relay"),
+      );
 
       const secondRun = await installOpenclawSkillArtifacts({
         homeDir: sandbox.homeDir,
@@ -195,62 +165,6 @@ describe("installOpenclawSkillArtifacts", () => {
       ).rejects.toMatchObject({
         code: "CLI_SKILL_ARTIFACT_MISSING",
       } satisfies Partial<SkillInstallError>);
-    } finally {
-      sandbox.cleanup();
-    }
-  });
-});
-
-describe("runNpmSkillInstall", () => {
-  it("skips install when --skill is not set", async () => {
-    const result = await runNpmSkillInstall({
-      env: {},
-      writeStdout: () => undefined,
-      writeStderr: () => undefined,
-    });
-
-    expect(result.skipped).toBe(true);
-  });
-
-  it("installs skill artifacts when --skill is set", async () => {
-    const sandbox = createSkillSandbox();
-    const stdout: string[] = [];
-    const stderr: string[] = [];
-
-    try {
-      const result = await runNpmSkillInstall({
-        env: {
-          npm_config_skill: "true",
-          CLAWDENTITY_SKILL_PACKAGE_ROOT: sandbox.skillPackageRoot,
-        },
-        homeDir: sandbox.homeDir,
-        openclawDir: sandbox.openclawDir,
-        writeStdout: (line) => stdout.push(line),
-        writeStderr: (line) => stderr.push(line),
-      });
-
-      expect(result.skipped).toBe(false);
-      expect(stderr).toHaveLength(0);
-      expect(stdout.some((line) => line.includes("skill install mode"))).toBe(
-        true,
-      );
-
-      const skillPath = join(
-        sandbox.openclawDir,
-        "workspace",
-        "skills",
-        "clawdentity-openclaw-relay",
-        "SKILL.md",
-      );
-      const hooksRelayPath = join(
-        sandbox.openclawDir,
-        "hooks",
-        "transforms",
-        "relay-to-peer.mjs",
-      );
-
-      expect(readFileSync(skillPath, "utf8")).toContain("OpenClaw Relay");
-      expect(readFileSync(hooksRelayPath, "utf8")).toContain("relayToPeer");
     } finally {
       sandbox.cleanup();
     }

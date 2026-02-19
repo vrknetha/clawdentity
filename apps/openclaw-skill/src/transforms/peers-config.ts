@@ -10,7 +10,8 @@ const PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
 export type PeerEntry = {
   did: string;
   proxyUrl: string;
-  name?: string;
+  agentName?: string;
+  humanName?: string;
 };
 
 export type PeersConfig = {
@@ -83,12 +84,15 @@ function parseProxyUrl(value: unknown): string {
   }
 }
 
-function parsePeerName(value: unknown): string | undefined {
+function parseProfileName(
+  value: unknown,
+  label: "agentName" | "humanName",
+): string | undefined {
   if (value === undefined) {
     return undefined;
   }
 
-  return parseNonEmptyString(value, "name");
+  return parseNonEmptyString(value, label);
 }
 
 function parsePeerEntry(value: unknown): PeerEntry {
@@ -98,13 +102,14 @@ function parsePeerEntry(value: unknown): PeerEntry {
 
   const did = parseDid(value.did);
   const proxyUrl = parseProxyUrl(value.proxyUrl);
-  const name = parsePeerName(value.name);
+  const agentName = parseProfileName(value.agentName, "agentName");
+  const humanName = parseProfileName(value.humanName, "humanName");
 
-  if (name === undefined) {
+  if (agentName === undefined && humanName === undefined) {
     return { did, proxyUrl };
   }
 
-  return { did, proxyUrl, name };
+  return { did, proxyUrl, agentName, humanName };
 }
 
 function parsePeersConfig(value: unknown, source: string): PeersConfig {

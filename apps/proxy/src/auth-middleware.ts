@@ -21,7 +21,11 @@ import {
 } from "@clawdentity/sdk";
 import { createMiddleware } from "hono/factory";
 import type { ProxyConfig } from "./config.js";
-import { PAIR_CONFIRM_PATH, PAIR_START_PATH } from "./pairing-constants.js";
+import {
+  PAIR_CONFIRM_PATH,
+  PAIR_START_PATH,
+  PAIR_STATUS_PATH,
+} from "./pairing-constants.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
 import { assertKnownTrustedAgent } from "./trust-policy.js";
 
@@ -142,7 +146,12 @@ function dependencyUnavailableError(options: {
 }
 
 function shouldSkipKnownAgentCheck(path: string): boolean {
-  return path === PAIR_START_PATH || path === PAIR_CONFIRM_PATH;
+  return (
+    path === PAIR_START_PATH ||
+    path === PAIR_CONFIRM_PATH ||
+    path === PAIR_STATUS_PATH ||
+    path === RELAY_CONNECT_PATH
+  );
 }
 
 export function parseClawAuthorizationHeader(authorization?: string): string {
@@ -167,12 +176,12 @@ export function parseClawAuthorizationHeader(authorization?: string): string {
 export function resolveExpectedIssuer(registryUrl: string): string | undefined {
   try {
     const hostname = new URL(registryUrl).hostname;
-    if (hostname === "api.clawdentity.com") {
-      return "https://api.clawdentity.com";
+    if (hostname === "registry.clawdentity.com") {
+      return "https://registry.clawdentity.com";
     }
 
-    if (hostname === "dev.api.clawdentity.com") {
-      return "https://dev.api.clawdentity.com";
+    if (hostname === "dev.registry.clawdentity.com") {
+      return "https://dev.registry.clawdentity.com";
     }
 
     return undefined;
@@ -480,20 +489,7 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         await next();
         return;
       }
-
       const authorizationHeader = c.req.header("authorization");
-      const forwardedResponderDid = c.req.query("responderAgentDid");
-      const isAnonymousForwardedPairConfirm =
-        c.req.path === PAIR_CONFIRM_PATH &&
-        (typeof authorizationHeader !== "string" ||
-          authorizationHeader.trim().length === 0) &&
-        typeof forwardedResponderDid === "string" &&
-        forwardedResponderDid.trim().length > 0;
-      if (isAnonymousForwardedPairConfirm) {
-        await next();
-        return;
-      }
-
       const token = parseClawAuthorizationHeader(authorizationHeader);
       const claims = await verifyAitClaims(token);
 

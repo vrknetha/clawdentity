@@ -1,3 +1,4 @@
 {
-  "registryUrl": "https://api.clawdentity.com"
+  "registryUrl": "https://registry.clawdentity.com",
+  "proxyUrl": "https://proxy.clawdentity.com"
 }

@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ProxyConfigError } from "./config.js";
 import {
@@ -25,10 +28,18 @@ describe("proxy", () => {
   });
 
   it("supports relay runtime startup without OpenClaw vars", () => {
-    const runtime = initializeProxyRuntime({});
+    const tempHomeDir = mkdtempSync(join(tmpdir(), "clawdentity-proxy-"));
+    try {
+      const runtime = initializeProxyRuntime({
+        HOME: tempHomeDir,
+        OPENCLAW_STATE_DIR: `${tempHomeDir}/.openclaw`,
+      });
 
-    expect(runtime.version).toBe(PROXY_VERSION);
-    expect(runtime.config.openclawBaseUrl).toBe("http://127.0.0.1:18789");
+      expect(runtime.version).toBe(PROXY_VERSION);
+      expect(runtime.config.openclawBaseUrl).toBe("http://127.0.0.1:18789");
+    } finally {
+      rmSync(tempHomeDir, { recursive: true, force: true });
+    }
   });
 
   it("prefers APP_VERSION for runtime version", () => {

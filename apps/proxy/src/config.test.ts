@@ -12,6 +12,12 @@ import {
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
   DEFAULT_REGISTRY_URL,
+  DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
+  DEFAULT_RELAY_QUEUE_TTL_SECONDS,
+  DEFAULT_RELAY_RETRY_INITIAL_MS,
+  DEFAULT_RELAY_RETRY_JITTER_RATIO,
+  DEFAULT_RELAY_RETRY_MAX_ATTEMPTS,
+  DEFAULT_RELAY_RETRY_MAX_MS,
   loadProxyConfig,
   ProxyConfigError,
   parseProxyConfig,
@@ -33,6 +39,12 @@ describe("proxy config", () => {
         DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
       agentRateLimitWindowMs: DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS,
       injectIdentityIntoMessage: DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
+      relayQueueMaxMessagesPerAgent: DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
+      relayQueueTtlSeconds: DEFAULT_RELAY_QUEUE_TTL_SECONDS,
+      relayRetryInitialMs: DEFAULT_RELAY_RETRY_INITIAL_MS,
+      relayRetryMaxMs: DEFAULT_RELAY_RETRY_MAX_MS,
+      relayRetryMaxAttempts: DEFAULT_RELAY_RETRY_MAX_ATTEMPTS,
+      relayRetryJitterRatio: DEFAULT_RELAY_RETRY_JITTER_RATIO,
     });
   });
 
@@ -40,22 +52,39 @@ describe("proxy config", () => {
     const config = parseProxyConfig({
       PORT: "4100",
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
-      PAIRING_ISSUER_URL: "https://proxy.example.com",
+      REGISTRY_INTERNAL_SERVICE_ID: "01KHSVCABCDEFGHJKMNOPQRST",
+      REGISTRY_INTERNAL_SERVICE_SECRET:
+        "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
       ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
       AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE: "75",
       AGENT_RATE_LIMIT_WINDOW_MS: "90000",
       INJECT_IDENTITY_INTO_MESSAGE: "true",
+      RELAY_QUEUE_MAX_MESSAGES_PER_AGENT: "700",
+      RELAY_QUEUE_TTL_SECONDS: "1800",
+      RELAY_RETRY_INITIAL_MS: "2000",
+      RELAY_RETRY_MAX_MS: "15000",
+      RELAY_RETRY_MAX_ATTEMPTS: "7",
+      RELAY_RETRY_JITTER_RATIO: "0.4",
     });
 
     expect(config.listenPort).toBe(4100);
     expect(config.registryUrl).toBe("https://registry.example.com");
-    expect(config.pairingIssuerUrl).toBe("https://proxy.example.com");
+    expect(config.registryInternalServiceId).toBe("01KHSVCABCDEFGHJKMNOPQRST");
+    expect(config.registryInternalServiceSecret).toBe(
+      "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
+    );
     expect(config.environment).toBe("local");
     expect(config.crlStaleBehavior).toBe("fail-closed");
     expect(config.agentRateLimitRequestsPerMinute).toBe(75);
     expect(config.agentRateLimitWindowMs).toBe(90000);
     expect(config.injectIdentityIntoMessage).toBe(true);
+    expect(config.relayQueueMaxMessagesPerAgent).toBe(700);
+    expect(config.relayQueueTtlSeconds).toBe(1800);
+    expect(config.relayRetryInitialMs).toBe(2000);
+    expect(config.relayRetryMaxMs).toBe(15000);
+    expect(config.relayRetryMaxAttempts).toBe(7);
+    expect(config.relayRetryJitterRatio).toBe(0.4);
   });
 
   it("allows disabling identity injection via env override", () => {
@@ -103,10 +132,34 @@ describe("proxy config", () => {
     ).toThrow(ProxyConfigError);
   });
 
-  it("throws on invalid pairing issuer URL", () => {
+  it("throws on invalid relay queue/retry values", () => {
     expect(() =>
       parseProxyConfig({
-        PAIRING_ISSUER_URL: "not-a-url",
+        RELAY_QUEUE_MAX_MESSAGES_PER_AGENT: "0",
+      }),
+    ).toThrow(ProxyConfigError);
+    expect(() =>
+      parseProxyConfig({
+        RELAY_RETRY_INITIAL_MS: "2000",
+        RELAY_RETRY_MAX_MS: "1000",
+      }),
+    ).toThrow(ProxyConfigError);
+    expect(() =>
+      parseProxyConfig({
+        RELAY_RETRY_JITTER_RATIO: "1.1",
+      }),
+    ).toThrow(ProxyConfigError);
+  });
+
+  it("throws when only one internal service credential is provided", () => {
+    expect(() =>
+      parseProxyConfig({
+        REGISTRY_INTERNAL_SERVICE_ID: "svc-id-only",
+      }),
+    ).toThrow(ProxyConfigError);
+    expect(() =>
+      parseProxyConfig({
+        REGISTRY_INTERNAL_SERVICE_SECRET: "clw_srv_secret-only",
       }),
     ).toThrow(ProxyConfigError);
   });

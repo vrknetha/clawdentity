@@ -13,6 +13,7 @@ vi.mock("node:fs/promises", () => ({
   writeFile: vi.fn(),
 }));
 
+import { resetClawdentityEnv } from "../test-env.js";
 import {
   DEFAULT_REGISTRY_URL,
   getCacheDir,
@@ -46,7 +47,7 @@ describe("config manager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedHomedir.mockReturnValue("/mock-home");
-    process.env = { ...previousEnv };
+    process.env = resetClawdentityEnv(previousEnv);
   });
 
   afterEach(() => {
@@ -62,11 +63,14 @@ describe("config manager", () => {
   });
 
   it("merges file contents with defaults", async () => {
-    mockedReadFile.mockResolvedValueOnce('{"apiKey":"secret"}');
+    mockedReadFile.mockResolvedValueOnce(
+      '{"apiKey":"secret","humanName":"Ravi"}',
+    );
 
     await expect(readConfig()).resolves.toEqual({
       registryUrl: DEFAULT_REGISTRY_URL,
       apiKey: "secret",
+      humanName: "Ravi",
     });
   });
 
@@ -107,6 +111,16 @@ describe("config manager", () => {
     });
   });
 
+  it("applies proxy env override over file config", async () => {
+    mockedReadFile.mockResolvedValueOnce('{"proxyUrl":"http://file:8787"}');
+    process.env.CLAWDENTITY_PROXY_URL = "http://env:8787";
+
+    await expect(resolveConfig()).resolves.toEqual({
+      registryUrl: DEFAULT_REGISTRY_URL,
+      proxyUrl: "http://env:8787",
+    });
+  });
+
   it("applies CLAWDENTITY_REGISTRY when CLAWDENTITY_REGISTRY_URL is unset", async () => {
     mockedReadFile.mockResolvedValueOnce('{"registryUrl":"http://file:8787"}');
     process.env.CLAWDENTITY_REGISTRY = "http://legacy-env:8787";
@@ -136,6 +150,16 @@ describe("config manager", () => {
     });
   });
 
+  it("prefers env humanName over config file", async () => {
+    mockedReadFile.mockResolvedValueOnce('{"humanName":"from-file"}');
+    process.env.CLAWDENTITY_HUMAN_NAME = "from-env";
+
+    await expect(resolveConfig()).resolves.toEqual({
+      registryUrl: DEFAULT_REGISTRY_URL,
+      humanName: "from-env",
+    });
+  });
+
   it("returns a single resolved value", async () => {
     mockedReadFile.mockResolvedValueOnce('{"registryUrl":"http://file:8787"}');
     process.env.CLAWDENTITY_REGISTRY_URL = "http://env:8787";
@@ -148,11 +172,11 @@ describe("config manager", () => {
   it("reads, merges, and writes when setting values", async () => {
     mockedReadFile.mockResolvedValueOnce('{"registryUrl":"http://file:8787"}');
 
-    await setConfigValue("apiKey", "new-token");
+    await setConfigValue("proxyUrl", "http://proxy:8787");
 
     expect(mockedWriteFile).toHaveBeenCalledWith(
       "/mock-home/.clawdentity/config.json",
-      '{\n  "registryUrl": "http://file:8787",\n  "apiKey": "new-token"\n}\n',
+      '{\n  "registryUrl": "http://file:8787",\n  "proxyUrl": "http://proxy:8787"\n}\n',
       "utf-8",
     );
   });

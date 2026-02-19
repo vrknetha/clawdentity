@@ -9,6 +9,18 @@ describe("config helpers", () => {
     });
   });
 
+  it("parses EVENT_BUS_BACKEND when provided", () => {
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        EVENT_BUS_BACKEND: "queue",
+      }),
+    ).toEqual({
+      ENVIRONMENT: "development",
+      EVENT_BUS_BACKEND: "queue",
+    });
+  });
+
   it("parses REGISTRY_SIGNING_KEYS into validated key entries", () => {
     const config = parseRegistryConfig({
       ENVIRONMENT: "development",
@@ -46,6 +58,30 @@ describe("config helpers", () => {
     });
   });
 
+  it("parses PROXY_URL when provided", () => {
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        PROXY_URL: "https://dev.proxy.clawdentity.com",
+      }),
+    ).toEqual({
+      ENVIRONMENT: "development",
+      PROXY_URL: "https://dev.proxy.clawdentity.com",
+    });
+  });
+
+  it("parses REGISTRY_ISSUER_URL when provided", () => {
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        REGISTRY_ISSUER_URL: "http://host.docker.internal:8788",
+      }),
+    ).toEqual({
+      ENVIRONMENT: "development",
+      REGISTRY_ISSUER_URL: "http://host.docker.internal:8788",
+    });
+  });
+
   it("throws AppError when APP_VERSION is empty", () => {
     try {
       parseRegistryConfig({
@@ -59,9 +95,35 @@ describe("config helpers", () => {
     }
   });
 
+  it("throws AppError when REGISTRY_ISSUER_URL is invalid", () => {
+    try {
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        REGISTRY_ISSUER_URL: "not-a-url",
+      });
+      throw new Error("expected parseRegistryConfig to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
+    }
+  });
+
   it("throws AppError on invalid registry config", () => {
     try {
       parseRegistryConfig({ ENVIRONMENT: "local" });
+      throw new Error("expected parseRegistryConfig to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("CONFIG_VALIDATION_FAILED");
+    }
+  });
+
+  it("throws AppError on invalid EVENT_BUS_BACKEND", () => {
+    try {
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        EVENT_BUS_BACKEND: "invalid",
+      });
       throw new Error("expected parseRegistryConfig to throw");
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);

@@ -26,15 +26,20 @@
 - `openclaw invite` must generate self-contained invite code from admin-provided DID + proxy URL.
 - `openclaw setup` must be idempotent for relay mapping updates and peer map writes.
 - `openclaw setup` must persist/update `~/.clawdentity/openclaw-relay.json` with the resolved `openclawBaseUrl` so downstream proxy runtime can boot without manual env edits.
+- `openclaw setup` is the primary self-ready command: it must also bring connector runtime online (unless `--no-runtime-start`) and verify websocket connectivity before returning success.
+- `openclaw setup --runtime-mode <auto|service|detached>` controls runtime startup policy; `auto` should prefer service mode and fallback to detached when service tooling is unavailable.
 - `openclaw setup --openclaw-base-url` should only be needed when OpenClaw is not reachable on the default `http://127.0.0.1:18789`.
 - `openclaw setup` must set `hooks.allowRequestSessionKey=false` by default and retain `hooks.allowedSessionKeyPrefixes` enforcement for safer `/hooks/agent` session routing.
+- `openclaw setup` must treat `hooks.defaultSessionKey` as an OpenClaw request session key (`main`, `global`, `subagent:*`), not a canonical `agent:<id>:...` store key.
+- `openclaw setup` must normalize legacy canonical defaults (`agent:<id>:<rest>`) to request-key format (`<rest>`) before writing config, so hook runs route to the expected UI session.
+- When deriving fallback hook session routing, follow OpenClaw runtime semantics (`session.scope=global` -> `global`; otherwise `session.mainKey` with fallback `main`).
 - Keep thrown command errors static (no interpolated runtime values); include variable context in error details/log fields. Diagnostic check output (`openclaw doctor`, `openclaw relay test`) may include concrete paths/aliases so operators can remediate quickly.
 - Keep invite-type distinction explicit in output/docs:
   - `clw_inv_...` = registry onboarding invite (`invite redeem`)
-  - `clawd1_...` = OpenClaw peer relay invite (`openclaw setup`)
+  - `clawd1_...` = OpenClaw peer relay invite (`openclaw invite`)
 
 ## Connector Command Rules
-- `connector start <agentName>` is the runtime entrypoint for local relay handoff and must remain long-running when connector runtime provides a wait/closed primitive.
+- `connector start <agentName>` is the advanced/manual runtime entrypoint for local relay handoff and must remain long-running when connector runtime provides a wait/closed primitive.
 - Validate agent local state before start (`identity.json`, `ait.jwt`, `secret.key`, `registry-auth.json`) and fail early with deterministic operator-facing errors.
 - Keep connector startup wiring behind dependency-injected helpers so tests can mock module loading/runtime behavior without requiring a live connector package.
 - Print resolved outbound endpoint and proxy websocket URL (when provided by runtime) so operators can verify local handoff and upstream connectivity.
@@ -78,13 +83,20 @@
 - Mock network and filesystem dependencies in command tests.
 - Include success and failure scenarios for external calls, parsing, and cache behavior.
 - Assert exit code behavior in addition to stdout/stderr text.
+- Keep command tests hermetic by sanitizing host `CLAWDENTITY_*` env overrides in `beforeEach`; tests should explicitly set only the env vars needed for that case.
 
 ## OpenClaw Diagnostic Command Rules
-- `openclaw doctor` must stay read-only and validate required local state: resolved CLI config (`registryUrl` + `apiKey`), selected agent marker, local agent credentials, peers map integrity (and requested `--peer` alias), transform presence, hook mapping, and OpenClaw base URL resolution.
+- `openclaw doctor` must stay read-only and validate required local state: resolved CLI config (`registryUrl` + `apiKey` + `proxyUrl` unless env override), selected agent marker, local agent credentials, peers map integrity (and requested `--peer` alias), transform presence, hook mapping, OpenClaw base URL resolution, and connector runtime websocket readiness.
+- `openclaw doctor` must validate hook-session safety invariants (`hooks.defaultSessionKey`, `hooks.allowRequestSessionKey=false`, required `hooks.allowedSessionKeyPrefixes`) and fail with deterministic remediation when drifted.
+- `openclaw doctor` must validate pending OpenClaw gateway device approvals (`<openclaw-state>/devices/pending.json`) so `pairing required` conditions are surfaced before relay tests.
+- `openclaw doctor` must validate connector inbound durability state (`state.connectorInboundInbox`) from connector `/v1/status` so queued local replay backlog is visible to operators.
+- `openclaw doctor` must validate local OpenClaw hook replay health (`state.openclawHookHealth`) from connector `/v1/status` and fail when connector reports replay failures with pending inbox backlog.
+- `openclaw setup` must attempt automatic recovery for pending OpenClaw gateway device approvals before failing checklist validation, so normal onboarding does not require manual `openclaw devices approve` steps.
 - `openclaw doctor` must treat malformed/unreadable CLI config as a failed diagnostic check, not a thrown exception, so full per-check output remains available.
 - Relay hook mapping validation must require the expected mapping path (`send-to-peer`) and only accept optional `id` when it matches `clawdentity-send-to-peer`.
 - `openclaw doctor` must print deterministic check IDs and actionable fix hints for each failed check.
 - `openclaw doctor --json` must emit a stable machine-readable envelope with overall status + per-check results for CI scripting.
+- `openclaw setup` must run an internal post-setup checklist (doctor-style, without registry config dependency) and fail fast when local hook/runtime/device prerequisites are not healthy.
 
 ## OpenClaw Relay Test Command Rules
 - `openclaw relay test --peer <alias>` must run doctor-style preflight checks before sending the probe payload.
@@ -94,11 +106,14 @@
 
 ## Pair Command Rules
 - `pair start <agentName>` must call proxy `/pair/start` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
-- `pair start` must send owner PAT via `x-claw-owner-pat`, defaulting to configured API key unless explicitly overridden by `--owner-pat`.
+- `pair start` must rely on local Claw agent auth + PoP headers only; ownership is validated server-side via proxy-to-registry internal service auth.
 - `pair start --qr` must generate a one-time local PNG QR containing the returned ticket and print the filesystem path.
 - `pair start --qr` must sweep expired QR artifacts in `~/.clawdentity/pairing` before writing a new file.
 - `pair confirm <agentName>` must call proxy `/pair/confirm` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
 - `pair confirm` must accept either `--qr-file <path>` (primary) or `--ticket <clwpair1_...>` (fallback), never both.
 - `pair confirm --qr-file` must delete the consumed QR file after successful confirm (best effort, non-fatal on cleanup failure).
-- `pair` commands must accept proxy URL via `--proxy-url` and fallback to env `CLAWDENTITY_PROXY_URL` when the flag is absent.
+- `pair status <agentName> --ticket <clwpair1_...>` must poll `/pair/status` and persist peers locally when status transitions to `confirmed`.
+- After peer persistence, pair flows must best-effort sync OpenClaw transform peer snapshot (`hooks/transforms/clawdentity-peers.json`) when `~/.clawdentity/openclaw-relay.json` provides `relayTransformPeersPath`, so relay delivery works without manual file copying.
+- `pair start --wait` should use `/pair/status` polling and auto-save the responder peer locally so reverse pairing is not required.
+- `pair` commands must resolve proxy URL automatically from CLI config/registry metadata, with `CLAWDENTITY_PROXY_URL` env override support.
 - `pair` commands must fail with deterministic operator messages for invalid ticket/QR input, missing local agent proof material, and proxy auth/state errors.

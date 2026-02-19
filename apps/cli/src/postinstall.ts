@@ -1,5 +1,4 @@
-import { runNpmSkillInstall } from "./install-skill-mode.js";
-
-runNpmSkillInstall().catch(() => {
-  process.exitCode = 1;
-});
+// Intentionally left as a no-op.
+// Skill artifacts are installed explicitly through:
+//   clawdentity skill install
+export {};

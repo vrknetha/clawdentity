@@ -10,6 +10,7 @@ type MockWebSocket = {
 
 const SENDER_AGENT_DID = "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7";
 const RECIPIENT_AGENT_DID = "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB8";
+const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
 
 function createMockSocket(): MockWebSocket {
   return {
@@ -20,7 +21,12 @@ function createMockSocket(): MockWebSocket {
 
 function createStateHarness() {
   const connectedSockets: WebSocket[] = [];
+  const storageMap = new Map<string, unknown>();
   const storage = {
+    get: vi.fn(async <T>(key: string) => storageMap.get(key) as T | undefined),
+    put: vi.fn(async <T>(key: string, value: T) => {
+      storageMap.set(key, value);
+    }),
     setAlarm: vi.fn(async (_scheduled: number | Date) => {}),
     deleteAlarm: vi.fn(async () => {}),
   };
@@ -36,6 +42,7 @@ function createStateHarness() {
   return {
     state,
     storage,
+    storageMap,
     connectedSockets,
   };
 }
@@ -114,7 +121,9 @@ describe("AgentRelaySession", () => {
 
   it("delivers relay frames to active websocket connectors", async () => {
     const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
     const connectorSocket = createMockSocket();
     const ws = connectorSocket as unknown as WebSocket;
     harness.connectedSockets.push(ws);
@@ -145,10 +154,13 @@ describe("AgentRelaySession", () => {
       payload: { event: "agent.started" },
     });
 
-    expect(result).toEqual({
-      delivered: true,
-      connectedSockets: 1,
-    });
+    expect(result.delivered).toBe(true);
+    expect(result.queued).toBe(false);
+    expect(result.state).toBe("delivered");
+    expect(result.queueDepth).toBe(0);
+    expect(result.connectedSockets).toBe(1);
+    expect(result.deliveryId).toBeTruthy();
+
     expect(connectorSocket.send).toHaveBeenCalledTimes(1);
     const relayPayload = parseFrame(connectorSocket.send.mock.calls[0]?.[0]);
     expect(relayPayload.type).toBe("deliver");
@@ -156,12 +168,13 @@ describe("AgentRelaySession", () => {
       expect(relayPayload.fromAgentDid).toBe(SENDER_AGENT_DID);
       expect(relayPayload.toAgentDid).toBe(RECIPIENT_AGENT_DID);
     }
-    expect(harness.storage.setAlarm).toHaveBeenCalledTimes(1);
   });
 
-  it("returns not-delivered when no connector socket is active", async () => {
+  it("queues relay frames when no connector socket is active", async () => {
     const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
 
     const result = await relaySession.deliverToConnector({
       requestId: "req-2",
@@ -170,60 +183,79 @@ describe("AgentRelaySession", () => {
       payload: { event: "agent.started" },
     });
 
-    expect(result).toEqual({
-      delivered: false,
-      connectedSockets: 0,
-    });
-    expect(harness.storage.setAlarm).not.toHaveBeenCalled();
+    expect(result.delivered).toBe(false);
+    expect(result.queued).toBe(true);
+    expect(result.state).toBe("queued");
+    expect(result.queueDepth).toBe(1);
+    expect(result.connectedSockets).toBe(0);
+
+    const persisted = harness.storageMap.get(RELAY_QUEUE_STORAGE_KEY) as {
+      deliveries: Array<{ requestId: string }>;
+    };
+    expect(persisted.deliveries).toHaveLength(1);
+    expect(persisted.deliveries[0]?.requestId).toBe("req-2");
   });
 
-  it("sends heartbeat frames on alarm when connectors are active", async () => {
+  it("drains queued messages after connector reconnects", async () => {
     const harness = createStateHarness();
-    const connectorSocket = createMockSocket();
-    harness.connectedSockets.push(connectorSocket as unknown as WebSocket);
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+      RELAY_RETRY_INITIAL_MS: "1",
+    });
 
-    const relaySession = new AgentRelaySession(harness.state);
+    await relaySession.deliverToConnector({
+      requestId: "req-3",
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      payload: { event: "agent.started" },
+    });
+
+    const connectorSocket = createMockSocket();
+    const ws = connectorSocket as unknown as WebSocket;
+    harness.connectedSockets.push(ws);
+
+    connectorSocket.send.mockImplementation((payload: unknown) => {
+      const frame = parseFrame(payload);
+      if (frame.type !== "deliver") {
+        return;
+      }
+
+      void relaySession.webSocketMessage(
+        ws,
+        JSON.stringify({
+          v: 1,
+          type: "deliver_ack",
+          id: generateUlid(Date.now() + 2),
+          ts: new Date().toISOString(),
+          ackId: frame.id,
+          accepted: true,
+        }),
+      );
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await relaySession.alarm();
 
-    expect(connectorSocket.send).toHaveBeenCalledTimes(1);
-    expect(String(connectorSocket.send.mock.calls[0]?.[0])).toContain(
-      '"type":"heartbeat"',
-    );
-    expect(harness.storage.setAlarm).toHaveBeenCalledTimes(1);
-  });
+    const sendFrames = connectorSocket.send.mock.calls
+      .map((call) => parseFrame(call[0]))
+      .filter((frame) => frame.type === "deliver");
+    expect(sendFrames.length).toBe(1);
 
-  it("handles heartbeat websocket frames by replying with heartbeat_ack and refreshing heartbeat", async () => {
-    const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
-    const connectorSocket = createMockSocket() as unknown as WebSocket;
-    const heartbeatId = generateUlid(Date.now() + 2);
-
-    await relaySession.webSocketMessage(
-      connectorSocket,
-      JSON.stringify({
-        v: 1,
-        type: "heartbeat",
-        id: heartbeatId,
-        ts: new Date().toISOString(),
-      }),
-    );
-
-    expect(
-      (connectorSocket as unknown as MockWebSocket).send,
-    ).toHaveBeenCalledTimes(1);
-    const ackFrame = parseFrame(
-      (connectorSocket as unknown as MockWebSocket).send.mock.calls[0]?.[0],
-    );
-    expect(ackFrame.type).toBe("heartbeat_ack");
-    if (ackFrame.type === "heartbeat_ack") {
-      expect(ackFrame.ackId).toBe(heartbeatId);
-    }
-    expect(harness.storage.setAlarm).toHaveBeenCalledTimes(1);
+    const dedupedResult = await relaySession.deliverToConnector({
+      requestId: "req-3",
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      payload: { event: "agent.started" },
+    });
+    expect(dedupedResult.state).toBe("delivered");
+    expect(dedupedResult.queueDepth).toBe(0);
   });
 
   it("supports fetch RPC delivery endpoint for compatibility", async () => {
     const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
     const connectorSocket = createMockSocket();
     const ws = connectorSocket as unknown as WebSocket;
     harness.connectedSockets.push(ws);
@@ -254,7 +286,7 @@ describe("AgentRelaySession", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          requestId: "req-3",
+          requestId: "req-4",
           senderAgentDid: SENDER_AGENT_DID,
           recipientAgentDid: RECIPIENT_AGENT_DID,
           payload: { event: "agent.started" },
@@ -263,6 +295,58 @@ describe("AgentRelaySession", () => {
     );
 
     expect(response.status).toBe(202);
-    expect(connectorSocket.send).toHaveBeenCalledTimes(1);
+    const body = (await response.json()) as {
+      deliveryId: string;
+      state: string;
+      delivered: boolean;
+    };
+    expect(body.deliveryId).toBeTruthy();
+    expect(body.state).toBe("delivered");
+    expect(body.delivered).toBe(true);
+  });
+
+  it("returns queue-full error from RPC when buffer is full", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_QUEUE_MAX_MESSAGES_PER_AGENT: "1",
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
+
+    const firstResponse = await relaySession.fetch(
+      new Request("https://relay.example.test/rpc/deliver-to-connector", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId: "req-5",
+          senderAgentDid: SENDER_AGENT_DID,
+          recipientAgentDid: RECIPIENT_AGENT_DID,
+          payload: { event: "agent.started" },
+        }),
+      }),
+    );
+    expect(firstResponse.status).toBe(202);
+
+    const secondResponse = await relaySession.fetch(
+      new Request("https://relay.example.test/rpc/deliver-to-connector", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          requestId: "req-6",
+          senderAgentDid: SENDER_AGENT_DID,
+          recipientAgentDid: RECIPIENT_AGENT_DID,
+          payload: { event: "agent.started" },
+        }),
+      }),
+    );
+
+    expect(secondResponse.status).toBe(507);
+    const body = (await secondResponse.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("PROXY_RELAY_QUEUE_FULL");
   });
 });

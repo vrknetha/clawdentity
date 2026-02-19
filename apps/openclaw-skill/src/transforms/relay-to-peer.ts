@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   loadPeersConfig,
   type PeersConfigPathOptions,
@@ -5,6 +8,15 @@ import {
 
 const DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 const DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
+const RELAY_RUNTIME_FILE_NAME = "clawdentity-relay.json";
+const RELAY_PEERS_FILE_NAME = "clawdentity-peers.json";
+
+type RelayRuntimeConfig = {
+  connectorBaseUrl?: string;
+  connectorBaseUrls?: string[];
+  connectorPath?: string;
+  peersConfigPath?: string;
+};
 
 export type RelayToPeerOptions = PeersConfigPathOptions & {
   connectorBaseUrl?: string;
@@ -25,6 +37,14 @@ type ConnectorRelayRequest = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  return typeof error.code === "string" ? error.code : undefined;
 }
 
 function parseRequiredString(value: unknown): string {
@@ -95,20 +115,168 @@ function normalizeConnectorPath(value: string): string {
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
-function resolveConnectorEndpoint(options: RelayToPeerOptions): string {
-  const baseUrlInput =
-    options.connectorBaseUrl ??
-    process.env.CLAWDENTITY_CONNECTOR_BASE_URL ??
-    DEFAULT_CONNECTOR_BASE_URL;
+function resolveTransformsDir(): string {
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+async function readJson(filePath: string): Promise<unknown | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(filePath, "utf8");
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`Relay runtime config at ${filePath} is not valid JSON`);
+  }
+}
+
+function parseRelayRuntimeConfig(value: unknown): RelayRuntimeConfig {
+  if (!isRecord(value)) {
+    throw new Error("Relay runtime config must be an object");
+  }
+
+  const connectorBaseUrl =
+    typeof value.connectorBaseUrl === "string" &&
+    value.connectorBaseUrl.trim().length > 0
+      ? parseConnectorBaseUrl(value.connectorBaseUrl.trim())
+      : undefined;
+  const connectorPath =
+    typeof value.connectorPath === "string" &&
+    value.connectorPath.trim().length > 0
+      ? normalizeConnectorPath(value.connectorPath)
+      : undefined;
+  const peersConfigPath =
+    typeof value.peersConfigPath === "string" &&
+    value.peersConfigPath.trim().length > 0
+      ? value.peersConfigPath.trim()
+      : undefined;
+
+  const connectorBaseUrls = Array.isArray(value.connectorBaseUrls)
+    ? value.connectorBaseUrls
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0)
+        .map(parseConnectorBaseUrl)
+    : undefined;
+
+  return {
+    connectorBaseUrl,
+    connectorBaseUrls,
+    connectorPath,
+    peersConfigPath,
+  };
+}
+
+async function loadRelayRuntimeConfig(): Promise<RelayRuntimeConfig> {
+  const runtimePath = join(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+  const parsed = await readJson(runtimePath);
+  if (parsed === undefined) {
+    return {};
+  }
+
+  return parseRelayRuntimeConfig(parsed);
+}
+
+function parseGatewayHexToIpv4(value: string): string | undefined {
+  if (!/^[0-9A-Fa-f]{8}$/.test(value)) {
+    return undefined;
+  }
+
+  const octets = [0, 2, 4, 6].map((index) =>
+    Number.parseInt(value.slice(index, index + 2), 16),
+  );
+  return `${octets[3]}.${octets[2]}.${octets[1]}.${octets[0]}`;
+}
+
+async function resolveLinuxDockerGatewayHost(): Promise<string | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile("/proc/net/route", "utf8");
+  } catch {
+    return undefined;
+  }
+
+  const lines = raw.split("\n");
+  for (const line of lines.slice(1)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 4) {
+      continue;
+    }
+    const destination = parts[1];
+    const gateway = parts[2];
+    const flags = Number.parseInt(parts[3], 16);
+    if (
+      destination === "00000000" &&
+      Number.isFinite(flags) &&
+      (flags & 0x2) === 0x2
+    ) {
+      return parseGatewayHexToIpv4(gateway);
+    }
+  }
+
+  return undefined;
+}
+
+async function resolveConnectorEndpoints(
+  options: RelayToPeerOptions,
+): Promise<string[]> {
+  const runtimeConfig = await loadRelayRuntimeConfig();
   const pathInput =
     options.connectorPath ??
+    runtimeConfig.connectorPath ??
     process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ??
     DEFAULT_CONNECTOR_OUTBOUND_PATH;
-
-  const baseUrl = parseConnectorBaseUrl(baseUrlInput.trim());
   const path = normalizeConnectorPath(pathInput.trim());
 
-  return new URL(path, baseUrl).toString();
+  const candidates: string[] = [];
+  if (options.connectorBaseUrl) {
+    candidates.push(parseConnectorBaseUrl(options.connectorBaseUrl.trim()));
+  }
+  if (runtimeConfig.connectorBaseUrls) {
+    candidates.push(...runtimeConfig.connectorBaseUrls);
+  }
+  if (runtimeConfig.connectorBaseUrl) {
+    candidates.push(runtimeConfig.connectorBaseUrl);
+  }
+  if (
+    typeof process.env.CLAWDENTITY_CONNECTOR_BASE_URL === "string" &&
+    process.env.CLAWDENTITY_CONNECTOR_BASE_URL.trim().length > 0
+  ) {
+    candidates.push(
+      parseConnectorBaseUrl(process.env.CLAWDENTITY_CONNECTOR_BASE_URL.trim()),
+    );
+  }
+  candidates.push(DEFAULT_CONNECTOR_BASE_URL);
+
+  const linuxGatewayHost = await resolveLinuxDockerGatewayHost();
+  if (linuxGatewayHost) {
+    for (const candidate of [...candidates]) {
+      try {
+        const parsed = new URL(candidate);
+        if (
+          parsed.hostname === "host.docker.internal" ||
+          parsed.hostname === "gateway.docker.internal" ||
+          parsed.hostname === "172.17.0.1"
+        ) {
+          parsed.hostname = linuxGatewayHost;
+          candidates.push(parsed.toString());
+        }
+      } catch {
+        // Ignore malformed candidate; parseConnectorBaseUrl already guards known values.
+      }
+    }
+  }
+
+  const deduped = Array.from(new Set(candidates.map((candidate) => candidate)));
+  return deduped.map((baseUrl) => new URL(path, baseUrl).toString());
 }
 
 function mapConnectorFailure(status: number): Error {
@@ -150,6 +318,40 @@ async function postToConnector(
   }
 }
 
+function shouldTryNextConnectorEndpoint(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message === "Local connector outbound relay request failed" ||
+    error.message === "Local connector outbound endpoint is unavailable"
+  );
+}
+
+async function resolvePeersConfigPathOptions(
+  options: RelayToPeerOptions,
+): Promise<PeersConfigPathOptions> {
+  if (
+    options.configPath !== undefined ||
+    options.configDir !== undefined ||
+    options.homeDir !== undefined
+  ) {
+    return options;
+  }
+
+  const runtimeConfig = await loadRelayRuntimeConfig();
+  if (runtimeConfig.peersConfigPath) {
+    return {
+      configPath: join(resolveTransformsDir(), runtimeConfig.peersConfigPath),
+    };
+  }
+
+  return {
+    configPath: join(resolveTransformsDir(), RELAY_PEERS_FILE_NAME),
+  };
+}
+
 export async function relayPayloadToPeer(
   payload: unknown,
   options: RelayToPeerOptions = {},
@@ -164,28 +366,42 @@ export async function relayPayloadToPeer(
   }
 
   const peerAlias = parseRequiredString(peerAliasValue);
-  const peersConfig = await loadPeersConfig(options);
+  const peersConfigPathOptions = await resolvePeersConfigPathOptions(options);
+  const peersConfig = await loadPeersConfig(peersConfigPathOptions);
   const peerEntry = peersConfig.peers[peerAlias];
 
   if (!peerEntry) {
     throw new Error("Peer alias is not configured");
   }
 
-  const connectorEndpoint = resolveConnectorEndpoint(options);
+  const connectorEndpoints = await resolveConnectorEndpoints(options);
   const fetchImpl = resolveRelayFetch(options.fetchImpl);
   const outboundPayload = removePeerField(payload);
-  await postToConnector(
-    connectorEndpoint,
-    {
-      peer: peerAlias,
-      peerDid: peerEntry.did,
-      peerProxyUrl: peerEntry.proxyUrl,
-      payload: outboundPayload,
-    },
-    fetchImpl,
-  );
+  const relayPayload: ConnectorRelayRequest = {
+    peer: peerAlias,
+    peerDid: peerEntry.did,
+    peerProxyUrl: peerEntry.proxyUrl,
+    payload: outboundPayload,
+  };
 
-  return null;
+  let lastError: unknown;
+  for (const endpoint of connectorEndpoints) {
+    try {
+      await postToConnector(endpoint, relayPayload, fetchImpl);
+      return null;
+    } catch (error) {
+      lastError = error;
+      if (!shouldTryNextConnectorEndpoint(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error("Local connector outbound relay request failed");
 }
 
 export default async function relayToPeer(

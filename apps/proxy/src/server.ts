@@ -21,12 +21,18 @@ import {
 } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
-import { PAIR_CONFIRM_PATH, PAIR_START_PATH } from "./pairing-constants.js";
+import {
+  PAIR_CONFIRM_PATH,
+  PAIR_START_PATH,
+  PAIR_STATUS_PATH,
+} from "./pairing-constants.js";
 import {
   createPairConfirmHandler,
   createPairStartHandler,
+  createPairStatusHandler,
   type PairConfirmRuntimeOptions,
   type PairStartRuntimeOptions,
+  type PairStatusRuntimeOptions,
 } from "./pairing-route.js";
 import {
   createInMemoryProxyTrustStore,
@@ -66,6 +72,7 @@ type CreateProxyAppOptions = {
   relay?: RelayConnectRuntimeOptions;
   pairing?: {
     confirm?: PairConfirmRuntimeOptions;
+    status?: PairStatusRuntimeOptions;
     start?: PairStartRuntimeOptions;
   };
   trustStore?: ProxyTrustStore;
@@ -148,7 +155,9 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     createPairStartHandler({
       logger,
       registryUrl: options.config.registryUrl,
-      issuerProxyUrl: options.config.pairingIssuerUrl,
+      registryInternalServiceId: options.config.registryInternalServiceId,
+      registryInternalServiceSecret:
+        options.config.registryInternalServiceSecret,
       trustStore,
       ...options.pairing?.start,
     }),
@@ -157,9 +166,16 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     PAIR_CONFIRM_PATH,
     createPairConfirmHandler({
       logger,
-      registryUrl: options.config.registryUrl,
       trustStore,
       ...options.pairing?.confirm,
+    }),
+  );
+  app.post(
+    PAIR_STATUS_PATH,
+    createPairStatusHandler({
+      logger,
+      trustStore,
+      ...options.pairing?.status,
     }),
   );
   app.get(

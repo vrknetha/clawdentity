@@ -6,6 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "env": {
     "dev": {
+      "name": "clawdentity-registry-dev",
       "d1_databases": [
         {
           "binding": "DB",
@@ -16,15 +17,26 @@
       ],
       "routes": [
         {
-          "pattern": "dev.api.clawdentity.com",
+          "pattern": "dev.registry.clawdentity.com",
           "custom_domain": true
         }
       ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "EVENT_BUS_QUEUE",
+            "queue": "clawdentity-events-dev"
+          }
+        ]
+      },
       "vars": {
-        "ENVIRONMENT": "development"
+        "ENVIRONMENT": "development",
+        "PROXY_URL": "https://dev.proxy.clawdentity.com",
+        "EVENT_BUS_BACKEND": "queue"
       }
     },
     "production": {
+      "name": "clawdentity-registry",
       "d1_databases": [
         {
           "binding": "DB",
@@ -35,12 +47,22 @@
       ],
       "routes": [
         {
-          "pattern": "api.clawdentity.com",
+          "pattern": "registry.clawdentity.com",
           "custom_domain": true
         }
       ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "EVENT_BUS_QUEUE",
+            "queue": "clawdentity-events"
+          }
+        ]
+      },
       "vars": {
-        "ENVIRONMENT": "production"
+        "ENVIRONMENT": "production",
+        "PROXY_URL": "https://proxy.clawdentity.com",
+        "EVENT_BUS_BACKEND": "queue"
       }
     }
   }
