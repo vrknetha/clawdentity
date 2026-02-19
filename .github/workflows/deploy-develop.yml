@@ -22,6 +22,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       APP_VERSION: ${{ github.sha }}
+      REGISTRY_HEALTH_URL_OVERRIDE: ${{ secrets.REGISTRY_HEALTH_URL }}
       PROXY_HEALTH_URL_OVERRIDE: ${{ secrets.PROXY_HEALTH_URL }}
       REGISTRY_INTERNAL_SERVICE_ID: ${{ secrets.REGISTRY_INTERNAL_SERVICE_ID }}
       REGISTRY_INTERNAL_SERVICE_SECRET: ${{ secrets.REGISTRY_INTERNAL_SERVICE_SECRET }}
@@ -114,7 +115,10 @@ jobs:
           python3 - <<'PY'
           import json, os, sys, time, urllib.request, urllib.error
 
-          url = "https://dev.registry.clawdentity.com/health"
+          configured_url = os.environ.get("REGISTRY_HEALTH_URL_OVERRIDE", "").strip()
+          if configured_url and not configured_url.endswith("/health"):
+              configured_url = f"{configured_url.rstrip('/')}/health"
+          url = configured_url or "https://dev.registry.clawdentity.com/health"
           expected_version = os.environ.get("APP_VERSION", "")
           if not expected_version:
               raise SystemExit("APP_VERSION was not set in workflow environment")
@@ -176,11 +180,8 @@ jobs:
             PROXY_HEALTH_URL="${PROXY_WORKERS_DEV_URL}/health"
           elif [ -n "${PROXY_HEALTH_URL_OVERRIDE}" ]; then
             PROXY_HEALTH_URL="${PROXY_HEALTH_URL_OVERRIDE%/}/health"
-          fi
-
-          if [ -z "${PROXY_HEALTH_URL}" ]; then
-            echo "Unable to resolve proxy health URL. Set optional PROXY_HEALTH_URL secret if workers.dev URL is unavailable." >&2
-            exit 1
+          else
+            PROXY_HEALTH_URL="https://dev.proxy.clawdentity.com/health"
           fi
 
           echo "PROXY_HEALTH_URL=${PROXY_HEALTH_URL}" >> "${GITHUB_ENV}"
