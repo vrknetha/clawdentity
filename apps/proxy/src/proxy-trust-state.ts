@@ -1,4 +1,5 @@
 import {
+  normalizePairingTicketText,
   PairingTicketParseError,
   parsePairingTicket,
 } from "./pairing-ticket.js";
@@ -183,9 +184,10 @@ export class ProxyTrustState {
     const normalizedExpiresAtMs = normalizeExpiryToWholeSecond(
       body.expiresAtMs,
     );
+    const ticket = normalizePairingTicketText(body.ticket);
     let parsedTicket: ReturnType<typeof parsePairingTicket>;
     try {
-      parsedTicket = parsePairingTicket(body.ticket);
+      parsedTicket = parsePairingTicket(ticket);
     } catch (error) {
       if (error instanceof PairingTicketParseError) {
         return toErrorResponse({
@@ -224,7 +226,7 @@ export class ProxyTrustState {
 
     const expirableState = await this.loadExpirableState();
     expirableState.pairingTickets[parsedTicket.kid] = {
-      ticket: body.ticket,
+      ticket,
       initiatorAgentDid: body.initiatorAgentDid,
       initiatorProfile,
       issuerProxyUrl: parsedTicket.iss,
@@ -238,7 +240,7 @@ export class ProxyTrustState {
     });
 
     return Response.json({
-      ticket: body.ticket,
+      ticket,
       expiresAtMs: normalizedExpiresAtMs,
       initiatorAgentDid: body.initiatorAgentDid,
       initiatorProfile,
@@ -266,9 +268,10 @@ export class ProxyTrustState {
       });
     }
 
+    const ticket = normalizePairingTicketText(body.ticket);
     let parsedTicket: ReturnType<typeof parsePairingTicket>;
     try {
-      parsedTicket = parsePairingTicket(body.ticket);
+      parsedTicket = parsePairingTicket(ticket);
     } catch (error) {
       if (error instanceof PairingTicketParseError) {
         return toErrorResponse({
@@ -285,7 +288,7 @@ export class ProxyTrustState {
     const expirableState = await this.loadExpirableState();
     const stored = expirableState.pairingTickets[parsedTicket.kid];
 
-    if (!stored || stored.ticket !== body.ticket) {
+    if (!stored || stored.ticket !== ticket) {
       return toErrorResponse({
         code: "PROXY_PAIR_TICKET_NOT_FOUND",
         message: "Pairing ticket not found",
@@ -327,7 +330,7 @@ export class ProxyTrustState {
 
     delete expirableState.pairingTickets[parsedTicket.kid];
     expirableState.confirmedPairingTickets[parsedTicket.kid] = {
-      ticket: body.ticket,
+      ticket,
       expiresAtMs: stored.expiresAtMs,
       initiatorAgentDid: stored.initiatorAgentDid,
       initiatorProfile: stored.initiatorProfile,
@@ -365,9 +368,10 @@ export class ProxyTrustState {
     }
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
+    const ticket = normalizePairingTicketText(body.ticket);
     let parsedTicket: ReturnType<typeof parsePairingTicket>;
     try {
-      parsedTicket = parsePairingTicket(body.ticket);
+      parsedTicket = parsePairingTicket(ticket);
     } catch (error) {
       if (error instanceof PairingTicketParseError) {
         return toErrorResponse({
@@ -383,7 +387,7 @@ export class ProxyTrustState {
     const expirableState = await this.loadExpirableState();
 
     const pending = expirableState.pairingTickets[parsedTicket.kid];
-    if (pending && pending.ticket === body.ticket) {
+    if (pending && pending.ticket === ticket) {
       if (pending.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
         delete expirableState.pairingTickets[parsedTicket.kid];
         await this.saveExpirableStateAndSchedule(expirableState, {
@@ -407,7 +411,7 @@ export class ProxyTrustState {
     }
 
     const confirmed = expirableState.confirmedPairingTickets[parsedTicket.kid];
-    if (confirmed && confirmed.ticket === body.ticket) {
+    if (confirmed && confirmed.ticket === ticket) {
       if (confirmed.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
         delete expirableState.confirmedPairingTickets[parsedTicket.kid];
         await this.saveExpirableStateAndSchedule(expirableState, {

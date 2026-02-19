@@ -1,0 +1,10 @@
+{
+  "peers": {
+    "beta": {
+      "did": "did:claw:agent:01HEXAMPLE",
+      "proxyUrl": "https://proxy.clawdentity.com/hooks/agent",
+      "agentName": "beta",
+      "humanName": "Ira"
+    }
+  }
+}

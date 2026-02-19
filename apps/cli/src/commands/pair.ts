@@ -220,8 +220,39 @@ function parsePeerProfile(payload: unknown): PeerProfile {
 }
 
 function parsePairingTicket(value: unknown): string {
-  const ticket = parseNonEmptyString(value);
+  let ticket = parseNonEmptyString(value);
+  while (ticket.startsWith("`")) {
+    ticket = ticket.slice(1);
+  }
+  while (ticket.endsWith("`")) {
+    ticket = ticket.slice(0, -1);
+  }
+  ticket = ticket.trim().replace(/\s+/gu, "");
+
   if (!ticket.startsWith(PAIRING_TICKET_PREFIX)) {
+    throw createCliError(
+      "CLI_PAIR_CONFIRM_TICKET_INVALID",
+      "Pairing ticket is invalid",
+    );
+  }
+
+  const encodedPayload = ticket.slice(PAIRING_TICKET_PREFIX.length);
+  if (encodedPayload.length === 0) {
+    throw createCliError(
+      "CLI_PAIR_CONFIRM_TICKET_INVALID",
+      "Pairing ticket is invalid",
+    );
+  }
+
+  try {
+    const payloadRaw = new TextDecoder().decode(
+      decodeBase64url(encodedPayload),
+    );
+    const payload = JSON.parse(payloadRaw);
+    if (!isRecord(payload)) {
+      throw new Error("invalid payload");
+    }
+  } catch {
     throw createCliError(
       "CLI_PAIR_CONFIRM_TICKET_INVALID",
       "Pairing ticket is invalid",
@@ -232,23 +263,9 @@ function parsePairingTicket(value: unknown): string {
 }
 
 function parsePairingTicketIssuerOrigin(ticket: string): string {
-  const encodedPayload = ticket.slice(PAIRING_TICKET_PREFIX.length);
-  if (encodedPayload.length === 0) {
-    throw createCliError(
-      "CLI_PAIR_CONFIRM_TICKET_INVALID",
-      "Pairing ticket is invalid",
-    );
-  }
-
-  let payloadRaw: string;
-  try {
-    payloadRaw = new TextDecoder().decode(decodeBase64url(encodedPayload));
-  } catch {
-    throw createCliError(
-      "CLI_PAIR_CONFIRM_TICKET_INVALID",
-      "Pairing ticket is invalid",
-    );
-  }
+  const normalizedTicket = parsePairingTicket(ticket);
+  const encodedPayload = normalizedTicket.slice(PAIRING_TICKET_PREFIX.length);
+  const payloadRaw = new TextDecoder().decode(decodeBase64url(encodedPayload));
 
   let payload: unknown;
   try {
@@ -285,6 +302,34 @@ function parsePairingTicketIssuerOrigin(ticket: string): string {
   }
 
   return issuerUrl.origin;
+}
+
+function assertTicketIssuerMatchesProxy(input: {
+  ticket: string;
+  proxyUrl: string;
+  context: "confirm" | "status";
+}): void {
+  const issuerOrigin = parsePairingTicketIssuerOrigin(input.ticket);
+
+  let proxyOrigin: string;
+  try {
+    proxyOrigin = new URL(input.proxyUrl).origin;
+  } catch {
+    throw createCliError(
+      "CLI_PAIR_PROXY_URL_INVALID",
+      "Configured proxyUrl is invalid. Run `clawdentity config set proxyUrl <url>` and retry.",
+    );
+  }
+
+  if (issuerOrigin === proxyOrigin) {
+    return;
+  }
+
+  const command = input.context === "confirm" ? "pair confirm" : "pair status";
+  throw createCliError(
+    "CLI_PAIR_TICKET_ISSUER_MISMATCH",
+    `Pairing ticket was issued by ${issuerOrigin}, but current proxy URL is ${proxyOrigin}. Run \`clawdentity config set proxyUrl ${issuerOrigin}\` and retry \`${command}\`.`,
+  );
 }
 
 function parseAitAgentDid(ait: string): string {
@@ -810,6 +855,21 @@ function mapConfirmPairError(status: number, payload: unknown): string {
     return "Pairing ticket has expired";
   }
 
+  if (code === "PROXY_PAIR_TICKET_INVALID_ISSUER") {
+    return message
+      ? `Pair confirm failed: ticket issuer does not match this proxy (${message}). Use the same proxy URL where the ticket was issued.`
+      : "Pair confirm failed: ticket issuer does not match this proxy. Use the same proxy URL where the ticket was issued.";
+  }
+
+  if (
+    code === "PROXY_PAIR_TICKET_INVALID_FORMAT" ||
+    code === "PROXY_PAIR_TICKET_UNSUPPORTED_VERSION"
+  ) {
+    return message
+      ? `Pair confirm request is invalid (400): ${message}. Re-copy the full ticket/QR without truncation.`
+      : "Pair confirm request is invalid (400): pairing ticket is malformed. Re-copy the full ticket/QR without truncation.";
+  }
+
   if (status === 400) {
     return message
       ? `Pair confirm request is invalid (400): ${message}`
@@ -843,6 +903,21 @@ function mapStatusPairError(status: number, payload: unknown): string {
     return message
       ? `Pair status request is forbidden (403): ${message}`
       : "Pair status request is forbidden (403).";
+  }
+
+  if (code === "PROXY_PAIR_TICKET_INVALID_ISSUER") {
+    return message
+      ? `Pair status failed: ticket issuer does not match this proxy (${message}). Use the same proxy URL where the ticket was issued.`
+      : "Pair status failed: ticket issuer does not match this proxy. Use the same proxy URL where the ticket was issued.";
+  }
+
+  if (
+    code === "PROXY_PAIR_TICKET_INVALID_FORMAT" ||
+    code === "PROXY_PAIR_TICKET_UNSUPPORTED_VERSION"
+  ) {
+    return message
+      ? `Pair status request is invalid (400): ${message}. Re-copy the full ticket/QR without truncation.`
+      : "Pair status request is invalid (400): pairing ticket is malformed. Re-copy the full ticket/QR without truncation.";
   }
 
   if (status === 400) {
@@ -1448,6 +1523,12 @@ export async function confirmPairing(
 
     ticket = parsePairingTicket(qrDecodeImpl(new Uint8Array(imageBytes)));
   }
+  ticket = parsePairingTicket(ticket);
+  assertTicketIssuerMatchesProxy({
+    ticket,
+    proxyUrl,
+    context: "confirm",
+  });
 
   const { ait, secretKey } = await readAgentProofMaterial(
     normalizedAgentName,
@@ -1547,6 +1628,11 @@ async function getPairingStatusOnce(
   });
 
   const ticket = parsePairingTicket(options.ticket);
+  assertTicketIssuerMatchesProxy({
+    ticket,
+    proxyUrl,
+    context: "status",
+  });
   const { ait, secretKey } = await readAgentProofMaterial(
     agentName,
     dependencies,

@@ -1,6 +1,6 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "set up Clawdentity relay", "pair two agents", "verify an agent token", "rotate API key", "refresh agent auth", "revoke an agent", "troubleshoot relay", "uninstall connector service", or needs OpenClaw relay onboarding, lifecycle management, or pairing workflows.
+description: This skill should be used when the user asks to "set up Clawdentity relay", "pair two agents", "verify an agent token", "rotate API key", "refresh agent auth", "revoke an agent", "troubleshoot relay", "uninstall connector service", "check relay health", "run relay doctor", "test relay connection", "send relay test", "install relay skill", "bootstrap registry", "create onboarding invite", "decommission agent", or needs OpenClaw relay onboarding, lifecycle management, or pairing workflows.
 version: 0.3.0
 ---
 
@@ -15,6 +15,30 @@ This skill prepares a local OpenClaw agent in a strict sequence:
 After setup, this skill also covers lifecycle operations: token refresh, API key rotation, agent revocation, service teardown, and token verification.
 
 Relay invite codes are not part of this flow.
+
+## State Discovery First (required before asking for onboarding inputs)
+
+Always detect existing local state before asking for invite code, API key, or peer setup.
+
+1. Resolve OpenClaw state root.
+- Default: `~/.openclaw`
+- Respect env overrides: `OPENCLAW_STATE_DIR`, legacy `CLAWDBOT_STATE_DIR`, `OPENCLAW_HOME`
+
+2. Resolve Clawdentity state root using this order.
+- Primary: `~/.clawdentity`
+- Fallback: `<openclaw-state>/.clawdentity`
+
+3. If fallback exists and primary is missing:
+- Run all `clawdentity ...` commands with `HOME=<openclaw-state>` so CLI resolves the same state root as OpenClaw profile.
+
+4. Run readiness probe before asking questions:
+- `clawdentity openclaw doctor --json`
+
+5. Behavior gate from doctor output:
+- If doctor is healthy: do not ask for onboarding invite/API key; proceed directly with requested relay/pairing action.
+- If doctor is unhealthy: ask only for the minimum missing input required by failed checks.
+
+Never claim that no local relay setup exists until this discovery flow is complete.
 
 ## Filesystem Truth (must be used exactly)
 
@@ -104,9 +128,17 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
 
 ### OpenClaw relay setup
 - `clawdentity skill install`
+- `clawdentity skill install --openclaw-dir <path>`
+- `clawdentity skill install --skill-package-root <path>`
+- `clawdentity skill install --json`
 - `clawdentity openclaw setup <agent-name>`
 - `clawdentity openclaw setup <agent-name> --transform-source <path>`
 - `clawdentity openclaw setup <agent-name> --openclaw-dir <path> --openclaw-base-url <url>`
+- `clawdentity openclaw setup <agent-name> --runtime-mode <auto|service|detached>`
+- `clawdentity openclaw setup <agent-name> --wait-timeout-seconds <seconds>` (default 30)
+- `clawdentity openclaw setup <agent-name> --no-runtime-start`
+
+Use `--no-runtime-start` when the connector runs as a separate container or process.
 
 ### OpenClaw diagnostics
 - `clawdentity openclaw doctor`
@@ -143,6 +175,20 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
 - `clawdentity admin bootstrap --bootstrap-secret <secret>`
 - `clawdentity admin bootstrap --bootstrap-secret <secret> --display-name <name> --api-key-name <name> --registry-url <url>`
 
+### Command idempotency
+
+| Command | Idempotent? | Note |
+|---|---|---|
+| `config init` | Yes | Safe to re-run |
+| `invite redeem` | **No** | One-time; invite consumed on success |
+| `agent create` | No | Fails if agent directory exists |
+| `openclaw setup` | Yes | Primary reconciliation re-entry point |
+| `skill install` | Yes | Reports: installed/updated/unchanged |
+| `pair start` | No | Creates new ticket each time; old ticket expires |
+| `pair confirm` | No | Ticket consumed on success |
+| `connector service install` | Yes | Idempotent |
+| `connector service uninstall` | Yes | Idempotent |
+
 ## Journey (strict order)
 
 1. Validate prerequisites.
@@ -154,9 +200,10 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
   - `npm install -g clawdentity@latest`
 - Confirm local agent name.
 - Confirm local human display name for onboarding.
-- Check local API key status with `clawdentity config get apiKey`.
-- If API key is missing, ask for onboarding invite `clw_inv_...` and continue with invite redeem.
-- Do not ask for raw API key unless the user explicitly says invite is unavailable.
+- Check existing relay state first using **State Discovery First** above.
+- Check local API key status with `clawdentity config get apiKey` only after state root resolution is confirmed.
+- If API key is missing and doctor indicates onboarding is incomplete, ask for onboarding invite `clw_inv_...` and continue with invite redeem.
+- Do not ask for raw API key unless the user explicitly says invite is unavailable and onboarding invite cannot be provided.
 - Confirm OpenClaw path/base URL only if non-default.
 - Do not ask for pairing inputs before onboarding is complete.
 
@@ -178,11 +225,13 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
   - `API key saved to local config`
   - `Human name: <human-name>`
 - Stop and fix if this step fails. Do not proceed to pairing.
+- **Validate:** `clawdentity config get apiKey` returns a non-empty value.
 
 5. Create local OpenClaw agent identity.
 - Run `clawdentity agent create <agent-name> --framework openclaw`.
 - Optionally add `--ttl-days <days>` to control token lifetime.
 - Run `clawdentity agent inspect <agent-name>`.
+- **Validate:** `~/.clawdentity/agents/<agent-name>/ait.jwt` and `secret.key` exist and are non-empty.
 
 6. Configure relay setup.
 - Run:
@@ -197,30 +246,15 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
   - runtime mode/status
   - websocket status `connected`
   - setup checklist is healthy (fails fast when hook/device/runtime prerequisites drift)
+- **Validate:** run `clawdentity openclaw doctor --json` and confirm all check entries have `status: "pass"`. If any check has `status: "fail"`, use `checkId` to look up remediation in `references/clawdentity-protocol.md` § Doctor Check Reference.
+- If setup throws `CLI_OPENCLAW_SETUP_CHECKLIST_FAILED`, parse `details.firstFailedCheckId` for targeted remediation.
 
 7. Validate readiness.
-- `clawdentity openclaw setup` already runs an internal checklist and auto-recovers pending OpenClaw gateway device approvals when possible.
+- `clawdentity openclaw setup` already runs an internal checklist, stabilizes OpenClaw gateway auth token mode, and auto-recovers pending OpenClaw gateway device approvals when possible.
 - Run `clawdentity openclaw doctor` only for diagnostics or CI reporting.
 - Use `--json` for machine-readable output.
 - Use `--peer <alias>` to validate a specific peer exists after pairing.
-- Doctor check IDs and remediation:
-
-| Check ID | Validates | Remediation on Failure |
-|----------|-----------|----------------------|
-| `config.registry` | `registryUrl`, `apiKey`, and `proxyUrl` in config (or proxy env override) | `clawdentity config init` or `invite redeem` |
-| `state.selectedAgent` | Agent marker at `~/.clawdentity/openclaw-agent-name` | `clawdentity openclaw setup <agent-name>` |
-| `state.credentials` | `ait.jwt` and `secret.key` exist and non-empty | `clawdentity agent create <agent-name>` or `agent auth refresh <agent-name>` |
-| `state.peers` | Peers config valid; requested `--peer` alias exists | `clawdentity pair start` / `pair confirm` (optional until pairing) |
-| `state.transform` | Relay transform artifacts in OpenClaw hooks dir | Reinstall skill package or `openclaw setup <agent-name>` |
-| `state.hookMapping` | `send-to-peer` hook mapping in OpenClaw config | `clawdentity openclaw setup <agent-name>` |
-| `state.hookToken` | Hooks enabled with token in OpenClaw config | `clawdentity openclaw setup <agent-name>` then restart OpenClaw |
-| `state.hookSessionRouting` | `hooks.defaultSessionKey`, `hooks.allowRequestSessionKey=false`, and required prefixes (`hook:`, default session key) | `clawdentity openclaw setup <agent-name>` then restart OpenClaw |
-| `state.gatewayDevicePairing` | Pending OpenClaw device approvals (prevents `pairing required` websocket errors) | Re-run `clawdentity openclaw setup <agent-name>` so setup auto-recovers approvals |
-| `state.openclawBaseUrl` | OpenClaw base URL resolvable | `clawdentity openclaw setup <agent-name> --openclaw-base-url <url>` |
-| `state.connectorRuntime` | Local connector runtime reachable and websocket-connected | `clawdentity openclaw setup <agent-name>` |
-| `state.connectorInboundInbox` | Connector local inbound inbox backlog and replay queue state (`/v1/status`) | Re-run `clawdentity openclaw setup <agent-name>` and verify connector runtime health |
-| `state.openclawHookHealth` | Connector replay status for local OpenClaw hook delivery (`/v1/status`) | Re-run `clawdentity openclaw setup <agent-name>` and restart OpenClaw if hook replay stays failed |
-
+- Doctor check IDs and remediation are in `references/clawdentity-protocol.md` § Doctor Check Reference.
 - At this point the agent is ready to start pairing or accept pairing.
 
 8. Pairing phase (separate from onboarding).
@@ -246,7 +280,10 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
 - If initiator started without `--wait`, initiator must run:
   - `clawdentity pair status <agent-name> --ticket <clwpair1_...> --wait`
   - This persists the peer on initiator after responder confirmation.
+- Default wait timeout is 300 seconds with 3-second polling.
+- If `CLI_PAIR_STATUS_WAIT_TIMEOUT` is thrown: the responder did not confirm in time. Recovery: re-run `clawdentity pair start <agent-name> --qr --wait` to generate a new ticket.
 - Confirm pairing success, then run `clawdentity openclaw relay test`.
+- **Validate:** `~/.clawdentity/peers.json` contains the new peer alias entry.
 
 9. Post-pairing verification.
 - Run `clawdentity verify <path-to-ait.jwt>` to confirm the local agent token is valid.
@@ -256,6 +293,47 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
 - Relay delivery is asynchronous: proxy accepts deliveries with `202`, and `state=queued` is expected when the recipient connector is temporarily offline.
 - `state=queued` is not a pairing failure. The proxy retries delivery automatically while the message is within queue TTL/retry limits.
 - Note: `relay test` runs preflight doctor checks before sending the probe.
+
+## Peer Recognition & Messaging
+
+After pairing, agents receive relayed messages from their paired peers.
+Identity injection is enabled by default (`INJECT_IDENTITY_INTO_MESSAGE=true` on proxy).
+
+**Do not reply to peer messages in chat.** Chat replies stay local and never reach the peer. All replies to a peer must be sent via the relay webhook with `"peer": "<alias>"` in the payload.
+
+### Recognizing incoming messages
+- Relayed messages contain a `[Clawdentity Identity]` block prepended to the message body.
+- Extract `agentDid` from this block to identify the sender.
+- See `references/clawdentity-protocol.md` § Identity Injection for the exact block format and field definitions.
+- The connector `deliver` frame also exposes `fromAgentDid` for programmatic access.
+- When you see a `[Clawdentity Identity]` block, the message is from a peer. Do not answer in chat. Follow the reply flow below.
+
+### Looking up peer identity
+- Map sender `agentDid` to a known peer by matching against `did` in `~/.clawdentity/peers.json`.
+- Each peer entry contains:
+  - `did` — the peer's agent DID (match key)
+  - `agentName` — the peer's agent name
+  - `humanName` — the human behind the peer agent
+  - `proxyUrl` — the peer's proxy endpoint
+- The peer alias is the key of that entry in `peers.json` (e.g., `"beta"`). Use this alias in the reply payload.
+
+### Sending messages to a peer
+This is the only way to reply to a peer or send a new message. Chat replies do not reach peers.
+- Include `"peer": "<alias>"` in the webhook payload to route via relay.
+- Use the alias resolved from the lookup step above.
+- Use `agentName` or `humanName` in the message text for natural addressing.
+- The relay transform strips `peer` from the payload and routes to the connector.
+
+### Reply flow
+When a relayed peer message arrives:
+1. Extract `agentDid` from the `[Clawdentity Identity]` block.
+2. Look up the peer alias by matching `agentDid` against `did` in `~/.clawdentity/peers.json`.
+3. Compose a webhook payload with `"peer": "<alias>"` set to the resolved alias.
+4. The relay delivers the payload to the peer. Do not also reply in chat.
+
+### Peer validation
+- `clawdentity openclaw doctor --peer <alias>` confirms a specific peer is reachable.
+- `clawdentity openclaw relay test --peer <alias>` sends a test probe to the peer.
 
 ## Lifecycle Management
 
@@ -287,6 +365,11 @@ Note: Registry operators must run `admin bootstrap` before creating invites. See
 - Uses cached registry keys (1h TTL) and CRL (15min TTL).
 - Exit code 1 on verification failure or revocation.
 
+### Periodic health checks
+- Run `clawdentity openclaw doctor` periodically to detect stale credentials, expired AIT, or drifted runtime.
+- Run `clawdentity agent inspect <agent-name>` to check token expiry.
+- If AIT is within 24 hours of expiry, proactively run `clawdentity agent auth refresh <agent-name>`.
+
 ## Required Question Policy
 
 Ask only when missing:
@@ -308,23 +391,32 @@ Do not suggest switching endpoints unless user explicitly asks for endpoint chan
 - `CLI_CONNECTOR_MISSING_AGENT_MATERIAL`: agent credentials missing. Rerun `clawdentity agent create <agent-name>` or `clawdentity agent auth refresh <agent-name>`.
 
 ### Pairing errors
-- `pair start` 403 (`PROXY_PAIR_OWNERSHIP_FORBIDDEN`): initiator ownership check failed. Recreate/refresh the local agent identity.
-- `pair start` 503 (`PROXY_PAIR_OWNERSHIP_UNAVAILABLE`): registry ownership validation is unavailable. Check proxy/registry service auth configuration.
-- `pair confirm` 404 (`PROXY_PAIR_TICKET_NOT_FOUND`): ticket is invalid or expired. Request a new ticket from initiator.
-- `pair confirm` 410 (`PROXY_PAIR_TICKET_EXPIRED`): ticket has expired. Request a new ticket.
+- `PROXY_PAIR_TICKET_NOT_FOUND`: ticket invalid or expired. Request a new ticket from initiator.
+- `PROXY_PAIR_TICKET_EXPIRED`: ticket has expired. Request a new ticket.
+- `CLI_PAIR_STATUS_WAIT_TIMEOUT`: responder did not confirm in time. Re-run `pair start`.
 - `CLI_PAIR_CONFIRM_INPUT_CONFLICT`: cannot provide both `--ticket` and `--qr-file`. Use one path only.
 - `CLI_PAIR_PROXY_URL_MISMATCH`: local `proxyUrl` does not match registry metadata. Rerun `clawdentity invite redeem <clw_inv_...>`.
 - Responder shows peer but initiator does not:
   - Cause: initiator started pairing without `--wait`.
   - Fix: run `clawdentity pair status <initiator-agent> --ticket <clwpair1_...> --wait` on initiator.
+- For complete pairing error codes, read `references/clawdentity-protocol.md` § Pairing Error Codes.
 
 ### Setup errors
 - `405 Method Not Allowed` on hook path: rerun `clawdentity openclaw setup <agent-name>` and restart OpenClaw.
 - `CLI_OPENCLAW_MISSING_AGENT_CREDENTIALS` or `CLI_OPENCLAW_EMPTY_AGENT_CREDENTIALS`: agent credentials missing or empty. Rerun `agent create` or `agent auth refresh`.
+- `CLI_OPENCLAW_SETUP_CHECKLIST_FAILED`: post-setup checklist reported a failing check. Parse `details.firstFailedCheckId` and apply remediation from the doctor check table in `references/clawdentity-protocol.md`. Common failing checks:
+  - `state.connectorRuntime` → rerun `openclaw setup <agent-name>`
+  - `state.gatewayDevicePairing` → rerun `openclaw setup <agent-name>` (auto-approval)
+  - `state.gatewayAuth` → rerun `openclaw setup <agent-name>` (auto-configures gateway auth mode/token)
+  - `state.hookToken` → rerun `openclaw setup <agent-name>` then restart OpenClaw
 
 ### Credential expiry
 - Agent AIT expired: run `clawdentity agent auth refresh <agent-name>`, then rerun `clawdentity openclaw setup <agent-name>`.
 - API key invalid (401 on registry calls): rotate with `api-key create` then `config set apiKey`.
+
+### Network connectivity
+- `CLI_PAIR_REQUEST_FAILED` or `CLI_ADMIN_BOOTSTRAP_REQUEST_FAILED`: proxy/registry unreachable. Check DNS, firewall rules, and URL with `clawdentity config show`.
+- If running on an air-gapped machine, confirm proxy/registry URLs resolve to reachable endpoints.
 
 ### General recovery
 - Report exact missing file/value.
@@ -337,7 +429,10 @@ Do not suggest switching endpoints unless user explicitly asks for endpoint chan
 
 | File | Purpose |
 |------|---------|
-| `references/clawdentity-protocol.md` | Peer-map schema, pairing contract, connector handoff envelope, proxy URL resolution, pairing error codes, cache files, peer alias derivation |
-| `references/clawdentity-registry.md` | Admin bootstrap, API key lifecycle, agent revocation, auth refresh |
+| `references/clawdentity-protocol.md` | Peer-map schema, pairing contract, connector handoff, error codes, Docker guidance, doctor checks, identity injection |
+| `references/clawdentity-registry.md` | Admin bootstrap, API key lifecycle, agent revocation, auth refresh, connector errors |
+| `references/clawdentity-environment.md` | Complete environment variable reference for all CLI overrides |
+| `examples/peers-sample.json` | Valid peers.json example with one peer entry |
+| `examples/openclaw-relay-sample.json` | Relay runtime config example |
 
 Directive: read the reference files before troubleshooting relay contract, connector handoff failures, or registry/admin operations.

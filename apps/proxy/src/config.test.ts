@@ -163,6 +163,36 @@ describe("proxy config", () => {
       }),
     ).toThrow(ProxyConfigError);
   });
+
+  it("fails when requireRuntimeKeys is enabled and required env vars are missing", () => {
+    expect(() =>
+      parseProxyConfig(
+        {
+          ENVIRONMENT: "local",
+        },
+        {
+          requireRuntimeKeys: true,
+        },
+      ),
+    ).toThrow(ProxyConfigError);
+  });
+
+  it("passes requireRuntimeKeys check when all required env vars are present", () => {
+    const config = parseProxyConfig(
+      {
+        ENVIRONMENT: "local",
+        REGISTRY_URL: "https://registry.example.test",
+        REGISTRY_INTERNAL_SERVICE_ID: "svc-proxy-registry",
+        REGISTRY_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
+      },
+      {
+        requireRuntimeKeys: true,
+      },
+    );
+
+    expect(config.environment).toBe("local");
+    expect(config.registryUrl).toBe("https://registry.example.test");
+  });
 });
 
 describe("proxy config loading", () => {

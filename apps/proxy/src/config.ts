@@ -170,6 +170,9 @@ export const proxyConfigSchema = z.object({
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
+type ParseProxyConfigOptions = {
+  requireRuntimeKeys?: boolean;
+};
 
 type RuntimeEnvInput = {
   LISTEN_PORT?: unknown;
@@ -533,9 +536,56 @@ function loadOpenclawBaseUrlFromFallback(
   }
 }
 
-export function parseProxyConfig(env: unknown): ProxyConfig {
+const REQUIRED_PROXY_RUNTIME_ENV_KEYS: readonly {
+  key: string;
+  aliases: readonly (keyof RuntimeEnvInput)[];
+}[] = [
+  {
+    key: "ENVIRONMENT",
+    aliases: ["ENVIRONMENT"],
+  },
+  {
+    key: "REGISTRY_URL",
+    aliases: ["REGISTRY_URL", "CLAWDENTITY_REGISTRY_URL"],
+  },
+  {
+    key: "REGISTRY_INTERNAL_SERVICE_ID",
+    aliases: ["REGISTRY_INTERNAL_SERVICE_ID"],
+  },
+  {
+    key: "REGISTRY_INTERNAL_SERVICE_SECRET",
+    aliases: ["REGISTRY_INTERNAL_SERVICE_SECRET"],
+  },
+];
+
+function assertRequiredProxyRuntimeKeys(env: RuntimeEnvInput): void {
+  const fieldErrors: Record<string, string[]> = {};
+  for (const requiredKey of REQUIRED_PROXY_RUNTIME_ENV_KEYS) {
+    const value = firstNonEmpty(env, requiredKey.aliases);
+    if (value !== undefined) {
+      continue;
+    }
+
+    fieldErrors[requiredKey.key] = [`${requiredKey.key} is required`];
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    throw toConfigValidationError({
+      fieldErrors,
+      formErrors: [],
+    });
+  }
+}
+
+export function parseProxyConfig(
+  env: unknown,
+  options: ParseProxyConfigOptions = {},
+): ProxyConfig {
   const inputEnv: RuntimeEnvInput = isRuntimeEnvInput(env) ? env : {};
   assertNoDeprecatedAllowAllVerified(inputEnv);
+  if (options.requireRuntimeKeys === true) {
+    assertRequiredProxyRuntimeKeys(inputEnv);
+  }
 
   const parsedRuntimeEnv = proxyRuntimeEnvSchema.safeParse(
     normalizeRuntimeEnv(inputEnv),
@@ -622,9 +672,9 @@ export function parseProxyConfig(env: unknown): ProxyConfig {
 
 export function loadProxyConfig(
   env: unknown = resolveDefaultEnv(),
-  options: ProxyConfigLoadOptions = {},
+  options: ProxyConfigLoadOptions & ParseProxyConfigOptions = {},
 ): ProxyConfig {
   const mergedEnv = loadEnvWithDotEnvFallback(env, options);
   loadOpenclawBaseUrlFromFallback(mergedEnv, options);
-  return parseProxyConfig(mergedEnv);
+  return parseProxyConfig(mergedEnv, options);
 }

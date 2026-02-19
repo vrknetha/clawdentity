@@ -15,6 +15,7 @@ import {
 import {
   createPairingTicket,
   createPairingTicketSigningKey,
+  normalizePairingTicketText,
   PairingTicketParseError,
   parsePairingTicket,
 } from "./pairing-ticket.js";
@@ -410,7 +411,7 @@ export function createPairConfirmHandler(
       "responderProfile",
     );
 
-    const ticket = body.ticket.trim();
+    const ticket = normalizePairingTicketText(body.ticket);
     try {
       parsePairingTicket(ticket);
     } catch (error) {
@@ -487,7 +488,7 @@ export function createPairStatusHandler(
       });
     }
 
-    const ticket = body.ticket.trim();
+    const ticket = normalizePairingTicketText(body.ticket);
     const status = await options.trustStore
       .getPairingTicketStatus({
         ticket,

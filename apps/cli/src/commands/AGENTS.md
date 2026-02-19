@@ -88,10 +88,15 @@
 ## OpenClaw Diagnostic Command Rules
 - `openclaw doctor` must stay read-only and validate required local state: resolved CLI config (`registryUrl` + `apiKey` + `proxyUrl` unless env override), selected agent marker, local agent credentials, peers map integrity (and requested `--peer` alias), transform presence, hook mapping, OpenClaw base URL resolution, and connector runtime websocket readiness.
 - `openclaw doctor` must validate hook-session safety invariants (`hooks.defaultSessionKey`, `hooks.allowRequestSessionKey=false`, required `hooks.allowedSessionKeyPrefixes`) and fail with deterministic remediation when drifted.
+- `openclaw doctor` must validate OpenClaw gateway auth readiness (`gateway.auth.mode` and required credential) so websocket auth drift is surfaced before relay tests.
 - `openclaw doctor` must validate pending OpenClaw gateway device approvals (`<openclaw-state>/devices/pending.json`) so `pairing required` conditions are surfaced before relay tests.
 - `openclaw doctor` must validate connector inbound durability state (`state.connectorInboundInbox`) from connector `/v1/status` so queued local replay backlog is visible to operators.
 - `openclaw doctor` must validate local OpenClaw hook replay health (`state.openclawHookHealth`) from connector `/v1/status` and fail when connector reports replay failures with pending inbox backlog.
 - `openclaw setup` must attempt automatic recovery for pending OpenClaw gateway device approvals before failing checklist validation, so normal onboarding does not require manual `openclaw devices approve` steps.
+- `openclaw setup` must ensure OpenClaw gateway auth token mode is deterministic (`gateway.auth.mode=token` with token when mode is unset/token), so first-time control UI/device auth remains stable across restarts.
+- `openclaw setup` must avoid rewriting `openclaw.json` when effective hook/gateway config is already current, to reduce unnecessary OpenClaw restart churn.
+- `openclaw setup` must run a short post-config-change connector stability window (detached/existing runtimes) and auto-restart once when connector drops during deferred OpenClaw restarts.
+- Detached connector fallback must write stdout/stderr logs to `~/.clawdentity/run/connector-<agent>.{stdout,stderr}.log` so runtime exits are diagnosable.
 - `openclaw doctor` must treat malformed/unreadable CLI config as a failed diagnostic check, not a thrown exception, so full per-check output remains available.
 - Relay hook mapping validation must require the expected mapping path (`send-to-peer`) and only accept optional `id` when it matches `clawdentity-send-to-peer`.
 - `openclaw doctor` must print deterministic check IDs and actionable fix hints for each failed check.

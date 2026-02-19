@@ -10,6 +10,7 @@
 ## Health Contract
 - `/health` must return HTTP 200 with `{ status, version, environment }` on valid config.
 - Invalid runtime config must fail through the shared error handler and return `CONFIG_VALIDATION_FAILED`.
+- Runtime startup config must fail fast for non-test environments when required keys are missing (`PROXY_URL`, `REGISTRY_ISSUER_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 
 ## Admin Bootstrap Contract
 - `POST /v1/admin/bootstrap` is a one-time bootstrap endpoint gated by `BOOTSTRAP_SECRET`.

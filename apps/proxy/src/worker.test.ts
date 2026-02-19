@@ -24,14 +24,26 @@ function createExecutionContext(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
+function createRequiredBindings(
+  overrides: ProxyWorkerBindings = {},
+): ProxyWorkerBindings {
+  return {
+    ENVIRONMENT: "local",
+    REGISTRY_URL: "https://registry.example.test",
+    REGISTRY_INTERNAL_SERVICE_ID: "svc-proxy-registry",
+    REGISTRY_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
+    ...overrides,
+  };
+}
+
 describe("proxy worker", () => {
   it("serves /health with parsed runtime config from bindings", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
-      {
+      createRequiredBindings({
         APP_VERSION: "sha-worker-123",
         ENVIRONMENT: "local",
-      } satisfies ProxyWorkerBindings,
+      }),
       createExecutionContext(),
     );
 
@@ -51,9 +63,9 @@ describe("proxy worker", () => {
   it("allows local startup without trust DO binding", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
-      {
+      createRequiredBindings({
         ENVIRONMENT: "local",
-      } satisfies ProxyWorkerBindings,
+      }),
       createExecutionContext(),
     );
 
@@ -71,10 +83,10 @@ describe("proxy worker", () => {
   it("allows development startup when trust DO binding exists", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
-      {
+      createRequiredBindings({
         ENVIRONMENT: "development",
         PROXY_TRUST_STATE: createTrustStateNamespace(),
-      } satisfies ProxyWorkerBindings,
+      }),
       createExecutionContext(),
     );
 
@@ -90,9 +102,9 @@ describe("proxy worker", () => {
   it("fails startup in development when trust DO binding is missing", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
-      {
+      createRequiredBindings({
         ENVIRONMENT: "development",
-      } satisfies ProxyWorkerBindings,
+      }),
       createExecutionContext(),
     );
 
@@ -114,9 +126,9 @@ describe("proxy worker", () => {
   it("fails startup in production when trust DO binding is missing", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
-      {
+      createRequiredBindings({
         ENVIRONMENT: "production",
-      } satisfies ProxyWorkerBindings,
+      }),
       createExecutionContext(),
     );
 
@@ -138,9 +150,9 @@ describe("proxy worker", () => {
   it("returns config validation error for malformed OPENCLAW_BASE_URL", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
-      {
+      createRequiredBindings({
         OPENCLAW_BASE_URL: "bad-url",
-      } satisfies ProxyWorkerBindings,
+      }),
       createExecutionContext(),
     );
 
@@ -151,5 +163,35 @@ describe("proxy worker", () => {
       };
     };
     expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
+  });
+
+  it("fails startup when required runtime bindings are missing", async () => {
+    const response = await worker.fetch(
+      new Request("https://proxy.example.test/health"),
+      {
+        ENVIRONMENT: "local",
+      } satisfies ProxyWorkerBindings,
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as {
+      error: {
+        code: string;
+        details: {
+          fieldErrors?: Record<string, string[]>;
+        };
+      };
+    };
+    expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
+    expect(payload.error.details.fieldErrors?.REGISTRY_URL?.[0]).toBe(
+      "REGISTRY_URL is required",
+    );
+    expect(
+      payload.error.details.fieldErrors?.REGISTRY_INTERNAL_SERVICE_ID?.[0],
+    ).toBe("REGISTRY_INTERNAL_SERVICE_ID is required");
+    expect(
+      payload.error.details.fieldErrors?.REGISTRY_INTERNAL_SERVICE_SECRET?.[0],
+    ).toBe("REGISTRY_INTERNAL_SERVICE_SECRET is required");
   });
 });

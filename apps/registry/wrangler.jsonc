@@ -32,6 +32,7 @@
       "vars": {
         "ENVIRONMENT": "development",
         "PROXY_URL": "https://dev.proxy.clawdentity.com",
+        "REGISTRY_ISSUER_URL": "https://dev.registry.clawdentity.com",
         "EVENT_BUS_BACKEND": "queue"
       }
     },
@@ -62,6 +63,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         "PROXY_URL": "https://proxy.clawdentity.com",
+        "REGISTRY_ISSUER_URL": "https://registry.clawdentity.com",
         "EVENT_BUS_BACKEND": "queue"
       }
     }

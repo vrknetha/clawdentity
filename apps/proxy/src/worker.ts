@@ -87,7 +87,9 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
     return cachedRuntime;
   }
 
-  const config = parseProxyConfig(env);
+  const config = parseProxyConfig(env, {
+    requireRuntimeKeys: true,
+  });
   const trustStoreResolution = resolveWorkerTrustStore({
     environment: config.environment,
     trustStateNamespace: env.PROXY_TRUST_STATE,

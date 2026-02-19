@@ -45,6 +45,17 @@ function utf8Decode(value: Uint8Array): string {
   return new TextDecoder().decode(value);
 }
 
+export function normalizePairingTicketText(value: string): string {
+  let normalized = value.trim();
+  while (normalized.startsWith("`")) {
+    normalized = normalized.slice(1);
+  }
+  while (normalized.endsWith("`")) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized.trim().replace(/\s+/gu, "");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -205,7 +216,7 @@ export async function createPairingTicket(input: {
 }
 
 export function parsePairingTicket(ticket: string): PairingTicketPayload {
-  const trimmedTicket = ticket.trim();
+  const trimmedTicket = normalizePairingTicketText(ticket);
   if (!trimmedTicket.startsWith(PAIRING_TICKET_PREFIX)) {
     throw new PairingTicketParseError(
       "PROXY_PAIR_TICKET_INVALID_FORMAT",

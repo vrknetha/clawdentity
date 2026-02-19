@@ -971,7 +971,9 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       return cachedConfig;
     }
 
-    cachedConfig = parseRegistryConfig(bindings);
+    cachedConfig = parseRegistryConfig(bindings, {
+      requireRuntimeKeys: true,
+    });
     return cachedConfig;
   }
 

@@ -173,3 +173,14 @@ Admin-only. Creates a registry invite code (`clw_inv_...`) for onboarding new us
 | 401 | Authentication failed |
 | 403 | Requires admin access |
 | 400 | Invalid request |
+
+## Connector Errors
+
+| Error Code | Meaning | Recovery |
+|---|---|---|
+| `CLI_CONNECTOR_SERVICE_PLATFORM_INVALID` | Invalid platform argument | Use `auto`, `launchd`, or `systemd` |
+| `CLI_CONNECTOR_SERVICE_PLATFORM_UNSUPPORTED` | OS unsupported for selected platform | Use a supported platform (macOS: launchd, Linux: systemd) |
+| `CLI_CONNECTOR_SERVICE_INSTALL_FAILED` | Service install failed | Check permissions, systemd/launchd status |
+| `CLI_CONNECTOR_PROXY_URL_REQUIRED` | Proxy URL unresolvable | Run `invite redeem` or set `CLAWDENTITY_PROXY_URL` / `CLAWDENTITY_PROXY_WS_URL` |
+| `CLI_CONNECTOR_INVALID_REGISTRY_AUTH` | `registry-auth.json` corrupt or invalid | Run `clawdentity agent auth refresh <agent-name>` |
+| `CLI_CONNECTOR_INVALID_AGENT_IDENTITY` | `identity.json` corrupt or invalid | Re-create agent with `clawdentity agent create <agent-name>` |

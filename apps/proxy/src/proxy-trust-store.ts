@@ -1,5 +1,6 @@
 import { PROXY_TRUST_DO_NAME } from "./pairing-constants.js";
 import {
+  normalizePairingTicketText,
   PairingTicketParseError,
   parsePairingTicket,
 } from "./pairing-ticket.js";
@@ -195,24 +196,27 @@ export function createDurableProxyTrustStore(
 ): ProxyTrustStore {
   return {
     async createPairingTicket(input) {
+      const ticket = normalizePairingTicketText(input.ticket);
       return callDurableState<PairingTicketResult>(
         namespace,
         TRUST_STORE_ROUTES.createPairingTicket,
-        input,
+        { ...input, ticket },
       );
     },
     async confirmPairingTicket(input) {
+      const ticket = normalizePairingTicketText(input.ticket);
       return callDurableState<PairingTicketConfirmResult>(
         namespace,
         TRUST_STORE_ROUTES.confirmPairingTicket,
-        input,
+        { ...input, ticket },
       );
     },
     async getPairingTicketStatus(input) {
+      const ticket = normalizePairingTicketText(input.ticket);
       return callDurableState<PairingTicketStatusResult>(
         namespace,
         TRUST_STORE_ROUTES.getPairingTicketStatus,
-        input,
+        { ...input, ticket },
       );
     },
     async isAgentKnown(agentDid) {
@@ -323,11 +327,12 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     expiresAtMs: number;
   } {
     const nowMs = input.nowMs ?? Date.now();
-    const parsedTicket = parseStoredTicket(input.ticket);
+    const normalizedTicket = normalizePairingTicketText(input.ticket);
+    const parsedTicket = parseStoredTicket(normalizedTicket);
     cleanup(nowMs, parsedTicket.kid);
 
     const stored = pairingTickets.get(parsedTicket.kid);
-    if (!stored || stored.ticket !== input.ticket) {
+    if (!stored || stored.ticket !== normalizedTicket) {
       throw new ProxyTrustStoreError({
         code: "PROXY_PAIR_TICKET_NOT_FOUND",
         message: "Pairing ticket not found",
@@ -369,11 +374,12 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     input: PairingTicketStatusInput,
   ): PairingTicketStatusResult {
     const nowMs = input.nowMs ?? Date.now();
-    const parsedTicket = parseStoredTicket(input.ticket);
+    const normalizedTicket = normalizePairingTicketText(input.ticket);
+    const parsedTicket = parseStoredTicket(normalizedTicket);
     cleanup(nowMs, parsedTicket.kid);
 
     const pending = pairingTickets.get(parsedTicket.kid);
-    if (pending && pending.ticket === input.ticket) {
+    if (pending && pending.ticket === normalizedTicket) {
       if (pending.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
         pairingTickets.delete(parsedTicket.kid);
         throw new ProxyTrustStoreError({
@@ -394,7 +400,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     }
 
     const confirmed = confirmedPairingTickets.get(parsedTicket.kid);
-    if (confirmed && confirmed.ticket === input.ticket) {
+    if (confirmed && confirmed.ticket === normalizedTicket) {
       if (confirmed.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
         confirmedPairingTickets.delete(parsedTicket.kid);
         throw new ProxyTrustStoreError({
@@ -437,7 +443,8 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       const nowMs = input.nowMs ?? Date.now();
       cleanup(nowMs);
 
-      const parsedTicket = parseStoredTicket(input.ticket);
+      const ticket = normalizePairingTicketText(input.ticket);
+      const parsedTicket = parseStoredTicket(ticket);
       const normalizedExpiresAtMs = normalizeExpiryToWholeSecond(
         input.expiresAtMs,
       );
@@ -459,7 +466,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       }
 
       pairingTickets.set(parsedTicket.kid, {
-        ticket: input.ticket,
+        ticket,
         initiatorAgentDid: input.initiatorAgentDid,
         initiatorProfile: input.initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
@@ -468,7 +475,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       confirmedPairingTickets.delete(parsedTicket.kid);
 
       return {
-        ticket: input.ticket,
+        ticket,
         expiresAtMs: normalizedExpiresAtMs,
         initiatorAgentDid: input.initiatorAgentDid,
         initiatorProfile: input.initiatorProfile,
@@ -499,8 +506,9 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         confirmedPair.initiatorAgentDid,
       );
       pairingTickets.delete(ticketKid);
+      const ticket = normalizePairingTicketText(input.ticket);
       confirmedPairingTickets.set(ticketKid, {
-        ticket: input.ticket,
+        ticket,
         initiatorAgentDid: confirmedPair.initiatorAgentDid,
         initiatorProfile: confirmedPair.initiatorProfile,
         responderAgentDid: confirmedPair.responderAgentDid,

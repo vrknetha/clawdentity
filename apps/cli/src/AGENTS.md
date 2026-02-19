@@ -21,6 +21,8 @@
 - `pair` command logic should stay in `commands/pair.ts`; keep proxy pairing bootstrap (`/pair/start`, `/pair/confirm`) CLI-driven with local AIT + PoP proof headers and one-time ticket QR support (`--qr`, `--qr-file`).
 - `pair start`/`pair confirm` must send profile metadata (`initiatorProfile`/`responderProfile`) with both `agentName` and `humanName`.
 - Pairing must fail fast with `CLI_PAIR_HUMAN_NAME_MISSING` when local config does not include `humanName`.
+- Pairing ticket parsing must normalize pasted input (trim, remove markdown backticks, collapse whitespace) before confirm/status requests so wrapped terminal/UI copies do not fail at proxy.
+- `pair confirm`/`pair status` must fail fast on local issuer mismatch: ticket `iss` must match configured proxy origin, with explicit remediation in the CLI error.
 - Pairing peer persistence must write explicit peer metadata (`agentName`, `humanName`) in `~/.clawdentity/peers.json`; do not collapse profile metadata into a single `name` field.
 - `openclaw setup` peers snapshot sync must preserve `agentName`/`humanName` fields from `~/.clawdentity/peers.json`.
 - `connector start <agentName>` must validate local agent material (`identity.json`, `ait.jwt`, `secret.key`, `registry-auth.json`) before starting runtime and must fail with stable CLI errors when files are missing/invalid.

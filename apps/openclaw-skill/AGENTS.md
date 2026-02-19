@@ -7,6 +7,8 @@
 
 ## Filesystem Contracts
 - Peer routing map lives at `~/.clawdentity/peers.json` by default.
+- In profile-mounted/containerized runs, skill behavior must support profile-local Clawdentity state at `<openclaw-state>/.clawdentity` when `~/.clawdentity` is absent.
+- When profile-local state is detected, command execution must use `HOME=<openclaw-state>` so CLI resolves a single consistent state root.
 - `openclaw setup` must project peer + relay runtime snapshots into OpenClaw-local transform directory so containerized gateways can read relay state without mounting `~/.clawdentity`:
   - `<openclaw-state>/hooks/transforms/clawdentity-peers.json`
   - `<openclaw-state>/hooks/transforms/clawdentity-relay.json`
@@ -28,7 +30,7 @@
   - return `null` after successful relay so local handling is skipped
 - If `payload.peer` is absent, return payload unchanged.
 - Keep setup flow CLI-driven via `clawdentity openclaw setup`; do not add `configure-hooks.sh`.
-- Keep setup flow fully automated via CLI: `openclaw setup` provisions/retains `hooks.token`, starts connector runtime, auto-recovers pending gateway device approvals when possible, verifies websocket readiness, and fails fast only when unrecoverable drift remains.
+- Keep setup flow fully automated via CLI: `openclaw setup` provisions/retains `hooks.token`, stabilizes OpenClaw `gateway.auth` token mode for deterministic UI/device auth, starts connector runtime, auto-recovers pending gateway device approvals when possible, verifies websocket readiness, and fails fast only when unrecoverable drift remains.
 - Keep setup/doctor expectations aligned with connector durable inbox semantics: connector can acknowledge persisted inbound relay messages before local OpenClaw hook delivery, with replay status exposed via `/v1/status` and doctor checks.
 - Keep `connector start` documented as advanced/manual recovery only; never require it in the default onboarding flow.
 - Keep setup/doctor path resolution compatible with OpenClaw runtime env overrides:

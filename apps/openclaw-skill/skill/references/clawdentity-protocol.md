@@ -6,31 +6,7 @@ Define the exact runtime contract used by `relay-to-peer.mjs`.
 
 ## Filesystem Paths
 
-### OpenClaw files
-- `<resolved-openclaw-state>/openclaw.json` (legacy filenames may exist: `clawdbot.json`, `moldbot.json`, `moltbot.json`)
-- `<resolved-openclaw-state>/hooks/transforms/relay-to-peer.mjs`
-- `<resolved-openclaw-state>/hooks/transforms/clawdentity-relay.json`
-- `<resolved-openclaw-state>/hooks/transforms/clawdentity-peers.json`
-- `<resolved-openclaw-state>/skills/clawdentity-openclaw-relay/SKILL.md`
-- env overrides:
-  - `OPENCLAW_CONFIG_PATH`, `CLAWDBOT_CONFIG_PATH`
-  - `OPENCLAW_STATE_DIR`, `CLAWDBOT_STATE_DIR`
-  - `OPENCLAW_HOME` (used when explicit config/state overrides are unset)
-
-### Clawdentity files
-- `~/.clawdentity/config.json`
-- `~/.clawdentity/agents/<agent-name>/secret.key`
-- `~/.clawdentity/agents/<agent-name>/public.key`
-- `~/.clawdentity/agents/<agent-name>/identity.json`
-- `~/.clawdentity/agents/<agent-name>/registry-auth.json`
-- `~/.clawdentity/agents/<agent-name>/ait.jwt`
-- `~/.clawdentity/peers.json`
-- `~/.clawdentity/openclaw-agent-name`
-- `~/.clawdentity/openclaw-relay.json`
-- `~/.clawdentity/openclaw-connectors.json`
-- `~/.clawdentity/pairing/` (ephemeral QR PNG storage, auto-cleaned after 900s)
-- `~/.clawdentity/cache/registry-keys.json` (1-hour TTL, used by `verify`)
-- `~/.clawdentity/cache/crl-claims.json` (15-minute TTL, used by `verify`)
+Canonical paths are defined in SKILL.md § Filesystem Truth. Refer there for all path contracts.
 
 ## Setup Input Contract
 
@@ -214,32 +190,82 @@ Known defaults:
 
 Recovery: rerun onboarding (`clawdentity invite redeem <clw_inv_...> --display-name <human-name>`) so local config aligns to registry metadata.
 
+## Identity Injection
+
+When identity injection is enabled (proxy env `INJECT_IDENTITY_INTO_MESSAGE`, default `true`), the proxy prepends an identity block to the `message` field of relayed payloads.
+
+### Block format
+
+```
+[Clawdentity Identity]
+agentDid: did:claw:agent:01H...
+ownerDid: did:claw:human:01H...
+issuer: https://registry.clawdentity.com
+aitJti: 01H...
+```
+
+The block is separated from the original message by a blank line (`\n\n`).
+
+### Field definitions
+
+| Field | Description |
+|---|---|
+| `agentDid` | Sender agent DID — use to identify the peer |
+| `ownerDid` | DID of the human who owns the sender agent |
+| `issuer` | Registry URL that issued the sender's AIT |
+| `aitJti` | Unique JTI claim from the sender's AIT |
+
+### Programmatic access
+
+The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbound inbox items (`ConnectorInboundInboxItem`) also expose `fromAgentDid` for programmatic sender identification without parsing the identity block.
+
 ## Pairing Error Codes
 
 ### `pair start` errors
 
-| HTTP Status | Error Code | Meaning |
-|-------------|-----------|---------|
-| 403 | `PROXY_PAIR_OWNERSHIP_FORBIDDEN` | Initiator ownership check failed |
-| 503 | `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` | Registry ownership lookup unavailable |
-| — | `CLI_PAIR_AGENT_NOT_FOUND` | Agent ait.jwt or secret.key missing/empty |
-| — | `CLI_PAIR_HUMAN_NAME_MISSING` | Local config is missing `humanName`; set via invite redeem or config |
-| — | `CLI_PAIR_PROXY_URL_REQUIRED` | Proxy URL could not be resolved |
-| — | `CLI_PAIR_START_INVALID_TTL` | ttlSeconds must be a positive integer |
-| — | `CLI_PAIR_INVALID_PROXY_URL` | Proxy URL is invalid |
-| — | `CLI_PAIR_REQUEST_FAILED` | Unable to connect to proxy URL |
+| HTTP Status | Error Code | Meaning | Recovery |
+|---|---|---|---|
+| 403 | `PROXY_PAIR_OWNERSHIP_FORBIDDEN` | Initiator ownership check failed | Recreate/refresh the local agent identity |
+| 503 | `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` | Registry ownership lookup unavailable | Check proxy/registry service auth configuration |
+| — | `CLI_PAIR_AGENT_NOT_FOUND` | Agent ait.jwt or secret.key missing/empty | Run `agent create` or `agent auth refresh` |
+| — | `CLI_PAIR_HUMAN_NAME_MISSING` | Local config is missing `humanName` | Set via `invite redeem` or config |
+| — | `CLI_PAIR_PROXY_URL_REQUIRED` | Proxy URL could not be resolved | Run `invite redeem` or set `CLAWDENTITY_PROXY_URL` |
+| — | `CLI_PAIR_START_INVALID_TTL` | ttlSeconds must be a positive integer | Use valid `--ttl-seconds` value |
+| — | `CLI_PAIR_INVALID_PROXY_URL` | Proxy URL is invalid | Fix proxy URL in config |
+| — | `CLI_PAIR_REQUEST_FAILED` | Unable to connect to proxy URL | Check DNS, firewall, proxy URL |
+| — | `CLI_PAIR_START_FAILED` | Generic pair start failure | Retry; check proxy connectivity |
+| — | `CLI_PAIR_PROFILE_INVALID` | Name too long, contains control characters, or empty | Fix agent or human name |
 
 ### `pair confirm` errors
 
-| HTTP Status | Error Code | Meaning |
-|-------------|-----------|---------|
-| 404 | `PROXY_PAIR_TICKET_NOT_FOUND` | Pairing ticket is invalid or expired |
-| 410 | `PROXY_PAIR_TICKET_EXPIRED` | Pairing ticket has expired |
-| — | `CLI_PAIR_CONFIRM_TICKET_REQUIRED` | Either --ticket or --qr-file is required |
-| — | `CLI_PAIR_CONFIRM_INPUT_CONFLICT` | Cannot provide both --ticket and --qr-file |
-| — | `CLI_PAIR_CONFIRM_TICKET_INVALID` | Pairing ticket is invalid |
-| — | `CLI_PAIR_CONFIRM_QR_FILE_NOT_FOUND` | QR file not found |
-| — | `CLI_PAIR_CONFIRM_QR_NOT_FOUND` | No pairing QR code found in image |
+| HTTP Status | Error Code | Meaning | Recovery |
+|---|---|---|---|
+| 404 | `PROXY_PAIR_TICKET_NOT_FOUND` | Pairing ticket is invalid or expired | Request new ticket from initiator |
+| 410 | `PROXY_PAIR_TICKET_EXPIRED` | Pairing ticket has expired | Request new ticket |
+| — | `CLI_PAIR_CONFIRM_TICKET_REQUIRED` | Either --ticket or --qr-file is required | Provide one input path |
+| — | `CLI_PAIR_CONFIRM_INPUT_CONFLICT` | Cannot provide both --ticket and --qr-file | Use one input path only |
+| — | `CLI_PAIR_CONFIRM_TICKET_INVALID` | Pairing ticket is invalid | Get new ticket from initiator |
+| — | `CLI_PAIR_CONFIRM_QR_FILE_NOT_FOUND` | QR file not found | Verify file path |
+| — | `CLI_PAIR_CONFIRM_QR_NOT_FOUND` | No pairing QR code found in image | Request new QR from initiator |
+| — | `CLI_PAIR_CONFIRM_FAILED` | Generic pair confirm failure | Retry with new ticket |
+| — | `CLI_PAIR_CONFIRM_QR_FILE_INVALID` | QR image file corrupt or unsupported | Request new QR from initiator |
+| — | `CLI_PAIR_CONFIRM_QR_FILE_REQUIRED` | QR path unusable | Verify file path and format |
+
+### `pair status` errors
+
+| HTTP Status | Error Code | Meaning | Recovery |
+|---|---|---|---|
+| — | `CLI_PAIR_STATUS_FAILED` | Generic pair status failure | Retry |
+| — | `CLI_PAIR_STATUS_WAIT_TIMEOUT` | Wait polling timed out | Generate new ticket via `pair start` |
+| — | `CLI_PAIR_STATUS_FORBIDDEN` | 403 on status check — ownership mismatch | Verify correct agent |
+| — | `CLI_PAIR_STATUS_TICKET_REQUIRED` | Missing ticket argument | Provide `--ticket <clwpair1_...>` |
+
+### Peer persistence errors
+
+| Error Code | Meaning | Recovery |
+|---|---|---|
+| `CLI_PAIR_PEERS_CONFIG_INVALID` | `peers.json` corrupt or invalid structure | Delete `peers.json` and re-pair |
+| `CLI_PAIR_PEER_ALIAS_INVALID` | Derived alias fails validation | Re-pair with valid agent DID |
 
 ## Cache Files
 
@@ -261,3 +287,38 @@ When `pair confirm` saves a new peer, alias is derived automatically:
 5. Fallback alias is `peer` if DID is not a valid agent DID.
 
 Alias validation: `[a-zA-Z0-9._-]`, max 128 characters.
+
+## Container Environments
+
+When running in Docker or similar container runtimes:
+
+- `openclaw setup` writes Docker-aware endpoint candidates into `clawdentity-relay.json`:
+  - `host.docker.internal`, `gateway.docker.internal`, Linux bridge (`172.17.0.1`), default gateway, and loopback.
+  - Candidates are attempted in order by the relay transform.
+- Use `--no-runtime-start` when the connector runs as a separate container or process.
+- Required env overrides for container networking:
+  - `OPENCLAW_BASE_URL` — point to OpenClaw inside/outside the container network.
+  - `CLAWDENTITY_CONNECTOR_BASE_URL` — point to the connector's bind address from the transform's perspective.
+- Port allocation: each agent gets its own connector port starting from `19400`.
+  - Port assignment is tracked in `~/.clawdentity/openclaw-connectors.json`.
+
+## Doctor Check Reference
+
+Run `clawdentity openclaw doctor --json` for machine-readable diagnostics.
+
+| Check ID | Validates | Remediation on Failure |
+|---|---|---|
+| `config.registry` | `registryUrl`, `apiKey`, and `proxyUrl` in config (or proxy env override) | `clawdentity config init` or `invite redeem` |
+| `state.selectedAgent` | Agent marker at `~/.clawdentity/openclaw-agent-name` | `clawdentity openclaw setup <agent-name>` |
+| `state.credentials` | `ait.jwt` and `secret.key` exist and non-empty | `clawdentity agent create <agent-name>` or `agent auth refresh <agent-name>` |
+| `state.peers` | Peers config valid; requested `--peer` alias exists | `clawdentity pair start` / `pair confirm` (optional until pairing) |
+| `state.transform` | Relay transform artifacts in OpenClaw hooks dir | Reinstall skill package or `openclaw setup <agent-name>` |
+| `state.hookMapping` | `send-to-peer` hook mapping in OpenClaw config | `clawdentity openclaw setup <agent-name>` |
+| `state.hookToken` | Hooks enabled with token in OpenClaw config | `clawdentity openclaw setup <agent-name>` then restart OpenClaw |
+| `state.hookSessionRouting` | `hooks.defaultSessionKey`, `hooks.allowRequestSessionKey=false`, and required prefixes | `clawdentity openclaw setup <agent-name>` then restart OpenClaw |
+| `state.gatewayAuth` | OpenClaw `gateway.auth` readiness (`mode` + required credential) | `clawdentity openclaw setup <agent-name>` to re-sync gateway auth |
+| `state.gatewayDevicePairing` | Pending OpenClaw device approvals | Re-run `clawdentity openclaw setup <agent-name>` so setup auto-recovers approvals |
+| `state.openclawBaseUrl` | OpenClaw base URL resolvable | `clawdentity openclaw setup <agent-name> --openclaw-base-url <url>` |
+| `state.connectorRuntime` | Local connector runtime reachable and websocket-connected | `clawdentity openclaw setup <agent-name>` |
+| `state.connectorInboundInbox` | Connector local inbound inbox backlog and replay queue state | Re-run `clawdentity openclaw setup <agent-name>` and verify connector runtime health |
+| `state.openclawHookHealth` | Connector replay status for local OpenClaw hook delivery | Re-run `clawdentity openclaw setup <agent-name>` and restart OpenClaw if hook replay stays failed |

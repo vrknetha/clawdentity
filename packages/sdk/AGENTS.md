@@ -43,6 +43,7 @@
 - Nonce cache must validate the top-level input shape before reading fields so invalid JS callers receive structured `AppError`s instead of runtime `TypeError`s.
 - Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
 - Registry config parsing must validate `PROXY_URL` as an absolute URL so invite onboarding responses can safely publish proxy routing hints.
+- Registry config parsing must support strict runtime checks (`requireRuntimeKeys`) so app runtimes can fail fast on missing required env in non-test environments.
 - Registry keyset validation must reject duplicate `kid` values and malformed `x` key material (non-base64url or non-32-byte Ed25519) so verifier behavior cannot become order-dependent.
 - Use `RuntimeEnvironment` + `shouldExposeVerboseErrors` from `runtime-environment` for environment-based error-detail behavior; do not duplicate ad-hoc `NODE_ENV`/string checks.
 - Keep `agent-auth-client` runtime-portable (no Node-only filesystem APIs); delegate persistence/locking to callers.

@@ -2417,6 +2417,19 @@ describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
         ENVIRONMENT: "development",
         APP_VERSION: "sha-meta-123",
         PROXY_URL: "https://dev.proxy.clawdentity.com",
+        REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
+        EVENT_BUS_BACKEND: "memory",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+        REGISTRY_SIGNING_KEY: "test-signing-key",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+            status: "active",
+          },
+        ]),
       },
     );
 
@@ -4506,7 +4519,24 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "production" },
+      {
+        DB: database,
+        ENVIRONMENT: "production",
+        PROXY_URL: "https://proxy.clawdentity.com",
+        REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
+        EVENT_BUS_BACKEND: "memory",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+        REGISTRY_SIGNING_KEY: "test-signing-key",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+            status: "active",
+          },
+        ]),
+      },
     );
 
     expect(res.status).toBe(400);
@@ -5582,6 +5612,20 @@ describe("POST /v1/agents", () => {
       {
         DB: database,
         ENVIRONMENT: "production",
+        PROXY_URL: "https://proxy.clawdentity.com",
+        REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
+        EVENT_BUS_BACKEND: "memory",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+        REGISTRY_SIGNING_KEY: "test-signing-key",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+            status: "active",
+          },
+        ]),
       },
     );
 
@@ -5619,6 +5663,10 @@ describe("POST /v1/agents", () => {
       {
         DB: database,
         ENVIRONMENT: "production",
+        PROXY_URL: "https://proxy.clawdentity.com",
+        REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
+        EVENT_BUS_BACKEND: "memory",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {

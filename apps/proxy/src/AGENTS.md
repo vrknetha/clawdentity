@@ -4,6 +4,7 @@
 - Keep `index.ts` as runtime bootstrap surface and version export.
 - Keep version resolution in `index.ts` deterministic: prefer `APP_VERSION`, then `PROXY_VERSION`, then fallback constant for local/dev defaults.
 - Keep runtime env parsing and defaults in `config.ts`; do not scatter `process.env` reads across handlers.
+- Keep startup fail-fast env validation in `config.ts` and enforce it from runtime boot (`startProxyServer` + worker runtime build) so missing registry/service credentials fail immediately.
 - Keep agent DID rate-limit env parsing in `config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE`, `AGENT_RATE_LIMIT_WINDOW_MS`) and validate as positive integers.
 - Keep HTTP app composition in `server.ts`.
 - Keep Cloudflare Worker fetch startup in `worker.ts`.
@@ -50,6 +51,7 @@
   - `/pair/confirm` requires `responderProfile.{agentName,humanName}`
   - `/pair/status` returns stored profile fields for initiator and responder
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
+- Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
 - Keep `/hooks/agent` trust check explicit: sender/recipient pair must be authorized by trust state before relay delivery.

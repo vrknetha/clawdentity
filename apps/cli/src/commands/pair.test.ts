@@ -304,6 +304,103 @@ describe("pair command helpers", () => {
     });
   });
 
+  it("fails confirm when ticket issuer does not match configured proxy URL", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+
+    await expect(
+      confirmPairing(
+        "beta",
+        {
+          ticket,
+        },
+        {
+          fetchImpl: (async (url: string) => {
+            if (url.endsWith("/v1/metadata")) {
+              return Response.json(
+                {
+                  status: "ok",
+                  proxyUrl: "https://beta.proxy.example",
+                },
+                { status: 200 },
+              );
+            }
+            return Response.json({}, { status: 200 });
+          }) as unknown as typeof fetch,
+          nowSecondsImpl: () => 1_700_000_000,
+          nonceFactoryImpl: () => "nonce-confirm",
+          readFileImpl: createReadFileMock(
+            fixture,
+          ) as unknown as typeof import("node:fs/promises").readFile,
+          resolveConfigImpl: async () => ({
+            registryUrl: "https://registry.clawdentity.com/",
+            humanName: RESPONDER_PROFILE.humanName,
+          }),
+          getConfigDirImpl: () => "/tmp/.clawdentity",
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLI_PAIR_TICKET_ISSUER_MISMATCH",
+    });
+  });
+
+  it("normalizes wrapped tickets before pair status request", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+    const wrappedTicket = `\`\n${ticket.slice(0, 18)}\n${ticket.slice(18)}\n\``;
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/v1/metadata")) {
+        return Response.json(
+          {
+            status: "ok",
+            proxyUrl: "https://alpha.proxy.example",
+          },
+          { status: 200 },
+        );
+      }
+
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        ticket?: string;
+      };
+      expect(requestBody.ticket).toBe(ticket);
+
+      return Response.json(
+        {
+          status: "pending",
+          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorProfile: INITIATOR_PROFILE,
+          expiresAt: "2026-02-18T00:00:00.000Z",
+        },
+        { status: 200 },
+      );
+    });
+
+    const result = await getPairingStatus(
+      "alpha",
+      {
+        ticket: wrappedTicket,
+      },
+      {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        nowSecondsImpl: () => 1_700_000_000,
+        nonceFactoryImpl: () => "nonce-status",
+        readFileImpl: createReadFileMock(
+          fixture,
+        ) as unknown as typeof import("node:fs/promises").readFile,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://registry.clawdentity.com/",
+        }),
+        getConfigDirImpl: () => "/tmp/.clawdentity",
+      },
+    );
+
+    expect(result.status).toBe("pending");
+  });
+
   it("confirms pairing with qr-file ticket decode", async () => {
     const fixture = await createPairFixture();
     const unlinkImpl = vi.fn(async () => undefined);
@@ -318,7 +415,7 @@ describe("pair command helpers", () => {
         return Response.json(
           {
             status: "ok",
-            proxyUrl: "https://beta.proxy.example",
+            proxyUrl: "https://alpha.proxy.example",
           },
           { status: 200 },
         );
@@ -366,7 +463,7 @@ describe("pair command helpers", () => {
     );
 
     expect(result.paired).toBe(true);
-    expect(result.proxyUrl).toBe("https://beta.proxy.example/");
+    expect(result.proxyUrl).toBe("https://alpha.proxy.example/");
     expect(result.peerAlias).toBe("peer-11111111");
     const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
     const headers = new Headers(init?.headers);
@@ -425,7 +522,7 @@ describe("pair command helpers", () => {
         return Response.json(
           {
             status: "ok",
-            proxyUrl: "https://beta.proxy.example",
+            proxyUrl: "https://alpha.proxy.example",
           },
           { status: 200 },
         );
@@ -748,7 +845,7 @@ describe("pair command output", () => {
           return Response.json(
             {
               status: "ok",
-              proxyUrl: "https://beta.proxy.example",
+              proxyUrl: "https://alpha.proxy.example",
             },
             { status: 200 },
           );

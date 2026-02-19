@@ -48,7 +48,10 @@ export function startProxyServer(
   options: StartProxyServerOptions = {},
 ): StartedProxyServer {
   const config =
-    options.config ?? loadProxyConfig(options.env ?? resolveDefaultNodeEnv());
+    options.config ??
+    loadProxyConfig(options.env ?? resolveDefaultNodeEnv(), {
+      requireRuntimeKeys: true,
+    });
   const logger = resolveLogger(options.logger);
   const trustStoreResolution = resolveNodeTrustStore({
     environment: config.environment,

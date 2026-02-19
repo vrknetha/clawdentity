@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
@@ -58,6 +58,8 @@ const CONNECTOR_HOST_DOCKER = "host.docker.internal";
 const CONNECTOR_HOST_DOCKER_GATEWAY = "gateway.docker.internal";
 const CONNECTOR_HOST_LINUX_BRIDGE = "172.17.0.1";
 const CONNECTOR_RUN_DIR_NAME = "run";
+const CONNECTOR_DETACHED_STDOUT_FILE_SUFFIX = "stdout.log";
+const CONNECTOR_DETACHED_STDERR_FILE_SUFFIX = "stderr.log";
 const INVITE_CODE_PREFIX = "clawd1_";
 const PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
 const FILE_MODE = 0o600;
@@ -70,8 +72,12 @@ const OPENCLAW_PAIRING_COMMAND_HINT =
   "Run QR pairing first: clawdentity pair start <agentName> --qr and clawdentity pair confirm <agentName> --qr-file <path>";
 const OPENCLAW_DEVICE_APPROVAL_RECOVERY_HINT =
   "Run: clawdentity openclaw setup <agentName> (auto-recovers pending OpenClaw gateway device approvals)";
+const OPENCLAW_GATEWAY_AUTH_RECOVERY_HINT =
+  "Run: clawdentity openclaw setup <agentName> (ensures gateway auth mode/token are configured)";
 const OPENCLAW_GATEWAY_APPROVAL_COMMAND = "openclaw";
 const OPENCLAW_GATEWAY_APPROVAL_TIMEOUT_MS = 10_000;
+const OPENCLAW_SETUP_STABILITY_WINDOW_SECONDS = 20;
+const OPENCLAW_SETUP_STABILITY_POLL_INTERVAL_MS = 1_000;
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -205,6 +211,7 @@ export type OpenclawSetupResult = {
   openclawBaseUrl: string;
   connectorBaseUrl: string;
   relayRuntimeConfigPath: string;
+  openclawConfigChanged: boolean;
 };
 
 type OpenclawRuntimeMode = "auto" | "service" | "detached";
@@ -244,6 +251,7 @@ type OpenclawDoctorCheckId =
   | "state.hookMapping"
   | "state.hookToken"
   | "state.hookSessionRouting"
+  | "state.gatewayAuth"
   | "state.gatewayDevicePairing"
   | "state.openclawBaseUrl"
   | "state.connectorRuntime"
@@ -1348,12 +1356,69 @@ async function waitForConnectorConnected(input: {
   return latest;
 }
 
+function sleepMilliseconds(durationMs: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, durationMs);
+  });
+}
+
+async function monitorConnectorStabilityWindow(input: {
+  connectorBaseUrl: string;
+  fetchImpl: typeof fetch;
+  durationSeconds: number;
+  pollIntervalMs: number;
+}): Promise<ConnectorHealthStatus> {
+  if (input.durationSeconds <= 0) {
+    return fetchConnectorHealthStatus({
+      connectorBaseUrl: input.connectorBaseUrl,
+      fetchImpl: input.fetchImpl,
+    });
+  }
+
+  const deadline = Date.now() + input.durationSeconds * 1000;
+  let latest = await fetchConnectorHealthStatus({
+    connectorBaseUrl: input.connectorBaseUrl,
+    fetchImpl: input.fetchImpl,
+  });
+  if (!latest.connected) {
+    return latest;
+  }
+
+  while (Date.now() < deadline) {
+    await sleepMilliseconds(input.pollIntervalMs);
+    latest = await fetchConnectorHealthStatus({
+      connectorBaseUrl: input.connectorBaseUrl,
+      fetchImpl: input.fetchImpl,
+    });
+    if (!latest.connected) {
+      return latest;
+    }
+  }
+
+  return latest;
+}
+
 function resolveConnectorRunDir(homeDir: string): string {
   return join(homeDir, CLAWDENTITY_DIR_NAME, CONNECTOR_RUN_DIR_NAME);
 }
 
 function resolveConnectorPidPath(homeDir: string, agentName: string): string {
   return join(resolveConnectorRunDir(homeDir), `connector-${agentName}.pid`);
+}
+
+function resolveDetachedConnectorLogPath(
+  homeDir: string,
+  agentName: string,
+  stream: "stdout" | "stderr",
+): string {
+  const suffix =
+    stream === "stdout"
+      ? CONNECTOR_DETACHED_STDOUT_FILE_SUFFIX
+      : CONNECTOR_DETACHED_STDERR_FILE_SUFFIX;
+  return join(
+    resolveConnectorRunDir(homeDir),
+    `connector-${agentName}.${suffix}`,
+  );
 }
 
 async function readConnectorPidFile(
@@ -1436,16 +1501,40 @@ async function startDetachedConnectorRuntime(input: {
     "--openclaw-base-url",
     input.openclawBaseUrl,
   ];
-  const child = spawn(process.execPath, args, {
-    detached: true,
-    stdio: "ignore",
-    env: process.env,
-  });
-  child.unref();
-  await writeSecureFile(
-    resolveConnectorPidPath(input.homeDir, input.agentName),
-    `${child.pid}\n`,
+  const stdoutLogPath = resolveDetachedConnectorLogPath(
+    input.homeDir,
+    input.agentName,
+    "stdout",
   );
+  const stderrLogPath = resolveDetachedConnectorLogPath(
+    input.homeDir,
+    input.agentName,
+    "stderr",
+  );
+  const stdoutFd = openSync(stdoutLogPath, "a");
+  const stderrFd = openSync(stderrLogPath, "a");
+
+  try {
+    const child = spawn(process.execPath, args, {
+      detached: true,
+      stdio: ["ignore", stdoutFd, stderrFd],
+      env: process.env,
+    });
+    child.unref();
+    await writeSecureFile(
+      resolveConnectorPidPath(input.homeDir, input.agentName),
+      `${child.pid}\n`,
+    );
+    logger.info("cli.openclaw.setup.detached_runtime_started", {
+      agentName: input.agentName,
+      pid: child.pid,
+      stdoutLogPath,
+      stderrLogPath,
+    });
+  } finally {
+    closeSync(stdoutFd);
+    closeSync(stderrFd);
+  }
 }
 
 async function startSetupConnectorRuntime(input: {
@@ -1710,6 +1799,45 @@ function generateOpenclawHookToken(): string {
   return randomBytes(OPENCLAW_HOOK_TOKEN_BYTES).toString("hex");
 }
 
+function generateOpenclawGatewayToken(): string {
+  return randomBytes(OPENCLAW_HOOK_TOKEN_BYTES).toString("hex");
+}
+
+function parseGatewayAuthMode(
+  value: unknown,
+): "token" | "password" | "trusted-proxy" | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "token" ||
+    normalized === "password" ||
+    normalized === "trusted-proxy"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function resolveEnvOpenclawGatewayToken(): string | undefined {
+  if (
+    typeof process.env.OPENCLAW_GATEWAY_TOKEN === "string" &&
+    process.env.OPENCLAW_GATEWAY_TOKEN.trim().length > 0
+  ) {
+    return process.env.OPENCLAW_GATEWAY_TOKEN.trim();
+  }
+  return undefined;
+}
+
+function resolveGatewayAuthToken(existingToken?: string): string {
+  return (
+    resolveEnvOpenclawGatewayToken() ??
+    existingToken ??
+    generateOpenclawGatewayToken()
+  );
+}
+
 function upsertRelayHookMapping(
   mappingsValue: unknown,
 ): Record<string, unknown>[] {
@@ -1763,7 +1891,7 @@ function upsertRelayHookMapping(
 async function patchOpenclawConfig(
   openclawConfigPath: string,
   hookToken?: string,
-): Promise<{ hookToken: string }> {
+): Promise<{ hookToken: string; configChanged: boolean }> {
   let config: unknown;
   try {
     config = await readJsonFile(openclawConfigPath);
@@ -1810,19 +1938,42 @@ async function patchOpenclawConfig(
   );
   hooks.mappings = upsertRelayHookMapping(hooks.mappings);
 
+  const gateway = isRecord(config.gateway) ? { ...config.gateway } : {};
+  const gatewayAuth = isRecord(gateway.auth) ? { ...gateway.auth } : {};
+  const configuredGatewayAuthMode = parseGatewayAuthMode(gatewayAuth.mode);
+  if (configuredGatewayAuthMode === undefined) {
+    gatewayAuth.mode = "token";
+  }
+
+  const effectiveGatewayAuthMode =
+    parseGatewayAuthMode(gatewayAuth.mode) ?? "token";
+  if (effectiveGatewayAuthMode === "token") {
+    const existingGatewayAuthToken =
+      typeof gatewayAuth.token === "string" &&
+      gatewayAuth.token.trim().length > 0
+        ? gatewayAuth.token.trim()
+        : undefined;
+    gatewayAuth.token = resolveGatewayAuthToken(existingGatewayAuthToken);
+  }
+  gateway.auth = gatewayAuth;
+
   const nextConfig = {
     ...config,
     hooks,
+    gateway,
   };
-
-  await writeFile(
-    openclawConfigPath,
-    `${JSON.stringify(nextConfig, null, 2)}\n`,
-    "utf8",
-  );
+  const configChanged = JSON.stringify(config) !== JSON.stringify(nextConfig);
+  if (configChanged) {
+    await writeFile(
+      openclawConfigPath,
+      `${JSON.stringify(nextConfig, null, 2)}\n`,
+      "utf8",
+    );
+  }
 
   return {
     hookToken: resolvedHookToken,
+    configChanged,
   };
 }
 
@@ -2417,6 +2568,91 @@ export async function runOpenclawDoctor(
         }),
       );
     }
+
+    const gateway = isRecord(openclawConfig.gateway)
+      ? openclawConfig.gateway
+      : {};
+    const gatewayAuth = isRecord(gateway.auth) ? gateway.auth : {};
+    const gatewayAuthMode = parseGatewayAuthMode(gatewayAuth.mode);
+    const gatewayAuthToken =
+      typeof gatewayAuth.token === "string" &&
+      gatewayAuth.token.trim().length > 0
+        ? gatewayAuth.token.trim()
+        : undefined;
+    const gatewayAuthPassword =
+      typeof gatewayAuth.password === "string" &&
+      gatewayAuth.password.trim().length > 0
+        ? gatewayAuth.password.trim()
+        : undefined;
+
+    if (gatewayAuthMode === "token") {
+      if (gatewayAuthToken === undefined) {
+        checks.push(
+          toDoctorCheck({
+            id: "state.gatewayAuth",
+            label: "OpenClaw gateway auth",
+            status: "fail",
+            message: `gateway.auth.token is missing in ${openclawConfigPath}`,
+            remediationHint: OPENCLAW_GATEWAY_AUTH_RECOVERY_HINT,
+            details: { openclawConfigPath, gatewayAuthMode },
+          }),
+        );
+      } else {
+        checks.push(
+          toDoctorCheck({
+            id: "state.gatewayAuth",
+            label: "OpenClaw gateway auth",
+            status: "pass",
+            message: "gateway auth is configured with token mode",
+            details: { openclawConfigPath, gatewayAuthMode },
+          }),
+        );
+      }
+    } else if (gatewayAuthMode === "password") {
+      if (gatewayAuthPassword === undefined) {
+        checks.push(
+          toDoctorCheck({
+            id: "state.gatewayAuth",
+            label: "OpenClaw gateway auth",
+            status: "fail",
+            message: `gateway.auth.password is missing in ${openclawConfigPath}`,
+            remediationHint: OPENCLAW_GATEWAY_AUTH_RECOVERY_HINT,
+            details: { openclawConfigPath, gatewayAuthMode },
+          }),
+        );
+      } else {
+        checks.push(
+          toDoctorCheck({
+            id: "state.gatewayAuth",
+            label: "OpenClaw gateway auth",
+            status: "pass",
+            message: "gateway auth is configured with password mode",
+            details: { openclawConfigPath, gatewayAuthMode },
+          }),
+        );
+      }
+    } else if (gatewayAuthMode === "trusted-proxy") {
+      checks.push(
+        toDoctorCheck({
+          id: "state.gatewayAuth",
+          label: "OpenClaw gateway auth",
+          status: "pass",
+          message: "gateway auth is configured with trusted-proxy mode",
+          details: { openclawConfigPath, gatewayAuthMode },
+        }),
+      );
+    } else {
+      checks.push(
+        toDoctorCheck({
+          id: "state.gatewayAuth",
+          label: "OpenClaw gateway auth",
+          status: "fail",
+          message: `gateway.auth.mode is missing or unsupported in ${openclawConfigPath}`,
+          remediationHint: OPENCLAW_GATEWAY_AUTH_RECOVERY_HINT,
+          details: { openclawConfigPath },
+        }),
+      );
+    }
   } catch {
     checks.push(
       toDoctorCheck({
@@ -2444,6 +2680,17 @@ export async function runOpenclawDoctor(
       toDoctorCheck({
         id: "state.hookSessionRouting",
         label: "OpenClaw hook session routing",
+        status: "fail",
+        message: `unable to read ${openclawConfigPath}`,
+        remediationHint:
+          "Ensure the OpenClaw config file exists (OPENCLAW_CONFIG_PATH/CLAWDBOT_CONFIG_PATH, or state dir) and rerun openclaw setup",
+        details: { openclawConfigPath },
+      }),
+    );
+    checks.push(
+      toDoctorCheck({
+        id: "state.gatewayAuth",
+        label: "OpenClaw gateway auth",
         status: "fail",
         message: `unable to read ${openclawConfigPath}`,
         remediationHint:
@@ -3185,6 +3432,7 @@ export async function setupOpenclawRelay(
     openclawBaseUrl,
     connectorBaseUrl,
     relayRuntimeConfigPath,
+    openclawConfigChanged: patchedOpenclawConfig.configChanged,
   };
 }
 
@@ -3271,12 +3519,13 @@ export async function setupOpenclawSelfReady(
   agentName: string,
   options: OpenclawSetupOptions,
 ): Promise<OpenclawSelfSetupResult> {
+  const normalizedAgentName = assertValidAgentName(agentName);
   const resolvedHomeDir = resolveHomeDir(options.homeDir);
   const resolvedOpenclawDir = resolveOpenclawDir(
     options.openclawDir,
     resolvedHomeDir,
   );
-  const setup = await setupOpenclawRelay(agentName, {
+  const setup = await setupOpenclawRelay(normalizedAgentName, {
     ...options,
     homeDir: resolvedHomeDir,
     openclawDir: resolvedOpenclawDir,
@@ -3308,8 +3557,8 @@ export async function setupOpenclawSelfReady(
   const waitTimeoutSeconds = parseWaitTimeoutSeconds(
     options.waitTimeoutSeconds,
   );
-  const runtime = await startSetupConnectorRuntime({
-    agentName: assertValidAgentName(agentName),
+  let runtime = await startSetupConnectorRuntime({
+    agentName: normalizedAgentName,
     homeDir: resolvedHomeDir,
     openclawBaseUrl: setup.openclawBaseUrl,
     connectorBaseUrl: setup.connectorBaseUrl,
@@ -3324,6 +3573,48 @@ export async function setupOpenclawSelfReady(
     includeConnectorRuntimeCheck: true,
     gatewayDeviceApprovalRunner: options.gatewayDeviceApprovalRunner,
   });
+
+  const requiresStabilityGuard =
+    setup.openclawConfigChanged &&
+    (runtime.runtimeMode === "existing" || runtime.runtimeMode === "detached");
+  if (requiresStabilityGuard) {
+    const stabilityWindowSeconds = Math.min(
+      waitTimeoutSeconds,
+      OPENCLAW_SETUP_STABILITY_WINDOW_SECONDS,
+    );
+    const stableStatus = await monitorConnectorStabilityWindow({
+      connectorBaseUrl: setup.connectorBaseUrl,
+      fetchImpl,
+      durationSeconds: stabilityWindowSeconds,
+      pollIntervalMs: OPENCLAW_SETUP_STABILITY_POLL_INTERVAL_MS,
+    });
+
+    if (!stableStatus.connected) {
+      logger.warn("cli.openclaw.setup.connector_dropped_post_config_change", {
+        agentName: normalizedAgentName,
+        connectorBaseUrl: setup.connectorBaseUrl,
+        connectorStatusUrl: stableStatus.statusUrl,
+        reason: stableStatus.reason,
+        previousRuntimeMode: runtime.runtimeMode,
+        stabilityWindowSeconds,
+      });
+      runtime = await startSetupConnectorRuntime({
+        agentName: normalizedAgentName,
+        homeDir: resolvedHomeDir,
+        openclawBaseUrl: setup.openclawBaseUrl,
+        connectorBaseUrl: setup.connectorBaseUrl,
+        mode: resolvedMode,
+        waitTimeoutSeconds,
+        fetchImpl,
+      });
+      await assertSetupChecklistHealthy({
+        homeDir: resolvedHomeDir,
+        openclawDir: resolvedOpenclawDir,
+        includeConnectorRuntimeCheck: true,
+        gatewayDeviceApprovalRunner: options.gatewayDeviceApprovalRunner,
+      });
+    }
+  }
 
   return {
     ...setup,

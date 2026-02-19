@@ -145,10 +145,17 @@ describe("openclaw command helpers", () => {
 
       const copiedTransform = readFileSync(result.transformTargetPath, "utf8");
       expect(copiedTransform).toContain("relay(ctx)");
+      expect(result.openclawConfigChanged).toBe(true);
 
       const openclawConfig = JSON.parse(
         readFileSync(result.openclawConfigPath, "utf8"),
       ) as {
+        gateway?: {
+          auth?: {
+            mode?: string;
+            token?: string;
+          };
+        };
         hooks: {
           enabled?: boolean;
           token?: string;
@@ -166,6 +173,11 @@ describe("openclaw command helpers", () => {
       expect(openclawConfig.hooks.allowRequestSessionKey).toBe(false);
       expect(openclawConfig.hooks.allowedSessionKeyPrefixes).toContain("hook:");
       expect(openclawConfig.hooks.allowedSessionKeyPrefixes).toContain("main");
+      expect(openclawConfig.gateway?.auth?.mode).toBe("token");
+      expect(typeof openclawConfig.gateway?.auth?.token).toBe("string");
+      expect(openclawConfig.gateway?.auth?.token?.length ?? 0).toBeGreaterThan(
+        0,
+      );
       expect(
         openclawConfig.hooks.mappings?.some(
           (mapping) =>
@@ -246,6 +258,40 @@ describe("openclaw command helpers", () => {
     }
   });
 
+  it("does not rewrite OpenClaw config when setup state is already current", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+    const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+    delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    const preconfiguredOpenclawJson =
+      '{"hooks":{"enabled":true,"token":"hook-token","defaultSessionKey":"main","allowRequestSessionKey":false,"allowedSessionKeyPrefixes":["hook:","main"],"mappings":[{"id":"clawdentity-send-to-peer","match":{"path":"send-to-peer"},"action":"agent","wakeMode":"now","transform":{"module":"relay-to-peer.mjs"}}]},"gateway":{"auth":{"mode":"token","token":"gateway-token"}}}\n';
+    writeFileSync(
+      join(sandbox.openclawDir, "openclaw.json"),
+      preconfiguredOpenclawJson,
+      "utf8",
+    );
+
+    try {
+      const result = await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      expect(result.openclawConfigChanged).toBe(false);
+      expect(readFileSync(result.openclawConfigPath, "utf8")).toBe(
+        preconfiguredOpenclawJson,
+      );
+    } finally {
+      if (previousGatewayToken === undefined) {
+        delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      } else {
+        process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+      }
+      sandbox.cleanup();
+    }
+  });
+
   it("supports setup-only mode without runtime startup", async () => {
     const sandbox = createSandbox();
     seedLocalAgentCredentials(sandbox.homeDir, "alpha");
@@ -265,6 +311,44 @@ describe("openclaw command helpers", () => {
         "relay(ctx)",
       );
     } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("syncs gateway auth token from OPENCLAW_GATEWAY_TOKEN during setup", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+    const previousGatewayToken = process.env.OPENCLAW_GATEWAY_TOKEN;
+    process.env.OPENCLAW_GATEWAY_TOKEN = "gateway-token-from-env";
+
+    try {
+      const result = await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const openclawConfig = JSON.parse(
+        readFileSync(result.openclawConfigPath, "utf8"),
+      ) as {
+        gateway?: {
+          auth?: {
+            mode?: string;
+            token?: string;
+          };
+        };
+      };
+
+      expect(openclawConfig.gateway?.auth?.mode).toBe("token");
+      expect(openclawConfig.gateway?.auth?.token).toBe(
+        "gateway-token-from-env",
+      );
+    } finally {
+      if (previousGatewayToken === undefined) {
+        delete process.env.OPENCLAW_GATEWAY_TOKEN;
+      } else {
+        process.env.OPENCLAW_GATEWAY_TOKEN = previousGatewayToken;
+      }
       sandbox.cleanup();
     }
   });
@@ -1328,6 +1412,69 @@ describe("openclaw command helpers", () => {
             check.id === "state.gatewayDevicePairing" &&
             check.status === "fail" &&
             check.message.includes("pending gateway device approvals: 1"),
+        ),
+      ).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("fails doctor when gateway auth token mode is configured without token", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+
+      const openclawConfigPath = join(sandbox.openclawDir, "openclaw.json");
+      const openclawConfig = JSON.parse(
+        readFileSync(openclawConfigPath, "utf8"),
+      ) as {
+        gateway?: {
+          auth?: {
+            mode?: string;
+            token?: string;
+          };
+        };
+      };
+      openclawConfig.gateway = {
+        ...(openclawConfig.gateway ?? {}),
+        auth: {
+          ...(openclawConfig.gateway?.auth ?? {}),
+          mode: "token",
+        },
+      };
+      if (openclawConfig.gateway?.auth) {
+        delete openclawConfig.gateway.auth.token;
+      }
+      writeFileSync(
+        openclawConfigPath,
+        `${JSON.stringify(openclawConfig, null, 2)}\n`,
+        "utf8",
+      );
+
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        fetchImpl: connectorReadyFetch(),
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          proxyUrl: "https://proxy.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(result.status).toBe("unhealthy");
+      expect(
+        result.checks.some(
+          (check) =>
+            check.id === "state.gatewayAuth" &&
+            check.status === "fail" &&
+            check.message.includes("gateway.auth.token is missing"),
         ),
       ).toBe(true);
     } finally {
