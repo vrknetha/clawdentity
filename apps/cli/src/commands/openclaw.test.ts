@@ -8,6 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { getConfigDir } from "../config/manager.js";
 import {
   createOpenclawCommand,
   createOpenclawInviteCode,
@@ -68,7 +69,7 @@ function createSandbox(): OpenclawSandbox {
 }
 
 function resolveCliStateDir(homeDir: string): string {
-  return join(homeDir, ".clawdentity", "states", "prod");
+  return getConfigDir({ homeDir });
 }
 
 function seedLocalAgentCredentials(homeDir: string, agentName: string): void {
