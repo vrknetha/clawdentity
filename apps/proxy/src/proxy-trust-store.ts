@@ -1,11 +1,14 @@
 import { PROXY_TRUST_DO_NAME } from "./pairing-constants.js";
 import {
+  normalizePairingTicketText,
   PairingTicketParseError,
   parsePairingTicket,
 } from "./pairing-ticket.js";
+import { normalizeExpiryToWholeSecond, toPairKey } from "./proxy-trust-keys.js";
 
 export type PairingTicketInput = {
   initiatorAgentDid: string;
+  initiatorProfile: PeerProfile;
   issuerProxyUrl: string;
   ticket: string;
   expiresAtMs: number;
@@ -16,19 +19,54 @@ export type PairingTicketResult = {
   ticket: string;
   expiresAtMs: number;
   initiatorAgentDid: string;
+  initiatorProfile: PeerProfile;
   issuerProxyUrl: string;
 };
 
 export type PairingTicketConfirmInput = {
   ticket: string;
   responderAgentDid: string;
+  responderProfile: PeerProfile;
   nowMs?: number;
 };
 
 export type PairingTicketConfirmResult = {
   initiatorAgentDid: string;
+  initiatorProfile: PeerProfile;
   responderAgentDid: string;
+  responderProfile: PeerProfile;
   issuerProxyUrl: string;
+};
+
+export type PairingTicketStatusInput = {
+  ticket: string;
+  nowMs?: number;
+};
+
+export type PairingTicketStatusResult =
+  | {
+      status: "pending";
+      ticket: string;
+      initiatorAgentDid: string;
+      initiatorProfile: PeerProfile;
+      issuerProxyUrl: string;
+      expiresAtMs: number;
+    }
+  | {
+      status: "confirmed";
+      ticket: string;
+      initiatorAgentDid: string;
+      initiatorProfile: PeerProfile;
+      responderAgentDid: string;
+      responderProfile: PeerProfile;
+      issuerProxyUrl: string;
+      expiresAtMs: number;
+      confirmedAtMs: number;
+    };
+
+export type PeerProfile = {
+  agentName: string;
+  humanName: string;
 };
 
 export type PairingInput = {
@@ -41,6 +79,9 @@ export interface ProxyTrustStore {
   confirmPairingTicket(
     input: PairingTicketConfirmInput,
   ): Promise<PairingTicketConfirmResult>;
+  getPairingTicketStatus(
+    input: PairingTicketStatusInput,
+  ): Promise<PairingTicketStatusResult>;
   isAgentKnown(agentDid: string): Promise<boolean>;
   isPairAllowed(input: PairingInput): Promise<boolean>;
   upsertPair(input: PairingInput): Promise<void>;
@@ -70,17 +111,11 @@ export class ProxyTrustStoreError extends Error {
 export const TRUST_STORE_ROUTES = {
   createPairingTicket: "/pairing-tickets/create",
   confirmPairingTicket: "/pairing-tickets/confirm",
+  getPairingTicketStatus: "/pairing-tickets/status",
   isAgentKnown: "/agents/known",
   isPairAllowed: "/pairs/check",
   upsertPair: "/pairs/upsert",
 } as const;
-
-function toPairKey(
-  initiatorAgentDid: string,
-  responderAgentDid: string,
-): string {
-  return [initiatorAgentDid, responderAgentDid].sort().join("|");
-}
 
 function parseErrorPayload(payload: unknown): {
   code: string;
@@ -161,17 +196,27 @@ export function createDurableProxyTrustStore(
 ): ProxyTrustStore {
   return {
     async createPairingTicket(input) {
+      const ticket = normalizePairingTicketText(input.ticket);
       return callDurableState<PairingTicketResult>(
         namespace,
         TRUST_STORE_ROUTES.createPairingTicket,
-        input,
+        { ...input, ticket },
       );
     },
     async confirmPairingTicket(input) {
+      const ticket = normalizePairingTicketText(input.ticket);
       return callDurableState<PairingTicketConfirmResult>(
         namespace,
         TRUST_STORE_ROUTES.confirmPairingTicket,
-        input,
+        { ...input, ticket },
+      );
+    },
+    async getPairingTicketStatus(input) {
+      const ticket = normalizePairingTicketText(input.ticket);
+      return callDurableState<PairingTicketStatusResult>(
+        namespace,
+        TRUST_STORE_ROUTES.getPairingTicketStatus,
+        { ...input, ticket },
       );
     },
     async isAgentKnown(agentDid) {
@@ -203,12 +248,26 @@ export function createDurableProxyTrustStore(
 export function createInMemoryProxyTrustStore(): ProxyTrustStore {
   const pairKeys = new Set<string>();
   const agentPeers = new Map<string, Set<string>>();
+  const confirmedPairingTickets = new Map<
+    string,
+    {
+      ticket: string;
+      expiresAtMs: number;
+      initiatorAgentDid: string;
+      initiatorProfile: PeerProfile;
+      responderAgentDid: string;
+      responderProfile: PeerProfile;
+      issuerProxyUrl: string;
+      confirmedAtMs: number;
+    }
+  >();
   const pairingTickets = new Map<
     string,
     {
       ticket: string;
       expiresAtMs: number;
       initiatorAgentDid: string;
+      initiatorProfile: PeerProfile;
       issuerProxyUrl: string;
     }
   >();
@@ -221,6 +280,16 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
 
       if (details.expiresAtMs <= nowMs) {
         pairingTickets.delete(ticketKid);
+      }
+    }
+
+    for (const [ticketKid, details] of confirmedPairingTickets.entries()) {
+      if (skipTicketKid === ticketKid) {
+        continue;
+      }
+
+      if (details.expiresAtMs <= nowMs) {
+        confirmedPairingTickets.delete(ticketKid);
       }
     }
   }
@@ -255,13 +324,15 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
   function resolveConfirmablePairingTicket(input: PairingTicketConfirmInput): {
     pair: PairingTicketConfirmResult;
     ticketKid: string;
+    expiresAtMs: number;
   } {
     const nowMs = input.nowMs ?? Date.now();
-    const parsedTicket = parseStoredTicket(input.ticket);
+    const normalizedTicket = normalizePairingTicketText(input.ticket);
+    const parsedTicket = parseStoredTicket(normalizedTicket);
     cleanup(nowMs, parsedTicket.kid);
 
     const stored = pairingTickets.get(parsedTicket.kid);
-    if (!stored || stored.ticket !== input.ticket) {
+    if (!stored || stored.ticket !== normalizedTicket) {
       throw new ProxyTrustStoreError({
         code: "PROXY_PAIR_TICKET_NOT_FOUND",
         message: "Pairing ticket not found",
@@ -289,11 +360,82 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     return {
       pair: {
         initiatorAgentDid: stored.initiatorAgentDid,
+        initiatorProfile: stored.initiatorProfile,
         responderAgentDid: input.responderAgentDid,
+        responderProfile: input.responderProfile,
         issuerProxyUrl: stored.issuerProxyUrl,
       },
       ticketKid: parsedTicket.kid,
+      expiresAtMs: stored.expiresAtMs,
     };
+  }
+
+  function resolveTicketStatus(
+    input: PairingTicketStatusInput,
+  ): PairingTicketStatusResult {
+    const nowMs = input.nowMs ?? Date.now();
+    const normalizedTicket = normalizePairingTicketText(input.ticket);
+    const parsedTicket = parseStoredTicket(normalizedTicket);
+    cleanup(nowMs, parsedTicket.kid);
+
+    const pending = pairingTickets.get(parsedTicket.kid);
+    if (pending && pending.ticket === normalizedTicket) {
+      if (pending.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
+        pairingTickets.delete(parsedTicket.kid);
+        throw new ProxyTrustStoreError({
+          code: "PROXY_PAIR_TICKET_EXPIRED",
+          message: "Pairing ticket has expired",
+          status: 410,
+        });
+      }
+
+      return {
+        status: "pending",
+        ticket: pending.ticket,
+        initiatorAgentDid: pending.initiatorAgentDid,
+        initiatorProfile: pending.initiatorProfile,
+        issuerProxyUrl: pending.issuerProxyUrl,
+        expiresAtMs: pending.expiresAtMs,
+      };
+    }
+
+    const confirmed = confirmedPairingTickets.get(parsedTicket.kid);
+    if (confirmed && confirmed.ticket === normalizedTicket) {
+      if (confirmed.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
+        confirmedPairingTickets.delete(parsedTicket.kid);
+        throw new ProxyTrustStoreError({
+          code: "PROXY_PAIR_TICKET_EXPIRED",
+          message: "Pairing ticket has expired",
+          status: 410,
+        });
+      }
+
+      return {
+        status: "confirmed",
+        ticket: confirmed.ticket,
+        initiatorAgentDid: confirmed.initiatorAgentDid,
+        initiatorProfile: confirmed.initiatorProfile,
+        responderAgentDid: confirmed.responderAgentDid,
+        responderProfile: confirmed.responderProfile,
+        issuerProxyUrl: confirmed.issuerProxyUrl,
+        expiresAtMs: confirmed.expiresAtMs,
+        confirmedAtMs: confirmed.confirmedAtMs,
+      };
+    }
+
+    if (parsedTicket.exp * 1000 <= nowMs) {
+      throw new ProxyTrustStoreError({
+        code: "PROXY_PAIR_TICKET_EXPIRED",
+        message: "Pairing ticket has expired",
+        status: 410,
+      });
+    }
+
+    throw new ProxyTrustStoreError({
+      code: "PROXY_PAIR_TICKET_NOT_FOUND",
+      message: "Pairing ticket not found",
+      status: 404,
+    });
   }
 
   return {
@@ -301,7 +443,11 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       const nowMs = input.nowMs ?? Date.now();
       cleanup(nowMs);
 
-      const parsedTicket = parseStoredTicket(input.ticket);
+      const ticket = normalizePairingTicketText(input.ticket);
+      const parsedTicket = parseStoredTicket(ticket);
+      const normalizedExpiresAtMs = normalizeExpiryToWholeSecond(
+        input.expiresAtMs,
+      );
 
       if (parsedTicket.iss !== input.issuerProxyUrl) {
         throw new ProxyTrustStoreError({
@@ -311,7 +457,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         });
       }
 
-      if (parsedTicket.exp * 1000 !== input.expiresAtMs) {
+      if (parsedTicket.exp * 1000 !== normalizedExpiresAtMs) {
         throw new ProxyTrustStoreError({
           code: "PROXY_PAIR_START_INVALID_BODY",
           message: "Pairing ticket expiry is invalid",
@@ -320,22 +466,31 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       }
 
       pairingTickets.set(parsedTicket.kid, {
-        ticket: input.ticket,
+        ticket,
         initiatorAgentDid: input.initiatorAgentDid,
+        initiatorProfile: input.initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
-        expiresAtMs: input.expiresAtMs,
+        expiresAtMs: normalizedExpiresAtMs,
       });
+      confirmedPairingTickets.delete(parsedTicket.kid);
 
       return {
-        ticket: input.ticket,
-        expiresAtMs: input.expiresAtMs,
+        ticket,
+        expiresAtMs: normalizedExpiresAtMs,
         initiatorAgentDid: input.initiatorAgentDid,
+        initiatorProfile: input.initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
       };
     },
     async confirmPairingTicket(input) {
-      const { pair: confirmedPair, ticketKid } =
-        resolveConfirmablePairingTicket(input);
+      const {
+        pair: confirmedPair,
+        ticketKid,
+        expiresAtMs,
+      } = resolveConfirmablePairingTicket(input);
+      const confirmedAtMs = normalizeExpiryToWholeSecond(
+        input.nowMs ?? Date.now(),
+      );
       pairKeys.add(
         toPairKey(
           confirmedPair.initiatorAgentDid,
@@ -351,7 +506,21 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         confirmedPair.initiatorAgentDid,
       );
       pairingTickets.delete(ticketKid);
+      const ticket = normalizePairingTicketText(input.ticket);
+      confirmedPairingTickets.set(ticketKid, {
+        ticket,
+        initiatorAgentDid: confirmedPair.initiatorAgentDid,
+        initiatorProfile: confirmedPair.initiatorProfile,
+        responderAgentDid: confirmedPair.responderAgentDid,
+        responderProfile: confirmedPair.responderProfile,
+        issuerProxyUrl: confirmedPair.issuerProxyUrl,
+        expiresAtMs,
+        confirmedAtMs,
+      });
       return confirmedPair;
+    },
+    async getPairingTicketStatus(input) {
+      return resolveTicketStatus(input);
     },
     async isAgentKnown(agentDid) {
       return (agentPeers.get(agentDid)?.size ?? 0) > 0;

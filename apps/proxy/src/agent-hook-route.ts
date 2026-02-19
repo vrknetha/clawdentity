@@ -8,6 +8,7 @@ import {
   type AgentRelaySessionNamespace,
   deliverToRelaySession,
   type RelayDeliveryInput,
+  RelaySessionDeliveryError,
 } from "./agent-relay-session.js";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
@@ -227,6 +228,24 @@ export function createAgentHookHandler(
     try {
       deliveryResult = await deliverToRelaySession(relaySession, relayInput);
     } catch (error) {
+      if (
+        error instanceof RelaySessionDeliveryError &&
+        error.code === "PROXY_RELAY_QUEUE_FULL"
+      ) {
+        options.logger.warn("proxy.hooks.agent.relay_queue_full", {
+          requestId,
+          senderAgentDid: auth.agentDid,
+          recipientAgentDid,
+        });
+
+        throw new AppError({
+          code: "PROXY_RELAY_QUEUE_FULL",
+          message: "Target relay queue is full",
+          status: 507,
+          expose: true,
+        });
+      }
+
       options.logger.warn("proxy.hooks.agent.relay_delivery_failed", {
         requestId,
         senderAgentDid: auth.agentDid,
@@ -241,33 +260,35 @@ export function createAgentHookHandler(
       });
     }
 
-    if (!deliveryResult.delivered) {
-      options.logger.warn("proxy.hooks.agent.connector_offline", {
-        requestId,
-        recipientAgentDid,
-      });
-
-      throw new AppError({
-        code: "PROXY_RELAY_CONNECTOR_OFFLINE",
-        message: "Target connector is offline",
-        status: 502,
-      });
-    }
+    const delivered = deliveryResult.delivered;
+    const queued = deliveryResult.queued ?? !delivered;
+    const state = deliveryResult.state ?? (delivered ? "delivered" : "queued");
+    const queueDepth = deliveryResult.queueDepth ?? (queued ? 1 : 0);
+    const deliveryId = deliveryResult.deliveryId ?? requestId;
+    const connectedSockets = deliveryResult.connectedSockets;
 
     options.logger.info("proxy.hooks.agent.delivered_to_relay", {
       requestId,
       senderAgentDid: auth.agentDid,
       recipientAgentDid,
-      delivered: deliveryResult.delivered,
-      connectedSockets: deliveryResult.connectedSockets,
+      deliveryId,
+      state,
+      delivered,
+      queued,
+      queueDepth,
+      connectedSockets,
       sentAt: now().toISOString(),
     });
 
     return c.json(
       {
         accepted: true,
-        delivered: deliveryResult.delivered,
-        connectedSockets: deliveryResult.connectedSockets,
+        deliveryId,
+        state,
+        delivered,
+        queued,
+        queueDepth,
+        connectedSockets,
       },
       202,
     );

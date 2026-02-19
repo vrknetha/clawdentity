@@ -236,6 +236,57 @@ describe("ConnectorClient", () => {
     client.disconnect();
   });
 
+  it("acks success when inbound delivery handler persists payload", async () => {
+    const sockets: MockWebSocket[] = [];
+    const fetchMock = vi.fn<typeof fetch>();
+    const inboundDeliverHandler = vi.fn(async () => ({ accepted: true }));
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      heartbeatIntervalMs: 0,
+      fetchImpl: fetchMock,
+      inboundDeliverHandler,
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    const deliverId = generateUlid(1700000000000);
+    sockets[0].message(
+      serializeFrame({
+        v: 1,
+        type: "deliver",
+        id: deliverId,
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid: createAgentDid(1700000000100),
+        toAgentDid: createAgentDid(1700000000200),
+        payload: { message: "persist me" },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(inboundDeliverHandler).toHaveBeenCalledTimes(1);
+      expect(sockets[0].sent.length).toBeGreaterThan(0);
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);
+    expect(ack.type).toBe("deliver_ack");
+    if (ack.type !== "deliver_ack") {
+      throw new Error("expected deliver_ack frame");
+    }
+    expect(ack.ackId).toBe(deliverId);
+    expect(ack.accepted).toBe(true);
+
+    client.disconnect();
+  });
+
   it("retries transient local openclaw failures and eventually acks success", async () => {
     const sockets: MockWebSocket[] = [];
     const fetchMock = vi
@@ -324,6 +375,46 @@ describe("ConnectorClient", () => {
 
     vi.advanceTimersByTime(1);
     expect(sockets).toHaveLength(2);
+
+    client.disconnect();
+  });
+
+  it("refreshes connection headers on reconnect attempts", async () => {
+    const sockets: MockWebSocket[] = [];
+    const dialHeaders: Record<string, string>[] = [];
+    let nonceCounter = 0;
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      heartbeatIntervalMs: 0,
+      reconnectMinDelayMs: 0,
+      reconnectMaxDelayMs: 0,
+      reconnectJitterRatio: 0,
+      connectionHeadersProvider: () => ({
+        "x-claw-nonce": `nonce-${++nonceCounter}`,
+      }),
+      webSocketFactory: (url, headers) => {
+        dialHeaders.push(headers);
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    await vi.waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+    expect(dialHeaders[0]["x-claw-nonce"]).toBe("nonce-1");
+
+    sockets[0].open();
+    sockets[0].failClose(1006, "network down");
+
+    await vi.waitFor(() => {
+      expect(sockets).toHaveLength(2);
+    });
+    expect(dialHeaders[1]["x-claw-nonce"]).toBe("nonce-2");
 
     client.disconnect();
   });

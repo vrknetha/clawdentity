@@ -10,7 +10,7 @@ describe("buildTestAitClaims", () => {
       nowSeconds: 1_700_000_000,
     });
 
-    expect(claims.iss).toBe("https://api.clawdentity.com");
+    expect(claims.iss).toBe("https://registry.clawdentity.com");
     expect(parseDid(claims.sub).kind).toBe("agent");
     expect(parseDid(claims.ownerDid).kind).toBe("human");
     expect(parseUlid(parseDid(claims.sub).ulid).timestampMs).toBe(

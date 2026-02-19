@@ -36,7 +36,10 @@ async function runConnectorCommand(
     resolveCurrentModulePathImpl?: () => string;
     resolveCurrentPlatformImpl?: () => NodeJS.Platform;
     resolveCurrentUidImpl?: () => number;
-    resolveConfigImpl?: () => Promise<{ registryUrl: string }>;
+    resolveConfigImpl?: () => Promise<{
+      registryUrl: string;
+      proxyUrl?: string;
+    }>;
     resolveNodeExecPathImpl?: () => string;
     writeFileImpl?: (
       filePath: string,
@@ -257,7 +260,8 @@ describe("connector command", () => {
       }),
       readFileImpl,
       resolveConfigImpl: async () => ({
-        registryUrl: "https://api.clawdentity.com",
+        registryUrl: "https://registry.clawdentity.com",
+        proxyUrl: "https://proxy.clawdentity.com",
       }),
     });
 
@@ -275,7 +279,7 @@ describe("connector command", () => {
         },
         outboundBaseUrl: "http://127.0.0.1:19400",
         outboundPath: "/v1/outbound",
-        registryUrl: "https://api.clawdentity.com",
+        registryUrl: "https://registry.clawdentity.com",
       }),
     );
     expect(result.stdout).toContain(
@@ -288,6 +292,63 @@ describe("connector command", () => {
       "Connector proxy websocket: wss://proxy.example.com/v1/connector",
     );
     expect(result.stdout).toContain("Connector runtime is active.");
+    expect(result.exitCode).toBeUndefined();
+  });
+
+  it("uses hook token from openclaw-relay.json when connector option is omitted", async () => {
+    const startConnectorRuntime = vi.fn(async () => ({
+      outboundUrl: "http://127.0.0.1:19400/v1/outbound",
+      waitUntilStopped: async () => {},
+    }));
+    const readFileImpl = vi.fn(async (path: string): Promise<string> => {
+      if (path.endsWith("/ait.jwt")) {
+        return "mock.ait.jwt\n";
+      }
+
+      if (path.endsWith("/secret.key")) {
+        return "mock.secret.key\n";
+      }
+
+      if (path.endsWith("/identity.json")) {
+        return JSON.stringify({
+          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+        });
+      }
+
+      if (path.endsWith("/registry-auth.json")) {
+        return JSON.stringify({
+          accessToken: "clw_agt_access",
+          refreshToken: "clw_rft_refresh",
+        });
+      }
+
+      if (path.endsWith("/openclaw-relay.json")) {
+        return JSON.stringify({
+          openclawBaseUrl: "http://127.0.0.1:18789",
+          openclawHookToken: "relay-runtime-token",
+        });
+      }
+
+      throw createErrnoError("ENOENT");
+    });
+
+    const result = await runConnectorCommand(["start", "alpha-agent"], {
+      getConfigDirImpl: () => "/mock-home/.clawdentity",
+      loadConnectorModule: async () => ({
+        startConnectorRuntime,
+      }),
+      readFileImpl,
+      resolveConfigImpl: async () => ({
+        registryUrl: "https://registry.clawdentity.com",
+        proxyUrl: "https://proxy.clawdentity.com",
+      }),
+    });
+
+    expect(startConnectorRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openclawHookToken: "relay-runtime-token",
+      }),
+    );
     expect(result.exitCode).toBeUndefined();
   });
 
@@ -304,7 +365,8 @@ describe("connector command", () => {
       }),
       readFileImpl,
       resolveConfigImpl: async () => ({
-        registryUrl: "https://api.clawdentity.com",
+        registryUrl: "https://registry.clawdentity.com",
+        proxyUrl: "https://proxy.clawdentity.com",
       }),
     });
 
@@ -332,7 +394,8 @@ describe("connector command", () => {
       loadConnectorModule: async () => ({}),
       readFileImpl,
       resolveConfigImpl: async () => ({
-        registryUrl: "https://api.clawdentity.com",
+        registryUrl: "https://registry.clawdentity.com",
+        proxyUrl: "https://proxy.clawdentity.com",
       }),
     });
 

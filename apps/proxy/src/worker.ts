@@ -22,7 +22,8 @@ export type ProxyWorkerBindings = {
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
-  PAIRING_ISSUER_URL?: string;
+  REGISTRY_INTERNAL_SERVICE_ID?: string;
+  REGISTRY_INTERNAL_SERVICE_SECRET?: string;
   ENVIRONMENT?: string;
   ALLOW_ALL_VERIFIED?: string;
   CRL_REFRESH_INTERVAL_MS?: string;
@@ -31,6 +32,12 @@ export type ProxyWorkerBindings = {
   AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE?: string;
   AGENT_RATE_LIMIT_WINDOW_MS?: string;
   INJECT_IDENTITY_INTO_MESSAGE?: string;
+  RELAY_QUEUE_MAX_MESSAGES_PER_AGENT?: string;
+  RELAY_QUEUE_TTL_SECONDS?: string;
+  RELAY_RETRY_INITIAL_MS?: string;
+  RELAY_RETRY_MAX_MS?: string;
+  RELAY_RETRY_MAX_ATTEMPTS?: string;
+  RELAY_RETRY_JITTER_RATIO?: string;
   APP_VERSION?: string;
   PROXY_VERSION?: string;
   [key: string]: unknown;
@@ -51,7 +58,8 @@ function toCacheKey(env: ProxyWorkerBindings): string {
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,
-    env.PAIRING_ISSUER_URL,
+    env.REGISTRY_INTERNAL_SERVICE_ID,
+    env.REGISTRY_INTERNAL_SERVICE_SECRET,
     env.ENVIRONMENT,
     env.ALLOW_ALL_VERIFIED,
     env.CRL_REFRESH_INTERVAL_MS,
@@ -60,6 +68,12 @@ function toCacheKey(env: ProxyWorkerBindings): string {
     env.AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
     env.AGENT_RATE_LIMIT_WINDOW_MS,
     env.INJECT_IDENTITY_INTO_MESSAGE,
+    env.RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
+    env.RELAY_QUEUE_TTL_SECONDS,
+    env.RELAY_RETRY_INITIAL_MS,
+    env.RELAY_RETRY_MAX_MS,
+    env.RELAY_RETRY_MAX_ATTEMPTS,
+    env.RELAY_RETRY_JITTER_RATIO,
     env.APP_VERSION,
     env.PROXY_VERSION,
   ];
@@ -73,7 +87,9 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
     return cachedRuntime;
   }
 
-  const config = parseProxyConfig(env);
+  const config = parseProxyConfig(env, {
+    requireRuntimeKeys: true,
+  });
   const trustStoreResolution = resolveWorkerTrustStore({
     environment: config.environment,
     trustStateNamespace: env.PROXY_TRUST_STATE,

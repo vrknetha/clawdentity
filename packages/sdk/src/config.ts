@@ -5,6 +5,7 @@ import { runtimeEnvironmentValues } from "./runtime-environment.js";
 
 const environmentSchema = z.enum(runtimeEnvironmentValues);
 const registrySigningKeyStatusSchema = z.enum(["active", "revoked"]);
+const registryEventBusBackendSchema = z.enum(["memory", "queue"]);
 const ED25519_PUBLIC_KEY_LENGTH = 32;
 
 const registrySigningPublicKeySchema = z
@@ -89,6 +90,9 @@ const registrySigningKeysEnvSchema = z
 export const registryConfigSchema = z.object({
   ENVIRONMENT: environmentSchema,
   APP_VERSION: z.string().min(1).optional(),
+  PROXY_URL: z.string().url().optional(),
+  REGISTRY_ISSUER_URL: z.string().url().optional(),
+  EVENT_BUS_BACKEND: registryEventBusBackendSchema.optional(),
   BOOTSTRAP_SECRET: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEY: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEYS: registrySigningKeysEnvSchema.optional(),
@@ -96,20 +100,77 @@ export const registryConfigSchema = z.object({
 
 export type RegistryConfig = z.infer<typeof registryConfigSchema>;
 
-export function parseRegistryConfig(env: unknown): RegistryConfig {
-  const parsed = registryConfigSchema.safeParse(env);
-  if (parsed.success) {
-    return parsed.data;
-  }
+type ParseRegistryConfigOptions = {
+  requireRuntimeKeys?: boolean;
+};
 
+const REQUIRED_REGISTRY_RUNTIME_KEYS = [
+  "PROXY_URL",
+  "REGISTRY_ISSUER_URL",
+  "EVENT_BUS_BACKEND",
+  "BOOTSTRAP_SECRET",
+  "REGISTRY_SIGNING_KEY",
+  "REGISTRY_SIGNING_KEYS",
+] as const;
+
+function throwRegistryConfigValidationError(details: {
+  fieldErrors: Record<string, string[]>;
+  formErrors: string[];
+}): never {
   throw new AppError({
     code: "CONFIG_VALIDATION_FAILED",
     message: "Registry configuration is invalid",
     status: 500,
     expose: true,
-    details: {
-      fieldErrors: parsed.error.flatten().fieldErrors,
-      formErrors: parsed.error.flatten().formErrors,
-    },
+    details,
+  });
+}
+
+function assertRequiredRegistryRuntimeKeys(input: RegistryConfig): void {
+  if (input.ENVIRONMENT === "test") {
+    return;
+  }
+
+  const fieldErrors: Record<string, string[]> = {};
+  for (const key of REQUIRED_REGISTRY_RUNTIME_KEYS) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      continue;
+    }
+
+    if (
+      value !== undefined &&
+      value !== null &&
+      !(typeof value === "string" && value.trim().length === 0)
+    ) {
+      continue;
+    }
+
+    fieldErrors[key] = [`${key} is required`];
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    throwRegistryConfigValidationError({
+      fieldErrors,
+      formErrors: [],
+    });
+  }
+}
+
+export function parseRegistryConfig(
+  env: unknown,
+  options: ParseRegistryConfigOptions = {},
+): RegistryConfig {
+  const parsed = registryConfigSchema.safeParse(env);
+  if (parsed.success) {
+    if (options.requireRuntimeKeys === true) {
+      assertRequiredRegistryRuntimeKeys(parsed.data);
+    }
+    return parsed.data;
+  }
+
+  throwRegistryConfigValidationError({
+    fieldErrors: parsed.error.flatten().fieldErrors,
+    formErrors: parsed.error.flatten().formErrors,
   });
 }

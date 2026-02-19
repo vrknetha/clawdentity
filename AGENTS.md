@@ -5,7 +5,7 @@
 - Keep product docs and issue governance in sync with the active GitHub tracker.
 - When shipping features, UX of the user is most important aspect.
 - Remember users run clawdentity in the machines which are not exposed to internet.
-- The location of the openclaw aka clawdbot is here at /Users/dev/Workdir/clawdbot which is what we are building the current 
+- The location of the openclaw is here at /Users/dev/Workdir/openclaw which is what we are building the current 
 - Based on the changes made to the cli, always plan for changes in skills as well. Both go together
 
 ## Core Rules
@@ -49,13 +49,13 @@
 - **Environment separation** via wrangler environments in `apps/registry/wrangler.jsonc`:
   - `--env dev` for development (Worker: `clawdentity-registry-dev`, D1: `clawdentity-db-dev`)
   - `--env production` for production (Worker: `clawdentity-registry`, D1: `clawdentity-db`)
-- **Local dev** uses `wrangler dev --env dev` with local SQLite. Override vars via `apps/registry/.dev.vars` (gitignored).
+- **Local dev** uses `wrangler dev --env dev` with local SQLite. Override vars via per-worker `.env` files (for example `apps/registry/.env`).
 - Use `pnpm -F @clawdentity/registry run dev:local` (or root alias `pnpm dev:registry:local`) to apply local D1 migrations before starting dev server.
 - **One-touch deploy** scripts in `apps/registry/package.json`:
   - `deploy:dev` — migrates remote dev D1 + deploys dev Worker
   - `deploy:production` — migrates remote prod D1 + deploys prod Worker
 - **Secrets** are set via `wrangler secret put <NAME> --env <env>`, never committed.
-- `.dev.vars` is for local development overrides only. It is gitignored.
+- Per-worker `.env` files are for local development overrides only. They are gitignored.
 
 ## Database & Migrations
 - ORM: **Drizzle** with SQLite dialect targeting Cloudflare D1.
@@ -69,7 +69,7 @@
 ## Biome Configuration
 - `biome.json` at repo root covers all `packages/**` and `apps/**`.
 - Excluded from Biome: `**/dist`, `**/drizzle/meta`, `**/.wrangler`.
-- Generated files from tools (drizzle-kit, wrangler) should be excluded rather than reformatted.
+- Generated files from tools (drizzle-kit, wrangler) should be excluded rather than reformatted, including Worker runtime type outputs (`**/worker-configuration.d.ts`).
 
 ## CI Pipeline
 - `.github/workflows/ci.yml` runs on push and pull_request.
@@ -90,9 +90,8 @@
 - Pass mock bindings as the third argument: `app.request("/path", {}, { DB: {}, ENVIRONMENT: "test" })`.
 
 ## Dual OpenClaw Container Baseline (Skill E2E)
-- Runtime stack for local dual-agent tests lives in sibling repo `~/Workdir/clawdbot`:
+- Runtime stack for local dual-agent tests lives in sibling repo `~/Workdir/openclaw`:
   - Compose file: `docker-compose.dual.yml`
-  - Env file: `.env.dual`
   - Containers: `clawdbot-agent-alpha-1` (`localhost:18789`), `clawdbot-agent-beta-1` (`localhost:19001`)
 - Clean pre-skill baseline state is persisted as host snapshots:
   - `~/.openclaw-baselines/alpha-kimi-preskill`
@@ -109,6 +108,12 @@
   - stable aliases:
     - `~/.openclaw-baselines/alpha-kimi-paired-stable-latest`
     - `~/.openclaw-baselines/beta-kimi-paired-stable-latest`
+- Current env-enabled clean baseline (saved on 2026-02-18) is:
+  - `~/.openclaw-baselines/alpha-kimi-env-enabled-20260218-155534`
+  - `~/.openclaw-baselines/beta-kimi-env-enabled-20260218-155534`
+  - stable aliases:
+    - `~/.openclaw-baselines/alpha-kimi-env-enabled-latest`
+    - `~/.openclaw-baselines/beta-kimi-env-enabled-latest`
 - Baseline contract:
   - OpenClaw config exists (`~/.openclaw/openclaw.json`) with `agents.defaults.model.primary = "kimi-coding/k2p5"`.
   - No Clawdentity relay skill artifacts are installed in workspace yet.
@@ -125,6 +130,8 @@
   - Copy `~/.openclaw-alpha` and `~/.openclaw-beta` into new timestamped folders under `~/.openclaw-baselines`.
   - Start dual compose stack.
   - Update this section with the new snapshot folder names.
+- Env-enabled baseline restore (for prompt-only runs needing provider auth):
+  - `rsync -a --delete ~/.openclaw-baselines/alpha-kimi-env-enabled-latest/ ~/.openclaw-alpha/ && rsync -a --delete ~/.openclaw-baselines/beta-kimi-env-enabled-latest/ ~/.openclaw-beta/`
 - Pairing issue runbook (`Disconnected (1008): pairing required` in UI):
   - Cause: OpenClaw device approval is pending; this is gateway pairing, not Clawdentity peer trust pairing.
   - Scope clarification:

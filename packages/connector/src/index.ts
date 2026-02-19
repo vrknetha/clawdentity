@@ -10,7 +10,15 @@ export {
   CONNECTOR_FRAME_VERSION,
   CONNECTOR_VERSION,
   DEFAULT_CONNECTOR_BASE_URL,
+  DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_BYTES,
+  DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_MESSAGES,
+  DEFAULT_CONNECTOR_INBOUND_REPLAY_BATCH_SIZE,
+  DEFAULT_CONNECTOR_INBOUND_REPLAY_INTERVAL_MS,
+  DEFAULT_CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR,
+  DEFAULT_CONNECTOR_INBOUND_RETRY_INITIAL_DELAY_MS,
+  DEFAULT_CONNECTOR_INBOUND_RETRY_MAX_DELAY_MS,
   DEFAULT_CONNECTOR_OUTBOUND_PATH,
+  DEFAULT_CONNECTOR_STATUS_PATH,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
   DEFAULT_OPENCLAW_BASE_URL,
   DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
@@ -46,7 +54,15 @@ export {
   parseFrame,
   serializeFrame,
 } from "./frames.js";
-
+export type {
+  ConnectorInboundInboxItem,
+  ConnectorInboundInboxSnapshot,
+} from "./inbound-inbox.js";
+export {
+  ConnectorInboundInbox,
+  createConnectorInboundInbox,
+  resolveConnectorInboundInboxDir,
+} from "./inbound-inbox.js";
 export type {
   ConnectorRuntimeHandle,
   StartConnectorRuntimeInput,

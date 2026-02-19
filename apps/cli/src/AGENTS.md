@@ -13,20 +13,25 @@
 - API-key lifecycle command logic should stay in `commands/api-key.ts`; keep create/list/revoke request mapping explicit and keep token exposure limited to create output only.
 - Connector runtime command logic should stay in `commands/connector.ts`; keep startup orchestration deterministic and avoid embedding connector runtime implementation details in the CLI.
 - Keep connector runtime import bundled at build time (from `@clawdentity/connector`) so published `clawdentity` installs do not depend on unpublished workspace runtime packages.
-- Registry invite lifecycle command logic should stay in `commands/invite.ts`; keep it strictly scoped to registry onboarding invites and separate from `commands/openclaw.ts` peer-relay invite codes.
-- `invite redeem` must print the returned PAT once, then persist config in deterministic order (`registryUrl`, then `apiKey`) so bootstrap/onboarding state is predictable.
+- Registry invite lifecycle command logic should stay in `commands/invite.ts`; keep it strictly scoped to registry onboarding invites.
+- `invite redeem` must require `--display-name <human-name>`, print the returned PAT once, then persist config in deterministic order (`registryUrl`, then `apiKey`, then resolved `proxyUrl`, then `humanName`) so bootstrap/onboarding state is predictable.
 - `invite` command routes must use endpoint constants from `@clawdentity/protocol` (`INVITES_PATH`, `INVITES_REDEEM_PATH`) instead of inline path literals.
 - Agent auth refresh state is stored per-agent at `~/.clawdentity/agents/<name>/registry-auth.json` and must be written with secure file permissions.
 - `agent auth refresh` must use `Authorization: Claw <AIT>` + PoP headers from local agent keys and must not require PAT config.
 - `pair` command logic should stay in `commands/pair.ts`; keep proxy pairing bootstrap (`/pair/start`, `/pair/confirm`) CLI-driven with local AIT + PoP proof headers and one-time ticket QR support (`--qr`, `--qr-file`).
+- `pair start`/`pair confirm` must send profile metadata (`initiatorProfile`/`responderProfile`) with both `agentName` and `humanName`.
+- Pairing must fail fast with `CLI_PAIR_HUMAN_NAME_MISSING` when local config does not include `humanName`.
+- Pairing ticket parsing must normalize pasted input (trim, remove markdown backticks, collapse whitespace) before confirm/status requests so wrapped terminal/UI copies do not fail at proxy.
+- `pair confirm`/`pair status` must fail fast on local issuer mismatch: ticket `iss` must match configured proxy origin, with explicit remediation in the CLI error.
+- Pairing peer persistence must write explicit peer metadata (`agentName`, `humanName`) in `~/.clawdentity/peers.json`; do not collapse profile metadata into a single `name` field.
+- `openclaw setup` peers snapshot sync must preserve `agentName`/`humanName` fields from `~/.clawdentity/peers.json`.
 - `connector start <agentName>` must validate local agent material (`identity.json`, `ait.jwt`, `secret.key`, `registry-auth.json`) before starting runtime and must fail with stable CLI errors when files are missing/invalid.
 - `connector start` must print the local outbound handoff endpoint so transform troubleshooting is deterministic.
 - `connector service install <agentName>` must install user-scoped autostart integration (`launchd` on macOS, `systemd --user` on Linux) so connector runtime survives host restarts.
 - `connector service uninstall <agentName>` must be idempotent and remove the generated service file even when the service is already stopped/unloaded.
 
-## Skill Install Mode
-- Keep npm skill-install logic in shared helpers (`install-skill-mode.ts`) and invoke it from `postinstall.ts`; do not embed installer logic inside command factories.
-- Detect install mode via npm environment (`npm_config_skill` and npm argv fallback) so non-skill installs remain unaffected.
+## Skill Install
+- Keep skill-install logic in shared helpers (`install-skill-mode.ts`) and invoke it through `commands/skill.ts`; do not hide installer side effects in package install hooks.
 - Resolve skill artifacts in this order: explicit override, bundled `skill-bundle/openclaw-skill`, installed `@clawdentity/openclaw-skill`, then workspace fallback.
 - Skill install must copy `SKILL.md`, `references/*`, and `relay-to-peer.mjs` into OpenClaw runtime paths under `~/.openclaw` and must fail with actionable errors when source artifacts are missing.
 - Installer logs must be deterministic and explicit (`installed`, `updated`, `unchanged`) so automated skill tests can assert outcomes reliably.
@@ -46,6 +51,6 @@
 ## Testing Rules
 - Command tests must capture `stdout`/`stderr` and assert exit-code behavior.
 - Include success, revoked, invalid token, keyset failure, CRL failure, and cache-hit scenarios for `verify`.
-- For OpenClaw invite/setup flow, cover invite encode/decode, config patch idempotency, and missing-file validation.
+- For OpenClaw setup flow, cover self-setup behavior, config patch idempotency, and missing-file validation.
 - For registry invite flow, cover admin-auth create path, public redeem path, config persistence failures, and command exit-code behavior.
 - Keep tests deterministic by mocking network and filesystem dependencies.

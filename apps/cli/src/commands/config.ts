@@ -11,6 +11,10 @@ import {
   setConfigValue,
   writeConfig,
 } from "../config/manager.js";
+import {
+  fetchRegistryMetadata,
+  normalizeRegistryUrl,
+} from "../config/registry-metadata.js";
 import { writeStderrLine, writeStdoutLine } from "../io.js";
 import { withErrorHandling } from "./helpers.js";
 
@@ -18,7 +22,9 @@ const logger = createLogger({ service: "cli", module: "config" });
 
 const VALID_KEYS = [
   "registryUrl",
+  "proxyUrl",
   "apiKey",
+  "humanName",
 ] as const satisfies readonly CliConfigKey[];
 
 const isValidConfigKey = (value: string): value is CliConfigKey => {
@@ -59,6 +65,10 @@ interface ConfigInitOptions {
   registryUrl?: string;
 }
 
+type ConfigCommandDependencies = {
+  fetchImpl?: typeof fetch;
+};
+
 const getEnvRegistryUrlOverride = (): string | undefined => {
   const envCandidates = [
     process.env.CLAWDENTITY_REGISTRY_URL,
@@ -70,7 +80,9 @@ const getEnvRegistryUrlOverride = (): string | undefined => {
   });
 };
 
-export const createConfigCommand = (): Command => {
+export const createConfigCommand = (
+  dependencies: ConfigCommandDependencies = {},
+): Command => {
   const configCommand = new Command("config").description(
     "Manage local CLI configuration",
   );
@@ -81,11 +93,22 @@ export const createConfigCommand = (): Command => {
     .option("--registry-url <url>", "Initialize config with registry URL")
     .action(
       withErrorHandling("config init", async (options: ConfigInitOptions) => {
-        const configFilePath = getConfigFilePath();
+        const config = await readConfig();
+        const requestedRegistryUrl =
+          options.registryUrl ??
+          getEnvRegistryUrlOverride() ??
+          config.registryUrl;
+        const normalizedRegistryUrl =
+          normalizeRegistryUrl(requestedRegistryUrl);
+        const requestedConfigFilePath = getConfigFilePath({
+          registryUrlHint: normalizedRegistryUrl,
+        });
 
         try {
-          await access(configFilePath);
-          writeStdoutLine(`Config already exists at ${configFilePath}`);
+          await access(requestedConfigFilePath);
+          writeStdoutLine(
+            `Config already exists at ${requestedConfigFilePath}`,
+          );
           return;
         } catch (error) {
           if (!isNotFoundError(error)) {
@@ -93,20 +116,30 @@ export const createConfigCommand = (): Command => {
           }
         }
 
-        const config = await readConfig();
-        const registryUrl =
-          options.registryUrl ??
-          getEnvRegistryUrlOverride() ??
-          config.registryUrl;
+        const metadata = await fetchRegistryMetadata(normalizedRegistryUrl, {
+          fetchImpl: dependencies.fetchImpl,
+        });
+        const targetConfigFilePath = getConfigFilePath({
+          registryUrlHint: metadata.registryUrl,
+        });
 
         await writeConfig({
           ...config,
-          registryUrl,
+          registryUrl: metadata.registryUrl,
+          proxyUrl: metadata.proxyUrl,
         });
 
-        writeStdoutLine(`Initialized config at ${configFilePath}`);
+        writeStdoutLine(`Initialized config at ${targetConfigFilePath}`);
         writeStdoutLine(
-          JSON.stringify(maskApiKey({ ...config, registryUrl }), null, 2),
+          JSON.stringify(
+            maskApiKey({
+              ...config,
+              registryUrl: metadata.registryUrl,
+              proxyUrl: metadata.proxyUrl,
+            }),
+            null,
+            2,
+          ),
         );
       }),
     );

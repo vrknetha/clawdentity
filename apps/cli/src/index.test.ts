@@ -86,6 +86,14 @@ describe("cli", () => {
     expect(hasInviteCommand).toBe(true);
   });
 
+  it("registers the skill command", () => {
+    const hasSkillCommand = createProgram()
+      .commands.map((command) => command.name())
+      .includes("skill");
+
+    expect(hasSkillCommand).toBe(true);
+  });
+
   it("prints version output", async () => {
     const output: string[] = [];
     const program = createProgram();

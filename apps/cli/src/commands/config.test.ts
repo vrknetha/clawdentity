@@ -15,6 +15,13 @@ vi.mock("../config/manager.js", () => ({
   writeConfig: vi.fn(),
 }));
 
+vi.mock("../config/registry-metadata.js", () => ({
+  fetchRegistryMetadata: vi.fn(),
+  normalizeRegistryUrl: vi.fn((value: string) =>
+    value.endsWith("/") ? value : `${value}/`,
+  ),
+}));
+
 vi.mock("@clawdentity/sdk", () => ({
   createLogger: vi.fn(() => ({
     child: vi.fn(),
@@ -32,6 +39,8 @@ import {
   setConfigValue,
   writeConfig,
 } from "../config/manager.js";
+import { fetchRegistryMetadata } from "../config/registry-metadata.js";
+import { resetClawdentityEnv } from "../test-env.js";
 import { createConfigCommand } from "./config.js";
 
 const mockedAccess = vi.mocked(access);
@@ -40,6 +49,7 @@ const mockedWriteConfig = vi.mocked(writeConfig);
 const mockedSetConfigValue = vi.mocked(setConfigValue);
 const mockedGetConfigValue = vi.mocked(getConfigValue);
 const mockedResolveConfig = vi.mocked(resolveConfig);
+const mockedFetchRegistryMetadata = vi.mocked(fetchRegistryMetadata);
 const previousEnv = process.env;
 
 const buildErrnoError = (code: string): NodeJS.ErrnoException => {
@@ -98,13 +108,17 @@ const runConfigCommand = async (args: string[]) => {
 describe("config command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env = { ...previousEnv };
+    process.env = resetClawdentityEnv(previousEnv);
 
     mockedReadConfig.mockResolvedValue({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
     });
     mockedResolveConfig.mockResolvedValue({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com",
+    });
+    mockedFetchRegistryMetadata.mockResolvedValue({
+      registryUrl: "https://registry.clawdentity.com/",
+      proxyUrl: "https://proxy.clawdentity.com/",
     });
   });
 
@@ -120,7 +134,8 @@ describe("config command", () => {
 
     expect(mockedReadConfig).toHaveBeenCalled();
     expect(mockedWriteConfig).toHaveBeenCalledWith({
-      registryUrl: "https://api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com/",
+      proxyUrl: "https://proxy.clawdentity.com/",
     });
     expect(result.stdout).toContain(
       "Initialized config at /mock-home/.clawdentity/config.json",
@@ -134,38 +149,53 @@ describe("config command", () => {
     await runConfigCommand([
       "init",
       "--registry-url",
-      "https://dev.api.clawdentity.com",
+      "https://dev.registry.clawdentity.com",
     ]);
 
     expect(mockedWriteConfig).toHaveBeenCalledWith({
-      registryUrl: "https://dev.api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com/",
+      proxyUrl: "https://proxy.clawdentity.com/",
     });
+    expect(mockedFetchRegistryMetadata).toHaveBeenCalledWith(
+      "https://dev.registry.clawdentity.com/",
+      expect.any(Object),
+    );
   });
 
   it("initializes config with env registry override", async () => {
     mockedAccess.mockRejectedValueOnce(buildErrnoError("ENOENT"));
-    process.env.CLAWDENTITY_REGISTRY = "https://dev.api.clawdentity.com";
+    process.env.CLAWDENTITY_REGISTRY = "https://dev.registry.clawdentity.com";
 
     await runConfigCommand(["init"]);
 
     expect(mockedWriteConfig).toHaveBeenCalledWith({
-      registryUrl: "https://dev.api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com/",
+      proxyUrl: "https://proxy.clawdentity.com/",
     });
+    expect(mockedFetchRegistryMetadata).toHaveBeenCalledWith(
+      "https://dev.registry.clawdentity.com/",
+      expect.any(Object),
+    );
   });
 
   it("prefers --registry-url over env registry override", async () => {
     mockedAccess.mockRejectedValueOnce(buildErrnoError("ENOENT"));
-    process.env.CLAWDENTITY_REGISTRY = "https://env.api.clawdentity.com";
+    process.env.CLAWDENTITY_REGISTRY = "https://env.registry.clawdentity.com";
 
     await runConfigCommand([
       "init",
       "--registry-url",
-      "https://flag.api.clawdentity.com",
+      "https://flag.registry.clawdentity.com",
     ]);
 
     expect(mockedWriteConfig).toHaveBeenCalledWith({
-      registryUrl: "https://flag.api.clawdentity.com",
+      registryUrl: "https://registry.clawdentity.com/",
+      proxyUrl: "https://proxy.clawdentity.com/",
     });
+    expect(mockedFetchRegistryMetadata).toHaveBeenCalledWith(
+      "https://flag.registry.clawdentity.com/",
+      expect.any(Object),
+    );
   });
 
   it("skips init when config already exists", async () => {
@@ -174,6 +204,7 @@ describe("config command", () => {
     const result = await runConfigCommand(["init"]);
 
     expect(mockedWriteConfig).not.toHaveBeenCalled();
+    expect(mockedFetchRegistryMetadata).not.toHaveBeenCalled();
     expect(result.stdout).toContain(
       "Config already exists at /mock-home/.clawdentity/config.json",
     );
@@ -186,6 +217,21 @@ describe("config command", () => {
       "registryUrl",
       "http://localhost:8787",
     );
+  });
+
+  it("sets proxy url", async () => {
+    await runConfigCommand(["set", "proxyUrl", "http://localhost:8787"]);
+
+    expect(mockedSetConfigValue).toHaveBeenCalledWith(
+      "proxyUrl",
+      "http://localhost:8787",
+    );
+  });
+
+  it("sets human name", async () => {
+    await runConfigCommand(["set", "humanName", "Ravi"]);
+
+    expect(mockedSetConfigValue).toHaveBeenCalledWith("humanName", "Ravi");
   });
 
   it("masks apiKey output when setting", async () => {
@@ -223,11 +269,13 @@ describe("config command", () => {
     mockedResolveConfig.mockResolvedValueOnce({
       registryUrl: "http://localhost:8787",
       apiKey: "super-secret",
+      humanName: "Ravi",
     });
 
     const result = await runConfigCommand(["show"]);
 
     expect(result.stdout).toContain("http://localhost:8787");
     expect(result.stdout).toContain('"apiKey": "********"');
+    expect(result.stdout).toContain('"humanName": "Ravi"');
   });
 });

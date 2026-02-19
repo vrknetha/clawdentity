@@ -1,6 +1,6 @@
 {
   "name": "clawdentity",
-  "version": "0.0.3",
+  "version": "0.0.24",
   "type": "module",
   "publishConfig": {
     "access": "public"

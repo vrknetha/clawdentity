@@ -56,9 +56,16 @@ function hasDisallowedControlCharacter(value: string): boolean {
 function createRelayHarness(input?: {
   deliverResult?: RelayDeliveryResult;
   throwOnDeliver?: boolean;
+  throwStatus?: number;
+  throwCode?: string;
+  throwMessage?: string;
 }) {
   const deliverResult = input?.deliverResult ?? {
+    deliveryId: "dlv_1",
+    state: "delivered",
     delivered: true,
+    queued: false,
+    queueDepth: 0,
     connectedSockets: 1,
   };
   const receivedInputs: RelayDeliveryInput[] = [];
@@ -72,7 +79,15 @@ function createRelayHarness(input?: {
     receivedInputs.push(relayInput);
 
     if (input?.throwOnDeliver) {
-      return new Response("delivery failed", { status: 502 });
+      return Response.json(
+        {
+          error: {
+            code: input.throwCode ?? "PROXY_RELAY_DELIVERY_FAILED",
+            message: input.throwMessage ?? "delivery failed",
+          },
+        },
+        { status: input.throwStatus ?? 502 },
+      );
     }
 
     return Response.json(deliverResult, { status: 202 });
@@ -109,6 +124,7 @@ function createHookRouteApp(input: {
   const trustStore: ProxyTrustStore = {
     createPairingTicket: vi.fn(),
     confirmPairingTicket: vi.fn(),
+    getPairingTicketStatus: vi.fn(),
     isAgentKnown: vi.fn(async () => true),
     isPairAllowed: vi.fn(
       async (pair) =>
@@ -167,12 +183,20 @@ describe("POST /hooks/agent", () => {
 
     const body = (await response.json()) as {
       accepted: boolean;
+      deliveryId: string;
+      state: string;
       delivered: boolean;
+      queued: boolean;
+      queueDepth: number;
       connectedSockets: number;
     };
     expect(body).toEqual({
       accepted: true,
+      deliveryId: "dlv_1",
+      state: "delivered",
       delivered: true,
+      queued: false,
+      queueDepth: 0,
       connectedSockets: 1,
     });
   });
@@ -489,10 +513,14 @@ describe("POST /hooks/agent", () => {
     expect(body.error.code).toBe("PROXY_RELAY_DELIVERY_FAILED");
   });
 
-  it("returns 502 when target connector is offline", async () => {
+  it("returns queued state when target connector is offline", async () => {
     const relayHarness = createRelayHarness({
       deliverResult: {
+        deliveryId: "dlv_queued",
+        state: "queued",
         delivered: false,
+        queued: true,
+        queueDepth: 1,
         connectedSockets: 0,
       },
     });
@@ -510,8 +538,44 @@ describe("POST /hooks/agent", () => {
       body: JSON.stringify({ event: "agent.started" }),
     });
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      accepted: boolean;
+      deliveryId: string;
+      state: string;
+      queued: boolean;
+      queueDepth: number;
+    };
+    expect(body.accepted).toBe(true);
+    expect(body.deliveryId).toBe("dlv_queued");
+    expect(body.state).toBe("queued");
+    expect(body.queued).toBe(true);
+    expect(body.queueDepth).toBe(1);
+  });
+
+  it("returns 507 when relay queue is full", async () => {
+    const relayHarness = createRelayHarness({
+      throwOnDeliver: true,
+      throwStatus: 507,
+      throwCode: "PROXY_RELAY_QUEUE_FULL",
+      throwMessage: "Target relay queue is full",
+    });
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(507);
     const body = (await response.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("PROXY_RELAY_CONNECTOR_OFFLINE");
+    expect(body.error.code).toBe("PROXY_RELAY_QUEUE_FULL");
   });
 });

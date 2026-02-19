@@ -17,9 +17,11 @@
     "affected:typecheck:local": "nx affected -t typecheck --base=origin/main --head=HEAD",
     "affected:test:local": "nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD",
     "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD",
+    "dev:registry": "pnpm -F @clawdentity/registry run dev",
     "dev:registry:local": "pnpm -F @clawdentity/registry run dev:local",
     "dev:proxy": "pnpm -F @clawdentity/proxy run dev",
-    "dev:proxy:development": "pnpm -F @clawdentity/proxy run dev:development",
+    "dev:proxy:dev": "pnpm -F @clawdentity/proxy run dev:dev",
+    "dev:proxy:local": "pnpm -F @clawdentity/proxy run dev:local",
     "dev:proxy:fresh": "pnpm -F @clawdentity/proxy run dev:fresh"
   },
   "devDependencies": {
@@ -30,6 +32,6 @@
     "tsup": "^8.5.1",
     "typescript": "5.8.3",
     "vitest": "^4.0.18",
-    "wrangler": "^4.64.0"
+    "wrangler": "^4.67.0"
   }
 }

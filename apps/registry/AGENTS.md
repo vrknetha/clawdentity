@@ -10,23 +10,27 @@
 - Keep D1 database IDs version-controlled; manage secrets with `wrangler secret put`.
 - Keep `migrations_dir` aligned with Drizzle output directory (`drizzle`).
 - Prefer branded custom domains over `*.workers.dev` for public endpoints.
-  - Development: `dev.api.clawdentity.com`
-  - Production: `api.clawdentity.com`
+  - Development: `dev.registry.clawdentity.com`
+  - Production: `registry.clawdentity.com`
 
 ## Deployment Rules
 - Always deploy with explicit environment: `--env dev` or `--env production`.
 - Deploy scripts must run D1 migrations before Worker deployment.
-- For local development, run local migrations before `wrangler dev --env dev` (use `pnpm -F @clawdentity/registry run dev:local`).
+- For local development, run local migrations before `wrangler dev --env dev --port 8788` (use `pnpm -F @clawdentity/registry run dev:local`).
 - Verify `GET /health` returns `status: "ok"` and environment (`development` or `production`).
 
 ## Runtime and API
 - Preserve `/health` response contract: `{ status, version, environment }`.
 - Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so deploy/runtime failures are visible without ad-hoc debugging.
+- Keep `worker-configuration.d.ts` committed and regenerate with `wrangler types --env dev` after `wrangler.jsonc` or binding changes.
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `PROXY_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Use memory event bus in `development` while no downstream consumers exist (`EVENT_BUS_BACKEND=memory`).
+- Keep production queue-backed (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`) until rollout policy changes.
 
 ## Validation
-- Validate config changes with `wrangler check` before deployment.
+- Validate deployment config and bundle with `wrangler deploy --env <env> --dry-run` before remote migration/deploy.
 - Run `pnpm -F @clawdentity/registry run test` and `pnpm -F @clawdentity/registry run typecheck` for app-level safety.
 - Keep Vitest path aliases pointed at workspace source (`packages/*/src/index.ts`) so tests do not depend on stale package `dist` outputs.
 

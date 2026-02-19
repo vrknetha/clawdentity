@@ -32,9 +32,9 @@ const REGISTRY_ISSUER_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
 > = {
-  development: "https://dev.api.clawdentity.com",
-  production: "https://api.clawdentity.com",
-  test: "https://dev.api.clawdentity.com",
+  development: "https://dev.registry.clawdentity.com",
+  production: "https://registry.clawdentity.com",
+  test: "https://dev.registry.clawdentity.com",
 };
 
 type AgentRegistrationBody = {
@@ -774,7 +774,12 @@ export {
 };
 
 export function resolveRegistryIssuer(
-  environment: RegistryConfig["ENVIRONMENT"],
+  config: Pick<RegistryConfig, "ENVIRONMENT" | "REGISTRY_ISSUER_URL">,
 ): string {
-  return REGISTRY_ISSUER_BY_ENVIRONMENT[environment];
+  const explicitIssuer = config.REGISTRY_ISSUER_URL?.trim();
+  if (explicitIssuer && explicitIssuer.length > 0) {
+    return explicitIssuer;
+  }
+
+  return REGISTRY_ISSUER_BY_ENVIRONMENT[config.ENVIRONMENT];
 }

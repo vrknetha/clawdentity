@@ -23,6 +23,7 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       APP_VERSION: ${{ github.sha }}
       PROXY_HEALTH_URL_OVERRIDE: ${{ secrets.PROXY_HEALTH_URL }}
+      REGISTRY_ADMIN_API_KEY: ${{ secrets.REGISTRY_ADMIN_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -40,12 +41,24 @@ jobs:
           version: 10.23.0
 
       - name: Validate required secrets
+        env:
+          REGISTRY_BOOTSTRAP_SECRET: ${{ secrets.REGISTRY_BOOTSTRAP_SECRET }}
         run: |
           test -n "${CLOUDFLARE_API_TOKEN}"
           test -n "${CLOUDFLARE_ACCOUNT_ID}"
+          if [ -z "${REGISTRY_ADMIN_API_KEY}" ] && [ -z "${REGISTRY_BOOTSTRAP_SECRET}" ]; then
+            echo "Either REGISTRY_ADMIN_API_KEY or REGISTRY_BOOTSTRAP_SECRET must be configured." >&2
+            exit 1
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify Worker type bindings are up to date
+        run: |
+          pnpm exec wrangler --cwd apps/registry types --env dev
+          pnpm exec wrangler --cwd apps/proxy types --env dev
+          git diff --exit-code -- apps/registry/worker-configuration.d.ts apps/proxy/worker-configuration.d.ts
 
       - name: Lint
         run: pnpm lint
@@ -59,6 +72,11 @@ jobs:
       - name: Run tests
         run: pnpm -r test
 
+      - name: Wrangler deploy preflight (dry-run)
+        run: |
+          pnpm exec wrangler --cwd apps/registry deploy --env dev --dry-run --var APP_VERSION:${APP_VERSION}
+          pnpm exec wrangler --cwd apps/proxy deploy --env dev --dry-run --var APP_VERSION:${APP_VERSION}
+
       - name: Capture pre-deploy rollback artifacts
         run: |
           mkdir -p artifacts
@@ -67,7 +85,7 @@ jobs:
           printf "%s\n" "${PREDEPLOY_TS}" > artifacts/predeploy.timestamp
           pnpm exec wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-pre.json
           # First proxy deploy may not have an existing Worker/deployments yet.
-          pnpm exec wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-pre.json || true
+          pnpm exec wrangler --cwd apps/proxy deployments list --env dev --json > artifacts/proxy-deployments-pre.json || true
           pnpm exec wrangler --cwd apps/registry d1 time-travel info clawdentity-db-dev --env dev --timestamp "${PREDEPLOY_TS}" --json > artifacts/d1-time-travel-pre.json
           pnpm exec wrangler --cwd apps/registry d1 export clawdentity-db-dev --remote --env dev --output "${GITHUB_WORKSPACE}/artifacts/d1-dev-predeploy.sql"
 
@@ -76,12 +94,30 @@ jobs:
           pnpm exec wrangler --cwd apps/registry d1 migrations apply clawdentity-db-dev --remote --env dev
           pnpm exec wrangler --cwd apps/registry deploy --env dev --var APP_VERSION:${APP_VERSION}
 
+      - name: Verify registry deployment exists in Wrangler
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-current.json
+          python3 - <<'PY'
+          import json
+
+          path = "artifacts/registry-deployments-current.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          if not isinstance(payload, list) or len(payload) == 0:
+              raise SystemExit(f"wrangler returned no registry deployments in {path}")
+
+          print("registry wrangler deployment check passed")
+          print(payload[0])
+          PY
+
       - name: Verify registry health endpoint
         run: |
           python3 - <<'PY'
           import json, os, sys, time, urllib.request, urllib.error
 
-          url = "https://dev.api.clawdentity.com/health"
+          url = "https://dev.registry.clawdentity.com/health"
           expected_version = os.environ.get("APP_VERSION", "")
           if not expected_version:
               raise SystemExit("APP_VERSION was not set in workflow environment")
@@ -123,11 +159,161 @@ jobs:
                   time.sleep(delay_seconds)
           PY
 
-      - name: Deploy proxy to development environment
+      - name: Resolve registry admin API key
+        env:
+          REGISTRY_BOOTSTRAP_SECRET: ${{ secrets.REGISTRY_BOOTSTRAP_SECRET }}
+        run: |
+          if [ -n "${REGISTRY_ADMIN_API_KEY}" ]; then
+            echo "::add-mask::${REGISTRY_ADMIN_API_KEY}"
+          fi
+          if [ -n "${REGISTRY_BOOTSTRAP_SECRET}" ]; then
+            echo "::add-mask::${REGISTRY_BOOTSTRAP_SECRET}"
+          fi
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, urllib.error
+
+          registry_url = "https://dev.registry.clawdentity.com"
+          admin_pat = os.environ.get("REGISTRY_ADMIN_API_KEY", "").strip()
+          bootstrap_secret = os.environ.get("REGISTRY_BOOTSTRAP_SECRET", "").strip()
+          github_env = os.environ["GITHUB_ENV"]
+
+          if admin_pat:
+              with open(github_env, "a", encoding="utf-8") as f:
+                  f.write(f"RESOLVED_REGISTRY_ADMIN_API_KEY={admin_pat}\n")
+              print("Using REGISTRY_ADMIN_API_KEY from GitHub secrets.")
+              sys.exit(0)
+
+          if not bootstrap_secret:
+              raise SystemExit(
+                  "REGISTRY_ADMIN_API_KEY is missing and REGISTRY_BOOTSTRAP_SECRET is not set."
+              )
+
+          payload = {
+              "displayName": "Deploy Admin",
+              "apiKeyName": "deploy-admin",
+          }
+          req = urllib.request.Request(
+              f"{registry_url}/v1/admin/bootstrap",
+              method="POST",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "x-bootstrap-secret": bootstrap_secret,
+                  "Accept": "application/json",
+                  "User-Agent": "Clawdentity-CI/1.0",
+              },
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  body = json.load(resp)
+          except urllib.error.HTTPError as exc:
+              try:
+                  body = json.loads(exc.read().decode("utf-8"))
+              except Exception:
+                  body = {}
+
+              code = body.get("error", {}).get("code")
+              if code == "ADMIN_BOOTSTRAP_ALREADY_COMPLETED":
+                  raise SystemExit(
+                      "Admin bootstrap already completed. Configure REGISTRY_ADMIN_API_KEY in GitHub secrets."
+                  )
+              raise SystemExit(f"Admin bootstrap failed ({exc.code}).")
+
+          token = body.get("apiKey", {}).get("token", "").strip()
+          if not token:
+              raise SystemExit("Bootstrap succeeded but response missing apiKey.token.")
+
+          with open(github_env, "a", encoding="utf-8") as f:
+              f.write(f"RESOLVED_REGISTRY_ADMIN_API_KEY={token}\n")
+          print("Resolved deploy admin API key via bootstrap.")
+          PY
+
+      - name: Provision proxy internal service credentials
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+
+          registry_url = "https://dev.registry.clawdentity.com"
+          admin_pat = os.environ.get("RESOLVED_REGISTRY_ADMIN_API_KEY", "").strip()
+          if not admin_pat:
+              raise SystemExit("RESOLVED_REGISTRY_ADMIN_API_KEY is not set.")
+
+          headers = {
+              "Authorization": f"Bearer {admin_pat}",
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+              "User-Agent": "Clawdentity-CI/1.0",
+          }
+          github_env = os.environ["GITHUB_ENV"]
+          service_name = "proxy-dev"
+          service_scopes = ["identity.read"]
+
+          def request_json(path, method="GET", payload=None):
+              data = None
+              if payload is not None:
+                  data = json.dumps(payload).encode("utf-8")
+              req = urllib.request.Request(
+                  f"{registry_url}{path}",
+                  method=method,
+                  data=data,
+                  headers=headers,
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as resp:
+                      return resp.status, json.load(resp)
+              except urllib.error.HTTPError as exc:
+                  raise SystemExit(
+                      f"Registry request failed ({method} {path}, {exc.code})."
+                  )
+
+          _, list_body = request_json("/v1/admin/internal-services")
+          existing = None
+          for service in list_body.get("internalServices", []):
+              if service.get("name") == service_name:
+                  existing = service
+                  break
+
+          if existing:
+              _, result = request_json(
+                  f"/v1/admin/internal-services/{existing['id']}/rotate",
+                  method="POST",
+                  payload={"scopes": service_scopes},
+              )
+              action = "rotated"
+          else:
+              _, result = request_json(
+                  "/v1/admin/internal-services",
+                  method="POST",
+                  payload={"name": service_name, "scopes": service_scopes},
+              )
+              action = "created"
+
+          internal = result.get("internalService", {})
+          service_id = (internal.get("id") or "").strip()
+          service_secret = (internal.get("secret") or "").strip()
+          if not service_id or not service_secret:
+              raise SystemExit(f"Internal service response missing id/secret: {result}")
+
+          with open(github_env, "a", encoding="utf-8") as f:
+              f.write(f"RESOLVED_REGISTRY_INTERNAL_SERVICE_ID={service_id}\n")
+              f.write(f"RESOLVED_REGISTRY_INTERNAL_SERVICE_SECRET={service_secret}\n")
+
+          print(
+              f"Successfully {action} internal service '{service_name}' (id={service_id})."
+          )
+          PY
+
+      - name: Sync proxy internal service credentials
+        run: |
+          printf "%s" "${RESOLVED_REGISTRY_INTERNAL_SERVICE_ID}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_ID --env dev
+          printf "%s" "${RESOLVED_REGISTRY_INTERNAL_SERVICE_SECRET}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_SECRET --env dev
+
+      - name: Deploy proxy to dev environment
         run: |
           mkdir -p artifacts
           PROXY_DEPLOY_OUTPUT_FILE="artifacts/proxy-deploy-output.txt"
-          pnpm exec wrangler --cwd apps/proxy deploy --env development --var APP_VERSION:${APP_VERSION} 2>&1 | tee "${PROXY_DEPLOY_OUTPUT_FILE}"
+          pnpm exec wrangler --cwd apps/proxy deploy --env dev --var APP_VERSION:${APP_VERSION} 2>&1 | tee "${PROXY_DEPLOY_OUTPUT_FILE}"
 
           PROXY_WORKERS_DEV_URL="$(grep -Eo 'https://[[:alnum:]._-]+\.workers\.dev' "${PROXY_DEPLOY_OUTPUT_FILE}" | head -n 1 || true)"
           PROXY_HEALTH_URL=""
@@ -145,6 +331,24 @@ jobs:
 
           echo "PROXY_HEALTH_URL=${PROXY_HEALTH_URL}" >> "${GITHUB_ENV}"
           echo "Resolved proxy health URL: ${PROXY_HEALTH_URL}"
+
+      - name: Verify proxy deployment exists in Wrangler
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/proxy deployments list --env dev --json > artifacts/proxy-deployments-current.json
+          python3 - <<'PY'
+          import json
+
+          path = "artifacts/proxy-deployments-current.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          if not isinstance(payload, list) or len(payload) == 0:
+              raise SystemExit(f"wrangler returned no proxy deployments in {path}")
+
+          print("proxy wrangler deployment check passed")
+          print(payload[0])
+          PY
 
       - name: Verify proxy health endpoint
         run: |
@@ -202,7 +406,7 @@ jobs:
         run: |
           mkdir -p artifacts
           pnpm exec wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-post.json || true
-          pnpm exec wrangler --cwd apps/proxy deployments list --env development --json > artifacts/proxy-deployments-post.json || true
+          pnpm exec wrangler --cwd apps/proxy deployments list --env dev --json > artifacts/proxy-deployments-post.json || true
           pnpm exec wrangler --cwd apps/registry d1 migrations list clawdentity-db-dev --remote --env dev > artifacts/d1-migrations-post.txt || true
 
       - name: Rollback instructions on failure
@@ -213,8 +417,8 @@ jobs:
           echo "  wrangler --cwd apps/registry rollback <version-id> --env dev -y -m \"ci rollback\""
           echo ""
           echo "Proxy Worker rollback:"
-          echo "  wrangler --cwd apps/proxy deployments list --env development --json"
-          echo "  wrangler --cwd apps/proxy rollback <version-id> --env development -y -m \"ci rollback\""
+          echo "  wrangler --cwd apps/proxy deployments list --env dev --json"
+          echo "  wrangler --cwd apps/proxy rollback <version-id> --env dev -y -m \"ci rollback\""
           echo ""
           echo "D1 rollback:"
           echo "  wrangler --cwd apps/registry d1 time-travel restore clawdentity-db-dev --env dev --timestamp \"${PREDEPLOY_TS}\""

@@ -93,7 +93,7 @@ export async function verifyAgentClawRequest(input: {
   const token = parseClawAuthorizationHeader(
     input.request.headers.get("authorization") ?? undefined,
   );
-  const expectedIssuer = resolveRegistryIssuer(input.config.ENVIRONMENT);
+  const expectedIssuer = resolveRegistryIssuer(input.config);
   const verificationKeys = buildRegistryVerificationKeys(
     input.config.REGISTRY_SIGNING_KEYS,
   );

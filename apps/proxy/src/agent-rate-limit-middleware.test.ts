@@ -40,7 +40,7 @@ function createRateLimitTestApp(input: {
         agentDid: testAgentDid,
         ownerDid: "did:claw:human:test-owner",
         aitJti: "test-jti",
-        issuer: "https://api.clawdentity.com",
+        issuer: "https://registry.clawdentity.com",
         cnfPublicKey: "test-key",
       });
     }

@@ -46,7 +46,8 @@ describe("peers config", () => {
             beta: {
               did: "did:claw:agent:01TEST",
               proxyUrl: "https://beta.example.com/hooks/agent",
-              name: "Beta Agent",
+              agentName: "beta",
+              humanName: "Ira",
             },
           },
         },
@@ -59,7 +60,8 @@ describe("peers config", () => {
           beta: {
             did: "did:claw:agent:01TEST",
             proxyUrl: "https://beta.example.com/hooks/agent",
-            name: "Beta Agent",
+            agentName: "beta",
+            humanName: "Ira",
           },
         },
       });

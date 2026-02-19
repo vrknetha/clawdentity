@@ -30,3 +30,10 @@
 - Keep access-token parsing (`clw_agt_`) centralized in `agent-auth-token.ts`; do not duplicate marker/format checks in route handlers.
 - `POST /v1/agents/auth/validate` must fail closed with `401` for missing/invalid/expired/revoked credentials.
 - Access validation must compare hashed token material with constant-time semantics and update `access_last_used_at` on successful validation.
+
+## Internal Service Auth Rules
+- Keep proxy-to-registry internal auth in `service-auth.ts` with database-backed service records (`internal_services`).
+- Keep scope normalization/parsing centralized in `internal-service-scopes.ts` so admin route payload validation and middleware config parsing cannot drift.
+- Guard all internal routes (`/internal/v1/...`) with `createServiceAuth({ requiredScopes })` and the `INTERNAL_SERVICE_ID_HEADER`/`INTERNAL_SERVICE_SECRET_HEADER` names defined in `@clawdentity/sdk`.
+- Persist per-service secrets with the `clw_srv_` marker, hash them before storing, and refresh `last_used_at` on every authenticated call.
+- Fail closed when a service record is missing, disabled, or presents an invalid prefix/secret, and surface `INTERNAL_SERVICE_UNAUTHORIZED`/`INTERNAL_SERVICE_FORBIDDEN` codes accordingly.

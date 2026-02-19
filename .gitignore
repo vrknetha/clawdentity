@@ -10,3 +10,4 @@ nx.bat
 .env.*
 !.env.example
 .dev.vars
+.pnpm-store/

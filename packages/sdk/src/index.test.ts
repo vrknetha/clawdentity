@@ -6,7 +6,10 @@ import {
   addSeconds,
   CrlJwtError,
   createCrlCache,
+  createEventEnvelope,
+  createInMemoryEventBus,
   createNonceCache,
+  createRegistryIdentityClient,
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_NONCE_TTL_MS,
@@ -16,6 +19,8 @@ import {
   encodeEd25519SignatureBase64url,
   executeWithAgentAuthRefreshRetry,
   generateEd25519Keypair,
+  INTERNAL_SERVICE_ID_HEADER,
+  INTERNAL_SERVICE_SECRET_HEADER,
   parseRegistryConfig,
   REQUEST_ID_HEADER,
   resolveRequestId,
@@ -47,6 +52,26 @@ describe("sdk", () => {
     expect(shouldExposeVerboseErrors("test")).toBe(true);
     expect(REQUEST_ID_HEADER).toBe("x-request-id");
     expect(AppError).toBeTypeOf("function");
+    const eventBus = createInMemoryEventBus();
+    const event = createEventEnvelope({
+      type: "agent.auth.issued",
+      data: { agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4" },
+    });
+    const identityClient = createRegistryIdentityClient({
+      registryUrl: "https://registry.clawdentity.com",
+      serviceId: "svc-proxy",
+      serviceSecret: "clw_srv_secret",
+      fetchImpl: (async () =>
+        Response.json(
+          { ownsAgent: true, agentStatus: "active" },
+          { status: 200 },
+        )) as typeof fetch,
+    });
+    expect(eventBus).toBeDefined();
+    expect(event.type).toBe("agent.auth.issued");
+    expect(identityClient).toBeDefined();
+    expect(INTERNAL_SERVICE_ID_HEADER).toBe("x-claw-service-id");
+    expect(INTERNAL_SERVICE_SECRET_HEADER).toBe("x-claw-service-secret");
   });
 
   it("exports agent auth refresh retry helpers", async () => {

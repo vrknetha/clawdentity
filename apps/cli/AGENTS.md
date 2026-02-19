@@ -7,11 +7,12 @@
 ## Command Architecture
 - Keep `src/index.ts` as a pure program builder (`createProgram()`); no side effects on import.
 - Keep `src/bin.ts` as a thin runtime entry only (`parseAsync` + top-level error handling).
-- Keep `src/postinstall.ts` as a thin install entrypoint only; it should detect npm `--skill` mode and call shared installer helpers without mutating runtime CLI command wiring.
-- Keep package identity clear: workspace package name is `clawdentity` and published install entrypoint remains `npm install clawdentity --skill`.
+- Keep `src/postinstall.ts` as a no-op compatibility shim; skill installation is command-driven via `clawdentity skill install`.
+- Keep `postinstall.mjs` fail-safe for source checkouts and CI: if `dist/postinstall.js` is absent, it must no-op and never fail `pnpm install`.
+- Keep package identity clear: workspace package name is `clawdentity`.
 - Keep runtime version parity: source `CLI_VERSION` from the package metadata (`package.json`) at runtime, never from a hardcoded literal in `src/index.ts`.
 - Implement command groups under `src/commands/*` and register them from `createProgram()`.
-- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`, `connector`) so automation and docs do not drift.
+- Keep top-level command contracts stable (`config`, `agent`, `admin`, `api-key`, `invite`, `verify`, `openclaw`, `connector`, `skill`) so automation and docs do not drift.
 - Reuse shared command helpers from `src/commands/helpers.ts` (especially `withErrorHandling`) instead of duplicating command-level try/catch blocks.
 - Use `process.exitCode` instead of `process.exit()`.
 - Use `@clawdentity/sdk` `createLogger` for runtime logging; avoid direct `console.*` calls in CLI app code.
@@ -20,7 +21,7 @@
 - Reject agent names that are only `.` or `..` before resolving directories or files to prevent accidental traversal of home config directories.
 - Keep published CLI artifacts standalone-installable: bundle runtime imports into `dist/*` and avoid `workspace:*` runtime dependencies in published `package.json`.
 - Keep publish artifacts ESM-compatible and avoid bundling CJS-only runtime deps that rely on dynamic `require` (for example `ws`); externalize them and declare them in CLI `dependencies` so installed binaries start cleanly.
-- npm `--skill` installer behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
+- `skill install` behavior must be idempotent and deterministic: reruns should only report `installed`, `updated`, or `unchanged` per artifact with stable output ordering.
 - Keep `skill-bundle/openclaw-skill/` generated from `apps/openclaw-skill` only; do not hand-edit bundled files.
 - Keep generated bundle policy strict: `sync-skill-bundle` must copy from `apps/openclaw-skill/dist/relay-to-peer.mjs` and fail if source build artifacts are missing.
 - Keep generated bundle files out of git; rely on `build`/`prepack` to rebuild `skill-bundle` before `npm pack`/`npm publish`.
@@ -30,12 +31,17 @@
 - Keep release automation in `.github/workflows/publish-cli.yml` manual-only with explicit semver input and npm provenance.
 
 ## Config and Secrets
-- Local CLI config lives at `~/.clawdentity/config.json`.
-- CLI verification caches live under `~/.clawdentity/cache/` and must never include private keys or PATs.
-- Agent identities live at `~/.clawdentity/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
-- OpenClaw setup runtime hint lives at `~/.clawdentity/openclaw-relay.json` and stores `openclawBaseUrl` for proxy fallback.
+- Local CLI state is registry-scoped and lives under:
+  - `~/.clawdentity/states/prod/`
+  - `~/.clawdentity/states/dev/`
+  - `~/.clawdentity/states/local/`
+- Active state routing hint is stored at `~/.clawdentity/router.json`; keep it machine-local and non-sensitive.
+- Local CLI config lives at `~/.clawdentity/states/<state>/config.json`.
+- CLI verification caches live under `~/.clawdentity/states/<state>/cache/` and must never include private keys or PATs.
+- Agent identities live at `~/.clawdentity/states/<state>/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
+- OpenClaw setup runtime hint lives at `~/.clawdentity/states/<state>/openclaw-relay.json` and stores `openclawBaseUrl` for proxy fallback.
 - Connector runtime defaults to local outbound handoff endpoint `http://127.0.0.1:19400/v1/outbound`; keep transform and CLI defaults aligned.
-- Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/agents/`.
+- Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/states/<state>/agents/`.
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
 - Keep API tokens masked in human-facing output (`show`, success logs, debug prints).
 - Write config and identity artifacts with restrictive permissions (`0600`) and never commit secrets or generated local config.
@@ -48,12 +54,12 @@
 - Cover invalid input and failure paths, not only happy paths.
 
 ## Agent Inspection
-- `agent inspect <name>` reads `~/.clawdentity/agents/<name>/ait.jwt`, decodes it with `decodeAIT`, and prints DID, Owner, Expires, Key ID, Public Key, and Framework so operators can audit metadata offline.
+- `agent inspect <name>` reads `~/.clawdentity/states/<state>/agents/<name>/ait.jwt`, decodes it with `decodeAIT`, and prints DID, Owner, Expires, Key ID, Public Key, and Framework so operators can audit metadata offline.
 - Surface user-friendly errors when the JWT is missing or cannot be decoded, mentioning `ait.jwt` explicitly and defaulting to the normalized agent name when validating input.
 - Tests for new inspection behavior must mock `node:fs/promises.readFile` and `@clawdentity/sdk.decodeAIT`, assert the visible output, and confirm missing-file handling covers `ENOENT`.
 
 ## Agent Revocation
-- `agent revoke <name>` accepts local agent name only, then resolves `~/.clawdentity/agents/<name>/identity.json` to load the DID and derive the registry ULID path parameter.
+- `agent revoke <name>` accepts local agent name only, then resolves `~/.clawdentity/states/<state>/agents/<name>/identity.json` to load the DID and derive the registry ULID path parameter.
 - Keep revoke flow name-first and filesystem-backed; do not require operators to pass raw ULIDs for locally managed identities.
 - Use registry `DELETE /v1/agents/:id` with PAT auth, and print human-readable confirmation that includes agent name + DID.
 - Keep error messaging explicit for missing/malformed `identity.json`, invalid DID data, missing API key, and registry/network failures.

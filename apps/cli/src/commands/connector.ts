@@ -8,6 +8,7 @@ import { startConnectorRuntime as bundledStartConnectorRuntime } from "@clawdent
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
+import { fetchRegistryMetadata } from "../config/registry-metadata.js";
 import { writeStdoutLine } from "../io.js";
 import { assertValidAgentName } from "./agent-name.js";
 import { withErrorHandling } from "./helpers.js";
@@ -20,6 +21,8 @@ const IDENTITY_FILE_NAME = "identity.json";
 const AIT_FILE_NAME = "ait.jwt";
 const SECRET_KEY_FILE_NAME = "secret.key";
 const REGISTRY_AUTH_FILE_NAME = "registry-auth.json";
+const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
+const OPENCLAW_CONNECTORS_FILE_NAME = "openclaw-connectors.json";
 const SERVICE_LOG_DIR_NAME = "logs";
 
 const DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
@@ -65,7 +68,10 @@ type ConnectorModule = {
 };
 
 type ReadFileText = (path: string, encoding: "utf8") => Promise<string>;
-type ResolveConfigLike = () => Promise<{ registryUrl: string }>;
+type ResolveConfigLike = () => Promise<{
+  registryUrl: string;
+  proxyUrl?: string;
+}>;
 type ExecFileLike = (
   file: string,
   args?: readonly string[],
@@ -91,6 +97,7 @@ type ResolveCurrentUidLike = () => number;
 
 type ConnectorCommandDependencies = {
   execFileImpl?: ExecFileLike;
+  fetchImpl?: typeof fetch;
   getConfigDirImpl?: typeof getConfigDir;
   getHomeDirImpl?: ResolveHomeDirLike;
   loadConnectorModule?: () => Promise<ConnectorModule>;
@@ -126,6 +133,10 @@ export type ConnectorStartResult = {
   outboundUrl: string;
   proxyWebsocketUrl?: string;
   runtime?: ConnectorRuntime | undefined;
+};
+
+type OpenclawRelayRuntimeConfig = {
+  openclawHookToken?: string;
 };
 
 export type ConnectorServiceInstallResult = {
@@ -231,6 +242,92 @@ function parseConnectorBaseUrl(value: string): string {
   return parsed.toString();
 }
 
+function parseProxyWebsocketUrl(value: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw createCliError(
+      "CLI_CONNECTOR_INVALID_PROXY_URL",
+      "Proxy websocket URL is invalid",
+    );
+  }
+
+  if (
+    parsed.protocol !== "ws:" &&
+    parsed.protocol !== "wss:" &&
+    parsed.protocol !== "http:" &&
+    parsed.protocol !== "https:"
+  ) {
+    throw createCliError(
+      "CLI_CONNECTOR_INVALID_PROXY_URL",
+      "Proxy websocket URL is invalid",
+    );
+  }
+
+  return parsed.toString();
+}
+
+function resolveProxyWebsocketUrlFromEnv(): string | undefined {
+  const explicitProxyWsUrl = process.env.CLAWDENTITY_PROXY_WS_URL;
+  if (
+    typeof explicitProxyWsUrl === "string" &&
+    explicitProxyWsUrl.trim().length > 0
+  ) {
+    return parseProxyWebsocketUrl(explicitProxyWsUrl.trim());
+  }
+
+  const proxyUrl = process.env.CLAWDENTITY_PROXY_URL;
+  if (typeof proxyUrl === "string" && proxyUrl.trim().length > 0) {
+    return parseProxyWebsocketUrl(proxyUrl.trim());
+  }
+
+  return undefined;
+}
+
+async function resolveProxyWebsocketUrl(input: {
+  explicitProxyWsUrl?: string;
+  configProxyUrl?: string;
+  registryUrl: string;
+  fetchImpl?: typeof fetch;
+}): Promise<string> {
+  if (
+    typeof input.explicitProxyWsUrl === "string" &&
+    input.explicitProxyWsUrl.trim().length > 0
+  ) {
+    return parseProxyWebsocketUrl(input.explicitProxyWsUrl.trim());
+  }
+
+  const fromEnv = resolveProxyWebsocketUrlFromEnv();
+  if (fromEnv !== undefined) {
+    return fromEnv;
+  }
+
+  if (
+    typeof input.configProxyUrl === "string" &&
+    input.configProxyUrl.trim().length > 0
+  ) {
+    return parseProxyWebsocketUrl(input.configProxyUrl.trim());
+  }
+
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl === "function") {
+    try {
+      const metadata = await fetchRegistryMetadata(input.registryUrl, {
+        fetchImpl,
+      });
+      return parseProxyWebsocketUrl(metadata.proxyUrl);
+    } catch {
+      // Fall through to deterministic operator guidance below.
+    }
+  }
+
+  throw createCliError(
+    "CLI_CONNECTOR_PROXY_URL_REQUIRED",
+    "Proxy URL is required for connector startup. Run `clawdentity invite redeem <clw_inv_...>` or set CLAWDENTITY_PROXY_URL / CLAWDENTITY_PROXY_WS_URL.",
+  );
+}
+
 function normalizeOutboundPath(pathValue: string): string {
   const trimmed = pathValue.trim();
   if (trimmed.length === 0) {
@@ -243,13 +340,52 @@ function normalizeOutboundPath(pathValue: string): string {
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
-function resolveConnectorBaseUrl(): string {
+function resolveConnectorBaseUrlFromEnv(): string | undefined {
   const value = process.env.CLAWDENTITY_CONNECTOR_BASE_URL;
   if (typeof value !== "string" || value.trim().length === 0) {
-    return DEFAULT_CONNECTOR_BASE_URL;
+    return undefined;
   }
 
   return parseConnectorBaseUrl(value.trim());
+}
+
+async function readConnectorAssignedBaseUrl(
+  configDir: string,
+  agentName: string,
+  readFileImpl: ReadFileText,
+): Promise<string | undefined> {
+  const assignmentsPath = join(configDir, OPENCLAW_CONNECTORS_FILE_NAME);
+  let raw: string;
+  try {
+    raw = await readFileImpl(assignmentsPath, "utf8");
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw createCliError(
+      "CLI_CONNECTOR_INVALID_ASSIGNMENTS",
+      "Connector assignments config is invalid JSON",
+      { assignmentsPath },
+    );
+  }
+
+  if (!isRecord(parsed) || !isRecord(parsed.agents)) {
+    return undefined;
+  }
+
+  const entry = parsed.agents[agentName];
+  if (!isRecord(entry) || typeof entry.connectorBaseUrl !== "string") {
+    return undefined;
+  }
+
+  return parseConnectorBaseUrl(entry.connectorBaseUrl);
 }
 
 function resolveConnectorOutboundPath(): string {
@@ -295,6 +431,45 @@ async function readRequiredTrimmedFile(
   }
 
   return trimmed;
+}
+
+async function readRelayRuntimeConfig(
+  configDir: string,
+  readFileImpl: ReadFileText,
+): Promise<OpenclawRelayRuntimeConfig | undefined> {
+  const filePath = join(configDir, OPENCLAW_RELAY_RUNTIME_FILE_NAME);
+  let raw: string;
+  try {
+    raw = await readFileImpl(filePath, "utf8");
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+
+  const openclawHookToken =
+    typeof parsed.openclawHookToken === "string" &&
+    parsed.openclawHookToken.trim().length > 0
+      ? parsed.openclawHookToken.trim()
+      : undefined;
+  if (!openclawHookToken) {
+    return undefined;
+  }
+
+  return {
+    openclawHookToken,
+  };
 }
 
 function parseJsonRecord(
@@ -819,6 +994,7 @@ export async function startConnectorForAgent(
   const getConfigDirImpl = dependencies.getConfigDirImpl ?? getConfigDir;
   const readFileImpl: ReadFileText =
     dependencies.readFileImpl ?? ((path, encoding) => readFile(path, encoding));
+  const fetchImpl = dependencies.fetchImpl ?? globalThis.fetch;
   const loadConnectorModule =
     dependencies.loadConnectorModule ?? loadDefaultConnectorModule;
   const configDir = getConfigDirImpl();
@@ -829,6 +1005,8 @@ export async function startConnectorForAgent(
     rawSecretKey,
     rawIdentity,
     rawRegistryAuth,
+    assignedConnectorBaseUrl,
+    relayRuntimeConfig,
     config,
     connectorModule,
   ] = await Promise.all([
@@ -852,6 +1030,8 @@ export async function startConnectorForAgent(
       REGISTRY_AUTH_FILE_NAME,
       readFileImpl,
     ),
+    readConnectorAssignedBaseUrl(configDir, agentName, readFileImpl),
+    readRelayRuntimeConfig(configDir, readFileImpl),
     resolveConfigImpl(),
     loadConnectorModule(),
   ]);
@@ -865,7 +1045,18 @@ export async function startConnectorForAgent(
 
   const identity = parseAgentIdentity(rawIdentity);
   const registryAuth = parseRegistryAuth(rawRegistryAuth);
-  const outboundBaseUrl = resolveConnectorBaseUrl();
+  const resolvedProxyWebsocketUrl = await resolveProxyWebsocketUrl({
+    explicitProxyWsUrl: commandOptions.proxyWsUrl,
+    configProxyUrl: config.proxyUrl,
+    registryUrl: config.registryUrl,
+    fetchImpl,
+  });
+  const openclawHookToken =
+    commandOptions.openclawHookToken ?? relayRuntimeConfig?.openclawHookToken;
+  const outboundBaseUrl =
+    resolveConnectorBaseUrlFromEnv() ??
+    assignedConnectorBaseUrl ??
+    DEFAULT_CONNECTOR_BASE_URL;
   const outboundPath = resolveConnectorOutboundPath();
   const runtime = await connectorModule.startConnectorRuntime({
     agentName,
@@ -873,10 +1064,10 @@ export async function startConnectorForAgent(
     registryUrl: config.registryUrl,
     outboundBaseUrl,
     outboundPath,
-    proxyWebsocketUrl: commandOptions.proxyWsUrl,
+    proxyWebsocketUrl: resolvedProxyWebsocketUrl,
     openclawBaseUrl: commandOptions.openclawBaseUrl,
     openclawHookPath: commandOptions.openclawHookPath,
-    openclawHookToken: commandOptions.openclawHookToken,
+    openclawHookToken,
     credentials: {
       agentDid: identity.did,
       ait: rawAit,
@@ -898,7 +1089,7 @@ export async function startConnectorForAgent(
         ? runtime.websocketUrl
         : typeof runtime.proxyWebsocketUrl === "string"
           ? runtime.proxyWebsocketUrl
-          : undefined
+          : resolvedProxyWebsocketUrl
       : undefined;
 
   return {
