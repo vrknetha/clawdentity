@@ -21,6 +21,9 @@
 - Deploy both workers in the same workflow:
   - registry (`apps/registry`, env `dev`) with D1 migration apply before deploy
   - proxy (`apps/proxy`, env `dev`) after registry health passes
+- Sync proxy internal-service credentials from GitHub secrets before proxy deploy:
+  - `REGISTRY_INTERNAL_SERVICE_ID`
+  - `REGISTRY_INTERNAL_SERVICE_SECRET`
 - Verify registry health at `https://dev.registry.clawdentity.com/health` and verify proxy health via deployed URL (workers.dev or explicit override) with expected `APP_VERSION`.
 - Health verification should use bounded retries (for example 3 minutes with 10-second polling) and `Cache-Control: no-cache` requests to tolerate short edge propagation delays after deploy.
 - When using Python `urllib` for health checks, always set explicit request headers (`Accept: application/json` and a custom `User-Agent` such as `Clawdentity-CI/1.0`) because Cloudflare may return `403`/`1010` for the default `Python-urllib/*` user agent.
@@ -35,7 +38,7 @@
 - Use npm provenance (`--provenance`) and require `NPM_TOKEN` secret.
 
 ## Secrets and Permissions
-- Required deploy secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
+- Required deploy secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `REGISTRY_INTERNAL_SERVICE_ID`, `REGISTRY_INTERNAL_SERVICE_SECRET`.
 - Mirror to `CF_API_TOKEN` and `CF_ACCOUNT_ID` for tooling compatibility.
 - Optional deploy secret: `PROXY_HEALTH_URL` (only needed if proxy workers.dev URL cannot be resolved in CI output).
 - Required publish secret: `NPM_TOKEN`.

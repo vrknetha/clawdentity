@@ -23,7 +23,8 @@ jobs:
       CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       APP_VERSION: ${{ github.sha }}
       PROXY_HEALTH_URL_OVERRIDE: ${{ secrets.PROXY_HEALTH_URL }}
-      REGISTRY_INTERNAL_SERVICE_TOKEN: ${{ secrets.REGISTRY_INTERNAL_SERVICE_TOKEN }}
+      REGISTRY_INTERNAL_SERVICE_ID: ${{ secrets.REGISTRY_INTERNAL_SERVICE_ID }}
+      REGISTRY_INTERNAL_SERVICE_SECRET: ${{ secrets.REGISTRY_INTERNAL_SERVICE_SECRET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,12 +45,13 @@ jobs:
         run: |
           test -n "${CLOUDFLARE_API_TOKEN}"
           test -n "${CLOUDFLARE_ACCOUNT_ID}"
-          test -n "${REGISTRY_INTERNAL_SERVICE_TOKEN}"
+          test -n "${REGISTRY_INTERNAL_SERVICE_ID}"
+          test -n "${REGISTRY_INTERNAL_SERVICE_SECRET}"
 
-      - name: Sync internal service auth secret (registry + proxy)
+      - name: Sync proxy internal service credentials
         run: |
-          printf "%s" "${REGISTRY_INTERNAL_SERVICE_TOKEN}" | pnpm exec wrangler --cwd apps/registry secret put REGISTRY_INTERNAL_SERVICE_TOKEN --env dev
-          printf "%s" "${REGISTRY_INTERNAL_SERVICE_TOKEN}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_TOKEN --env dev
+          printf "%s" "${REGISTRY_INTERNAL_SERVICE_ID}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_ID --env dev
+          printf "%s" "${REGISTRY_INTERNAL_SERVICE_SECRET}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_SECRET --env dev
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
