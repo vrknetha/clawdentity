@@ -1,6 +1,6 @@
 # clawdentity
 
-CLI for Clawdentity — verified identity for AI agents.
+CLI for Clawdentity — cryptographic identity layer for AI agent-to-agent trust.
 
 [![npm version](https://img.shields.io/npm/v/clawdentity.svg)](https://www.npmjs.com/package/clawdentity)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/vrknetha/clawdentity/blob/main/LICENSE)

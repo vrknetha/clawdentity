@@ -5,7 +5,7 @@
 <h1 align="center">Clawdentity</h1>
 
 <p align="center">
-  Verified identity + instant revocation for AI agents — starting with <strong>OpenClaw</strong>.
+  Cryptographic identity layer for AI agent-to-agent trust — starting with <strong>OpenClaw</strong>.
 </p>
 
 <p align="center">
@@ -19,24 +19,24 @@
 
 ## The Problem
 
-OpenClaw webhook auth uses a **single shared gateway token**. That works for transport, but breaks down for identity-aware agent systems:
+OpenClaw lets agents talk to each other over webhooks, but every agent shares **one token**. That causes real problems:
 
-- **Shared-secret blast radius** — if one token leaks, any caller can impersonate a trusted agent until rotation
-- **No per-agent identity** — receivers cannot prove which exact agent sent a request or who owns it
-- **Weak revocation** — disabling one compromised agent means rotating shared credentials across all integrations
-- **No local trust policy** — gateway operators cannot enforce "who is allowed" per caller identity
-- **Public exposure trade-off** — for agent-to-agent communication, you need a public endpoint; without a proxy layer, that means exposing OpenClaw directly or sharing the webhook token with every caller
+- **One leak exposes everyone** — if the token gets out, anyone can impersonate any agent
+- **No way to tell agents apart** — you can't prove which agent sent a request
+- **Can't block just one agent** — disabling one means resetting the token for all of them
+- **No access control** — you can't decide which agents are allowed to call yours
+- **Your server is exposed** — without a proxy, OpenClaw has to be publicly reachable and every caller needs the token
 
 ## What Clawdentity Does
 
-Clawdentity works **with** OpenClaw (not a fork) and adds the missing identity layer for agent-to-agent trust:
+Clawdentity works **with** OpenClaw (not a fork) and adds the missing identity layer:
 
-- **Per-agent identity** — each agent gets a unique DID and registry-signed passport (AIT)
-- **Request-level signing** — every request is cryptographically signed with a proof-of-possession (PoP) header
-- **Instant revocation** — revoke one agent via signed CRL without rotating any shared tokens
-- **Proxy enforcement** — trust-pair policies, per-agent rate limits, and replay protection at the gateway boundary
-- **OpenClaw stays private** — the proxy is the only public-facing endpoint; your OpenClaw instance stays on localhost and the webhook token is never shared
-- **QR-code pairing** — one-scan first-contact trust approval between agents
+- **Each agent gets its own identity** — a unique keypair and a registry-signed passport (DID + AIT)
+- **Every request is signed** — the proxy can verify exactly who sent it and reject tampering
+- **Revoke one agent without breaking the rest** — no shared token rotation needed
+- **Per-agent access control** — trust policies, rate limits, and replay protection at the proxy
+- **OpenClaw stays private** — only the proxy is public; your OpenClaw instance stays on localhost
+- **QR-code pairing** — one scan to approve trust between two agents
 
 ## How It Works
 
@@ -53,10 +53,10 @@ Clawdentity Proxy          ← verifies identity, trust policy, rate limits
 OpenClaw Gateway            ← localhost only, never exposed
 ```
 
-1. **Provision** — create an agent identity (Ed25519 keypair + registry-issued AIT)
-2. **Sign** — SDK signs every outbound request with the agent's private key
-3. **Verify** — proxy validates AIT + PoP + CRL + trust pair before forwarding
-4. **Forward** — only verified requests reach OpenClaw on localhost; your instance is never directly reachable from the internet
+1. **Create** — generate an agent identity (keypair + registry-issued passport)
+2. **Sign** — every outbound request is signed with the agent's private key
+3. **Verify** — the proxy checks the signature, revocation status, and trust policy
+4. **Forward** — only verified requests reach OpenClaw on localhost
 
 ## Quick Start
 
@@ -98,22 +98,22 @@ clawdentity openclaw doctor
 
 | Property | Shared Webhook Token | Clawdentity |
 |----------|---------------------|-------------|
-| **Identity** | All callers look the same | Each agent has a unique DID and signed passport |
+| **Identity** | All callers look the same | Each agent has its own signed identity |
 | **Blast radius** | One leak exposes everything | One compromised key only affects that agent |
-| **Revocation** | Rotate shared token = break all integrations | Revoke one agent instantly via CRL, others unaffected |
+| **Revocation** | Rotate token = break all integrations | Revoke one agent, others unaffected |
 | **Replay protection** | None | Timestamp + nonce + signature on every request |
-| **Tamper detection** | None | Body hash + PoP signature = any modification is detectable |
-| **Per-caller policy** | Not possible | Trust pairs by sender/recipient DID, rate limit per agent |
+| **Tamper detection** | None | Signed body hash — any modification is detectable |
+| **Access control** | Not possible | Per-agent trust policies and rate limits |
 | **Key exposure** | Token must be shared with every caller | Private key never leaves the agent's machine |
-| **Network exposure** | OpenClaw must be reachable by callers; token shared with each | OpenClaw stays on localhost; only the proxy is public |
+| **Network exposure** | OpenClaw must be public, token shared with each caller | OpenClaw stays on localhost; only the proxy is public |
 
 ## Security Highlights
 
 - **Private keys never leave your machine** — generated and stored locally, never transmitted
-- **Ed25519 + EdDSA** — modern, fast elliptic-curve cryptography
-- **Per-request proof-of-possession** — every HTTP call is signed with method, path, body hash, timestamp, and nonce
+- **Ed25519 signatures** — fast, modern elliptic-curve cryptography
+- **Every request is signed** — method, path, body hash, timestamp, and nonce are all covered
 - **Replay protection** — timestamp skew check + per-agent nonce cache
-- **Instant revocation** — signed CRL propagation; proxy rejects revoked agents on next refresh
+- **Revoke any agent instantly** — the proxy stops accepting it on the next refresh
 - **Trust pairs** — receiver operators control which agents are allowed, per-DID
 
 ## Self-Hosting
