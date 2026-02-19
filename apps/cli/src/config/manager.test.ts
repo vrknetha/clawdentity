@@ -1,4 +1,13 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import {
+  chmod,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,10 +15,17 @@ vi.mock("node:os", () => ({
   homedir: vi.fn(() => "/mock-home"),
 }));
 
+vi.mock("node:fs", () => ({
+  readFileSync: vi.fn(),
+}));
+
 vi.mock("node:fs/promises", () => ({
   chmod: vi.fn(),
+  cp: vi.fn(),
   mkdir: vi.fn(),
+  readdir: vi.fn(),
   readFile: vi.fn(),
+  stat: vi.fn(),
   writeFile: vi.fn(),
 }));
 
@@ -29,10 +45,14 @@ import {
   writeConfig,
 } from "./manager.js";
 
+const mockedReadFileSync = vi.mocked(readFileSync);
 const mockedReadFile = vi.mocked(readFile);
 const mockedWriteFile = vi.mocked(writeFile);
 const mockedMkdir = vi.mocked(mkdir);
 const mockedChmod = vi.mocked(chmod);
+const mockedCp = vi.mocked(cp);
+const mockedReaddir = vi.mocked(readdir);
+const mockedStat = vi.mocked(stat);
 const mockedHomedir = vi.mocked(homedir);
 
 const buildErrnoError = (code: string): NodeJS.ErrnoException => {
@@ -47,6 +67,11 @@ describe("config manager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedHomedir.mockReturnValue("/mock-home");
+    mockedReadFileSync.mockImplementation(() => {
+      throw buildErrnoError("ENOENT");
+    });
+    mockedReaddir.mockResolvedValue([]);
+    mockedStat.mockRejectedValue(buildErrnoError("ENOENT"));
     process.env = resetClawdentityEnv(previousEnv);
   });
 
@@ -84,21 +109,50 @@ describe("config manager", () => {
 
   it("writes config and secures file permissions", async () => {
     await writeConfig({
-      registryUrl: "http://localhost:8787",
+      registryUrl: "https://registry.clawdentity.com",
       apiKey: "token",
     });
 
-    expect(mockedMkdir).toHaveBeenCalledWith("/mock-home/.clawdentity", {
-      recursive: true,
-    });
+    expect(mockedMkdir).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/states/prod",
+      {
+        recursive: true,
+      },
+    );
     expect(mockedWriteFile).toHaveBeenCalledWith(
-      "/mock-home/.clawdentity/config.json",
-      '{\n  "registryUrl": "http://localhost:8787",\n  "apiKey": "token"\n}\n',
+      "/mock-home/.clawdentity/states/prod/config.json",
+      '{\n  "registryUrl": "https://registry.clawdentity.com",\n  "apiKey": "token"\n}\n',
       "utf-8",
     );
     expect(mockedChmod).toHaveBeenCalledWith(
-      "/mock-home/.clawdentity/config.json",
+      "/mock-home/.clawdentity/states/prod/config.json",
       0o600,
+    );
+  });
+
+  it("routes writes to dev state when registryUrl points to dev", async () => {
+    await writeConfig({
+      registryUrl: "https://dev.registry.clawdentity.com",
+      apiKey: "token",
+    });
+
+    expect(mockedWriteFile).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/states/dev/config.json",
+      '{\n  "registryUrl": "https://dev.registry.clawdentity.com",\n  "apiKey": "token"\n}\n',
+      "utf-8",
+    );
+  });
+
+  it("routes writes to local state when registryUrl points to local host", async () => {
+    await writeConfig({
+      registryUrl: "http://127.0.0.1:8788",
+      apiKey: "token",
+    });
+
+    expect(mockedWriteFile).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/states/local/config.json",
+      '{\n  "registryUrl": "http://127.0.0.1:8788",\n  "apiKey": "token"\n}\n',
+      "utf-8",
     );
   });
 
@@ -108,16 +162,6 @@ describe("config manager", () => {
 
     await expect(resolveConfig()).resolves.toEqual({
       registryUrl: "http://env:8787",
-    });
-  });
-
-  it("applies proxy env override over file config", async () => {
-    mockedReadFile.mockResolvedValueOnce('{"proxyUrl":"http://file:8787"}');
-    process.env.CLAWDENTITY_PROXY_URL = "http://env:8787";
-
-    await expect(resolveConfig()).resolves.toEqual({
-      registryUrl: DEFAULT_REGISTRY_URL,
-      proxyUrl: "http://env:8787",
     });
   });
 
@@ -169,24 +213,65 @@ describe("config manager", () => {
     );
   });
 
-  it("reads, merges, and writes when setting values", async () => {
-    mockedReadFile.mockResolvedValueOnce('{"registryUrl":"http://file:8787"}');
+  it("moves config to state mapped by updated registryUrl", async () => {
+    mockedReadFile.mockResolvedValueOnce(
+      '{"registryUrl":"https://registry.clawdentity.com","apiKey":"token"}',
+    );
 
-    await setConfigValue("proxyUrl", "http://proxy:8787");
+    await setConfigValue("registryUrl", "https://dev.registry.clawdentity.com");
 
     expect(mockedWriteFile).toHaveBeenCalledWith(
-      "/mock-home/.clawdentity/config.json",
-      '{\n  "registryUrl": "http://file:8787",\n  "proxyUrl": "http://proxy:8787"\n}\n',
+      "/mock-home/.clawdentity/states/dev/config.json",
+      '{\n  "registryUrl": "https://dev.registry.clawdentity.com",\n  "apiKey": "token"\n}\n',
       "utf-8",
     );
   });
 
-  it("exposes config location helpers", () => {
-    expect(getConfigDir()).toBe("/mock-home/.clawdentity");
-    expect(getConfigFilePath()).toBe("/mock-home/.clawdentity/config.json");
-    expect(getCacheDir()).toBe("/mock-home/.clawdentity/cache");
+  it("uses prod state by default", () => {
+    expect(getConfigDir()).toBe("/mock-home/.clawdentity/states/prod");
+    expect(getConfigFilePath()).toBe(
+      "/mock-home/.clawdentity/states/prod/config.json",
+    );
+    expect(getCacheDir()).toBe("/mock-home/.clawdentity/states/prod/cache");
     expect(getCacheFilePath("registry-keys.json")).toBe(
-      "/mock-home/.clawdentity/cache/registry-keys.json",
+      "/mock-home/.clawdentity/states/prod/cache/registry-keys.json",
+    );
+  });
+
+  it("selects dev state from env registry URL", () => {
+    process.env.CLAWDENTITY_REGISTRY_URL =
+      "https://dev.registry.clawdentity.com";
+
+    expect(getConfigDir()).toBe("/mock-home/.clawdentity/states/dev");
+  });
+
+  it("selects local state from env registry URL", () => {
+    process.env.CLAWDENTITY_REGISTRY_URL = "http://host.docker.internal:8788";
+
+    expect(getConfigDir()).toBe("/mock-home/.clawdentity/states/local");
+  });
+
+  it("selects state from router hint when env is unset", () => {
+    mockedReadFileSync.mockReturnValueOnce(
+      '{"lastRegistryUrl":"https://dev.registry.clawdentity.com","lastState":"dev"}\n',
+    );
+
+    expect(getConfigDir()).toBe("/mock-home/.clawdentity/states/dev");
+  });
+
+  it("migrates legacy root entries to prod state", async () => {
+    mockedReaddir.mockResolvedValueOnce([{ name: "agents" }] as never);
+    mockedReadFile.mockRejectedValueOnce(buildErrnoError("ENOENT"));
+
+    await readConfig();
+
+    expect(mockedCp).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/agents",
+      "/mock-home/.clawdentity/states/prod/agents",
+      {
+        recursive: true,
+        errorOnExist: false,
+      },
     );
   });
 
@@ -207,16 +292,19 @@ describe("config manager", () => {
   it("writes cache file and secures file permissions", async () => {
     await writeCacheFile("registry-keys.json", '{\n  "ok": true\n}\n');
 
-    expect(mockedMkdir).toHaveBeenCalledWith("/mock-home/.clawdentity/cache", {
-      recursive: true,
-    });
+    expect(mockedMkdir).toHaveBeenCalledWith(
+      "/mock-home/.clawdentity/states/prod/cache",
+      {
+        recursive: true,
+      },
+    );
     expect(mockedWriteFile).toHaveBeenCalledWith(
-      "/mock-home/.clawdentity/cache/registry-keys.json",
+      "/mock-home/.clawdentity/states/prod/cache/registry-keys.json",
       '{\n  "ok": true\n}\n',
       "utf-8",
     );
     expect(mockedChmod).toHaveBeenCalledWith(
-      "/mock-home/.clawdentity/cache/registry-keys.json",
+      "/mock-home/.clawdentity/states/prod/cache/registry-keys.json",
       0o600,
     );
   });

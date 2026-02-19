@@ -31,12 +31,17 @@
 - Keep release automation in `.github/workflows/publish-cli.yml` manual-only with explicit semver input and npm provenance.
 
 ## Config and Secrets
-- Local CLI config lives at `~/.clawdentity/config.json`.
-- CLI verification caches live under `~/.clawdentity/cache/` and must never include private keys or PATs.
-- Agent identities live at `~/.clawdentity/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
-- OpenClaw setup runtime hint lives at `~/.clawdentity/openclaw-relay.json` and stores `openclawBaseUrl` for proxy fallback.
+- Local CLI state is registry-scoped and lives under:
+  - `~/.clawdentity/states/prod/`
+  - `~/.clawdentity/states/dev/`
+  - `~/.clawdentity/states/local/`
+- Active state routing hint is stored at `~/.clawdentity/router.json`; keep it machine-local and non-sensitive.
+- Local CLI config lives at `~/.clawdentity/states/<state>/config.json`.
+- CLI verification caches live under `~/.clawdentity/states/<state>/cache/` and must never include private keys or PATs.
+- Agent identities live at `~/.clawdentity/states/<state>/agents/<name>/` and must include `secret.key`, `public.key`, `identity.json`, and `ait.jwt`.
+- OpenClaw setup runtime hint lives at `~/.clawdentity/states/<state>/openclaw-relay.json` and stores `openclawBaseUrl` for proxy fallback.
 - Connector runtime defaults to local outbound handoff endpoint `http://127.0.0.1:19400/v1/outbound`; keep transform and CLI defaults aligned.
-- Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/agents/`.
+- Reject `.` and `..` as agent names before any filesystem operation to prevent directory traversal outside `~/.clawdentity/states/<state>/agents/`.
 - Resolve values with explicit precedence: environment variables > config file > built-in defaults.
 - Keep API tokens masked in human-facing output (`show`, success logs, debug prints).
 - Write config and identity artifacts with restrictive permissions (`0600`) and never commit secrets or generated local config.
@@ -49,12 +54,12 @@
 - Cover invalid input and failure paths, not only happy paths.
 
 ## Agent Inspection
-- `agent inspect <name>` reads `~/.clawdentity/agents/<name>/ait.jwt`, decodes it with `decodeAIT`, and prints DID, Owner, Expires, Key ID, Public Key, and Framework so operators can audit metadata offline.
+- `agent inspect <name>` reads `~/.clawdentity/states/<state>/agents/<name>/ait.jwt`, decodes it with `decodeAIT`, and prints DID, Owner, Expires, Key ID, Public Key, and Framework so operators can audit metadata offline.
 - Surface user-friendly errors when the JWT is missing or cannot be decoded, mentioning `ait.jwt` explicitly and defaulting to the normalized agent name when validating input.
 - Tests for new inspection behavior must mock `node:fs/promises.readFile` and `@clawdentity/sdk.decodeAIT`, assert the visible output, and confirm missing-file handling covers `ENOENT`.
 
 ## Agent Revocation
-- `agent revoke <name>` accepts local agent name only, then resolves `~/.clawdentity/agents/<name>/identity.json` to load the DID and derive the registry ULID path parameter.
+- `agent revoke <name>` accepts local agent name only, then resolves `~/.clawdentity/states/<state>/agents/<name>/identity.json` to load the DID and derive the registry ULID path parameter.
 - Keep revoke flow name-first and filesystem-backed; do not require operators to pass raw ULIDs for locally managed identities.
 - Use registry `DELETE /v1/agents/:id` with PAT auth, and print human-readable confirmation that includes agent name + DID.
 - Keep error messaging explicit for missing/malformed `identity.json`, invalid DID data, missing API key, and registry/network failures.

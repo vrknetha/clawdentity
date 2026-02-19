@@ -23,11 +23,14 @@
 - Preserve `/health` response contract: `{ status, version, environment }`.
 - Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
+- Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so deploy/runtime failures are visible without ad-hoc debugging.
+- Keep `worker-configuration.d.ts` committed and regenerate with `wrangler types --env dev` after `wrangler.jsonc` or binding changes.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `PROXY_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
-- Use queue-backed event bus in `development`/`production` (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE` binding) and memory backend in local development overrides (`EVENT_BUS_BACKEND=memory`).
+- Use memory event bus in `development` while no downstream consumers exist (`EVENT_BUS_BACKEND=memory`).
+- Keep production queue-backed (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`) until rollout policy changes.
 
 ## Validation
-- Validate config changes with `wrangler check` before deployment.
+- Validate deployment config and bundle with `wrangler deploy --env <env> --dry-run` before remote migration/deploy.
 - Run `pnpm -F @clawdentity/registry run test` and `pnpm -F @clawdentity/registry run typecheck` for app-level safety.
 - Keep Vitest path aliases pointed at workspace source (`packages/*/src/index.ts`) so tests do not depend on stale package `dist` outputs.
 

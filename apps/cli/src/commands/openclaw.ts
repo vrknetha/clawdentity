@@ -12,7 +12,7 @@ import {
 } from "@clawdentity/protocol";
 import { AppError, createLogger, nowIso } from "@clawdentity/sdk";
 import { Command } from "commander";
-import { resolveConfig } from "../config/manager.js";
+import { getConfigDir, resolveConfig } from "../config/manager.js";
 import { writeStdoutLine } from "../io.js";
 import { assertValidAgentName } from "./agent-name.js";
 import { installConnectorServiceForAgent } from "./connector.js";
@@ -20,7 +20,6 @@ import { withErrorHandling } from "./helpers.js";
 
 const logger = createLogger({ service: "cli", module: "openclaw" });
 
-const CLAWDENTITY_DIR_NAME = ".clawdentity";
 const AGENTS_DIR_NAME = "agents";
 const AIT_FILE_NAME = "ait.jwt";
 const SECRET_KEY_FILE_NAME = "secret.key";
@@ -565,11 +564,11 @@ function resolveOpenclawDir(openclawDir: string | undefined, homeDir: string) {
 }
 
 function resolveAgentDirectory(homeDir: string, agentName: string): string {
-  return join(homeDir, CLAWDENTITY_DIR_NAME, AGENTS_DIR_NAME, agentName);
+  return join(getConfigDir({ homeDir }), AGENTS_DIR_NAME, agentName);
 }
 
 function resolvePeersPath(homeDir: string): string {
-  return join(homeDir, CLAWDENTITY_DIR_NAME, PEERS_FILE_NAME);
+  return join(getConfigDir({ homeDir }), PEERS_FILE_NAME);
 }
 
 function resolveOpenclawConfigPath(
@@ -609,15 +608,15 @@ function resolveTransformTargetPath(openclawDir: string): string {
 }
 
 function resolveOpenclawAgentNamePath(homeDir: string): string {
-  return join(homeDir, CLAWDENTITY_DIR_NAME, OPENCLAW_AGENT_FILE_NAME);
+  return join(getConfigDir({ homeDir }), OPENCLAW_AGENT_FILE_NAME);
 }
 
 function resolveRelayRuntimeConfigPath(homeDir: string): string {
-  return join(homeDir, CLAWDENTITY_DIR_NAME, OPENCLAW_RELAY_RUNTIME_FILE_NAME);
+  return join(getConfigDir({ homeDir }), OPENCLAW_RELAY_RUNTIME_FILE_NAME);
 }
 
 function resolveConnectorAssignmentsPath(homeDir: string): string {
-  return join(homeDir, CLAWDENTITY_DIR_NAME, OPENCLAW_CONNECTORS_FILE_NAME);
+  return join(getConfigDir({ homeDir }), OPENCLAW_CONNECTORS_FILE_NAME);
 }
 
 function resolveTransformRuntimePath(openclawDir: string): string {
@@ -1399,7 +1398,7 @@ async function monitorConnectorStabilityWindow(input: {
 }
 
 function resolveConnectorRunDir(homeDir: string): string {
-  return join(homeDir, CLAWDENTITY_DIR_NAME, CONNECTOR_RUN_DIR_NAME);
+  return join(getConfigDir({ homeDir }), CONNECTOR_RUN_DIR_NAME);
 }
 
 function resolveConnectorPidPath(homeDir: string, agentName: string): string {
@@ -2227,7 +2226,7 @@ export async function runOpenclawDoctor(
           status: "fail",
           message: "unable to resolve CLI config",
           remediationHint:
-            "Fix ~/.clawdentity/config.json or rerun: clawdentity config init",
+            "Run: clawdentity config init (or fix your CLI state config file)",
         }),
       );
     }
@@ -2364,8 +2363,7 @@ export async function runOpenclawDoctor(
         label: "Peers map",
         status: "fail",
         message: `invalid peers config at ${peersPath}`,
-        remediationHint:
-          "Fix JSON in ~/.clawdentity/peers.json or rerun openclaw setup",
+        remediationHint: `Fix JSON in ${peersPath} or rerun openclaw setup`,
         details: { peersPath },
       }),
     );
@@ -3734,7 +3732,7 @@ export const createOpenclawCommand = (): Command => {
     .description(
       "Send a relay probe to a configured peer (auto-selects when one peer exists)",
     )
-    .option("--peer <alias>", "Peer alias in ~/.clawdentity/peers.json")
+    .option("--peer <alias>", "Peer alias in local peers map")
     .option(
       "--openclaw-base-url <url>",
       "Base URL for local OpenClaw hook API (default OPENCLAW_BASE_URL or relay runtime config)",

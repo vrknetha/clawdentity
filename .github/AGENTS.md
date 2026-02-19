@@ -21,10 +21,15 @@
 - Deploy both workers in the same workflow:
   - registry (`apps/registry`, env `dev`) with D1 migration apply before deploy
   - proxy (`apps/proxy`, env `dev`) after registry health passes
-- Sync proxy internal-service credentials from GitHub secrets before proxy deploy:
+- Install dependencies before any `pnpm exec wrangler ...` command so Wrangler is available on clean runners.
+- Regenerate Worker type bindings in CI (`wrangler types --env dev`) and fail on git diff drift for `worker-configuration.d.ts` to prevent stale runtime binding types from shipping.
+- Sync proxy internal-service credentials from GitHub secrets after dependency install and before proxy deploy:
   - `REGISTRY_INTERNAL_SERVICE_ID`
   - `REGISTRY_INTERNAL_SERVICE_SECRET`
+- Add a Wrangler preflight dry-run for both workers before mutating remote state (migrations/deploy):
+  - `wrangler deploy --env dev --dry-run --var APP_VERSION:<sha>`
 - Verify registry health at `https://dev.registry.clawdentity.com/health` and verify proxy health via deployed URL (workers.dev or explicit override) with expected `APP_VERSION`.
+- Add Wrangler deployment existence checks for both services after each deploy (`wrangler deployments list --env dev --json`) before endpoint health probes.
 - Health verification should use bounded retries (for example 3 minutes with 10-second polling) and `Cache-Control: no-cache` requests to tolerate short edge propagation delays after deploy.
 - When using Python `urllib` for health checks, always set explicit request headers (`Accept: application/json` and a custom `User-Agent` such as `Clawdentity-CI/1.0`) because Cloudflare may return `403`/`1010` for the default `Python-urllib/*` user agent.
 - Use workflow concurrency groups to prevent overlapping deploys for the same environment.

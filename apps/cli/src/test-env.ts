@@ -3,6 +3,7 @@ const CLAWDENTITY_ENV_OVERRIDE_KEYS = [
   "CLAWDENTITY_REGISTRY",
   "CLAWDENTITY_PROXY_URL",
   "CLAWDENTITY_API_KEY",
+  "CLAWDENTITY_HUMAN_NAME",
 ] as const;
 
 export function resetClawdentityEnv(

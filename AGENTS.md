@@ -69,7 +69,7 @@
 ## Biome Configuration
 - `biome.json` at repo root covers all `packages/**` and `apps/**`.
 - Excluded from Biome: `**/dist`, `**/drizzle/meta`, `**/.wrangler`.
-- Generated files from tools (drizzle-kit, wrangler) should be excluded rather than reformatted.
+- Generated files from tools (drizzle-kit, wrangler) should be excluded rather than reformatted, including Worker runtime type outputs (`**/worker-configuration.d.ts`).
 
 ## CI Pipeline
 - `.github/workflows/ci.yml` runs on push and pull_request.

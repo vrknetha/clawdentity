@@ -48,13 +48,19 @@ jobs:
           test -n "${REGISTRY_INTERNAL_SERVICE_ID}"
           test -n "${REGISTRY_INTERNAL_SERVICE_SECRET}"
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Worker type bindings are up to date
+        run: |
+          pnpm exec wrangler --cwd apps/registry types --env dev
+          pnpm exec wrangler --cwd apps/proxy types --env dev
+          git diff --exit-code -- apps/registry/worker-configuration.d.ts apps/proxy/worker-configuration.d.ts
+
       - name: Sync proxy internal service credentials
         run: |
           printf "%s" "${REGISTRY_INTERNAL_SERVICE_ID}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_ID --env dev
           printf "%s" "${REGISTRY_INTERNAL_SERVICE_SECRET}" | pnpm exec wrangler --cwd apps/proxy secret put REGISTRY_INTERNAL_SERVICE_SECRET --env dev
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm lint
@@ -67,6 +73,11 @@ jobs:
 
       - name: Run tests
         run: pnpm -r test
+
+      - name: Wrangler deploy preflight (dry-run)
+        run: |
+          pnpm exec wrangler --cwd apps/registry deploy --env dev --dry-run --var APP_VERSION:${APP_VERSION}
+          pnpm exec wrangler --cwd apps/proxy deploy --env dev --dry-run --var APP_VERSION:${APP_VERSION}
 
       - name: Capture pre-deploy rollback artifacts
         run: |
@@ -84,6 +95,24 @@ jobs:
         run: |
           pnpm exec wrangler --cwd apps/registry d1 migrations apply clawdentity-db-dev --remote --env dev
           pnpm exec wrangler --cwd apps/registry deploy --env dev --var APP_VERSION:${APP_VERSION}
+
+      - name: Verify registry deployment exists in Wrangler
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/registry deployments list --env dev --json > artifacts/registry-deployments-current.json
+          python3 - <<'PY'
+          import json
+
+          path = "artifacts/registry-deployments-current.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          if not isinstance(payload, list) or len(payload) == 0:
+              raise SystemExit(f"wrangler returned no registry deployments in {path}")
+
+          print("registry wrangler deployment check passed")
+          print(payload[0])
+          PY
 
       - name: Verify registry health endpoint
         run: |
@@ -154,6 +183,24 @@ jobs:
 
           echo "PROXY_HEALTH_URL=${PROXY_HEALTH_URL}" >> "${GITHUB_ENV}"
           echo "Resolved proxy health URL: ${PROXY_HEALTH_URL}"
+
+      - name: Verify proxy deployment exists in Wrangler
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/proxy deployments list --env dev --json > artifacts/proxy-deployments-current.json
+          python3 - <<'PY'
+          import json
+
+          path = "artifacts/proxy-deployments-current.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          if not isinstance(payload, list) or len(payload) == 0:
+              raise SystemExit(f"wrangler returned no proxy deployments in {path}")
+
+          print("proxy wrangler deployment check passed")
+          print(payload[0])
+          PY
 
       - name: Verify proxy health endpoint
         run: |

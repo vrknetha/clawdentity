@@ -66,8 +66,12 @@ function createSandbox(): OpenclawSandbox {
   };
 }
 
+function resolveCliStateDir(homeDir: string): string {
+  return join(homeDir, ".clawdentity", "states", "prod");
+}
+
 function seedLocalAgentCredentials(homeDir: string, agentName: string): void {
-  const agentDir = join(homeDir, ".clawdentity", "agents", agentName);
+  const agentDir = join(resolveCliStateDir(homeDir), "agents", agentName);
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "secret.key"), "secret-key-value", "utf8");
   writeFileSync(join(agentDir, "ait.jwt"), "mock.ait.jwt", "utf8");
@@ -80,7 +84,7 @@ function seedPeersConfig(
     { did: string; proxyUrl: string; agentName?: string; humanName?: string }
   >,
 ): void {
-  const peersPath = join(homeDir, ".clawdentity", "peers.json");
+  const peersPath = join(resolveCliStateDir(homeDir), "peers.json");
   mkdirSync(dirname(peersPath), { recursive: true });
   writeFileSync(peersPath, `${JSON.stringify({ peers }, null, 2)}\n`, "utf8");
 }
@@ -192,7 +196,7 @@ describe("openclaw command helpers", () => {
 
       const peers = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "peers.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "peers.json"),
           "utf8",
         ),
       ) as {
@@ -209,7 +213,7 @@ describe("openclaw command helpers", () => {
       expect(peers.peers).toEqual({});
 
       const selectedAgent = readFileSync(
-        join(sandbox.homeDir, ".clawdentity", "openclaw-agent-name"),
+        join(resolveCliStateDir(sandbox.homeDir), "openclaw-agent-name"),
         "utf8",
       ).trim();
       expect(selectedAgent).toBe("alpha");
@@ -224,7 +228,7 @@ describe("openclaw command helpers", () => {
       );
       const relayRuntimeConfig = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "openclaw-relay.json"),
           "utf8",
         ),
       ) as {
@@ -244,7 +248,7 @@ describe("openclaw command helpers", () => {
 
       const connectorAssignments = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "openclaw-connectors.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "openclaw-connectors.json"),
           "utf8",
         ),
       ) as {
@@ -642,7 +646,7 @@ describe("openclaw command helpers", () => {
       expect(result.openclawBaseUrl).toBe("http://127.0.0.1:19001");
       const relayRuntimeConfig = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "openclaw-relay.json"),
           "utf8",
         ),
       ) as {
@@ -677,7 +681,7 @@ describe("openclaw command helpers", () => {
       expect(result.openclawBaseUrl).toBe("http://127.0.0.1:19555");
       const relayRuntimeConfig = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "openclaw-relay.json"),
           "utf8",
         ),
       ) as {
@@ -1011,7 +1015,7 @@ describe("openclaw command helpers", () => {
 
       const relayRuntimeConfig = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "openclaw-relay.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "openclaw-relay.json"),
           "utf8",
         ),
       ) as {
@@ -1036,7 +1040,7 @@ describe("openclaw command helpers", () => {
 
       const peers = JSON.parse(
         readFileSync(
-          join(sandbox.homeDir, ".clawdentity", "peers.json"),
+          join(resolveCliStateDir(sandbox.homeDir), "peers.json"),
           "utf8",
         ),
       ) as {
@@ -1567,7 +1571,10 @@ describe("openclaw command helpers", () => {
         transformSource: sandbox.transformSourcePath,
       });
 
-      const configPath = join(sandbox.homeDir, ".clawdentity", "config.json");
+      const configPath = join(
+        resolveCliStateDir(sandbox.homeDir),
+        "config.json",
+      );
       mkdirSync(dirname(configPath), { recursive: true });
       writeFileSync(
         configPath,

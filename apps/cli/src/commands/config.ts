@@ -93,18 +93,6 @@ export const createConfigCommand = (
     .option("--registry-url <url>", "Initialize config with registry URL")
     .action(
       withErrorHandling("config init", async (options: ConfigInitOptions) => {
-        const configFilePath = getConfigFilePath();
-
-        try {
-          await access(configFilePath);
-          writeStdoutLine(`Config already exists at ${configFilePath}`);
-          return;
-        } catch (error) {
-          if (!isNotFoundError(error)) {
-            throw error;
-          }
-        }
-
         const config = await readConfig();
         const requestedRegistryUrl =
           options.registryUrl ??
@@ -112,8 +100,27 @@ export const createConfigCommand = (
           config.registryUrl;
         const normalizedRegistryUrl =
           normalizeRegistryUrl(requestedRegistryUrl);
+        const requestedConfigFilePath = getConfigFilePath({
+          registryUrlHint: normalizedRegistryUrl,
+        });
+
+        try {
+          await access(requestedConfigFilePath);
+          writeStdoutLine(
+            `Config already exists at ${requestedConfigFilePath}`,
+          );
+          return;
+        } catch (error) {
+          if (!isNotFoundError(error)) {
+            throw error;
+          }
+        }
+
         const metadata = await fetchRegistryMetadata(normalizedRegistryUrl, {
           fetchImpl: dependencies.fetchImpl,
+        });
+        const targetConfigFilePath = getConfigFilePath({
+          registryUrlHint: metadata.registryUrl,
         });
 
         await writeConfig({
@@ -122,7 +129,7 @@ export const createConfigCommand = (
           proxyUrl: metadata.proxyUrl,
         });
 
-        writeStdoutLine(`Initialized config at ${configFilePath}`);
+        writeStdoutLine(`Initialized config at ${targetConfigFilePath}`);
         writeStdoutLine(
           JSON.stringify(
             maskApiKey({
