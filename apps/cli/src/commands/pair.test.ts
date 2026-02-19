@@ -782,6 +782,15 @@ const runPairCommand = async (
 };
 
 describe("pair command output", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env = resetClawdentityEnv(previousEnv);
+  });
+
+  afterEach(() => {
+    process.env = previousEnv;
+  });
+
   it("prints pairing ticket from pair start", async () => {
     const fixture = await createPairFixture();
     const command = createPairCommand({
