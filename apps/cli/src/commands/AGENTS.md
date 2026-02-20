@@ -34,6 +34,7 @@
 - `openclaw setup` must treat `hooks.defaultSessionKey` as an OpenClaw request session key (`main`, `global`, `subagent:*`), not a canonical `agent:<id>:...` store key.
 - `openclaw setup` must normalize legacy canonical defaults (`agent:<id>:<rest>`) to request-key format (`<rest>`) before writing config, so hook runs route to the expected UI session.
 - When deriving fallback hook session routing, follow OpenClaw runtime semantics (`session.scope=global` -> `global`; otherwise `session.mainKey` with fallback `main`).
+- Keep `openclaw.ts` as a thin public facade; place domain implementations under `openclaw/*.ts` to keep files maintainable and testable.
 - Keep thrown command errors static (no interpolated runtime values); include variable context in error details/log fields. Diagnostic check output (`openclaw doctor`, `openclaw relay test`) may include concrete paths/aliases so operators can remediate quickly.
 - Keep invite-type distinction explicit in output/docs:
   - `clw_inv_...` = registry onboarding invite (`invite redeem`)
