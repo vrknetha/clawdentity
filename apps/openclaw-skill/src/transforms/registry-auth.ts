@@ -8,7 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentAuthBundle } from "@clawdentity/sdk";
+import { type AgentAuthBundle, nowUtcMs } from "@clawdentity/sdk";
 
 const CLAWDENTITY_DIR = ".clawdentity";
 const AGENTS_DIR = "agents";
@@ -121,7 +121,7 @@ export async function writeAgentRegistryAuthAtomic(input: {
   auth: AgentAuthBundle;
 }): Promise<void> {
   const registryAuthPath = resolveAgentRegistryAuthPath(input);
-  const tempPath = `${registryAuthPath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tempPath = `${registryAuthPath}.tmp-${nowUtcMs()}-${Math.random().toString(16).slice(2)}`;
   const content = `${JSON.stringify(input.auth, null, 2)}\n`;
 
   await writeFile(tempPath, content, "utf8");
@@ -152,7 +152,7 @@ export async function withAgentRegistryAuthLock<T>(input: {
   for (let attempt = 0; attempt < LOCK_MAX_ATTEMPTS; attempt += 1) {
     try {
       const lockHandle = await open(lockPath, "wx", FILE_MODE);
-      await lockHandle.writeFile(`${Date.now()}`);
+      await lockHandle.writeFile(`${nowUtcMs()}`);
       await lockHandle.close();
       lockAcquired = true;
       break;
@@ -163,7 +163,7 @@ export async function withAgentRegistryAuthLock<T>(input: {
 
       try {
         const lockStat = await stat(lockPath);
-        if (Date.now() - lockStat.mtimeMs > STALE_LOCK_AGE_MS) {
+        if (nowUtcMs() - lockStat.mtimeMs > STALE_LOCK_AGE_MS) {
           await unlink(lockPath);
           continue;
         }

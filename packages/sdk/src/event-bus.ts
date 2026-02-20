@@ -1,4 +1,4 @@
-import { nowIso } from "./datetime.js";
+import { nowIso, nowUtcMs } from "./datetime.js";
 
 const DEFAULT_EVENT_VERSION = "v1";
 
@@ -45,7 +45,7 @@ function createEventId(): string {
   }
 
   const random = Math.random().toString(36).slice(2, 10);
-  return `${Date.now()}-${random}`;
+  return `${nowUtcMs()}-${random}`;
 }
 
 function normalizeRequiredString(value: string, fieldName: string): string {

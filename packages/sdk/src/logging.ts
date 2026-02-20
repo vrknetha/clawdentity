@@ -1,5 +1,5 @@
 import { createMiddleware } from "hono/factory";
-import { nowIso } from "./datetime.js";
+import { nowIso, nowUtcMs } from "./datetime.js";
 import { REQUEST_ID_HEADER, resolveRequestId } from "./request-context.js";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -63,7 +63,7 @@ export function createLogger(baseFields: LogFields = {}): Logger {
 
 export function createRequestLoggingMiddleware(logger: Logger) {
   return createMiddleware(async (c, next) => {
-    const startedAt = Date.now();
+    const startedAt = nowUtcMs();
     let caughtError: unknown;
 
     try {
@@ -81,7 +81,7 @@ export function createRequestLoggingMiddleware(logger: Logger) {
         method: c.req.method,
         path: c.req.path,
         status: caughtError ? 500 : c.res.status,
-        durationMs: Date.now() - startedAt,
+        durationMs: nowUtcMs() - startedAt,
       });
     }
   });

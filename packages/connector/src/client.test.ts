@@ -13,6 +13,7 @@ class MockWebSocket {
     message: new Set(),
     close: new Set(),
     error: new Set(),
+    "unexpected-response": new Set(),
   };
 
   constructor(url: string) {
@@ -60,6 +61,14 @@ class MockWebSocket {
       reason,
       wasClean: false,
     });
+  }
+
+  error(error: unknown): void {
+    this.emit("error", { error });
+  }
+
+  unexpectedResponse(status: number): void {
+    this.emit("unexpected-response", { status });
   }
 
   private emit(type: string, event: unknown): void {
@@ -341,6 +350,227 @@ describe("ConnectorClient", () => {
     }
     expect(ack.ackId).toBe(deliverId);
     expect(ack.accepted).toBe(true);
+
+    client.disconnect();
+  });
+
+  it("reconnects when heartbeat acknowledgement times out", async () => {
+    vi.useFakeTimers();
+
+    const sockets: MockWebSocket[] = [];
+    const disconnectedEvents: { code: number; reason: string }[] = [];
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      connectTimeoutMs: 0,
+      heartbeatIntervalMs: 10,
+      heartbeatAckTimeoutMs: 25,
+      reconnectMinDelayMs: 50,
+      reconnectMaxDelayMs: 50,
+      reconnectJitterRatio: 0,
+      hooks: {
+        onDisconnected: (event) => {
+          disconnectedEvents.push({ code: event.code, reason: event.reason });
+        },
+      },
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    await vi.advanceTimersByTimeAsync(35);
+    expect(sockets).toHaveLength(1);
+    expect(disconnectedEvents).toHaveLength(1);
+    expect(disconnectedEvents[0]?.reason).toContain(
+      "Heartbeat acknowledgement",
+    );
+
+    await vi.advanceTimersByTimeAsync(50);
+    expect(sockets).toHaveLength(2);
+
+    client.disconnect();
+  });
+
+  it("does not reconnect when heartbeat acknowledgement arrives before timeout", async () => {
+    vi.useFakeTimers();
+
+    const sockets: MockWebSocket[] = [];
+    const disconnected = vi.fn();
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      connectTimeoutMs: 0,
+      heartbeatIntervalMs: 100,
+      heartbeatAckTimeoutMs: 40,
+      reconnectMinDelayMs: 20,
+      reconnectMaxDelayMs: 20,
+      reconnectJitterRatio: 0,
+      hooks: {
+        onDisconnected: disconnected,
+      },
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    await vi.advanceTimersByTimeAsync(100);
+    const outboundHeartbeat = parseFrame(sockets[0].sent[0]);
+    expect(outboundHeartbeat.type).toBe("heartbeat");
+    if (outboundHeartbeat.type !== "heartbeat") {
+      throw new Error("expected heartbeat frame");
+    }
+
+    sockets[0].message(
+      serializeFrame({
+        v: 1,
+        type: "heartbeat_ack",
+        id: generateUlid(1700000000010),
+        ts: "2026-01-01T00:00:00.010Z",
+        ackId: outboundHeartbeat.id,
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(80);
+    expect(disconnected).not.toHaveBeenCalled();
+    expect(sockets).toHaveLength(1);
+
+    client.disconnect();
+  });
+
+  it("reconnects when websocket connection does not open before timeout", async () => {
+    vi.useFakeTimers();
+
+    const sockets: MockWebSocket[] = [];
+    const disconnected = vi.fn();
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      connectTimeoutMs: 30,
+      heartbeatIntervalMs: 0,
+      reconnectMinDelayMs: 20,
+      reconnectMaxDelayMs: 20,
+      reconnectJitterRatio: 0,
+      hooks: {
+        onDisconnected: disconnected,
+      },
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    expect(sockets).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(29);
+    expect(sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(disconnected).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(sockets).toHaveLength(2);
+
+    client.disconnect();
+  });
+
+  it("reconnects after websocket error even when close event is missing", async () => {
+    vi.useFakeTimers();
+
+    const sockets: MockWebSocket[] = [];
+    const disconnected = vi.fn();
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      connectTimeoutMs: 0,
+      heartbeatIntervalMs: 0,
+      reconnectMinDelayMs: 40,
+      reconnectMaxDelayMs: 40,
+      reconnectJitterRatio: 0,
+      hooks: {
+        onDisconnected: disconnected,
+      },
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    sockets[0].open();
+    sockets[0].readyState = 3;
+    sockets[0].error(new Error("boom"));
+
+    expect(disconnected).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(39);
+    expect(sockets).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sockets).toHaveLength(2);
+
+    client.disconnect();
+  });
+
+  it("retries websocket upgrade rejection with one immediate retry on 401", async () => {
+    vi.useFakeTimers();
+
+    const sockets: MockWebSocket[] = [];
+    const onAuthUpgradeRejected =
+      vi.fn<(event: { status: number; immediateRetry: boolean }) => void>();
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      connectTimeoutMs: 0,
+      heartbeatIntervalMs: 0,
+      reconnectMinDelayMs: 100,
+      reconnectMaxDelayMs: 100,
+      reconnectJitterRatio: 0,
+      hooks: {
+        onAuthUpgradeRejected,
+      },
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    expect(sockets).toHaveLength(1);
+
+    sockets[0].unexpectedResponse(401);
+    await vi.runOnlyPendingTimersAsync();
+    expect(sockets).toHaveLength(2);
+    expect(onAuthUpgradeRejected).toHaveBeenCalledTimes(1);
+    expect(onAuthUpgradeRejected).toHaveBeenNthCalledWith(1, {
+      status: 401,
+      immediateRetry: true,
+    });
+
+    sockets[1].unexpectedResponse(401);
+    await vi.advanceTimersByTimeAsync(99);
+    expect(sockets).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sockets).toHaveLength(3);
+    expect(onAuthUpgradeRejected).toHaveBeenCalledTimes(2);
+    expect(onAuthUpgradeRejected).toHaveBeenNthCalledWith(2, {
+      status: 401,
+      immediateRetry: false,
+    });
 
     client.disconnect();
   });

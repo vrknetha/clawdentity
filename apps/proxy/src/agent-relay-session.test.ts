@@ -19,6 +19,31 @@ function createMockSocket(): MockWebSocket {
   };
 }
 
+async function withMockWebSocketPair<T>(
+  pairClient: MockWebSocket,
+  pairServer: MockWebSocket,
+  callback: () => Promise<T>,
+): Promise<T> {
+  const originalWebSocketPair = (globalThis as { WebSocketPair?: unknown })
+    .WebSocketPair;
+
+  (globalThis as unknown as { WebSocketPair: unknown }).WebSocketPair = class {
+    0 = pairClient as unknown as WebSocket;
+    1 = pairServer as unknown as WebSocket;
+  };
+
+  try {
+    return await callback();
+  } finally {
+    if (originalWebSocketPair === undefined) {
+      delete (globalThis as { WebSocketPair?: unknown }).WebSocketPair;
+    } else {
+      (globalThis as { WebSocketPair?: unknown }).WebSocketPair =
+        originalWebSocketPair;
+    }
+  }
+}
+
 function createStateHarness() {
   const connectedSockets: WebSocket[] = [];
   const storageMap = new Map<string, unknown>();
@@ -52,18 +77,9 @@ describe("AgentRelaySession", () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state);
 
-    const originalWebSocketPair = (globalThis as { WebSocketPair?: unknown })
-      .WebSocketPair;
     const pairClient = createMockSocket();
     const pairServer = createMockSocket();
-
-    (globalThis as unknown as { WebSocketPair: unknown }).WebSocketPair =
-      class {
-        0 = pairClient as unknown as WebSocket;
-        1 = pairServer as unknown as WebSocket;
-      };
-
-    try {
+    await withMockWebSocketPair(pairClient, pairServer, async () => {
       const request = new Request(
         `https://relay.example.test${RELAY_CONNECT_PATH}`,
         {
@@ -87,7 +103,9 @@ describe("AgentRelaySession", () => {
       expect(harness.state.acceptWebSocket).toHaveBeenCalledWith(pairServer, [
         "did:claw:agent:connector",
       ]);
-      expect(harness.storage.setAlarm).toHaveBeenCalledTimes(1);
+      expect(harness.storage.setAlarm.mock.calls.length).toBeGreaterThanOrEqual(
+        1,
+      );
 
       // Node's WHATWG Response may reject status 101 in tests; Workers runtime accepts it.
       if (connectResponse !== undefined) {
@@ -95,14 +113,7 @@ describe("AgentRelaySession", () => {
       } else {
         expect(connectError).toBeInstanceOf(RangeError);
       }
-    } finally {
-      if (originalWebSocketPair === undefined) {
-        delete (globalThis as { WebSocketPair?: unknown }).WebSocketPair;
-      } else {
-        (globalThis as { WebSocketPair?: unknown }).WebSocketPair =
-          originalWebSocketPair;
-      }
-    }
+    });
   });
 
   it("returns 426 for non-websocket connect requests", async () => {
@@ -196,7 +207,7 @@ describe("AgentRelaySession", () => {
     expect(persisted.deliveries[0]?.requestId).toBe("req-2");
   });
 
-  it("drains queued messages after connector reconnects", async () => {
+  it("drains queued messages immediately after connector reconnects", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
       RELAY_RETRY_JITTER_RATIO: "0",
@@ -210,11 +221,11 @@ describe("AgentRelaySession", () => {
       payload: { event: "agent.started" },
     });
 
-    const connectorSocket = createMockSocket();
-    const ws = connectorSocket as unknown as WebSocket;
-    harness.connectedSockets.push(ws);
+    const pairClient = createMockSocket();
+    const pairServer = createMockSocket();
+    const ws = pairServer as unknown as WebSocket;
 
-    connectorSocket.send.mockImplementation((payload: unknown) => {
+    pairServer.send.mockImplementation((payload: unknown) => {
       const frame = parseFrame(payload);
       if (frame.type !== "deliver") {
         return;
@@ -233,13 +244,33 @@ describe("AgentRelaySession", () => {
       );
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    await relaySession.alarm();
+    await withMockWebSocketPair(pairClient, pairServer, async () => {
+      let connectError: unknown;
+      try {
+        await relaySession.fetch(
+          new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
+            method: "GET",
+            headers: {
+              upgrade: "websocket",
+              "x-claw-connector-agent-did": "did:claw:agent:connector",
+            },
+          }),
+        );
+      } catch (error) {
+        connectError = error;
+      }
 
-    const sendFrames = connectorSocket.send.mock.calls
+      if (connectError !== undefined) {
+        expect(connectError).toBeInstanceOf(RangeError);
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const sendFrames = pairServer.send.mock.calls
       .map((call) => parseFrame(call[0]))
       .filter((frame) => frame.type === "deliver");
-    expect(sendFrames.length).toBe(1);
+    expect(sendFrames).toHaveLength(1);
 
     const dedupedResult = await relaySession.deliverToConnector({
       requestId: "req-3",
@@ -249,6 +280,302 @@ describe("AgentRelaySession", () => {
     });
     expect(dedupedResult.state).toBe("delivered");
     expect(dedupedResult.queueDepth).toBe(0);
+  });
+
+  it("returns websocket upgrade quickly while reconnect drain runs in background", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+      RELAY_RETRY_INITIAL_MS: "1",
+    });
+
+    await relaySession.deliverToConnector({
+      requestId: "req-upgrade-fast",
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      payload: { event: "agent.started" },
+    });
+
+    const pairClient = createMockSocket();
+    const pairServer = createMockSocket();
+
+    const connectState = await withMockWebSocketPair(
+      pairClient,
+      pairServer,
+      async () => {
+        const connectAttempt = relaySession
+          .fetch(
+            new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
+              method: "GET",
+              headers: {
+                upgrade: "websocket",
+                "x-claw-connector-agent-did": "did:claw:agent:connector",
+              },
+            }),
+          )
+          .then(
+            () => "settled" as const,
+            () => "settled" as const,
+          );
+
+        return Promise.race([
+          connectAttempt,
+          new Promise<"pending">((resolve) => {
+            setTimeout(() => resolve("pending"), 50);
+          }),
+        ]);
+      },
+    );
+
+    expect(connectState).toBe("settled");
+  });
+
+  it("evicts stale sockets during alarm heartbeat sweep", async () => {
+    vi.useFakeTimers();
+    const nowMs = Date.now();
+    vi.setSystemTime(nowMs);
+
+    try {
+      const harness = createStateHarness();
+      const relaySession = new AgentRelaySession(harness.state, {
+        RELAY_RETRY_JITTER_RATIO: "0",
+      });
+      const staleSocket = createMockSocket();
+      const ws = staleSocket as unknown as WebSocket;
+      staleSocket.close.mockImplementation(() => {
+        harness.connectedSockets.splice(
+          harness.connectedSockets.indexOf(ws),
+          1,
+        );
+      });
+      harness.connectedSockets.push(ws);
+
+      await relaySession.webSocketMessage(
+        ws,
+        JSON.stringify({
+          v: 1,
+          type: "heartbeat_ack",
+          id: generateUlid(nowMs + 1),
+          ts: new Date(nowMs + 1).toISOString(),
+          ackId: generateUlid(nowMs + 2),
+        }),
+      );
+
+      vi.advanceTimersByTime(60_001);
+      await relaySession.alarm();
+
+      expect(staleSocket.close).toHaveBeenCalledWith(
+        1011,
+        "heartbeat_ack_timeout",
+      );
+      const outboundHeartbeats = staleSocket.send.mock.calls
+        .map((call) => parseFrame(call[0]))
+        .filter((frame) => frame.type === "heartbeat");
+      expect(outboundHeartbeats).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supersedes an existing socket when a new connector session connects", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state);
+    const oldSocket = createMockSocket();
+    const oldWs = oldSocket as unknown as WebSocket;
+    oldSocket.close.mockImplementation(() => {
+      harness.connectedSockets.splice(
+        harness.connectedSockets.indexOf(oldWs),
+        1,
+      );
+    });
+    harness.connectedSockets.push(oldWs);
+
+    const pairClient = createMockSocket();
+    const pairServer = createMockSocket();
+
+    await withMockWebSocketPair(pairClient, pairServer, async () => {
+      let connectError: unknown;
+      try {
+        await relaySession.fetch(
+          new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
+            method: "GET",
+            headers: {
+              upgrade: "websocket",
+              "x-claw-connector-agent-did": "did:claw:agent:connector",
+            },
+          }),
+        );
+      } catch (error) {
+        connectError = error;
+      }
+
+      if (connectError !== undefined) {
+        expect(connectError).toBeInstanceOf(RangeError);
+      }
+    });
+
+    expect(oldSocket.close).toHaveBeenCalledWith(
+      1000,
+      "superseded_by_new_connection",
+    );
+    expect(harness.state.acceptWebSocket).toHaveBeenCalledWith(pairServer, [
+      "did:claw:agent:connector",
+    ]);
+    expect(oldSocket.close.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.state.acceptWebSocket.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("keeps superseded sockets inactive even when late frames arrive", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
+    const oldSocket = createMockSocket();
+    const oldWs = oldSocket as unknown as WebSocket;
+    harness.connectedSockets.push(oldWs);
+
+    const pairClient = createMockSocket();
+    const pairServer = createMockSocket();
+    const newWs = pairServer as unknown as WebSocket;
+    pairServer.send.mockImplementation((payload: unknown) => {
+      const frame = parseFrame(payload);
+      if (frame.type !== "deliver") {
+        return;
+      }
+
+      void relaySession.webSocketMessage(
+        newWs,
+        JSON.stringify({
+          v: 1,
+          type: "deliver_ack",
+          id: generateUlid(Date.now() + 3),
+          ts: new Date().toISOString(),
+          ackId: frame.id,
+          accepted: true,
+        }),
+      );
+    });
+
+    await withMockWebSocketPair(pairClient, pairServer, async () => {
+      let connectError: unknown;
+      try {
+        await relaySession.fetch(
+          new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
+            method: "GET",
+            headers: {
+              upgrade: "websocket",
+              "x-claw-connector-agent-did": "did:claw:agent:connector",
+            },
+          }),
+        );
+      } catch (error) {
+        connectError = error;
+      }
+
+      if (connectError !== undefined) {
+        expect(connectError).toBeInstanceOf(RangeError);
+      }
+    });
+
+    await relaySession.webSocketMessage(
+      oldWs,
+      JSON.stringify({
+        v: 1,
+        type: "heartbeat_ack",
+        id: generateUlid(Date.now() + 4),
+        ts: new Date().toISOString(),
+        ackId: generateUlid(Date.now() + 5),
+      }),
+    );
+
+    const deliveryState = await Promise.race([
+      relaySession
+        .deliverToConnector({
+          requestId: "req-superseded-socket",
+          senderAgentDid: SENDER_AGENT_DID,
+          recipientAgentDid: RECIPIENT_AGENT_DID,
+          payload: { event: "agent.started" },
+        })
+        .then((result) => result.state),
+      new Promise<"pending">((resolve) => {
+        setTimeout(() => resolve("pending"), 50);
+      }),
+    ]);
+
+    expect(deliveryState).toBe("delivered");
+    expect(oldSocket.send).not.toHaveBeenCalled();
+    expect(pairServer.send).toHaveBeenCalled();
+  });
+
+  it("does not reject pending deliveries on clean close code 1000", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
+    const connectorSocket = createMockSocket();
+    const ws = connectorSocket as unknown as WebSocket;
+    harness.connectedSockets.push(ws);
+
+    const pendingDelivery = relaySession.deliverToConnector({
+      requestId: "req-clean-close",
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      payload: { event: "agent.started" },
+    });
+    await vi.waitFor(() => {
+      expect(connectorSocket.send).toHaveBeenCalledTimes(1);
+    });
+
+    harness.connectedSockets.splice(harness.connectedSockets.indexOf(ws), 1);
+    await relaySession.webSocketClose(ws, 1000, "normal", true);
+
+    const settleState = await Promise.race([
+      pendingDelivery.then(
+        () => "settled",
+        () => "settled",
+      ),
+      new Promise<"pending">((resolve) => {
+        setTimeout(() => resolve("pending"), 5);
+      }),
+    ]);
+    expect(settleState).toBe("pending");
+
+    await relaySession.webSocketClose(ws, 1011, "unclean", false);
+    const queuedAfterUnclean = await pendingDelivery;
+    expect(queuedAfterUnclean.state).toBe("queued");
+    expect(queuedAfterUnclean.queued).toBe(true);
+  });
+
+  it("rejects pending deliveries on unclean close when no sockets remain", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
+    const connectorSocket = createMockSocket();
+    const ws = connectorSocket as unknown as WebSocket;
+    harness.connectedSockets.push(ws);
+
+    const pendingDelivery = relaySession.deliverToConnector({
+      requestId: "req-unclean-close",
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      payload: { event: "agent.started" },
+    });
+    await vi.waitFor(() => {
+      expect(connectorSocket.send).toHaveBeenCalledTimes(1);
+    });
+
+    harness.connectedSockets.splice(harness.connectedSockets.indexOf(ws), 1);
+    await relaySession.webSocketClose(ws, 1011, "socket_error", false);
+
+    const settleState = await Promise.race([
+      pendingDelivery.then((result) => result.state),
+      new Promise<"timeout">((resolve) => {
+        setTimeout(() => resolve("timeout"), 20);
+      }),
+    ]);
+    expect(settleState).toBe("queued");
   });
 
   it("supports fetch RPC delivery endpoint for compatibility", async () => {

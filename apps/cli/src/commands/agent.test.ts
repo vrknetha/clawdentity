@@ -37,8 +37,12 @@ vi.mock("@clawdentity/sdk", () => ({
   encodeEd25519SignatureBase64url: vi.fn(),
   encodeEd25519KeypairBase64url: vi.fn(),
   generateEd25519Keypair: vi.fn(),
+  nowUtcMs: vi.fn(() => 1_700_000_000_000),
   refreshAgentAuthWithClawProof: vi.fn(),
   signEd25519: vi.fn(),
+  toIso: vi.fn((value: Date | string | number) =>
+    new Date(value).toISOString(),
+  ),
 }));
 
 import {
@@ -47,8 +51,10 @@ import {
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
+  nowUtcMs,
   refreshAgentAuthWithClawProof,
   signEd25519,
+  toIso,
 } from "@clawdentity/sdk";
 import { resolveConfig } from "../config/manager.js";
 import { createAgentCommand } from "./agent.js";
@@ -62,6 +68,7 @@ const mockedUnlink = vi.mocked(unlink);
 const mockedWriteFile = vi.mocked(writeFile);
 const mockedResolveConfig = vi.mocked(resolveConfig);
 const mockedGenerateEd25519Keypair = vi.mocked(generateEd25519Keypair);
+const mockedNowUtcMs = vi.mocked(nowUtcMs);
 const mockedRefreshAgentAuthWithClawProof = vi.mocked(
   refreshAgentAuthWithClawProof,
 );
@@ -73,6 +80,7 @@ const mockedEncodeEd25519KeypairBase64url = vi.mocked(
   encodeEd25519KeypairBase64url,
 );
 const mockedDecodeAIT = vi.mocked(decodeAIT);
+const mockedToIso = vi.mocked(toIso);
 
 const mockFetch = vi.fn<typeof fetch>();
 
@@ -159,6 +167,10 @@ describe("agent create command", () => {
       publicKey: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
       secretKey: Uint8Array.from({ length: 32 }, (_, index) => 64 - index),
     });
+    mockedNowUtcMs.mockReturnValue(1_700_000_000_000);
+    mockedToIso.mockImplementation((value: Date | string | number) =>
+      new Date(value).toISOString(),
+    );
 
     mockedEncodeEd25519KeypairBase64url.mockReturnValue({
       publicKey: "public-key-b64url",

@@ -7,12 +7,16 @@ import {
   serializeFrame,
 } from "@clawdentity/connector";
 import { generateUlid, RELAY_CONNECT_PATH } from "@clawdentity/protocol";
+import { nowUtcMs, toIso } from "@clawdentity/sdk";
 import { parseProxyConfig } from "./config.js";
 
 const CONNECTOR_AGENT_DID_HEADER = "x-claw-connector-agent-did";
 const RELAY_RPC_DELIVER_PATH = "/rpc/deliver-to-connector";
 const RELAY_HEARTBEAT_INTERVAL_MS = 30_000;
+const RELAY_HEARTBEAT_ACK_TIMEOUT_MS = 60_000;
 const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
+const RELAY_SOCKET_SUPERSEDED_CLOSE_CODE = 1000;
+const RELAY_SOCKET_STALE_CLOSE_CODE = 1011;
 
 type DurableObjectStorageLike = {
   deleteAlarm?: () => Promise<void> | void;
@@ -118,21 +122,26 @@ type RelayDeliveryPolicy = {
   retryMaxMs: number;
 };
 
-function toHeartbeatFrame(): string {
-  return serializeFrame({
-    v: CONNECTOR_FRAME_VERSION,
-    type: "heartbeat",
-    id: generateUlid(Date.now()),
-    ts: new Date().toISOString(),
-  });
+function toHeartbeatFrame(nowMs: number): { id: string; payload: string } {
+  const id = generateUlid(nowMs);
+  return {
+    id,
+    payload: serializeFrame({
+      v: CONNECTOR_FRAME_VERSION,
+      type: "heartbeat",
+      id,
+      ts: toIso(nowMs),
+    }),
+  };
 }
 
 function toHeartbeatAckFrame(ackId: string): string {
+  const nowMs = nowUtcMs();
   const ackFrame: HeartbeatAckFrame = {
     v: CONNECTOR_FRAME_VERSION,
     type: "heartbeat_ack",
-    id: generateUlid(Date.now()),
-    ts: new Date().toISOString(),
+    id: generateUlid(nowMs),
+    ts: toIso(nowMs),
     ackId,
   };
 
@@ -140,11 +149,12 @@ function toHeartbeatAckFrame(ackId: string): string {
 }
 
 function toDeliverFrame(input: RelayDeliveryInput): DeliverFrame {
+  const nowMs = nowUtcMs();
   return {
     v: CONNECTOR_FRAME_VERSION,
     type: "deliver",
-    id: generateUlid(Date.now()),
-    ts: new Date().toISOString(),
+    id: generateUlid(nowMs),
+    ts: toIso(nowMs),
     fromAgentDid: input.senderAgentDid,
     toAgentDid: input.recipientAgentDid,
     payload: input.payload,
@@ -248,7 +258,10 @@ export async function deliverToRelaySession(
 
 export class AgentRelaySession {
   private readonly deliveryPolicy: RelayDeliveryPolicy;
+  private readonly heartbeatAckSockets = new Map<string, WebSocket>();
   private readonly pendingDeliveries = new Map<string, PendingDelivery>();
+  private readonly socketLastAckAtMs = new Map<WebSocket, number>();
+  private readonly socketsPendingClose = new Set<WebSocket>();
   private readonly state: DurableObjectStateLike;
   private inMemoryQueueState: RelayQueueState = {
     deliveries: [],
@@ -303,21 +316,12 @@ export class AgentRelaySession {
   }
 
   async alarm(): Promise<void> {
-    const nowMs = Date.now();
-    const sockets = this.state.getWebSockets();
+    const nowMs = nowUtcMs();
+    const sockets = this.getActiveSockets(nowMs);
 
     if (sockets.length > 0) {
-      const heartbeatFrame = toHeartbeatFrame();
       for (const socket of sockets) {
-        try {
-          socket.send(heartbeatFrame);
-        } catch {
-          try {
-            socket.close(1011, "heartbeat_send_failed");
-          } catch {
-            // Ignore close errors for already-closed sockets.
-          }
-        }
+        this.sendHeartbeatFrame(socket, nowMs);
       }
     }
 
@@ -333,7 +337,7 @@ export class AgentRelaySession {
   async deliverToConnector(
     input: RelayDeliveryInput,
   ): Promise<RelayDeliveryResult> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const queueState = await this.loadQueueState(nowMs);
     const existingReceipt = queueState.receipts[input.requestId];
 
@@ -341,12 +345,12 @@ export class AgentRelaySession {
       return toRelayDeliveryResult({
         deliveryId: existingReceipt.deliveryId,
         state: existingReceipt.state,
-        connectedSockets: this.state.getWebSockets().length,
+        connectedSockets: this.getActiveSockets(nowMs).length,
         queueDepth: queueState.deliveries.length,
       });
     }
 
-    const sockets = this.state.getWebSockets();
+    const sockets = this.getActiveSockets(nowMs);
     const deliveryId = generateUlid(nowMs);
     const deliveryTtlExpiresAtMs = nowMs + this.deliveryPolicy.queueTtlMs;
     let priorAttempts = 0;
@@ -423,6 +427,7 @@ export class AgentRelaySession {
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    const nowMs = nowUtcMs();
     const frameResult = (() => {
       try {
         return parseFrame(message);
@@ -439,12 +444,14 @@ export class AgentRelaySession {
     const frame = frameResult;
 
     if (frame.type === "heartbeat") {
+      this.touchSocketAck(ws, nowMs);
       ws.send(toHeartbeatAckFrame(frame.id));
       await this.scheduleFromStorage();
       return;
     }
 
     if (frame.type === "deliver_ack") {
+      this.touchSocketAck(ws, nowMs);
       const pending = this.pendingDeliveries.get(frame.ackId);
       if (pending) {
         clearTimeout(pending.timeoutHandle);
@@ -456,6 +463,9 @@ export class AgentRelaySession {
     }
 
     if (frame.type === "heartbeat_ack") {
+      const ackedSocket = this.heartbeatAckSockets.get(frame.ackId);
+      this.heartbeatAckSockets.delete(frame.ackId);
+      this.touchSocketAck(ackedSocket ?? ws, nowMs);
       await this.scheduleFromStorage();
       return;
     }
@@ -463,17 +473,27 @@ export class AgentRelaySession {
     await this.scheduleFromStorage();
   }
 
-  async webSocketClose(): Promise<void> {
-    if (this.state.getWebSockets().length === 0) {
+  async webSocketClose(
+    ws?: WebSocket,
+    code?: number,
+    _reason?: string,
+    wasClean?: boolean,
+  ): Promise<void> {
+    if (ws !== undefined) {
+      this.removeSocketTracking(ws);
+      this.socketsPendingClose.delete(ws);
+    }
+
+    const gracefulClose = code === 1000 && (wasClean ?? true);
+    if (!gracefulClose && this.state.getWebSockets().length === 0) {
       this.rejectPendingDeliveries(new Error("Connector socket closed"));
     }
 
     await this.scheduleFromStorage();
   }
 
-  async webSocketError(): Promise<void> {
-    this.rejectPendingDeliveries(new Error("Connector socket error"));
-    await this.webSocketClose();
+  async webSocketError(ws?: WebSocket): Promise<void> {
+    await this.webSocketClose(ws, 1011, "connector_socket_error", false);
   }
 
   private async handleConnect(request: Request): Promise<Response> {
@@ -488,12 +508,23 @@ export class AgentRelaySession {
       return new Response("Missing connector agent DID", { status: 400 });
     }
 
+    const nowMs = nowUtcMs();
+    const activeSockets = this.getActiveSockets(nowMs);
+    for (const socket of activeSockets) {
+      this.closeSocket(
+        socket,
+        RELAY_SOCKET_SUPERSEDED_CLOSE_CODE,
+        "superseded_by_new_connection",
+      );
+    }
+
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
 
     this.state.acceptWebSocket(server, [connectorAgentDid]);
-    await this.scheduleFromStorage();
+    this.touchSocketAck(server, nowMs);
+    void this.drainQueueOnReconnect();
 
     return new Response(null, {
       status: 101,
@@ -668,7 +699,7 @@ export class AgentRelaySession {
       return false;
     }
 
-    const sockets = this.state.getWebSockets();
+    const sockets = this.getActiveSockets(nowMs);
     if (sockets.length === 0) {
       let mutated = false;
       for (const delivery of queueState.deliveries) {
@@ -842,8 +873,136 @@ export class AgentRelaySession {
     }
   }
 
+  private getActiveSockets(nowMs: number): WebSocket[] {
+    const sockets = this.state.getWebSockets();
+    this.pruneSocketTracking(sockets);
+    const activeSockets: WebSocket[] = [];
+
+    for (const socket of sockets) {
+      if (this.socketsPendingClose.has(socket)) {
+        continue;
+      }
+
+      const lastAckAtMs = this.resolveSocketLastAckAtMs(socket, nowMs);
+      if (nowMs - lastAckAtMs > RELAY_HEARTBEAT_ACK_TIMEOUT_MS) {
+        this.closeSocket(
+          socket,
+          RELAY_SOCKET_STALE_CLOSE_CODE,
+          "heartbeat_ack_timeout",
+        );
+        continue;
+      }
+
+      activeSockets.push(socket);
+    }
+
+    return activeSockets;
+  }
+
+  private resolveSocketLastAckAtMs(socket: WebSocket, nowMs: number): number {
+    const existing = this.socketLastAckAtMs.get(socket);
+    if (existing !== undefined) {
+      return existing;
+    }
+
+    this.socketLastAckAtMs.set(socket, nowMs);
+    return nowMs;
+  }
+
+  private touchSocketAck(socket: WebSocket, nowMs: number): void {
+    if (this.socketsPendingClose.has(socket)) {
+      return;
+    }
+    this.socketLastAckAtMs.set(socket, nowMs);
+  }
+
+  private sendHeartbeatFrame(socket: WebSocket, nowMs: number): void {
+    const heartbeatFrame = toHeartbeatFrame(nowMs);
+    this.clearSocketHeartbeatAcks(socket);
+    this.heartbeatAckSockets.set(heartbeatFrame.id, socket);
+
+    try {
+      socket.send(heartbeatFrame.payload);
+    } catch {
+      this.heartbeatAckSockets.delete(heartbeatFrame.id);
+      this.closeSocket(
+        socket,
+        RELAY_SOCKET_STALE_CLOSE_CODE,
+        "heartbeat_send_failed",
+      );
+    }
+  }
+
+  private clearSocketHeartbeatAcks(socket: WebSocket): void {
+    for (const [ackId, ackSocket] of this.heartbeatAckSockets) {
+      if (ackSocket === socket) {
+        this.heartbeatAckSockets.delete(ackId);
+      }
+    }
+  }
+
+  private closeSocket(socket: WebSocket, code: number, reason: string): void {
+    this.socketsPendingClose.add(socket);
+    this.removeSocketTracking(socket);
+    try {
+      socket.close(code, reason);
+    } catch {
+      // Ignore close errors for already-closed sockets.
+    }
+  }
+
+  private removeSocketTracking(socket: WebSocket): void {
+    this.socketLastAckAtMs.delete(socket);
+    this.clearSocketHeartbeatAcks(socket);
+  }
+
+  private pruneSocketTracking(activeSockets: WebSocket[]): void {
+    const activeSocketSet = new Set(activeSockets);
+
+    for (const socket of this.socketLastAckAtMs.keys()) {
+      if (!activeSocketSet.has(socket)) {
+        this.socketLastAckAtMs.delete(socket);
+      }
+    }
+
+    for (const socket of this.socketsPendingClose) {
+      if (!activeSocketSet.has(socket)) {
+        this.socketsPendingClose.delete(socket);
+      }
+    }
+
+    for (const [ackId, socket] of this.heartbeatAckSockets.entries()) {
+      if (!activeSocketSet.has(socket)) {
+        this.heartbeatAckSockets.delete(ackId);
+      }
+    }
+  }
+
+  private async drainQueueOnReconnect(): Promise<void> {
+    const nowMs = nowUtcMs();
+    const queueState = await this.loadQueueState(nowMs);
+    let queueMutated = false;
+
+    for (const delivery of queueState.deliveries) {
+      if (delivery.nextAttemptAtMs > nowMs) {
+        delivery.nextAttemptAtMs = nowMs;
+        queueMutated = true;
+      }
+    }
+
+    if (await this.processQueueDeliveries(queueState, nowMs)) {
+      queueMutated = true;
+    }
+
+    if (queueMutated) {
+      await this.saveQueueState(queueState);
+    }
+
+    await this.scheduleNextAlarm(queueState, nowMs);
+  }
+
   private async scheduleFromStorage(): Promise<void> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const queueState = await this.loadQueueState(nowMs);
     await this.scheduleNextAlarm(queueState, nowMs);
   }
@@ -859,7 +1018,7 @@ export class AgentRelaySession {
       candidates.push(queueWakeAtMs);
     }
 
-    if (this.state.getWebSockets().length > 0) {
+    if (this.getActiveSockets(nowMs).length > 0) {
       candidates.push(nowMs + RELAY_HEARTBEAT_INTERVAL_MS);
     }
 

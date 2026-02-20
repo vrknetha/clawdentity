@@ -9,7 +9,12 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { decodeBase64url, parseDid } from "@clawdentity/protocol";
-import { AppError, createLogger, signHttpRequest } from "@clawdentity/sdk";
+import {
+  AppError,
+  createLogger,
+  nowUtcMs,
+  signHttpRequest,
+} from "@clawdentity/sdk";
 import { Command } from "commander";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
@@ -149,6 +154,8 @@ type PeerProfile = {
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null;
 };
+
+const nowUnixSeconds = (): number => Math.floor(nowUtcMs() / 1000);
 
 function createCliError(code: string, message: string): AppError {
   return new AppError({
@@ -1490,8 +1497,7 @@ export async function startPairing(
 ): Promise<PairStartResult> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const resolveConfigImpl = dependencies.resolveConfigImpl ?? resolveConfig;
-  const nowSecondsImpl =
-    dependencies.nowSecondsImpl ?? (() => Math.floor(Date.now() / 1000));
+  const nowSecondsImpl = dependencies.nowSecondsImpl ?? nowUnixSeconds;
   const nonceFactoryImpl =
     dependencies.nonceFactoryImpl ??
     (() => randomBytes(NONCE_SIZE).toString("base64url"));
@@ -1581,8 +1587,7 @@ export async function confirmPairing(
 ): Promise<PairConfirmResult> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const resolveConfigImpl = dependencies.resolveConfigImpl ?? resolveConfig;
-  const nowSecondsImpl =
-    dependencies.nowSecondsImpl ?? (() => Math.floor(Date.now() / 1000));
+  const nowSecondsImpl = dependencies.nowSecondsImpl ?? nowUnixSeconds;
   const nonceFactoryImpl =
     dependencies.nonceFactoryImpl ??
     (() => randomBytes(NONCE_SIZE).toString("base64url"));
@@ -1722,8 +1727,7 @@ async function getPairingStatusOnce(
 ): Promise<PairStatusResult> {
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const resolveConfigImpl = dependencies.resolveConfigImpl ?? resolveConfig;
-  const nowSecondsImpl =
-    dependencies.nowSecondsImpl ?? (() => Math.floor(Date.now() / 1000));
+  const nowSecondsImpl = dependencies.nowSecondsImpl ?? nowUnixSeconds;
   const nonceFactoryImpl =
     dependencies.nonceFactoryImpl ??
     (() => randomBytes(NONCE_SIZE).toString("base64url"));
@@ -1845,8 +1849,7 @@ async function waitForPairingStatus(input: {
   pollIntervalSeconds: number;
   dependencies: PairRequestOptions;
 }): Promise<PairStatusResult> {
-  const nowSecondsImpl =
-    input.dependencies.nowSecondsImpl ?? (() => Math.floor(Date.now() / 1000));
+  const nowSecondsImpl = input.dependencies.nowSecondsImpl ?? nowUnixSeconds;
   const sleepImpl =
     input.dependencies.sleepImpl ??
     (async (ms: number) => {

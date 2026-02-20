@@ -10,7 +10,7 @@ import {
   encodeBase64url,
   parseDid,
 } from "@clawdentity/protocol";
-import { AppError, createLogger, nowIso } from "@clawdentity/sdk";
+import { AppError, createLogger, nowIso, nowUtcMs } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
 import { writeStdoutLine } from "../io.js";
@@ -1345,13 +1345,13 @@ async function waitForConnectorConnected(input: {
   fetchImpl: typeof fetch;
   waitTimeoutSeconds: number;
 }): Promise<ConnectorHealthStatus> {
-  const deadline = Date.now() + input.waitTimeoutSeconds * 1000;
+  const deadline = nowUtcMs() + input.waitTimeoutSeconds * 1000;
   let latest = await fetchConnectorHealthStatus({
     connectorBaseUrl: input.connectorBaseUrl,
     fetchImpl: input.fetchImpl,
   });
 
-  while (!latest.connected && Date.now() < deadline) {
+  while (!latest.connected && nowUtcMs() < deadline) {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, 1000);
     });
@@ -1395,7 +1395,7 @@ async function monitorConnectorStabilityWindow(input: {
     });
   }
 
-  const deadline = Date.now() + input.durationSeconds * 1000;
+  const deadline = nowUtcMs() + input.durationSeconds * 1000;
   let latest = await fetchConnectorHealthStatus({
     connectorBaseUrl: input.connectorBaseUrl,
     fetchImpl: input.fetchImpl,
@@ -1404,7 +1404,7 @@ async function monitorConnectorStabilityWindow(input: {
     return latest;
   }
 
-  while (Date.now() < deadline) {
+  while (nowUtcMs() < deadline) {
     await sleepMilliseconds(input.pollIntervalMs);
     latest = await fetchConnectorHealthStatus({
       connectorBaseUrl: input.connectorBaseUrl,

@@ -25,6 +25,7 @@ import {
   createRequestLoggingMiddleware,
   type EventBus,
   nowIso,
+  nowUtcMs,
   parseRegistryConfig,
   type QueuePublisher,
   type RegistryConfig,
@@ -296,7 +297,7 @@ function buildCrlClaims(input: {
 }) {
   return {
     iss: input.issuer,
-    jti: generateUlid(Date.now()),
+    jti: generateUlid(nowUtcMs()),
     iat: input.nowSeconds,
     exp: input.nowSeconds + CRL_TTL_SECONDS,
     revocations: input.rows.map((row) => {
@@ -794,7 +795,7 @@ async function insertAgentAuthEvent(input: {
 }): Promise<void> {
   const createdAt = input.createdAt ?? nowIso();
   await input.db.insert(agent_auth_events).values({
-    id: generateUlid(Date.now()),
+    id: generateUlid(nowUtcMs()),
     agent_id: input.agentId,
     session_id: input.sessionId,
     event_type: input.eventType,
@@ -1114,7 +1115,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const apiKeyToken = generateApiKeyToken();
     const apiKeyHash = await hashApiKeyToken(apiKeyToken);
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);
-    const apiKeyId = generateUlid(Date.now() + 1);
+    const apiKeyId = generateUlid(nowUtcMs() + 1);
     const createdAt = nowIso();
 
     const applyBootstrapMutation = async (
@@ -1242,7 +1243,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     }
 
     const signer = await resolveRegistrySigner(config);
-    const nowSeconds = Math.floor(Date.now() / 1000);
+    const nowSeconds = Math.floor(nowUtcMs() / 1000);
     const claims = buildCrlClaims({
       rows,
       environment: config.ENVIRONMENT,
@@ -1334,7 +1335,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const secretHash = await hashInternalServiceSecret(secret);
     const secretPrefix = deriveInternalServiceSecretPrefix(secret);
     const createdAt = nowIso();
-    const serviceId = generateUlid(Date.now());
+    const serviceId = generateUlid(nowUtcMs());
     await db.insert(internal_services).values({
       id: serviceId,
       name: parsed.name,
@@ -1546,10 +1547,10 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const parsedPayload = parseInviteCreatePayload({
       payload,
       environment: config.ENVIRONMENT,
-      now: new Date(),
+      nowMs: nowUtcMs(),
     });
 
-    const inviteId = generateUlid(Date.now());
+    const inviteId = generateUlid(nowUtcMs());
     const inviteCode = generateInviteCode();
     const createdAt = nowIso();
     const db = createDb(c.env.DB);
@@ -1610,7 +1611,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       throw inviteRedeemCodeInvalidError();
     }
 
-    const nowMillis = Date.now();
+    const nowMillis = nowUtcMs();
     if (invite.redeemed_by !== null) {
       throw inviteRedeemAlreadyUsedError();
     }
@@ -1782,7 +1783,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const apiKeyToken = generateApiKeyToken();
     const apiKeyHash = await hashApiKeyToken(apiKeyToken);
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);
-    const apiKeyId = generateUlid(Date.now() + 1);
+    const apiKeyId = generateUlid(nowUtcMs() + 1);
     const createdAt = nowIso();
 
     const db = createDb(c.env.DB);
@@ -2271,7 +2272,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       request: c.req.raw,
       bodyBytes,
     });
-    const nowMillis = Date.now();
+    const nowMillis = nowUtcMs();
     const db = createDb(c.env.DB);
     const existingAgent = await findOwnedAgentByDid({
       db,
@@ -2478,7 +2479,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       });
     }
 
-    const nowMillis = Date.now();
+    const nowMillis = nowUtcMs();
     if (isIsoExpired(existingSession.access_expires_at, nowMillis)) {
       throw new AppError({
         code: "AGENT_AUTH_VALIDATE_EXPIRED",
@@ -2650,7 +2651,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       await executor
         .insert(revocations)
         .values({
-          id: generateUlid(Date.now()),
+          id: generateUlid(nowUtcMs()),
           jti: currentJti,
           agent_id: existingAgent.id,
           reason: null,
@@ -2786,7 +2787,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       await executor
         .insert(revocations)
         .values({
-          id: generateUlid(Date.now()),
+          id: generateUlid(nowUtcMs()),
           jti: currentJti,
           agent_id: existingAgent.id,
           reason: "reissued",

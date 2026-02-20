@@ -33,7 +33,6 @@
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
 - Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state.ts` (Durable Object backed).
 - Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
-- Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
 - Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
@@ -69,6 +68,13 @@
 - Keep relay delivery semantics asynchronous and durable: `/hooks/agent` accepts queued deliveries with `202` (`state=queued`) when recipient connector is offline.
 - Keep relay queue saturation explicit: reject new deliveries with `507 PROXY_RELAY_QUEUE_FULL`; do not evict queued messages implicitly.
 - Keep relay retries inside `agent-relay-session.ts` with bounded backoff (`RELAY_RETRY_*`) and per-agent queue caps/TTL (`RELAY_QUEUE_*`); do not add ad-hoc retry loops in route handlers.
+- Keep relay-session timestamps UTC and standardized via shared SDK datetime helpers (`nowUtcMs`, `toIso`) rather than ad-hoc datetime formatting.
+- Keep relay websocket heartbeat liveness explicit in `agent-relay-session.ts`: track per-socket heartbeat ack time and enforce a 60s ack timeout before socket eviction.
+- Keep stale connector cleanup proactive: evict stale sockets during alarm sweeps and before accepting a new reconnect socket.
+- Keep connector session ownership deterministic: new reconnect sockets supersede older live sockets with a clean `1000` close code so delivery always targets one active socket.
+- Keep reconnect recovery eager but handshake-safe: trigger durable queue drain immediately after reconnect, but do not block websocket `101` upgrade responses on `deliver_ack` waits.
+- Keep superseded socket state sticky until close cleanup: late frames from sockets marked in `socketsPendingClose` must not reactivate those sockets.
+- Keep close semantics strict for pending delivery promises: clean `1000` closes do not reject pending deliveries, but unclean closes reject when no sockets remain.
 - Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.

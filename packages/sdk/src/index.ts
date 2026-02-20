@@ -34,7 +34,7 @@ export {
   signEd25519,
   verifyEd25519,
 } from "./crypto/ed25519.js";
-export { addSeconds, isExpired, nowIso } from "./datetime.js";
+export { addSeconds, isExpired, nowIso, nowUtcMs, toIso } from "./datetime.js";
 export type {
   EventBus,
   EventEnvelope,

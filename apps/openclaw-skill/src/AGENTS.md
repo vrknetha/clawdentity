@@ -9,6 +9,7 @@
 ## Safety Rules
 - Validate external input (`payload`, peer config JSON) before use.
 - Do not log relay payload contents or local connector credential material.
+- Keep local auth/lock timestamps UTC and standardized via SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`) instead of direct `Date` calls.
 - Keep transform relay path as local connector handoff only, not direct peer HTTP calls.
 - Relay transform must prefer OpenClaw-local runtime artifacts in `hooks/transforms/`:
   - `clawdentity-relay.json` for connector endpoint candidates/path

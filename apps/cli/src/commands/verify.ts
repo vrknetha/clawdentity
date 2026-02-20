@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { parseCrlClaims } from "@clawdentity/protocol";
 import {
   createLogger,
+  nowUtcMs,
   parseRegistryConfig,
   type RegistryConfig,
   verifyAIT,
@@ -278,7 +279,7 @@ const fetchRegistryKeys = async (
 const loadRegistryKeys = async (
   registryUrl: string,
 ): Promise<RegistrySigningKey[]> => {
-  const now = Date.now();
+  const now = nowUtcMs();
   const rawCache = await readCacheFile(REGISTRY_KEYS_CACHE_FILE);
   const cache =
     typeof rawCache === "string" ? parseRegistryKeysCache(rawCache) : undefined;
@@ -356,7 +357,7 @@ const loadCrlClaims = async (input: {
   registryUrl: string;
   verificationKeys: VerificationKey[];
 }): Promise<CrlVerificationClaims> => {
-  const now = Date.now();
+  const now = nowUtcMs();
   const rawCache = await readCacheFile(CRL_CLAIMS_CACHE_FILE);
   const cache =
     typeof rawCache === "string" ? parseCrlCache(rawCache) : undefined;
