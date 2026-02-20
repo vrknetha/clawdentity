@@ -7,6 +7,7 @@ export default defineConfig({
   splitting: false,
   external: ["ws"],
   noExternal: [
+    "@clawdentity/common",
     "@clawdentity/connector",
     "@clawdentity/protocol",
     "@clawdentity/sdk",

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { parseJsonResponseSafe as parseResponseJson } from "@clawdentity/common";
 import { parseCrlClaims } from "@clawdentity/protocol";
 import {
   createLogger,
@@ -128,14 +129,6 @@ const resolveToken = async (tokenOrFile: string): Promise<string> => {
 const parseJson = (raw: string): unknown => {
   try {
     return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-};
-
-const parseResponseJson = async (response: Response): Promise<unknown> => {
-  try {
-    return await response.json();
   } catch {
     return undefined;
   }

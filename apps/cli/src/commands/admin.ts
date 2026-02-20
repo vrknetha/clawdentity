@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe } from "@clawdentity/common";
 import { ADMIN_BOOTSTRAP_PATH } from "@clawdentity/protocol";
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
@@ -203,10 +204,8 @@ export async function bootstrapAdmin(
     );
   }
 
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
+  const payload = await parseJsonResponseSafe(response);
+  if (payload === undefined) {
     throw createCliError(
       "CLI_ADMIN_BOOTSTRAP_INVALID_RESPONSE",
       "Bootstrap response is invalid",

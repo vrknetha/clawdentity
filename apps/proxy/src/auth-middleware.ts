@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import {
   AGENT_AUTH_VALIDATE_PATH,
   decodeBase64url,
@@ -271,14 +272,6 @@ function assertTimestampWithinSkew(options: {
         maxSkewSeconds: options.maxSkewSeconds,
       },
     });
-  }
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
   }
 }
 

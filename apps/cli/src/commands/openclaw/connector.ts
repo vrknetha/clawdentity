@@ -3,6 +3,7 @@ import { closeSync, existsSync, openSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseJsonResponseSafe } from "@clawdentity/common";
 import { nowUtcMs } from "@clawdentity/sdk";
 import { getConfigDir } from "../../config/manager.js";
 import { assertValidAgentName } from "../agent-name.js";
@@ -240,10 +241,8 @@ export async function fetchConnectorHealthStatus(input: {
       };
     }
 
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
+    const payload = await parseJsonResponseSafe(response);
+    if (payload === undefined) {
       return {
         connected: false,
         reachable: false,

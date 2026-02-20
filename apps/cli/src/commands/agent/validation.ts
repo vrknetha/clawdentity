@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe } from "@clawdentity/common";
 import { parseDid } from "@clawdentity/protocol";
 import { toIso } from "@clawdentity/sdk";
 import { IDENTITY_FILE_NAME } from "./paths.js";
@@ -85,15 +86,7 @@ export const extractRegistryErrorMessage = (
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-export const parseJsonResponse = async (
-  response: Response,
-): Promise<unknown> => {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
-};
+export const parseJsonResponse = parseJsonResponseSafe;
 
 const parseAgentAuthBundle = (value: unknown): AgentAuthBundle => {
   if (!isRecord(value)) {

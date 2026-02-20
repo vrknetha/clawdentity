@@ -30,6 +30,7 @@
 
 ## Maintainability
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
+- Reuse `@clawdentity/common` for generic transport helpers (for example safe JSON response parsing) instead of duplicating identical utility functions in multiple proxy modules.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
 - Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state/` (Durable Object backed; `proxy-trust-state.ts` remains the facade export).
 - Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.

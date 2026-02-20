@@ -40,6 +40,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.19.6",
+    "@clawdentity/common": "workspace:*",
     "@clawdentity/connector": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
     "@clawdentity/sdk": "workspace:*",

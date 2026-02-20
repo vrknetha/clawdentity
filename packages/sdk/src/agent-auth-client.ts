@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import {
   AGENT_AUTH_REFRESH_PATH,
   encodeBase64url,
@@ -38,14 +39,6 @@ const parseNonEmptyString = (value: unknown): string => {
   }
 
   return value.trim();
-};
-
-const parseJsonResponse = async (response: Response): Promise<unknown> => {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 };
 
 const toPathWithQuery = (requestUrl: string): string => {

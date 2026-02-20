@@ -23,6 +23,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clawdentity/common": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
     "@noble/ed25519": "^3.0.0",
     "hono": "^4.11.9",

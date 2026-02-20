@@ -27,3 +27,13 @@ export function toOpenclawHookUrl(baseUrl: string, hookPath: string): string {
     : hookPath;
   return new URL(normalizedHookPath, normalizedBase).toString();
 }
+
+export async function parseJsonResponseSafe(
+  response: Response,
+): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}

@@ -8,3 +8,4 @@
 - Keep API surface minimal and stable.
 - Avoid domain-specific logic that belongs in feature packages.
 - Prefer composable utility functions over class-heavy abstractions.
+- Keep shared HTTP response parsing helpers (for example safe JSON parsing) in this package so apps/packages do not duplicate try/catch wrappers.

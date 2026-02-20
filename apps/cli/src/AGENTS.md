@@ -6,6 +6,7 @@
 ## Command Modules
 - Keep each command implementation in `commands/<name>.ts` with one exported factory (`create<Name>Command`).
 - Reuse shared command wrappers (`withErrorHandling`) and IO helpers (`writeStdoutLine`, `writeStderrLine`) instead of inline process writes.
+- Reuse `@clawdentity/common` transport utilities (for example safe JSON response parsing) across commands/config modules instead of redefining local try/catch wrappers.
 - Prefer explicit error-to-reason mapping for operator-facing failures rather than generic stack traces.
 - Prefer SDK shared primitives (`AppError`) for new command error logic instead of ad-hoc equivalents.
 - Admin bootstrap command logic should stay in `commands/admin.ts` and remain side-effect-safe: only mutate config after a validated successful registry response.

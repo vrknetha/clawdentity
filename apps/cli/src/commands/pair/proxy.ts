@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parseJsonResponseSafe } from "@clawdentity/common";
 import { decodeBase64url } from "@clawdentity/protocol";
 import { signHttpRequest } from "@clawdentity/sdk";
 import {
@@ -102,13 +103,7 @@ function extractErrorMessage(payload: unknown): string | undefined {
   return message.length > 0 ? message : undefined;
 }
 
-export async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
-}
+export const parseJsonResponse = parseJsonResponseSafe;
 
 export async function executePairRequest(input: {
   fetchImpl: typeof fetch;
