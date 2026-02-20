@@ -31,7 +31,7 @@
 ## Maintainability
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
-- Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state.ts` (Durable Object backed).
+- Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state/` (Durable Object backed; `proxy-trust-state.ts` remains the facade export).
 - Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
 - Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
@@ -89,7 +89,7 @@
 - Reject blank/whitespace `requestId`, `senderAgentDid`, and `recipientAgentDid` in `relay-delivery-receipt-route.ts` so invalid receipt payloads fail as `400` client errors before DO RPC.
 - Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.
 - Keep `conversationId` and `replyTo` metadata flowing from `/hooks/agent` into relay queue/deliver frames for downstream ordering and callback semantics.
-- Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
+- Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state/` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.
