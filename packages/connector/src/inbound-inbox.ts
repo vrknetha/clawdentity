@@ -529,8 +529,14 @@ export class ConnectorInboundInbox {
     return await this.withWriteLock(async () => {
       const index = await this.loadIndex();
       const requestIds =
-        input?.requestIds && input.requestIds.length > 0
-          ? Array.from(new Set(input.requestIds.map((item) => item.trim())))
+        input?.requestIds !== undefined
+          ? Array.from(
+              new Set(
+                input.requestIds
+                  .map((item) => item.trim())
+                  .filter((item) => item.length > 0),
+              ),
+            )
           : Object.keys(index.deadLetterByRequestId);
 
       let replayedCount = 0;
@@ -582,8 +588,14 @@ export class ConnectorInboundInbox {
     return await this.withWriteLock(async () => {
       const index = await this.loadIndex();
       const requestIds =
-        input?.requestIds && input.requestIds.length > 0
-          ? Array.from(new Set(input.requestIds.map((item) => item.trim())))
+        input?.requestIds !== undefined
+          ? Array.from(
+              new Set(
+                input.requestIds
+                  .map((item) => item.trim())
+                  .filter((item) => item.length > 0),
+              ),
+            )
           : Object.keys(index.deadLetterByRequestId);
 
       let purgedCount = 0;

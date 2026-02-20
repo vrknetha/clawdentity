@@ -245,10 +245,20 @@ describe("ConnectorInboundInbox", () => {
       });
       expect(replayResult.replayedCount).toBe(1);
 
+      const replayNoOpResult = await inbox.replayDeadLetter({
+        requestIds: [],
+      });
+      expect(replayNoOpResult.replayedCount).toBe(0);
+
       const purgeResult = await inbox.purgeDeadLetter({
         requestIds: [secondId],
       });
       expect(purgeResult.purgedCount).toBe(1);
+
+      const purgeNoOpResult = await inbox.purgeDeadLetter({
+        requestIds: [],
+      });
+      expect(purgeNoOpResult.purgedCount).toBe(0);
 
       const snapshot = await inbox.getSnapshot();
       expect(snapshot.pending.pendingCount).toBe(1);

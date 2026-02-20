@@ -34,7 +34,8 @@
   - `GET /v1/inbound/dead-letter`
   - `POST /v1/inbound/dead-letter/replay`
   - `POST /v1/inbound/dead-letter/purge`
-- For replay delivery callbacks, post signed receipts to peer proxies using `replyTo` with statuses `processed_by_openclaw` and `dead_lettered`.
+- For dead-letter replay/purge targeting, treat omitted `requestIds` as "all", but treat `requestIds: []` (or empty after sanitization) as a no-op.
+- For replay delivery callbacks, post signed receipts to peer proxies using `replyTo` with statuses `processed_by_openclaw` and `dead_lettered`, but only when `replyTo` points to trusted peer proxy origins and the relay receipt path.
 
 ## WebSocket Resilience Rules
 - Keep websocket reconnect behavior centralized in `client.ts` (single cleanup path for close/error/unexpected-response/timeout).

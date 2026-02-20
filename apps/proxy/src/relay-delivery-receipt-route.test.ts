@@ -212,6 +212,117 @@ describe("relay delivery receipt route", () => {
     expect(relayHarness.recordInputs).toHaveLength(0);
   });
 
+  it("rejects POST when requestId is whitespace only", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator: "did:claw:agent:beta",
+          responder: "did:claw:agent:alpha",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "   ",
+          senderAgentDid: "did:claw:agent:beta",
+          recipientAgentDid: "did:claw:agent:alpha",
+          status: "processed_by_openclaw",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_RECEIPT_INVALID_INPUT");
+    expect(relayHarness.recordInputs).toHaveLength(0);
+  });
+
+  it("rejects POST when senderAgentDid is whitespace only", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator: "did:claw:agent:beta",
+          responder: "did:claw:agent:alpha",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "req-6",
+          senderAgentDid: "\n\t",
+          recipientAgentDid: "did:claw:agent:alpha",
+          status: "processed_by_openclaw",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_RECEIPT_INVALID_INPUT");
+    expect(relayHarness.recordInputs).toHaveLength(0);
+  });
+
+  it("rejects POST when recipientAgentDid is whitespace only", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator: "did:claw:agent:beta",
+          responder: "did:claw:agent:alpha",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "req-7",
+          senderAgentDid: "did:claw:agent:beta",
+          recipientAgentDid: "   ",
+          status: "processed_by_openclaw",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+      },
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_RECEIPT_INVALID_INPUT");
+    expect(relayHarness.recordInputs).toHaveLength(0);
+  });
+
   it("returns receipt on GET when trusted pair exists", async () => {
     const relayHarness = createRelayReceiptHarness();
     const app = createApp({

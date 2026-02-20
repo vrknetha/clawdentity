@@ -86,6 +86,7 @@
   - `/rpc/record-delivery-receipt`
   - `/rpc/get-delivery-receipt`
 - Receipt states must remain constrained to `processed_by_openclaw` and `dead_lettered`.
+- Reject blank/whitespace `requestId`, `senderAgentDid`, and `recipientAgentDid` in `relay-delivery-receipt-route.ts` so invalid receipt payloads fail as `400` client errors before DO RPC.
 - Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.
 - Keep `conversationId` and `replyTo` metadata flowing from `/hooks/agent` into relay queue/deliver frames for downstream ordering and callback semantics.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.

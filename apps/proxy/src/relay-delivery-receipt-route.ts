@@ -25,14 +25,18 @@ type CreateRelayDeliveryReceiptHandlersInput = {
   trustStore: ProxyTrustStore;
 };
 
+function createRelayReceiptInvalidInputError(): AppError {
+  return new AppError({
+    code: "PROXY_RELAY_RECEIPT_INVALID_INPUT",
+    message: "Relay delivery receipt payload is invalid",
+    status: 400,
+    expose: true,
+  });
+}
+
 function parseRecordInput(payload: unknown): RelayReceiptRecordInput {
   if (typeof payload !== "object" || payload === null) {
-    throw new AppError({
-      code: "PROXY_RELAY_RECEIPT_INVALID_INPUT",
-      message: "Relay delivery receipt payload is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw createRelayReceiptInvalidInputError();
   }
 
   const input = payload as Partial<RelayReceiptRecordInput>;
@@ -43,24 +47,32 @@ function parseRecordInput(payload: unknown): RelayReceiptRecordInput {
     (input.status !== "processed_by_openclaw" &&
       input.status !== "dead_lettered")
   ) {
-    throw new AppError({
-      code: "PROXY_RELAY_RECEIPT_INVALID_INPUT",
-      message: "Relay delivery receipt payload is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw createRelayReceiptInvalidInputError();
   }
 
+  const requestId = ensureNonBlank(input.requestId);
+  const senderAgentDid = ensureNonBlank(input.senderAgentDid);
+  const recipientAgentDid = ensureNonBlank(input.recipientAgentDid);
+
   return {
-    requestId: input.requestId,
-    senderAgentDid: input.senderAgentDid,
-    recipientAgentDid: input.recipientAgentDid,
+    requestId,
+    senderAgentDid,
+    recipientAgentDid,
     status: input.status,
     reason:
       typeof input.reason === "string" && input.reason.trim().length > 0
         ? input.reason.trim()
         : undefined,
   };
+}
+
+function ensureNonBlank(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw createRelayReceiptInvalidInputError();
+  }
+
+  return trimmed;
 }
 
 function parseRequiredQuery(value: string | undefined, field: string): string {

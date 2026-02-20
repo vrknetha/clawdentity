@@ -5,7 +5,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import {
   decodeBase64url,
   encodeBase64url,
@@ -102,7 +102,13 @@ type OutboundRelayRequest = {
 
 type OutboundDeliveryReceiptStatus = "processed_by_openclaw" | "dead_lettered";
 
+type TrustedReceiptTargets = {
+  byAgentDid: Map<string, string>;
+  origins: Set<string>;
+};
+
 const REGISTRY_AUTH_FILENAME = "registry-auth.json";
+const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
 const AGENTS_DIR_NAME = "agents";
 const OUTBOUND_QUEUE_DIR_NAME = "outbound-queue";
 const OUTBOUND_QUEUE_FILENAME = "queue.json";
@@ -134,6 +140,18 @@ function parseOptionalString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseOptionalProxyOrigin(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    return new URL(value.trim()).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeOutboundBaseUrl(baseUrlInput: string | undefined): URL {
@@ -778,15 +796,21 @@ async function readRequestJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function parseRequestIds(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) {
+  if (value === undefined) {
     return undefined;
   }
 
-  const requestIds = value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter((item) => item.length > 0);
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
-  return requestIds.length > 0 ? Array.from(new Set(requestIds)) : undefined;
+  return Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter((item) => item.length > 0),
+    ),
+  );
 }
 
 function writeJson(
@@ -828,6 +852,125 @@ async function buildUpgradeHeaders(input: {
     [AGENT_ACCESS_HEADER]: input.accessToken,
     ...signed.headers,
   };
+}
+
+async function loadTrustedReceiptTargets(input: {
+  configDir: string;
+  logger: Logger;
+}): Promise<TrustedReceiptTargets> {
+  const trustedReceiptTargets: TrustedReceiptTargets = {
+    origins: new Set<string>(),
+    byAgentDid: new Map<string, string>(),
+  };
+
+  const relayRuntimeConfigPath = join(
+    input.configDir,
+    OPENCLAW_RELAY_RUNTIME_FILE_NAME,
+  );
+  let relayRuntimeRaw: string;
+  try {
+    relayRuntimeRaw = await readFile(relayRuntimeConfigPath, "utf8");
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "ENOENT"
+    ) {
+      return trustedReceiptTargets;
+    }
+
+    input.logger.warn("connector.delivery_receipt.runtime_config_read_failed", {
+      relayRuntimeConfigPath,
+      reason: sanitizeErrorReason(error),
+    });
+    return trustedReceiptTargets;
+  }
+
+  let relayRuntimeParsed: unknown;
+  try {
+    relayRuntimeParsed = JSON.parse(relayRuntimeRaw);
+  } catch (error) {
+    input.logger.warn(
+      "connector.delivery_receipt.runtime_config_invalid_json",
+      {
+        relayRuntimeConfigPath,
+        reason: sanitizeErrorReason(error),
+      },
+    );
+    return trustedReceiptTargets;
+  }
+
+  if (!isRecord(relayRuntimeParsed)) {
+    return trustedReceiptTargets;
+  }
+
+  const relayTransformPeersPathRaw =
+    typeof relayRuntimeParsed.relayTransformPeersPath === "string" &&
+    relayRuntimeParsed.relayTransformPeersPath.trim().length > 0
+      ? relayRuntimeParsed.relayTransformPeersPath.trim()
+      : undefined;
+  if (!relayTransformPeersPathRaw) {
+    return trustedReceiptTargets;
+  }
+
+  const relayTransformPeersPath = isAbsolute(relayTransformPeersPathRaw)
+    ? relayTransformPeersPathRaw
+    : join(input.configDir, relayTransformPeersPathRaw);
+
+  let relayTransformPeersRaw: string;
+  try {
+    relayTransformPeersRaw = await readFile(relayTransformPeersPath, "utf8");
+  } catch (error) {
+    input.logger.warn("connector.delivery_receipt.peers_snapshot_read_failed", {
+      relayTransformPeersPath,
+      reason: sanitizeErrorReason(error),
+    });
+    return trustedReceiptTargets;
+  }
+
+  let relayTransformPeersParsed: unknown;
+  try {
+    relayTransformPeersParsed = JSON.parse(relayTransformPeersRaw);
+  } catch (error) {
+    input.logger.warn(
+      "connector.delivery_receipt.peers_snapshot_invalid_json",
+      {
+        relayTransformPeersPath,
+        reason: sanitizeErrorReason(error),
+      },
+    );
+    return trustedReceiptTargets;
+  }
+
+  if (!isRecord(relayTransformPeersParsed)) {
+    return trustedReceiptTargets;
+  }
+
+  const peersValue = relayTransformPeersParsed.peers;
+  if (!isRecord(peersValue)) {
+    return trustedReceiptTargets;
+  }
+
+  for (const peerValue of Object.values(peersValue)) {
+    if (!isRecord(peerValue)) {
+      continue;
+    }
+
+    const agentDid =
+      typeof peerValue.did === "string" && peerValue.did.trim().length > 0
+        ? peerValue.did.trim()
+        : undefined;
+    const origin = parseOptionalProxyOrigin(peerValue.proxyUrl);
+    if (!agentDid || !origin) {
+      continue;
+    }
+
+    trustedReceiptTargets.origins.add(origin);
+    trustedReceiptTargets.byAgentDid.set(agentDid, origin);
+  }
+
+  return trustedReceiptTargets;
 }
 
 export async function startConnectorRuntime(
@@ -900,11 +1043,18 @@ export async function startConnectorRuntime(
     RELAY_DELIVERY_RECEIPTS_PATH.slice(1),
     `${toHttpOriginFromWebSocketUrl(wsParsed)}/`,
   ).toString();
+  const defaultReceiptCallbackOrigin = new URL(defaultReceiptCallbackUrl)
+    .origin;
   const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
   const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
   const openclawHookToken = resolveOpenclawHookToken(input.openclawHookToken);
   const openclawHookUrl = toOpenclawHookUrl(openclawBaseUrl, openclawHookPath);
   const inboundReplayPolicy = loadInboundReplayPolicy();
+  const trustedReceiptTargets = await loadTrustedReceiptTargets({
+    configDir: input.configDir,
+    logger,
+  });
+  trustedReceiptTargets.origins.add(defaultReceiptCallbackOrigin);
   const inboundInbox = createConnectorInboundInbox({
     configDir: input.configDir,
     agentName: input.agentName,
@@ -1146,6 +1296,8 @@ export async function startConnectorRuntime(
   const relayToPeer = async (request: OutboundRelayRequest): Promise<void> => {
     await syncAuthFromDisk();
     const peerUrl = new URL(request.peerProxyUrl);
+    trustedReceiptTargets.origins.add(peerUrl.origin);
+    trustedReceiptTargets.byAgentDid.set(request.peerDid, peerUrl.origin);
     const body = JSON.stringify(request.payload ?? {});
     const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}`;
 
@@ -1233,6 +1385,36 @@ export async function startConnectorRuntime(
   }): Promise<void> => {
     await syncAuthFromDisk();
     const receiptUrl = new URL(inputReceipt.replyTo);
+    if (receiptUrl.pathname !== RELAY_DELIVERY_RECEIPTS_PATH) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+        message: "Delivery receipt callback target is invalid",
+        status: 400,
+      });
+    }
+    const expectedSenderOrigin = trustedReceiptTargets.byAgentDid.get(
+      inputReceipt.senderAgentDid,
+    );
+    if (
+      expectedSenderOrigin !== undefined &&
+      receiptUrl.origin !== expectedSenderOrigin
+    ) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
+        message: "Delivery receipt callback target is untrusted",
+        status: 400,
+      });
+    }
+    if (
+      expectedSenderOrigin === undefined &&
+      !trustedReceiptTargets.origins.has(receiptUrl.origin)
+    ) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
+        message: "Delivery receipt callback target is untrusted",
+        status: 400,
+      });
+    }
     const body = JSON.stringify({
       requestId: inputReceipt.requestId,
       senderAgentDid: inputReceipt.senderAgentDid,
