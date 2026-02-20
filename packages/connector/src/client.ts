@@ -7,21 +7,26 @@ import {
 } from "./client/heartbeat.js";
 import {
   normalizeConnectionHeaders,
-  readCloseEvent,
-  readErrorEventReason,
-  readMessageEventData,
   readUnexpectedResponseStatus,
   resolveWebSocketFactory,
   sanitizeErrorReason,
   toOpenclawHookUrl,
-  WS_READY_STATE_CONNECTING,
 } from "./client/helpers.js";
-import { handleIncomingConnectorMessage } from "./client/inbound.js";
-import { handleInboundDeliverFrame } from "./client/inbound-delivery.js";
+import { routeConnectorInboundMessage } from "./client/inbound-router.js";
 import { ConnectorClientMetricsTracker } from "./client/metrics.js";
+import {
+  ensureConnectorOutboundQueueLoaded,
+  flushConnectorOutboundQueue,
+  sendConnectorFrame,
+} from "./client/outbound-flush.js";
 import { ConnectorOutboundQueueManager } from "./client/queue.js";
 import { ConnectorReconnectScheduler } from "./client/reconnect-scheduler.js";
 import { attachConnectorSocketEventListeners } from "./client/socket-events.js";
+import {
+  closeConnectorSocketQuietly,
+  createConnectorSocketEventHandlers,
+  resolveConnectorConnectionHeaders,
+} from "./client/socket-session.js";
 import type {
   ConnectorClientHooks,
   ConnectorClientMetricsSnapshot,
@@ -53,9 +58,7 @@ import {
   type DeliverFrame,
   type EnqueueFrame,
   enqueueFrameSchema,
-  type HeartbeatAckFrame,
   type HeartbeatFrame,
-  serializeFrame,
 } from "./frames.js";
 
 export type {
@@ -250,7 +253,12 @@ export class ConnectorClient {
     if (this.socket !== undefined) {
       const socket = this.socket;
       this.socket = undefined;
-      this.closeSocketQuietly(socket, 1000, "client disconnect");
+      closeConnectorSocketQuietly({
+        socket,
+        code: 1000,
+        reason: "client disconnect",
+        logger: this.logger,
+      });
     }
   }
 
@@ -296,18 +304,18 @@ export class ConnectorClient {
     }
 
     let connectionHeaders = this.connectionHeaders;
-    if (this.connectionHeadersProvider) {
-      try {
-        connectionHeaders = normalizeConnectionHeaders(
-          await this.connectionHeadersProvider(),
-        );
-      } catch (error) {
-        this.logger.warn("connector.websocket.create_failed", {
-          reason: sanitizeErrorReason(error),
-        });
+    if (this.connectionHeadersProvider !== undefined) {
+      const resolvedHeaders = await resolveConnectorConnectionHeaders({
+        baseHeaders: this.connectionHeaders,
+        provider: this.connectionHeadersProvider,
+        logger: this.logger,
+      });
+      if (resolvedHeaders === undefined) {
         this.scheduleReconnect();
         return;
       }
+
+      connectionHeaders = resolvedHeaders;
     }
 
     if (!this.started) {
@@ -327,96 +335,49 @@ export class ConnectorClient {
     const socket = this.socket;
     this.startConnectTimeout(socket);
 
-    attachConnectorSocketEventListeners(socket, {
-      onOpen: () => {
-        if (this.socket !== socket) {
-          return;
-        }
-
+    const socketHandlers = createConnectorSocketEventHandlers({
+      socket,
+      connectorUrl: this.connectorUrl,
+      hooks: this.hooks,
+      logger: this.logger,
+      metricsTracker: this.metricsTracker,
+      reconnectScheduler: this.reconnectScheduler,
+      clearConnectTimeout: () => {
         this.clearConnectTimeout();
-        this.reconnectScheduler.resetAttempts();
-        this.authUpgradeImmediateRetryUsed = false;
-        this.metricsTracker.onSocketConnected(this.makeTimestamp());
-        this.logger.info("connector.websocket.connected", {
-          url: this.connectorUrl,
-        });
+      },
+      startHeartbeatInterval: () => {
         this.startHeartbeatInterval();
+      },
+      flushOutboundQueue: () => {
         this.flushOutboundQueue();
-        this.hooks.onConnected?.();
       },
-      onMessage: (event) => {
-        if (this.socket !== socket) {
-          return;
-        }
-
-        void this.handleIncomingMessage(readMessageEventData(event));
-      },
-      onClose: (event) => {
-        if (!this.detachSocket(socket)) {
-          return;
-        }
-
-        const closeEvent = readCloseEvent(event);
-
-        this.logger.warn("connector.websocket.closed", {
-          closeCode: closeEvent.code,
-          reason: closeEvent.reason,
-          wasClean: closeEvent.wasClean,
-        });
-
-        this.hooks.onDisconnected?.({
-          code: closeEvent.code,
-          reason: closeEvent.reason,
-          wasClean: closeEvent.wasClean,
-        });
-
-        if (this.started) {
-          this.scheduleReconnect();
-        }
-      },
-      onError: (event) => {
-        if (this.socket !== socket) {
-          return;
-        }
-
-        const readyState = socket.readyState;
-        const shouldForceReconnect =
-          readyState !== WS_READY_STATE_OPEN &&
-          readyState !== WS_READY_STATE_CONNECTING;
-        if (!shouldForceReconnect) {
-          this.logger.warn("connector.websocket.error", {
-            url: this.connectorUrl,
-            reason: readErrorEventReason(event),
-            readyState,
-          });
-          return;
-        }
-
-        if (!this.detachSocket(socket)) {
-          return;
-        }
-
-        const reason = readErrorEventReason(event);
-        this.logger.warn("connector.websocket.error", {
-          url: this.connectorUrl,
+      isCurrentSocket: (candidate) => this.socket === candidate,
+      detachSocket: (candidate) => this.detachSocket(candidate),
+      closeSocketQuietly: (candidate, code, reason) => {
+        closeConnectorSocketQuietly({
+          socket: candidate,
+          code,
           reason,
+          logger: this.logger,
         });
-        this.closeSocketQuietly(socket, 1011, "websocket error");
-
-        this.hooks.onDisconnected?.({
-          code: 1006,
-          reason,
-          wasClean: false,
-        });
-
-        if (this.started) {
-          this.scheduleReconnect();
-        }
       },
-      onUnexpectedResponse: (event) => {
-        void this.handleUnexpectedResponse(socket, event);
+      onIncomingMessage: async (rawFrame) => {
+        await this.handleIncomingMessage(rawFrame);
+      },
+      onUnexpectedResponse: async (candidate, event) => {
+        await this.handleUnexpectedResponse(candidate, event);
+      },
+      isStarted: () => this.started,
+      scheduleReconnect: (options) => {
+        this.scheduleReconnect(options);
+      },
+      makeTimestamp: () => this.makeTimestamp(),
+      onConnected: () => {
+        this.authUpgradeImmediateRetryUsed = false;
       },
     });
+
+    attachConnectorSocketEventListeners(socket, socketHandlers);
   }
 
   private scheduleReconnect(options?: {
@@ -446,7 +407,12 @@ export class ConnectorClient {
         timeoutMs: this.connectTimeoutMs,
         url: this.connectorUrl,
       });
-      this.closeSocketQuietly(socket, 1000, "connect timeout");
+      closeConnectorSocketQuietly({
+        socket,
+        code: 1000,
+        reason: "connect timeout",
+        logger: this.logger,
+      });
       this.hooks.onDisconnected?.({
         code: 1006,
         reason: "WebSocket connect timed out",
@@ -482,20 +448,6 @@ export class ConnectorClient {
     return true;
   }
 
-  private closeSocketQuietly(
-    socket: ConnectorWebSocket,
-    code?: number,
-    reason?: string,
-  ): void {
-    try {
-      socket.close(code, reason);
-    } catch (error) {
-      this.logger.warn("connector.websocket.close_failed", {
-        reason: sanitizeErrorReason(error),
-      });
-    }
-  }
-
   private async handleUnexpectedResponse(
     socket: ConnectorWebSocket,
     event: unknown,
@@ -526,7 +478,12 @@ export class ConnectorClient {
       immediateRetry,
       url: this.connectorUrl,
     });
-    this.closeSocketQuietly(socket, 1000, reason);
+    closeConnectorSocketQuietly({
+      socket,
+      code: 1000,
+      reason,
+      logger: this.logger,
+    });
     this.hooks.onDisconnected?.({
       code: 1006,
       reason,
@@ -584,7 +541,12 @@ export class ConnectorClient {
       oldestPendingAgeMs: event.oldestPendingAgeMs,
       timeoutMs: event.timeoutMs,
     });
-    this.closeSocketQuietly(socket, 1000, "heartbeat ack timeout");
+    closeConnectorSocketQuietly({
+      socket,
+      code: 1000,
+      reason: "heartbeat ack timeout",
+      logger: this.logger,
+    });
     this.hooks.onDisconnected?.({
       code: 1006,
       reason: "Heartbeat acknowledgement timed out",
@@ -597,81 +559,41 @@ export class ConnectorClient {
   }
 
   private flushOutboundQueue(): void {
-    this.outboundQueue.flush({
+    flushConnectorOutboundQueue({
+      queue: this.outboundQueue,
       isConnected: () => this.isConnected(),
       sendFrame: (frame) => this.sendFrame(frame),
     });
   }
 
   private async ensureOutboundQueueLoaded(): Promise<void> {
-    await this.outboundQueue.ensureLoaded();
-    this.flushOutboundQueue();
-  }
-
-  private sendFrame(frame: ConnectorFrame): boolean {
-    const socket = this.socket;
-    if (socket === undefined || socket.readyState !== WS_READY_STATE_OPEN) {
-      return false;
-    }
-
-    const payload = serializeFrame(frame);
-
-    try {
-      socket.send(payload);
-      return true;
-    } catch (error) {
-      this.logger.warn("connector.websocket.send_failed", {
-        frameType: frame.type,
-        reason: sanitizeErrorReason(error),
-      });
-      return false;
-    }
-  }
-
-  private async handleIncomingMessage(rawFrame: unknown): Promise<void> {
-    await handleIncomingConnectorMessage({
-      rawFrame,
-      logger: this.logger,
-      handlers: {
-        onFrame: this.hooks.onFrame,
-        onHeartbeatFrame: (frame) => {
-          this.handleHeartbeatFrame(frame);
-        },
-        onHeartbeatAckFrame: (frame) => {
-          this.heartbeatManager.handleHeartbeatAck(frame);
-        },
-        onDeliverFrame: async (frame) => {
-          await this.handleDeliverFrame(frame);
-        },
-      },
+    await ensureConnectorOutboundQueueLoaded({
+      queue: this.outboundQueue,
+      flush: () => this.flushOutboundQueue(),
     });
   }
 
-  private handleHeartbeatFrame(frame: HeartbeatFrame): void {
-    const ackFrame: HeartbeatAckFrame = {
-      v: CONNECTOR_FRAME_VERSION,
-      type: "heartbeat_ack",
-      id: this.makeFrameId(),
-      ts: this.makeTimestamp(),
-      ackId: frame.id,
-    };
-
-    this.sendFrame(ackFrame);
+  private sendFrame(frame: ConnectorFrame): boolean {
+    return sendConnectorFrame({
+      socket: this.socket,
+      frame,
+      logger: this.logger,
+    });
   }
 
-  private async handleDeliverFrame(frame: DeliverFrame): Promise<void> {
-    await handleInboundDeliverFrame({
-      frame,
+  private async handleIncomingMessage(rawFrame: unknown): Promise<void> {
+    await routeConnectorInboundMessage({
+      rawFrame,
+      logger: this.logger,
+      hooks: this.hooks,
+      heartbeatManager: this.heartbeatManager,
       inboundDeliverHandler: this.inboundDeliverHandler,
       localOpenclawDelivery: this.localOpenclawDelivery,
       isStarted: () => this.started,
-      hooks: this.hooks,
-      now: this.now,
       makeFrameId: () => this.makeFrameId(),
       makeTimestamp: () => this.makeTimestamp(),
-      sendDeliverAckFrame: (ackFrame) => {
-        this.sendFrame(ackFrame);
-      },
+      now: this.now,
+      sendFrame: (frame) => this.sendFrame(frame),
       recordAckLatency: (durationMs) => {
         this.metricsTracker.recordInboundDeliveryAckLatency(durationMs);
       },
