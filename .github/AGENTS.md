@@ -37,8 +37,16 @@
 - Run Wrangler through workspace tooling (`pnpm exec wrangler`) in CI so commands work without a global Wrangler install on GitHub runners.
 
 ## Release Rules (CLI)
-- `publish-cli.yml` is manual (`workflow_dispatch`) and must accept explicit `version` + `dist_tag` inputs.
+- `publish-cli.yml` is manual (`workflow_dispatch`) and must accept `release_type` (`patch`/`minor`/`major`) + `dist_tag` inputs.
+- Compute the next CLI version in CI from the currently published npm `clawdentity` version (fallback `0.0.0` if first publish), then bump `apps/cli/package.json` in the workflow.
+- Fail publish early if the computed target version already exists on npm.
+- Serialize CLI publishes with a single global workflow concurrency group to avoid parallel release races across branches.
+- Build workspace libraries consumed by CLI tests (`@clawdentity/protocol`, `@clawdentity/sdk`, `@clawdentity/connector`) before running `pnpm -F clawdentity test` on clean runners.
 - Run CLI quality gates before publish: `pnpm -F clawdentity lint`, `typecheck`, `test`, `build`.
+- Run npm release commands (`pkg set`, `pack`, `publish`) with `working-directory: apps/cli`; avoid `npm --prefix apps/cli ...` for pack/publish because npm may target the workspace root manifest on monorepos missing a root `version`.
+- Validate packaged artifact contents using `npm pack --dry-run --json` file metadata (not grepping console notices), because npm file-list notices are not guaranteed on stdout.
+- Keep `npm pack --dry-run --json` deterministic by forcing `NPM_CONFIG_COLOR=false`, `NPM_CONFIG_LOGLEVEL=silent`, and `NPM_CONFIG_PROGRESS=false`, then parsing the `files` list instead of relying on noisy stderr/stdout lines that vary per npm version.
+- Keep `apps/cli/package.json` `repository.url` pinned to `https://github.com/vrknetha/clawdentity`; npm provenance publish will fail if repository metadata is missing or mismatched.
 - Publish only package `apps/cli` as npm package `clawdentity`.
 - Keep published runtime manifest free of `workspace:*` runtime dependencies.
 - Use npm provenance (`--provenance`) and require `NPM_TOKEN` secret.

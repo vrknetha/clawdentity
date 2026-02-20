@@ -5,6 +5,14 @@
   "publishConfig": {
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vrknetha/clawdentity"
+  },
+  "bugs": {
+    "url": "https://github.com/vrknetha/clawdentity/issues"
+  },
+  "homepage": "https://github.com/vrknetha/clawdentity#readme",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {

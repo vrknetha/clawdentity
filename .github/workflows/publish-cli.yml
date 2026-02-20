@@ -2,10 +2,15 @@ name: Publish CLI
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Release version for clawdentity (semver)"
+      release_type:
+        description: "Semantic version bump type"
         required: true
-        type: string
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
       dist_tag:
         description: "npm dist-tag"
         required: true
@@ -13,7 +18,7 @@ on:
         type: string
 
 concurrency:
-  group: publish-cli-${{ github.ref }}
+  group: publish-cli-release
   cancel-in-progress: false
 
 permissions:
@@ -33,6 +38,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -40,27 +50,85 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.23.0
-
       - name: Validate required secrets
         run: |
           test -n "${NODE_AUTH_TOKEN}"
 
-      - name: Validate release version format
+      - name: Resolve current and next CLI version
+        id: version
         run: |
-          python3 - <<'PY'
-          import os, re, sys
-          version = "${{ inputs.version }}"
-          if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$", version):
-              raise SystemExit(f"invalid semver version: {version}")
-          print("version accepted:", version)
-          PY
+          set +e
+          NPM_VIEW_OUTPUT="$(npm view clawdentity version --registry https://registry.npmjs.org 2>&1)"
+          NPM_VIEW_STATUS=$?
+          set -e
+          if [ "${NPM_VIEW_STATUS}" -eq 0 ]; then
+            CURRENT_VERSION="$(printf "%s" "${NPM_VIEW_OUTPUT}" | tr -d '\r' | tail -n 1)"
+          elif printf "%s" "${NPM_VIEW_OUTPUT}" | grep -q "E404"; then
+            CURRENT_VERSION="0.0.0"
+            echo "No published clawdentity package found; starting from ${CURRENT_VERSION}"
+          else
+            echo "Unable to resolve published clawdentity version from npm:"
+            echo "${NPM_VIEW_OUTPUT}"
+            exit 1
+          fi
+          RELEASE_TYPE="${{ inputs.release_type }}"
+          NEXT_VERSION="$(CURRENT_VERSION="${CURRENT_VERSION}" RELEASE_TYPE="${RELEASE_TYPE}" node <<'NODE'
+          const currentRaw = process.env.CURRENT_VERSION ?? "";
+          const releaseType = process.env.RELEASE_TYPE ?? "";
+          const normalized = currentRaw.trim();
+          const core = normalized.split("-")[0];
+          const match = core.match(/^(\d+)\.(\d+)\.(\d+)$/);
+          if (!match) {
+            throw new Error(`Unable to parse published semver: ${normalized}`);
+          }
+          let major = Number(match[1]);
+          let minor = Number(match[2]);
+          let patch = Number(match[3]);
+
+          if (releaseType === "major") {
+            major += 1;
+            minor = 0;
+            patch = 0;
+          } else if (releaseType === "minor") {
+            minor += 1;
+            patch = 0;
+          } else if (releaseType === "patch") {
+            patch += 1;
+          } else {
+            throw new Error(`Unsupported release type: ${releaseType}`);
+          }
+          process.stdout.write(`${major}.${minor}.${patch}`);
+          NODE
+          )"
+          echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "next_version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release: ${CURRENT_VERSION} -> ${NEXT_VERSION} (${RELEASE_TYPE})"
+
+      - name: Assert target version is unpublished
+        run: |
+          set +e
+          NPM_VIEW_OUTPUT="$(npm view "clawdentity@${{ steps.version.outputs.next_version }}" version --registry https://registry.npmjs.org 2>&1)"
+          NPM_VIEW_STATUS=$?
+          set -e
+          if [ "${NPM_VIEW_STATUS}" -eq 0 ]; then
+            echo "Version already published: ${{ steps.version.outputs.next_version }}"
+            exit 1
+          elif printf "%s" "${NPM_VIEW_OUTPUT}" | grep -q "E404"; then
+            echo "Target version is available: ${{ steps.version.outputs.next_version }}"
+          else
+            echo "Unable to verify target version availability on npm:"
+            echo "${NPM_VIEW_OUTPUT}"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Build workspace dependencies required by CLI tests
+        run: |
+          pnpm -F @clawdentity/protocol build
+          pnpm -F @clawdentity/sdk build
+          pnpm -F @clawdentity/connector build
 
       - name: Lint CLI package
         run: pnpm -F clawdentity lint
@@ -78,15 +146,34 @@ jobs:
         run: pnpm -F clawdentity verify:skill-bundle
 
       - name: Set package version for release
-        run: npm --prefix apps/cli pkg set version=${{ inputs.version }}
+        working-directory: apps/cli
+        run: npm pkg set version=${{ steps.version.outputs.next_version }}
 
       - name: Validate publish manifest
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.next_version }}
+          EXPECTED_REPOSITORY_URL: https://github.com/${{ github.repository }}
         run: |
           node <<'NODE'
           const fs = require("node:fs");
           const pkg = JSON.parse(fs.readFileSync("apps/cli/package.json", "utf8"));
           if (pkg.name !== "clawdentity") {
             throw new Error(`Unexpected package name: ${pkg.name}`);
+          }
+          if (typeof pkg.version !== "string" || pkg.version.length === 0) {
+            throw new Error("Package version is missing; publish would fail");
+          }
+          if (pkg.version !== process.env.EXPECTED_VERSION) {
+            throw new Error(
+              `Package version mismatch: expected ${process.env.EXPECTED_VERSION}, got ${pkg.version}`,
+            );
+          }
+          const repositoryUrl =
+            typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url;
+          if (repositoryUrl !== process.env.EXPECTED_REPOSITORY_URL) {
+            throw new Error(
+              `Package repository URL mismatch: expected ${process.env.EXPECTED_REPOSITORY_URL}, got ${repositoryUrl ?? "undefined"}`,
+            );
           }
           if (pkg.private === true) {
             throw new Error("Package is private; publish would fail");
@@ -110,12 +197,29 @@ jobs:
           NODE
 
       - name: Dry-run package contents
+        working-directory: apps/cli
+        env:
+          NPM_CONFIG_COLOR: false
+          NPM_CONFIG_LOGLEVEL: silent
+          NPM_CONFIG_PROGRESS: false
         run: |
-          PACK_OUTPUT="$(npm --prefix apps/cli pack --dry-run)"
-          printf "%s\n" "$PACK_OUTPUT"
-          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/SKILL.md"
-          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/references/clawdentity-protocol.md"
-          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/dist/relay-to-peer.mjs"
+          PACK_JSON="$(npm pack --dry-run --json --ignore-scripts)"
+          printf "%s\n" "$PACK_JSON"
+          PACK_JSON="$PACK_JSON" node <<'NODE'
+          const pack = JSON.parse(process.env.PACK_JSON ?? "[]");
+          const files = new Set((pack[0]?.files ?? []).map((entry) => entry.path));
+          const required = [
+            "skill-bundle/openclaw-skill/skill/SKILL.md",
+            "skill-bundle/openclaw-skill/skill/references/clawdentity-protocol.md",
+            "skill-bundle/openclaw-skill/dist/relay-to-peer.mjs",
+          ];
+          const missing = required.filter((file) => !files.has(file));
+          if (missing.length > 0) {
+            throw new Error(`Missing required packaged files: ${missing.join(", ")}`);
+          }
+          console.log("package contents validated");
+          NODE
 
       - name: Publish package
-        run: npm --prefix apps/cli publish --access public --provenance --tag ${{ inputs.dist_tag }}
+        working-directory: apps/cli
+        run: npm publish --access public --provenance --tag ${{ inputs.dist_tag }}
