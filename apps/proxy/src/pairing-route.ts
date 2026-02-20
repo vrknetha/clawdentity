@@ -184,11 +184,52 @@ function parsePeerProfile(value: unknown, label: string): PeerProfile {
     });
   }
 
-  const payload = value as { agentName?: unknown; humanName?: unknown };
-  return {
+  const payload = value as {
+    agentName?: unknown;
+    humanName?: unknown;
+    proxyOrigin?: unknown;
+  };
+  const profile: PeerProfile = {
     agentName: parseProfileName(payload.agentName, `${label}.agentName`),
     humanName: parseProfileName(payload.humanName, `${label}.humanName`),
   };
+
+  if (payload.proxyOrigin !== undefined) {
+    if (typeof payload.proxyOrigin !== "string") {
+      throw new AppError({
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: `${label}.proxyOrigin must be a valid URL origin`,
+        status: 400,
+        expose: true,
+      });
+    }
+
+    let parsedProxyOrigin: URL;
+    try {
+      parsedProxyOrigin = new URL(payload.proxyOrigin.trim());
+    } catch {
+      throw new AppError({
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: `${label}.proxyOrigin must be a valid URL origin`,
+        status: 400,
+        expose: true,
+      });
+    }
+    if (
+      parsedProxyOrigin.protocol !== "https:" &&
+      parsedProxyOrigin.protocol !== "http:"
+    ) {
+      throw new AppError({
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: `${label}.proxyOrigin must be a valid URL origin`,
+        status: 400,
+        expose: true,
+      });
+    }
+    profile.proxyOrigin = parsedProxyOrigin.origin;
+  }
+
+  return profile;
 }
 
 async function parseJsonBody(c: PairingRouteContext): Promise<unknown> {

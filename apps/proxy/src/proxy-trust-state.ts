@@ -53,7 +53,11 @@ function parsePeerProfile(value: unknown): PeerProfile | undefined {
     return undefined;
   }
 
-  const entry = value as { agentName?: unknown; humanName?: unknown };
+  const entry = value as {
+    agentName?: unknown;
+    humanName?: unknown;
+    proxyOrigin?: unknown;
+  };
   if (
     !isNonEmptyString(entry.agentName) ||
     !isNonEmptyString(entry.humanName)
@@ -61,10 +65,31 @@ function parsePeerProfile(value: unknown): PeerProfile | undefined {
     return undefined;
   }
 
-  return {
+  const profile: PeerProfile = {
     agentName: entry.agentName.trim(),
     humanName: entry.humanName.trim(),
   };
+  if (entry.proxyOrigin !== undefined) {
+    if (!isNonEmptyString(entry.proxyOrigin)) {
+      return undefined;
+    }
+
+    let parsedProxyOrigin: URL;
+    try {
+      parsedProxyOrigin = new URL(entry.proxyOrigin.trim());
+    } catch {
+      return undefined;
+    }
+    if (
+      parsedProxyOrigin.protocol !== "https:" &&
+      parsedProxyOrigin.protocol !== "http:"
+    ) {
+      return undefined;
+    }
+    profile.proxyOrigin = parsedProxyOrigin.origin;
+  }
+
+  return profile;
 }
 
 function addPeer(

@@ -49,6 +49,7 @@
 - Keep pairing profile contract strict:
   - `/pair/start` requires `initiatorProfile.{agentName,humanName}`
   - `/pair/confirm` requires `responderProfile.{agentName,humanName}`
+  - `/pair/start` and `/pair/confirm` may include optional `*.proxyOrigin` values; when present they must be valid `http(s)` URL origins and must be preserved in `/pair/status` responses.
   - `/pair/status` returns stored profile fields for initiator and responder
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
 - Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.

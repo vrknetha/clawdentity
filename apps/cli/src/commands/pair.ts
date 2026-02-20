@@ -143,6 +143,7 @@ type LocalAgentProofMaterial = {
 type PeerProfile = {
   agentName: string;
   humanName: string;
+  proxyOrigin?: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -213,10 +214,26 @@ function parsePeerProfile(payload: unknown): PeerProfile {
     );
   }
 
-  return {
+  const profile: PeerProfile = {
     agentName: parseProfileName(payload.agentName, "agentName"),
     humanName: parseProfileName(payload.humanName, "humanName"),
   };
+
+  const proxyOrigin = parseNonEmptyString(payload.proxyOrigin);
+  if (proxyOrigin.length > 0) {
+    let parsedProxyOrigin: string;
+    try {
+      parsedProxyOrigin = new URL(parseProxyUrl(proxyOrigin)).origin;
+    } catch {
+      throw createCliError(
+        "CLI_PAIR_PROFILE_INVALID",
+        "proxyOrigin is invalid for pairing",
+      );
+    }
+    profile.proxyOrigin = parsedProxyOrigin;
+  }
+
+  return profile;
 }
 
 function parsePairingTicket(value: unknown): string {
@@ -697,6 +714,7 @@ function parsePositiveIntegerOption(input: {
 function resolveLocalPairProfile(input: {
   config: CliConfig;
   agentName: string;
+  proxyUrl?: string;
 }): PeerProfile {
   const humanName = parseNonEmptyString(input.config.humanName);
   if (humanName.length === 0) {
@@ -706,10 +724,91 @@ function resolveLocalPairProfile(input: {
     );
   }
 
-  return {
+  const profile: PeerProfile = {
     agentName: parseProfileName(input.agentName, "agentName"),
     humanName: parseProfileName(humanName, "humanName"),
   };
+  const proxyUrl = parseNonEmptyString(input.proxyUrl);
+  if (proxyUrl.length > 0) {
+    profile.proxyOrigin = new URL(parseProxyUrl(proxyUrl)).origin;
+  }
+  return profile;
+}
+
+function normalizeProxyOrigin(candidate: string): string {
+  return new URL(parseProxyUrl(candidate)).origin;
+}
+
+function resolvePeerProxyUrl(input: {
+  ticket: string;
+  peerProfile: PeerProfile;
+  peerProxyOrigin?: string;
+}): string {
+  const configuredPeerOrigin = parseNonEmptyString(input.peerProxyOrigin);
+  const profilePeerOrigin = parseNonEmptyString(input.peerProfile.proxyOrigin);
+  const fallbackPeerOrigin = parsePairingTicketIssuerOrigin(input.ticket);
+  const peerOrigin =
+    configuredPeerOrigin.length > 0
+      ? configuredPeerOrigin
+      : profilePeerOrigin.length > 0
+        ? profilePeerOrigin
+        : fallbackPeerOrigin;
+
+  return new URL(
+    "/hooks/agent",
+    `${normalizeProxyOrigin(peerOrigin)}/`,
+  ).toString();
+}
+
+function toIssuerProxyUrl(ticket: string): string {
+  return parseProxyUrl(parsePairingTicketIssuerOrigin(ticket));
+}
+
+function toIssuerProxyRequestUrl(ticket: string, path: string): string {
+  return toProxyRequestUrl(toIssuerProxyUrl(ticket), path);
+}
+
+function toPeerProxyOriginFromStatus(input: {
+  callerAgentDid: string;
+  initiatorAgentDid: string;
+  responderAgentDid: string;
+  initiatorProfile: PeerProfile;
+  responderProfile?: PeerProfile;
+}): string | undefined {
+  if (input.callerAgentDid === input.initiatorAgentDid) {
+    return input.responderProfile?.proxyOrigin;
+  }
+
+  if (input.callerAgentDid === input.responderAgentDid) {
+    return input.initiatorProfile.proxyOrigin;
+  }
+
+  return undefined;
+}
+
+function toPeerProxyOriginFromConfirm(input: {
+  ticket: string;
+  initiatorProfile: PeerProfile;
+}): string {
+  const initiatorOrigin = parseNonEmptyString(
+    input.initiatorProfile.proxyOrigin,
+  );
+  if (initiatorOrigin.length > 0) {
+    return initiatorOrigin;
+  }
+  return parsePairingTicketIssuerOrigin(input.ticket);
+}
+
+function toResponderProfile(input: {
+  config: CliConfig;
+  agentName: string;
+  localProxyUrl: string;
+}): PeerProfile {
+  return resolveLocalPairProfile({
+    config: input.config,
+    agentName: input.agentName,
+    proxyUrl: input.localProxyUrl,
+  });
 }
 
 function parseProxyUrl(candidate: string): string {
@@ -1337,6 +1436,7 @@ async function persistPairedPeer(input: {
   ticket: string;
   peerDid: string;
   peerProfile: PeerProfile;
+  peerProxyOrigin?: string;
   dependencies: PairRequestOptions;
 }): Promise<string> {
   const getConfigDirImpl = input.dependencies.getConfigDirImpl ?? getConfigDir;
@@ -1345,8 +1445,11 @@ async function persistPairedPeer(input: {
   const writeFileImpl = input.dependencies.writeFileImpl ?? writeFile;
   const chmodImpl = input.dependencies.chmodImpl ?? chmod;
 
-  const issuerOrigin = parsePairingTicketIssuerOrigin(input.ticket);
-  const peerProxyUrl = new URL("/hooks/agent", `${issuerOrigin}/`).toString();
+  const peerProxyUrl = resolvePeerProxyUrl({
+    ticket: input.ticket,
+    peerProfile: input.peerProfile,
+    peerProxyOrigin: input.peerProxyOrigin,
+  });
   const peersConfig = await loadPeersConfig({
     getConfigDirImpl,
     readFileImpl,
@@ -1403,6 +1506,7 @@ export async function startPairing(
   const initiatorProfile = resolveLocalPairProfile({
     config,
     agentName: normalizedAgentName,
+    proxyUrl,
   });
 
   const { ait, secretKey } = await readAgentProofMaterial(
@@ -1486,16 +1590,17 @@ export async function confirmPairing(
   const qrDecodeImpl = dependencies.qrDecodeImpl ?? decodeTicketFromPng;
   const config = await resolveConfigImpl();
   const normalizedAgentName = assertValidAgentName(agentName);
-  const responderProfile = resolveLocalPairProfile({
-    config,
-    agentName: normalizedAgentName,
-  });
-
-  const ticketSource = resolveConfirmTicketSource(options);
-  const proxyUrl = await resolveProxyUrl({
+  const localProxyUrl = await resolveProxyUrl({
     config,
     fetchImpl,
   });
+  const responderProfile = toResponderProfile({
+    config,
+    agentName: normalizedAgentName,
+    localProxyUrl,
+  });
+
+  const ticketSource = resolveConfirmTicketSource(options);
 
   let ticket = ticketSource.ticket;
   if (ticketSource.source === "qr-file") {
@@ -1524,18 +1629,14 @@ export async function confirmPairing(
     ticket = parsePairingTicket(qrDecodeImpl(new Uint8Array(imageBytes)));
   }
   ticket = parsePairingTicket(ticket);
-  assertTicketIssuerMatchesProxy({
-    ticket,
-    proxyUrl,
-    context: "confirm",
-  });
+  const proxyUrl = toIssuerProxyUrl(ticket);
 
   const { ait, secretKey } = await readAgentProofMaterial(
     normalizedAgentName,
     dependencies,
   );
 
-  const requestUrl = toProxyRequestUrl(proxyUrl, PAIR_CONFIRM_PATH);
+  const requestUrl = toIssuerProxyRequestUrl(ticket, PAIR_CONFIRM_PATH);
   const requestBody = JSON.stringify({
     ticket,
     responderProfile,
@@ -1577,10 +1678,15 @@ export async function confirmPairing(
   }
 
   const parsed = parsePairConfirmResponse(responseBody);
+  const peerProxyOrigin = toPeerProxyOriginFromConfirm({
+    ticket,
+    initiatorProfile: parsed.initiatorProfile,
+  });
   const peerAlias = await persistPairedPeer({
     ticket,
     peerDid: parsed.initiatorAgentDid,
     peerProfile: parsed.initiatorProfile,
+    peerProxyOrigin,
     dependencies,
   });
 
@@ -1714,6 +1820,13 @@ async function getPairingStatusOnce(
       ticket,
       peerDid,
       peerProfile,
+      peerProxyOrigin: toPeerProxyOriginFromStatus({
+        callerAgentDid,
+        initiatorAgentDid: parsed.initiatorAgentDid,
+        responderAgentDid,
+        initiatorProfile: parsed.initiatorProfile,
+        responderProfile: parsed.responderProfile,
+      }),
       dependencies,
     });
   }

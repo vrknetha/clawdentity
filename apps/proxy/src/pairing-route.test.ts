@@ -17,6 +17,10 @@ const RESPONDER_PROFILE = {
   agentName: "beta",
   humanName: "Ira",
 };
+const RESPONDER_PROFILE_WITH_PROXY_ORIGIN = {
+  ...RESPONDER_PROFILE,
+  proxyOrigin: "https://beta.proxy.example",
+};
 
 vi.mock("./auth-middleware.js", async () => {
   const { createMiddleware } = await import("hono/factory");
@@ -291,7 +295,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       },
       body: JSON.stringify({
         ticket: ticket.ticket,
-        responderProfile: RESPONDER_PROFILE,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       }),
     });
 
@@ -315,7 +319,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
       responderAgentDid: RESPONDER_AGENT_DID,
-      responderProfile: RESPONDER_PROFILE,
+      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
     });
 
     expect(
@@ -401,7 +405,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
     await trustStore.confirmPairingTicket({
       ticket: ticket.ticket,
       responderAgentDid: RESPONDER_AGENT_DID,
-      responderProfile: RESPONDER_PROFILE,
+      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       nowMs: 1_700_000_000_200,
     });
 
@@ -436,7 +440,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
       responderAgentDid: RESPONDER_AGENT_DID,
-      responderProfile: RESPONDER_PROFILE,
+      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       expiresAt: "2023-11-14T22:28:20.000Z",
       confirmedAt: "2023-11-14T22:13:20.000Z",
     });
