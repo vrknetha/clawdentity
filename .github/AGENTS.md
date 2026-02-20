@@ -41,6 +41,7 @@
 - Compute the next CLI version in CI from the currently published npm `clawdentity` version (fallback `0.0.0` if first publish), then bump `apps/cli/package.json` in the workflow.
 - Fail publish early if the computed target version already exists on npm.
 - Serialize CLI publishes with a single global workflow concurrency group to avoid parallel release races across branches.
+- Build workspace libraries consumed by CLI tests (`@clawdentity/protocol`, `@clawdentity/sdk`, `@clawdentity/connector`) before running `pnpm -F clawdentity test` on clean runners.
 - Run CLI quality gates before publish: `pnpm -F clawdentity lint`, `typecheck`, `test`, `build`.
 - Publish only package `apps/cli` as npm package `clawdentity`.
 - Keep published runtime manifest free of `workspace:*` runtime dependencies.

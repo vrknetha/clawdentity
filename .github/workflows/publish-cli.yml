@@ -124,6 +124,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build workspace dependencies required by CLI tests
+        run: |
+          pnpm -F @clawdentity/protocol build
+          pnpm -F @clawdentity/sdk build
+          pnpm -F @clawdentity/connector build
+
       - name: Lint CLI package
         run: pnpm -F clawdentity lint
 
