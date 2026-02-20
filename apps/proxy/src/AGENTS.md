@@ -71,7 +71,8 @@
 - Keep relay websocket heartbeat liveness explicit in `agent-relay-session.ts`: track per-socket heartbeat ack time and enforce a 60s ack timeout before socket eviction.
 - Keep stale connector cleanup proactive: evict stale sockets during alarm sweeps and before accepting a new reconnect socket.
 - Keep connector session ownership deterministic: new reconnect sockets supersede older live sockets with a clean `1000` close code so delivery always targets one active socket.
-- Keep reconnect recovery eager: drain durable queue immediately on reconnect instead of waiting for the next alarm tick.
+- Keep reconnect recovery eager but handshake-safe: trigger durable queue drain immediately after reconnect, but do not block websocket `101` upgrade responses on `deliver_ack` waits.
+- Keep superseded socket state sticky until close cleanup: late frames from sockets marked in `socketsPendingClose` must not reactivate those sockets.
 - Keep close semantics strict for pending delivery promises: clean `1000` closes do not reject pending deliveries, but unclean closes reject when no sockets remain.
 - Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.

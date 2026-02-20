@@ -522,7 +522,7 @@ export class AgentRelaySession {
 
     this.state.acceptWebSocket(server, [connectorAgentDid]);
     this.touchSocketAck(server, nowMs);
-    await this.drainQueueOnReconnect();
+    void this.drainQueueOnReconnect();
 
     return new Response(null, {
       status: 101,
@@ -908,7 +908,9 @@ export class AgentRelaySession {
   }
 
   private touchSocketAck(socket: WebSocket, nowMs: number): void {
-    this.socketsPendingClose.delete(socket);
+    if (this.socketsPendingClose.has(socket)) {
+      return;
+    }
     this.socketLastAckAtMs.set(socket, nowMs);
   }
 
