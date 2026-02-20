@@ -338,6 +338,71 @@ describe("startConnectorRuntime", () => {
     }
   });
 
+  it("preserves explicit hook token over relay runtime config token", async () => {
+    process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
+    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+
+    const sandbox = createSandbox();
+    await writeRelayRuntimeConfig(sandbox.rootDir, "token-from-relay-config");
+    const wsPort = await findAvailablePort();
+    const wsHarness = await createWsHarness(wsPort);
+    const outboundPort = await findAvailablePort();
+    const openclawBaseUrl = "http://127.0.0.1:39105";
+    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const postTokens: string[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      const method = init?.method ?? "GET";
+
+      if (method === "GET" && url === openclawBaseUrl) {
+        return new Response("ok", { status: 200 });
+      }
+
+      if (method === "POST" && url === openclawHookUrl) {
+        const headers = new Headers(init?.headers);
+        postTokens.push(headers.get("x-openclaw-token") ?? "");
+        return new Response("ok", { status: 200 });
+      }
+
+      throw new Error(`Unexpected fetch call: ${method} ${url}`);
+    });
+
+    const runtime = await startConnectorRuntime({
+      agentName: "alpha",
+      configDir: sandbox.rootDir,
+      credentials: createRuntimeCredentials(),
+      fetchImpl: fetchMock,
+      openclawBaseUrl,
+      openclawHookToken: "token-from-cli",
+      outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
+      proxyWebsocketUrl: wsHarness.wsUrl,
+      registryUrl: "https://registry.example.test",
+    });
+
+    try {
+      const requestId = generateUlid(204);
+      await wsHarness.sendDeliverFrame({
+        requestId,
+        payload: { message: "explicit token precedence" },
+      });
+      await wsHarness.waitForDeliverAck(requestId);
+
+      await vi.waitFor(async () => {
+        const status = (await readConnectorStatus(runtime.outboundUrl)) as {
+          inbound?: { pending?: { pendingCount?: number } };
+        };
+        expect(status.inbound?.pending?.pendingCount).toBe(0);
+      });
+      expect(postTokens).toEqual(["token-from-cli"]);
+    } finally {
+      await runtime.stop();
+      await wsHarness.cleanup();
+      sandbox.cleanup();
+    }
+  });
+
   it("retries replay delivery for transient hook failures", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
     process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";

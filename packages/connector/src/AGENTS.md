@@ -23,6 +23,7 @@
 - Keep replay configuration environment-driven via `CONNECTOR_INBOUND_*` vars with safe defaults from `constants.ts`.
 - Keep OpenClaw liveness probing environment-driven via `CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS` and `CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS`; replay should skip direct hook delivery while probe state is down.
 - Keep runtime replay retry bounds environment-driven via `CONNECTOR_RUNTIME_REPLAY_*`; only retry retryable OpenClaw hook failures.
+- Keep OpenClaw hook-token precedence deterministic: explicit connector token input (`--openclaw-hook-token` / `OPENCLAW_HOOK_TOKEN`) must override `openclaw-relay.json`, and runtime disk sync applies only when explicit token input is absent.
 - `/v1/status` must use the nested contract:
   - `websocket.{connected,connectAttempts,reconnectCount,uptimeMs,lastConnectedAt}`
   - `inbound.pending`

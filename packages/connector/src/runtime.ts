@@ -1233,10 +1233,11 @@ export async function startConnectorRuntime(
   const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
   const openclawProbeUrl = openclawBaseUrl;
   const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
-  const fallbackOpenclawHookToken = resolveOpenclawHookToken(
+  const explicitOpenclawHookToken = resolveOpenclawHookToken(
     input.openclawHookToken,
   );
-  let currentOpenclawHookToken = fallbackOpenclawHookToken;
+  const hasExplicitOpenclawHookToken = explicitOpenclawHookToken !== undefined;
+  let currentOpenclawHookToken = explicitOpenclawHookToken;
   const openclawHookUrl = toOpenclawHookUrl(openclawBaseUrl, openclawHookPath);
   const inboundReplayPolicy = loadInboundReplayPolicy();
   const openclawProbePolicy = loadOpenclawProbePolicy();
@@ -1277,11 +1278,15 @@ export async function startConnectorRuntime(
   };
 
   const syncOpenclawHookToken = async (reason: "auth_rejected" | "batch") => {
+    if (hasExplicitOpenclawHookToken) {
+      return;
+    }
+
     const diskToken = await readOpenclawHookTokenFromRelayRuntimeConfig({
       configDir: input.configDir,
       logger,
     });
-    const nextToken = diskToken ?? fallbackOpenclawHookToken;
+    const nextToken = diskToken;
     if (nextToken === currentOpenclawHookToken) {
       return;
     }
@@ -1289,7 +1294,7 @@ export async function startConnectorRuntime(
     currentOpenclawHookToken = nextToken;
     logger.info("connector.runtime.openclaw_hook_token_synced", {
       reason,
-      source: diskToken !== undefined ? "openclaw-relay.json" : "fallback",
+      source: diskToken !== undefined ? "openclaw-relay.json" : "unset",
       hasToken: currentOpenclawHookToken !== undefined,
     });
   };
