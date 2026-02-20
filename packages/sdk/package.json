@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@clawdentity/protocol": "workspace:*",
+    "@noble/ciphers": "^2.1.1",
+    "@noble/curves": "^2.0.1",
     "@noble/ed25519": "^3.0.0",
     "hono": "^4.11.9",
     "jose": "^6.1.3",

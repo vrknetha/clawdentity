@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import {
   decodeBase64url,
   encodeBase64url,
+  parseEncryptedRelayPayloadV1,
   RELAY_CONNECT_PATH,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
@@ -39,6 +40,7 @@ import {
   DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
   DEFAULT_OPENCLAW_HOOK_PATH,
 } from "./constants.js";
+import { ConnectorE2eeManager } from "./e2ee.js";
 import {
   type ConnectorInboundInboxSnapshot,
   createConnectorInboundInbox,
@@ -731,6 +733,13 @@ export async function startConnectorRuntime(
   const inboundReplayStatus: InboundReplayStatus = {
     replayerActive: false,
   };
+  const e2eeManager = new ConnectorE2eeManager({
+    agentDid: input.credentials.agentDid,
+    agentName: input.agentName,
+    configDir: input.configDir,
+    logger,
+  });
+  await e2eeManager.initialize();
   let runtimeStopping = false;
   let replayInFlight = false;
   let replayIntervalHandle: ReturnType<typeof setInterval> | undefined;
@@ -761,12 +770,17 @@ export async function startConnectorRuntime(
       for (const pending of dueItems) {
         inboundReplayStatus.lastAttemptAt = new Date().toISOString();
         try {
+          const decryptedPayload = await e2eeManager.decryptInbound({
+            fromAgentDid: pending.fromAgentDid,
+            toAgentDid: pending.toAgentDid,
+            payload: pending.payload,
+          });
           await deliverToOpenclawHook({
             fetchImpl,
             openclawHookUrl,
             openclawHookToken,
             requestId: pending.requestId,
-            payload: pending.payload,
+            payload: decryptedPayload,
           });
           await inboundInbox.markDelivered(pending.requestId);
           inboundReplayStatus.lastReplayAt = new Date().toISOString();
@@ -836,6 +850,18 @@ export async function startConnectorRuntime(
     fetchImpl,
     logger,
     inboundDeliverHandler: async (frame) => {
+      try {
+        parseEncryptedRelayPayloadV1(frame.payload);
+      } catch {
+        logger.warn("connector.inbound.invalid_e2ee_payload", {
+          requestId: frame.id,
+        });
+        return {
+          accepted: false,
+          reason: "inbound payload is not a valid E2EE envelope",
+        };
+      }
+
       const persisted = await inboundInbox.enqueue(frame);
       if (!persisted.accepted) {
         logger.warn("connector.inbound.persist_rejected", {
@@ -868,7 +894,12 @@ export async function startConnectorRuntime(
   const relayToPeer = async (request: OutboundRelayRequest): Promise<void> => {
     await syncAuthFromDisk();
     const peerUrl = new URL(request.peerProxyUrl);
-    const body = JSON.stringify(request.payload ?? {});
+    const encryptedPayload = await e2eeManager.encryptOutbound({
+      peerAlias: request.peer,
+      peerDid: request.peerDid,
+      payload: request.payload ?? {},
+    });
+    const body = JSON.stringify(encryptedPayload);
     const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}`;
 
     const performRelay = async (auth: AgentAuthBundle): Promise<void> => {

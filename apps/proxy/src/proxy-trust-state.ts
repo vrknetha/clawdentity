@@ -1,3 +1,4 @@
+import { decodeBase64url } from "@clawdentity/protocol";
 import {
   normalizePairingTicketText,
   PairingTicketParseError,
@@ -8,6 +9,7 @@ import {
   type PairingTicketConfirmInput,
   type PairingTicketInput,
   type PairingTicketStatusInput,
+  type PeerE2eeBundle,
   type PeerProfile,
   TRUST_STORE_ROUTES,
 } from "./proxy-trust-store.js";
@@ -17,6 +19,7 @@ type StoredPairingTicket = {
   expiresAtMs: number;
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   issuerProxyUrl: string;
 };
 
@@ -25,8 +28,10 @@ type StoredConfirmedPairingTicket = {
   expiresAtMs: number;
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   responderAgentDid: string;
   responderProfile: PeerProfile;
+  responderE2ee: PeerE2eeBundle;
   issuerProxyUrl: string;
   confirmedAtMs: number;
 };
@@ -64,6 +69,38 @@ function parsePeerProfile(value: unknown): PeerProfile | undefined {
   return {
     agentName: entry.agentName.trim(),
     humanName: entry.humanName.trim(),
+  };
+}
+
+function parsePeerE2eeBundle(value: unknown): PeerE2eeBundle | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const entry = value as {
+    keyId?: unknown;
+    x25519PublicKey?: unknown;
+  };
+  if (
+    !isNonEmptyString(entry.keyId) ||
+    !isNonEmptyString(entry.x25519PublicKey)
+  ) {
+    return undefined;
+  }
+
+  const keyId = entry.keyId.trim();
+  const x25519PublicKey = entry.x25519PublicKey.trim();
+  try {
+    if (decodeBase64url(x25519PublicKey).length !== 32) {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return {
+    keyId,
+    x25519PublicKey,
   };
 }
 
@@ -163,10 +200,12 @@ export class ProxyTrustState {
       | Partial<PairingTicketInput>
       | undefined;
     const initiatorProfile = parsePeerProfile(body?.initiatorProfile);
+    const initiatorE2ee = parsePeerE2eeBundle(body?.initiatorE2ee);
     if (
       !body ||
       !isNonEmptyString(body.initiatorAgentDid) ||
       !initiatorProfile ||
+      !initiatorE2ee ||
       !isNonEmptyString(body.issuerProxyUrl) ||
       !isNonEmptyString(body.ticket) ||
       typeof body.expiresAtMs !== "number" ||
@@ -229,6 +268,7 @@ export class ProxyTrustState {
       ticket,
       initiatorAgentDid: body.initiatorAgentDid,
       initiatorProfile,
+      initiatorE2ee,
       issuerProxyUrl: parsedTicket.iss,
       expiresAtMs: normalizedExpiresAtMs,
     };
@@ -244,6 +284,7 @@ export class ProxyTrustState {
       expiresAtMs: normalizedExpiresAtMs,
       initiatorAgentDid: body.initiatorAgentDid,
       initiatorProfile,
+      initiatorE2ee,
       issuerProxyUrl: parsedTicket.iss,
     });
   }
@@ -255,11 +296,13 @@ export class ProxyTrustState {
       | Partial<PairingTicketConfirmInput>
       | undefined;
     const responderProfile = parsePeerProfile(body?.responderProfile);
+    const responderE2ee = parsePeerE2eeBundle(body?.responderE2ee);
     if (
       !body ||
       !isNonEmptyString(body.ticket) ||
       !isNonEmptyString(body.responderAgentDid) ||
-      !responderProfile
+      !responderProfile ||
+      !responderE2ee
     ) {
       return toErrorResponse({
         code: "PROXY_PAIR_CONFIRM_INVALID_BODY",
@@ -334,8 +377,10 @@ export class ProxyTrustState {
       expiresAtMs: stored.expiresAtMs,
       initiatorAgentDid: stored.initiatorAgentDid,
       initiatorProfile: stored.initiatorProfile,
+      initiatorE2ee: stored.initiatorE2ee,
       responderAgentDid: body.responderAgentDid,
       responderProfile,
+      responderE2ee,
       issuerProxyUrl: stored.issuerProxyUrl,
       confirmedAtMs: normalizeExpiryToWholeSecond(nowMs),
     };
@@ -347,8 +392,10 @@ export class ProxyTrustState {
     return Response.json({
       initiatorAgentDid: stored.initiatorAgentDid,
       initiatorProfile: stored.initiatorProfile,
+      initiatorE2ee: stored.initiatorE2ee,
       responderAgentDid: body.responderAgentDid,
       responderProfile,
+      responderE2ee,
       issuerProxyUrl: stored.issuerProxyUrl,
     });
   }
@@ -405,6 +452,7 @@ export class ProxyTrustState {
         ticket: pending.ticket,
         initiatorAgentDid: pending.initiatorAgentDid,
         initiatorProfile: pending.initiatorProfile,
+        initiatorE2ee: pending.initiatorE2ee,
         issuerProxyUrl: pending.issuerProxyUrl,
         expiresAtMs: pending.expiresAtMs,
       });
@@ -429,8 +477,10 @@ export class ProxyTrustState {
         ticket: confirmed.ticket,
         initiatorAgentDid: confirmed.initiatorAgentDid,
         initiatorProfile: confirmed.initiatorProfile,
+        initiatorE2ee: confirmed.initiatorE2ee,
         responderAgentDid: confirmed.responderAgentDid,
         responderProfile: confirmed.responderProfile,
+        responderE2ee: confirmed.responderE2ee,
         issuerProxyUrl: confirmed.issuerProxyUrl,
         expiresAtMs: confirmed.expiresAtMs,
         confirmedAtMs: confirmed.confirmedAtMs,
@@ -657,12 +707,15 @@ export class ProxyTrustState {
         expiresAtMs?: unknown;
         initiatorAgentDid?: unknown;
         initiatorProfile?: unknown;
+        initiatorE2ee?: unknown;
         issuerProxyUrl?: unknown;
       };
       const initiatorProfile = parsePeerProfile(entry.initiatorProfile);
+      const initiatorE2ee = parsePeerE2eeBundle(entry.initiatorE2ee);
       if (
         !isNonEmptyString(entry.initiatorAgentDid) ||
         !initiatorProfile ||
+        !initiatorE2ee ||
         !isNonEmptyString(entry.issuerProxyUrl) ||
         typeof entry.expiresAtMs !== "number" ||
         !Number.isInteger(entry.expiresAtMs)
@@ -685,6 +738,7 @@ export class ProxyTrustState {
         expiresAtMs: entry.expiresAtMs,
         initiatorAgentDid: entry.initiatorAgentDid,
         initiatorProfile,
+        initiatorE2ee,
         issuerProxyUrl: parsedTicket.iss,
       };
     }
@@ -718,19 +772,25 @@ export class ProxyTrustState {
         expiresAtMs?: unknown;
         initiatorAgentDid?: unknown;
         initiatorProfile?: unknown;
+        initiatorE2ee?: unknown;
         responderAgentDid?: unknown;
         responderProfile?: unknown;
+        responderE2ee?: unknown;
         issuerProxyUrl?: unknown;
         confirmedAtMs?: unknown;
       };
       const initiatorProfile = parsePeerProfile(entry.initiatorProfile);
+      const initiatorE2ee = parsePeerE2eeBundle(entry.initiatorE2ee);
       const responderProfile = parsePeerProfile(entry.responderProfile);
+      const responderE2ee = parsePeerE2eeBundle(entry.responderE2ee);
 
       if (
         !isNonEmptyString(entry.initiatorAgentDid) ||
         !initiatorProfile ||
+        !initiatorE2ee ||
         !isNonEmptyString(entry.responderAgentDid) ||
         !responderProfile ||
+        !responderE2ee ||
         !isNonEmptyString(entry.issuerProxyUrl) ||
         typeof entry.expiresAtMs !== "number" ||
         !Number.isInteger(entry.expiresAtMs) ||
@@ -755,8 +815,10 @@ export class ProxyTrustState {
         expiresAtMs: entry.expiresAtMs,
         initiatorAgentDid: entry.initiatorAgentDid,
         initiatorProfile,
+        initiatorE2ee,
         responderAgentDid: entry.responderAgentDid,
         responderProfile,
+        responderE2ee,
         issuerProxyUrl: parsedTicket.iss,
         confirmedAtMs: entry.confirmedAtMs,
       };

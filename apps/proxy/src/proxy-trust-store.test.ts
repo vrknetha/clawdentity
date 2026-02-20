@@ -16,6 +16,20 @@ const RESPONDER_PROFILE = {
   humanName: "Ira",
 };
 
+const INITIATOR_E2EE = {
+  keyId: "init-key-1",
+  x25519PublicKey: encodeBase64url(
+    Uint8Array.from({ length: 32 }, (_value, index) => index + 1),
+  ),
+};
+
+const RESPONDER_E2EE = {
+  keyId: "resp-key-1",
+  x25519PublicKey: encodeBase64url(
+    Uint8Array.from({ length: 32 }, (_value, index) => index + 2),
+  ),
+};
+
 function tamperTicketNonce(ticket: string): string {
   const prefix = "clwpair1_";
   if (!ticket.startsWith(prefix)) {
@@ -110,6 +124,7 @@ describe("in-memory proxy trust store", () => {
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
       expiresAtMs: 1_700_000_060_000,
@@ -120,14 +135,17 @@ describe("in-memory proxy trust store", () => {
       ticket: ticket.ticket,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       nowMs: 1_700_000_000_100,
     });
 
     expect(confirmed).toEqual({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
     });
 
@@ -136,6 +154,7 @@ describe("in-memory proxy trust store", () => {
         ticket: ticket.ticket,
         responderAgentDid: "did:claw:agent:bob",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         nowMs: 1_700_000_000_200,
       }),
     ).rejects.toMatchObject({
@@ -157,6 +176,7 @@ describe("in-memory proxy trust store", () => {
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
       expiresAtMs: 1_700_000_060_000,
@@ -173,6 +193,7 @@ describe("in-memory proxy trust store", () => {
       ticket: ticket.ticket,
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       expiresAtMs: 1_700_000_060_000,
     });
@@ -181,6 +202,7 @@ describe("in-memory proxy trust store", () => {
       ticket: ticket.ticket,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       nowMs: 1_700_000_000_300,
     });
 
@@ -194,8 +216,10 @@ describe("in-memory proxy trust store", () => {
       ticket: ticket.ticket,
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       expiresAtMs: 1_700_000_060_000,
       confirmedAtMs: 1_700_000_000_000,
@@ -213,6 +237,7 @@ describe("in-memory proxy trust store", () => {
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
       expiresAtMs: 1_700_000_060_123,
@@ -232,6 +257,7 @@ describe("in-memory proxy trust store", () => {
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
       expiresAtMs: 1_700_000_060_000,
@@ -243,6 +269,7 @@ describe("in-memory proxy trust store", () => {
         ticket: tamperTicketNonce(ticket.ticket),
         responderAgentDid: "did:claw:agent:bob",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         nowMs: 1_700_000_000_100,
       }),
     ).rejects.toMatchObject({
@@ -261,6 +288,7 @@ describe("in-memory proxy trust store", () => {
     const ticket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
       expiresAtMs: 1_700_000_001_000,
@@ -272,6 +300,7 @@ describe("in-memory proxy trust store", () => {
         ticket: ticket.ticket,
         responderAgentDid: "did:claw:agent:bob",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         nowMs: 1_700_000_002_000,
       }),
     ).rejects.toMatchObject({
@@ -301,6 +330,7 @@ describe("in-memory proxy trust store", () => {
     const expiredTicket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: expired.ticket,
       expiresAtMs: 1_700_000_001_000,
@@ -315,6 +345,7 @@ describe("in-memory proxy trust store", () => {
     const validTicket = await store.createPairingTicket({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: valid.ticket,
       expiresAtMs: 1_700_000_060_000,
@@ -325,6 +356,7 @@ describe("in-memory proxy trust store", () => {
       ticket: validTicket.ticket,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       nowMs: 1_700_000_002_000,
     });
 
@@ -333,6 +365,7 @@ describe("in-memory proxy trust store", () => {
         ticket: expiredTicket.ticket,
         responderAgentDid: "did:claw:agent:bob",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         nowMs: 1_700_000_002_100,
       }),
     ).rejects.toMatchObject({

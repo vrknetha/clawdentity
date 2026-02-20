@@ -1,4 +1,8 @@
-import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
+import {
+  encodeBase64url,
+  generateUlid,
+  makeAgentDid,
+} from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPairingTicket,
@@ -16,6 +20,18 @@ const INITIATOR_PROFILE = {
 const RESPONDER_PROFILE = {
   agentName: "beta",
   humanName: "Ira",
+};
+const INITIATOR_E2EE = {
+  keyId: "init-key-1",
+  x25519PublicKey: encodeBase64url(
+    Uint8Array.from({ length: 32 }, (_value, index) => index + 1),
+  ),
+};
+const RESPONDER_E2EE = {
+  keyId: "resp-key-1",
+  x25519PublicKey: encodeBase64url(
+    Uint8Array.from({ length: 32 }, (_value, index) => index + 2),
+  ),
 };
 
 vi.mock("./auth-middleware.js", async () => {
@@ -137,6 +153,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       },
       body: JSON.stringify({
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
       }),
     });
 
@@ -198,6 +215,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       },
       body: JSON.stringify({
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
       }),
     });
 
@@ -229,6 +247,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       },
       body: JSON.stringify({
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
       }),
     });
 
@@ -254,6 +273,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       },
       body: JSON.stringify({
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
       }),
     });
 
@@ -277,6 +297,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     const ticket = await trustStore.createPairingTicket({
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
       expiresAtMs: 1_700_000_900_000,
@@ -292,6 +313,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       body: JSON.stringify({
         ticket: ticket.ticket,
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
       }),
     });
 
@@ -314,8 +336,10 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       paired: true,
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       responderAgentDid: RESPONDER_AGENT_DID,
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
     });
 
     expect(
@@ -346,6 +370,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
     const ticket = await trustStore.createPairingTicket({
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
       expiresAtMs: 1_700_000_900_000,
@@ -377,6 +402,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       status: "pending",
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       expiresAt: "2023-11-14T22:28:20.000Z",
     });
   });
@@ -393,6 +419,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
     const ticket = await trustStore.createPairingTicket({
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
       expiresAtMs: 1_700_000_900_000,
@@ -402,6 +429,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       ticket: ticket.ticket,
       responderAgentDid: RESPONDER_AGENT_DID,
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       nowMs: 1_700_000_000_200,
     });
 
@@ -435,8 +463,10 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       status: "confirmed",
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       responderAgentDid: RESPONDER_AGENT_DID,
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       expiresAt: "2023-11-14T22:28:20.000Z",
       confirmedAt: "2023-11-14T22:13:20.000Z",
     });
@@ -454,6 +484,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
     const ticket = await trustStore.createPairingTicket({
       initiatorAgentDid: INITIATOR_AGENT_DID,
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
       expiresAtMs: 1_700_000_900_000,

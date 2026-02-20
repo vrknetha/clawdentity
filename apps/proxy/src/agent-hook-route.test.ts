@@ -39,19 +39,17 @@ import { parseProxyConfig } from "./config.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
 import { createProxyApp } from "./server.js";
 
-function hasDisallowedControlCharacter(value: string): boolean {
-  for (const char of value) {
-    const code = char.charCodeAt(0);
-    if ((code >= 0 && code <= 8) || code === 11 || code === 12) {
-      return true;
-    }
-    if ((code >= 14 && code <= 31) || code === 127) {
-      return true;
-    }
-  }
-
-  return false;
-}
+const E2EE_PAYLOAD = {
+  kind: "claw_e2ee_v1",
+  alg: "X25519_XCHACHA20POLY1305_HKDF_SHA256",
+  sessionId: "01HF7YAT31JZHSMW1CG6Q6MHB7",
+  epoch: 1,
+  counter: 0,
+  nonce: Buffer.alloc(24, 7).toString("base64url"),
+  ciphertext: Buffer.from("ciphertext").toString("base64url"),
+  senderE2eePub: Buffer.alloc(32, 8).toString("base64url"),
+  sentAt: "2026-02-16T20:00:00.000Z",
+};
 
 function createRelayHarness(input?: {
   deliverResult?: RelayDeliveryResult;
@@ -161,9 +159,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
-      body: JSON.stringify({
-        event: "agent.started",
-      }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(202);
@@ -177,7 +173,7 @@ describe("POST /hooks/agent", () => {
     expect(relayInput.recipientAgentDid).toBe(
       "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
     );
-    expect(relayInput.payload).toEqual({ event: "agent.started" });
+    expect(relayInput.payload).toEqual(E2EE_PAYLOAD);
     expect(typeof relayInput.requestId).toBe("string");
     expect(relayInput.requestId.length).toBeGreaterThan(0);
 
@@ -214,7 +210,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(202);
@@ -234,7 +230,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(403);
@@ -243,77 +239,13 @@ describe("POST /hooks/agent", () => {
     expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
   });
 
-  it("prepends sanitized identity block when message injection is enabled", async () => {
+  it("rejects non-e2ee payloads", async () => {
     const relayHarness = createRelayHarness();
     const app = createHookRouteApp({
       relayNamespace: relayHarness.namespace,
-      injectIdentityIntoMessage: true,
     });
 
     const response = await app.request("/hooks/agent", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
-      },
-      body: JSON.stringify({
-        message: "Summarize this payload",
-      }),
-    });
-
-    expect(response.status).toBe(202);
-    const [relayInput] = relayHarness.receivedInputs;
-    const forwardedPayload = relayInput.payload as {
-      message: string;
-    };
-
-    expect(forwardedPayload.message).toBe(
-      [
-        "[Clawdentity Identity]",
-        "agentDid: did:claw:agent:alpha",
-        "ownerDid: did:claw:owner:alpha",
-        "issuer: https://registry.example.com",
-        "aitJti: ait-jti-alpha",
-        "",
-        "Summarize this payload",
-      ].join("\n"),
-    );
-  });
-
-  it("keeps payload unchanged when message injection is enabled but auth is missing", async () => {
-    const relayHarness = createRelayHarness();
-    const app = createHookRouteApp({
-      relayNamespace: relayHarness.namespace,
-      injectIdentityIntoMessage: true,
-    });
-    const rawPayload = {
-      message: "No auth context here",
-      event: "agent.started",
-    };
-
-    const response = await app.request("/hooks/agent", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
-        "x-test-missing-auth": "1",
-      },
-      body: JSON.stringify(rawPayload),
-    });
-
-    expect(response.status).toBe(500);
-  });
-
-  it("keeps payload unchanged when message is missing or non-string", async () => {
-    const relayHarness = createRelayHarness();
-    const app = createHookRouteApp({
-      relayNamespace: relayHarness.namespace,
-      injectIdentityIntoMessage: true,
-    });
-
-    await app.request("/hooks/agent", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -325,60 +257,12 @@ describe("POST /hooks/agent", () => {
       }),
     });
 
-    await app.request("/hooks/agent", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
-      },
-      body: JSON.stringify({
-        message: { nested: true },
-      }),
-    });
-
-    const [firstRelayInput, secondRelayInput] = relayHarness.receivedInputs;
-
-    expect(firstRelayInput.payload).toEqual({ event: "agent.started" });
-    expect(secondRelayInput.payload).toEqual({ message: { nested: true } });
-  });
-
-  it("sanitizes identity fields and enforces length limits", async () => {
-    const relayHarness = createRelayHarness();
-    const app = createHookRouteApp({
-      relayNamespace: relayHarness.namespace,
-      injectIdentityIntoMessage: true,
-    });
-
-    const response = await app.request("/hooks/agent", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
-        "x-test-dirty-auth": "1",
-      },
-      body: JSON.stringify({
-        message: "Hello world",
-      }),
-    });
-
-    expect(response.status).toBe(202);
-    const [relayInput] = relayHarness.receivedInputs;
-
-    const forwardedPayload = relayInput.payload as {
-      message: string;
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as {
+      error: { code: string; message: string };
     };
-    expect(forwardedPayload.message).toContain("[Clawdentity Identity]");
-
-    const identityBlock = forwardedPayload.message.split("\n\n")[0];
-    expect(hasDisallowedControlCharacter(identityBlock)).toBe(false);
-
-    const identityLines = identityBlock.split("\n");
-    expect(identityLines[1].length).toBeLessThanOrEqual(171);
-    expect(identityLines[2].length).toBeLessThanOrEqual(171);
-    expect(identityLines[3].length).toBeLessThanOrEqual(208);
-    expect(identityLines[4].length).toBeLessThanOrEqual(72);
+    expect(body.error.code).toBe("PROXY_HOOK_E2EE_REQUIRED");
+    expect(body.error.message).toBe("Payload must be a valid E2EE envelope");
   });
 
   it("rejects non-json content types", async () => {
@@ -444,7 +328,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(400);
@@ -464,7 +348,7 @@ describe("POST /hooks/agent", () => {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]: "did:claw:human:not-agent",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(400);
@@ -484,7 +368,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(503);
@@ -505,7 +389,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(502);
@@ -535,7 +419,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(202);
@@ -571,7 +455,7 @@ describe("POST /hooks/agent", () => {
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
           "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
-      body: JSON.stringify({ event: "agent.started" }),
+      body: JSON.stringify(E2EE_PAYLOAD),
     });
 
     expect(response.status).toBe(507);

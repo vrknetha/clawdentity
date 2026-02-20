@@ -20,6 +20,12 @@ export {
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
 } from "./crl/cache.js";
+export {
+  decodeCanonicalJson,
+  decryptXChaCha20Poly1305,
+  encodeCanonicalJson,
+  encryptXChaCha20Poly1305,
+} from "./crypto/e2ee.js";
 export type {
   Ed25519KeypairBase64url,
   Ed25519KeypairBytes,
@@ -34,6 +40,18 @@ export {
   signEd25519,
   verifyEd25519,
 } from "./crypto/ed25519.js";
+export { hkdfSha256, hmacSha256, sha256, zeroBytes } from "./crypto/hkdf.js";
+export type {
+  X25519KeypairBase64url,
+  X25519KeypairBytes,
+} from "./crypto/x25519.js";
+export {
+  decodeX25519KeypairBase64url,
+  deriveX25519PublicKey,
+  deriveX25519SharedSecret,
+  encodeX25519KeypairBase64url,
+  generateX25519Keypair,
+} from "./crypto/x25519.js";
 export { addSeconds, isExpired, nowIso } from "./datetime.js";
 export type {
   EventBus,

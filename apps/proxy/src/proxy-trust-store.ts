@@ -9,6 +9,7 @@ import { normalizeExpiryToWholeSecond, toPairKey } from "./proxy-trust-keys.js";
 export type PairingTicketInput = {
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   issuerProxyUrl: string;
   ticket: string;
   expiresAtMs: number;
@@ -20,6 +21,7 @@ export type PairingTicketResult = {
   expiresAtMs: number;
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   issuerProxyUrl: string;
 };
 
@@ -27,14 +29,17 @@ export type PairingTicketConfirmInput = {
   ticket: string;
   responderAgentDid: string;
   responderProfile: PeerProfile;
+  responderE2ee: PeerE2eeBundle;
   nowMs?: number;
 };
 
 export type PairingTicketConfirmResult = {
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   responderAgentDid: string;
   responderProfile: PeerProfile;
+  responderE2ee: PeerE2eeBundle;
   issuerProxyUrl: string;
 };
 
@@ -49,6 +54,7 @@ export type PairingTicketStatusResult =
       ticket: string;
       initiatorAgentDid: string;
       initiatorProfile: PeerProfile;
+      initiatorE2ee: PeerE2eeBundle;
       issuerProxyUrl: string;
       expiresAtMs: number;
     }
@@ -57,8 +63,10 @@ export type PairingTicketStatusResult =
       ticket: string;
       initiatorAgentDid: string;
       initiatorProfile: PeerProfile;
+      initiatorE2ee: PeerE2eeBundle;
       responderAgentDid: string;
       responderProfile: PeerProfile;
+      responderE2ee: PeerE2eeBundle;
       issuerProxyUrl: string;
       expiresAtMs: number;
       confirmedAtMs: number;
@@ -67,6 +75,11 @@ export type PairingTicketStatusResult =
 export type PeerProfile = {
   agentName: string;
   humanName: string;
+};
+
+export type PeerE2eeBundle = {
+  keyId: string;
+  x25519PublicKey: string;
 };
 
 export type PairingInput = {
@@ -255,8 +268,10 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       expiresAtMs: number;
       initiatorAgentDid: string;
       initiatorProfile: PeerProfile;
+      initiatorE2ee: PeerE2eeBundle;
       responderAgentDid: string;
       responderProfile: PeerProfile;
+      responderE2ee: PeerE2eeBundle;
       issuerProxyUrl: string;
       confirmedAtMs: number;
     }
@@ -268,6 +283,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       expiresAtMs: number;
       initiatorAgentDid: string;
       initiatorProfile: PeerProfile;
+      initiatorE2ee: PeerE2eeBundle;
       issuerProxyUrl: string;
     }
   >();
@@ -361,8 +377,10 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       pair: {
         initiatorAgentDid: stored.initiatorAgentDid,
         initiatorProfile: stored.initiatorProfile,
+        initiatorE2ee: stored.initiatorE2ee,
         responderAgentDid: input.responderAgentDid,
         responderProfile: input.responderProfile,
+        responderE2ee: input.responderE2ee,
         issuerProxyUrl: stored.issuerProxyUrl,
       },
       ticketKid: parsedTicket.kid,
@@ -394,6 +412,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         ticket: pending.ticket,
         initiatorAgentDid: pending.initiatorAgentDid,
         initiatorProfile: pending.initiatorProfile,
+        initiatorE2ee: pending.initiatorE2ee,
         issuerProxyUrl: pending.issuerProxyUrl,
         expiresAtMs: pending.expiresAtMs,
       };
@@ -415,8 +434,10 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         ticket: confirmed.ticket,
         initiatorAgentDid: confirmed.initiatorAgentDid,
         initiatorProfile: confirmed.initiatorProfile,
+        initiatorE2ee: confirmed.initiatorE2ee,
         responderAgentDid: confirmed.responderAgentDid,
         responderProfile: confirmed.responderProfile,
+        responderE2ee: confirmed.responderE2ee,
         issuerProxyUrl: confirmed.issuerProxyUrl,
         expiresAtMs: confirmed.expiresAtMs,
         confirmedAtMs: confirmed.confirmedAtMs,
@@ -469,6 +490,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         ticket,
         initiatorAgentDid: input.initiatorAgentDid,
         initiatorProfile: input.initiatorProfile,
+        initiatorE2ee: input.initiatorE2ee,
         issuerProxyUrl: parsedTicket.iss,
         expiresAtMs: normalizedExpiresAtMs,
       });
@@ -479,6 +501,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         expiresAtMs: normalizedExpiresAtMs,
         initiatorAgentDid: input.initiatorAgentDid,
         initiatorProfile: input.initiatorProfile,
+        initiatorE2ee: input.initiatorE2ee,
         issuerProxyUrl: parsedTicket.iss,
       };
     },
@@ -511,8 +534,10 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         ticket,
         initiatorAgentDid: confirmedPair.initiatorAgentDid,
         initiatorProfile: confirmedPair.initiatorProfile,
+        initiatorE2ee: confirmedPair.initiatorE2ee,
         responderAgentDid: confirmedPair.responderAgentDid,
         responderProfile: confirmedPair.responderProfile,
+        responderE2ee: confirmedPair.responderE2ee,
         issuerProxyUrl: confirmedPair.issuerProxyUrl,
         expiresAtMs,
         confirmedAtMs,

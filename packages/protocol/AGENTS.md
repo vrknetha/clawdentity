@@ -24,9 +24,11 @@
 - Keep relay contract constants in protocol exports (`RELAY_CONNECT_PATH`, `RELAY_RECIPIENT_AGENT_DID_HEADER`) so connector and hook routing stay synchronized across apps.
 - Keep registration-proof canonicalization in protocol exports (`canonicalizeAgentRegistrationProof`) so CLI signing and registry verification use an identical message format.
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.
+- Keep E2EE envelope parsing strict in `e2ee.ts`: require known `kind`/`alg`, validate nonce/public-key byte lengths from base64url, and reject unknown fields with `INVALID_E2EE_PAYLOAD`.
 
 ## Testing
 - Add focused Vitest tests per helper module and one root export test in `src/index.test.ts`.
 - Roundtrip tests must cover empty inputs, known vectors, and invalid inputs for parse failures.
 - Error tests must assert `ProtocolParseError` code values, not just message strings.
 - CRL helpers specifically need coverage for valid payloads, missing or empty revocation entries, invalid `agentDid`/`jti` values, and `exp <= iat`, all verifying the `INVALID_CRL_CLAIMS` code.
+- E2EE helper tests must cover valid envelope parsing plus explicit failures for malformed base64url, wrong nonce/public-key lengths, and invalid timestamps.

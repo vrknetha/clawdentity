@@ -9,6 +9,7 @@
 - Reuse shared protocol validators (`parseDid`, `parseUlid`) instead of duplicating DID/ULID logic.
 - Keep reconnect and heartbeat behavior deterministic and testable via dependency injection (`webSocketFactory`, `fetchImpl`, clock/random).
 - Keep local OpenClaw delivery concerns in `src/client.ts`; do not spread HTTP delivery logic across modules.
+- Keep runtime message confidentiality end-to-end: encrypt outbound payloads in connector runtime and decrypt inbound payloads only at local replay boundary.
 - Keep inbound connector delivery durable: acknowledge proxy delivery only after payload persistence to local inbox (`agents/<agent>/inbound-inbox/index.json`), then replay asynchronously to OpenClaw hook.
 - Keep local inbox storage portable and inspectable (`index.json` + `events.jsonl`) with atomic index writes (`.tmp` + rename); do not introduce runtime-specific persistence dependencies for connector inbox state.
 - Keep replay behavior restart-safe: on runtime boot, replay pending inbox entries in background before relying on new WebSocket traffic.
@@ -22,4 +23,6 @@
 - `src/frames.test.ts` must cover roundtrip serialization and explicit invalid-frame failures.
 - Client tests must mock WebSocket/fetch and verify heartbeat ack, delivery forwarding, reconnect, and outbound queue flush behavior.
 - Inbox tests must cover persistence, dedupe by request id, cap enforcement, and replay state transitions (`markReplayFailure`/`markDelivered`).
+- E2EE tests must cover identity creation, outbound encryption + inbound decryption roundtrip, and rejection when peer E2EE bundle data is absent/invalid.
+- Keep `vitest.config.ts` aliases for `@clawdentity/protocol` and `@clawdentity/sdk` pointed at source entrypoints to avoid stale `dist` export drift in workspace tests.
 - Keep tests fully offline and deterministic (fake timers where timing matters).

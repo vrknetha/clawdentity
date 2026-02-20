@@ -33,6 +33,16 @@ const RESPONDER_PROFILE = {
   humanName: "Ira",
 };
 
+const INITIATOR_E2EE = {
+  keyId: "01HF7YAT31JZHSMW1CG6Q6MHB7",
+  x25519PublicKey: Buffer.alloc(32, 7).toString("base64url"),
+};
+
+const RESPONDER_E2EE = {
+  keyId: "01HF7YAT31JZHSMW1CG6Q6MHB8",
+  x25519PublicKey: Buffer.alloc(32, 8).toString("base64url"),
+};
+
 const createPairFixture = async (): Promise<PairFixture> => {
   const keypair = await generateEd25519Keypair();
   const encoded = encodeEd25519KeypairBase64url(keypair);
@@ -118,6 +128,7 @@ describe("pair command helpers", () => {
         {
           initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
+          initiatorE2ee: INITIATOR_E2EE,
           ticket: "clwpair1_eyJ2IjoxfQ",
           expiresAt: "2026-02-18T00:00:00.000Z",
         },
@@ -164,8 +175,8 @@ describe("pair command helpers", () => {
     expect(unlinkImpl).toHaveBeenCalledWith(
       "/tmp/.clawdentity/pairing/alpha-pair-1699999000.png",
     );
-    expect(writeFileImpl).toHaveBeenCalledTimes(1);
-    expect(mkdirImpl).toHaveBeenCalledTimes(1);
+    expect(writeFileImpl).toHaveBeenCalledTimes(2);
+    expect(mkdirImpl).toHaveBeenCalledTimes(2);
     const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
     expect(init?.method).toBe("POST");
     const headers = new Headers(init?.headers);
@@ -191,6 +202,7 @@ describe("pair command helpers", () => {
             {
               initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
               initiatorProfile: INITIATOR_PROFILE,
+              initiatorE2ee: INITIATOR_E2EE,
               ticket: "clwpair1_eyJ2IjoxfQ",
               expiresAt: "2026-02-18T00:00:00.000Z",
             },
@@ -234,6 +246,7 @@ describe("pair command helpers", () => {
             {
               initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
               initiatorProfile: INITIATOR_PROFILE,
+              initiatorE2ee: INITIATOR_E2EE,
               ticket: "clwpair1_eyJ2IjoxfQ",
               expiresAt: "2026-02-18T00:00:00.000Z",
             },
@@ -280,6 +293,7 @@ describe("pair command helpers", () => {
               {
                 initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
                 initiatorProfile: INITIATOR_PROFILE,
+                initiatorE2ee: INITIATOR_E2EE,
                 ticket: "clwpair1_eyJ2IjoxfQ",
                 expiresAt: "2026-02-18T00:00:00.000Z",
               },
@@ -373,6 +387,7 @@ describe("pair command helpers", () => {
           status: "pending",
           initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
+          initiatorE2ee: INITIATOR_E2EE,
           expiresAt: "2026-02-18T00:00:00.000Z",
         },
         { status: 200 },
@@ -426,8 +441,10 @@ describe("pair command helpers", () => {
           paired: true,
           initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
+          initiatorE2ee: INITIATOR_E2EE,
           responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
           responderProfile: RESPONDER_PROFILE,
+          responderE2ee: RESPONDER_E2EE,
         },
         { status: 201 },
       );
@@ -477,8 +494,8 @@ describe("pair command helpers", () => {
     expect(String(init?.body ?? "")).toContain("responderProfile");
     expect(unlinkImpl).toHaveBeenCalledTimes(1);
     expect(unlinkImpl).toHaveBeenCalledWith("/tmp/pair.png");
-    expect(writeFileImpl).toHaveBeenCalledTimes(1);
-    expect(chmodImpl).toHaveBeenCalledTimes(1);
+    expect(writeFileImpl).toHaveBeenCalledTimes(2);
+    expect(chmodImpl).toHaveBeenCalledTimes(2);
   });
 
   it("syncs OpenClaw relay peers snapshot after pair confirm", async () => {
@@ -533,8 +550,10 @@ describe("pair command helpers", () => {
           paired: true,
           initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
+          initiatorE2ee: INITIATOR_E2EE,
           responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
           responderProfile: RESPONDER_PROFILE,
+          responderE2ee: RESPONDER_E2EE,
         },
         { status: 201 },
       );
@@ -577,8 +596,8 @@ describe("pair command helpers", () => {
       expect.any(String),
       "utf8",
     );
-    expect(mkdirImpl).toHaveBeenCalledTimes(2);
-    expect(chmodImpl).toHaveBeenCalledTimes(2);
+    expect(mkdirImpl).toHaveBeenCalledTimes(3);
+    expect(chmodImpl).toHaveBeenCalledTimes(3);
   });
 
   it("checks pending pair status without persisting peers", async () => {
@@ -605,6 +624,7 @@ describe("pair command helpers", () => {
           status: "pending",
           initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
+          initiatorE2ee: INITIATOR_E2EE,
           expiresAt: "2026-02-18T00:00:00.000Z",
         },
         { status: 200 },
@@ -658,14 +678,17 @@ describe("pair command helpers", () => {
         status: "pending",
         initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
         expiresAt: "2026-02-18T00:00:00.000Z",
       },
       {
         status: "confirmed",
         initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
         responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         expiresAt: "2026-02-18T00:00:00.000Z",
         confirmedAt: "2026-02-18T00:00:05.000Z",
       },
@@ -809,6 +832,7 @@ describe("pair command output", () => {
           {
             initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
             initiatorProfile: INITIATOR_PROFILE,
+            initiatorE2ee: INITIATOR_E2EE,
             ticket: "clwpair1_eyJ2IjoxfQ",
             expiresAt: "2026-02-18T00:00:00.000Z",
           },
@@ -865,8 +889,10 @@ describe("pair command output", () => {
             paired: true,
             initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
             initiatorProfile: INITIATOR_PROFILE,
+            initiatorE2ee: INITIATOR_E2EE,
             responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
             responderProfile: RESPONDER_PROFILE,
+            responderE2ee: RESPONDER_E2EE,
           },
           { status: 201 },
         );
@@ -928,6 +954,7 @@ describe("pair command output", () => {
             status: "pending",
             initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
             initiatorProfile: INITIATOR_PROFILE,
+            initiatorE2ee: INITIATOR_E2EE,
             expiresAt: "2026-02-18T00:00:00.000Z",
           },
           { status: 200 },

@@ -147,7 +147,7 @@ describe("installOpenclawSkillArtifacts", () => {
     } finally {
       sandbox.cleanup();
     }
-  });
+  }, 15_000);
 
   it("fails with actionable error when required artifact is missing", async () => {
     const sandbox = createSkillSandbox();

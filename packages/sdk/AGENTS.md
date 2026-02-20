@@ -11,6 +11,7 @@
 - `config`: schema-validated runtime config parsing.
 - `request-context`: request ID extraction/generation and propagation.
 - `crypto/ed25519`: byte-first keypair/sign/verify helpers for PoP and token workflows.
+- `crypto/x25519` + `crypto/e2ee` + `crypto/hkdf`: X25519 key exchange, XChaCha20-Poly1305 envelope crypto, and HKDF/HMAC primitives for E2EE session chains.
 - `jwt/ait-jwt`: AIT JWS signing, verification, and header-only inspection via `decodeAIT`; both helpers reuse the same protected-header guard so alg/typ/kid invariants stay aligned even when skipping signature validation.
 - `jwt/crl-jwt`: CRL JWT helpers with EdDSA signing, header consistency checks, and tamper-detection test coverage.
 - `crl/cache`: in-memory CRL cache with periodic refresh, staleness reporting, and configurable stale behavior.
@@ -27,6 +28,7 @@
 - Avoid leaking secrets in logs and error payloads.
 - Keep all parse/validation errors explicit and deterministic.
 - Keep cryptography APIs byte-first (`Uint8Array`) and runtime-portable.
+- Keep WebCrypto wrappers (`hkdf.ts`) runtime-portable without DOM-only type dependencies so Node-only packages can typecheck cleanly.
 - Derive Ed25519 public keys via `deriveEd25519PublicKey` (instead of ad-hoc noble calls) so key derivation behavior and validation stay centralized.
 - Reuse protocol base64url helpers as the single source of truth; do not duplicate encoding logic in SDK.
 - Keep CRL claim schema authority in `@clawdentity/protocol` (`crl.ts`); SDK JWT helpers should avoid duplicating claim-validation rules.
@@ -57,6 +59,7 @@
 - Validate error codes/envelopes and request ID behavior.
 - Keep tests deterministic and offline.
 - Crypto tests must include explicit negative verification cases (wrong message/signature/key).
+- E2EE crypto tests must cover encrypt/decrypt roundtrips, tamper failures, and key-length validation errors.
 - JWT tests must include sign/verify happy path and failure paths for issuer mismatch and missing/unknown `kid`.
 - HTTP signing tests must include sign/verify happy path and explicit failures when method, path, body, or timestamp are altered.
 - Nonce cache tests must include duplicate nonce rejection within TTL and acceptance after TTL expiry.

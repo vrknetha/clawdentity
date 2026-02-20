@@ -1,5 +1,6 @@
 import {
   parseDid,
+  parseEncryptedRelayPayloadV1,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
 import { AppError, type Logger } from "@clawdentity/sdk";
@@ -13,11 +14,6 @@ import {
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
 import { assertTrustedPair } from "./trust-policy.js";
-
-const MAX_AGENT_DID_LENGTH = 160;
-const MAX_OWNER_DID_LENGTH = 160;
-const MAX_ISSUER_LENGTH = 200;
-const MAX_AIT_JTI_LENGTH = 64;
 
 export { RELAY_RECIPIENT_AGENT_DID_HEADER } from "@clawdentity/protocol";
 
@@ -48,64 +44,6 @@ function isJsonContentType(contentTypeHeader: string | undefined): boolean {
 
   const [mediaType] = contentTypeHeader.split(";");
   return mediaType.trim().toLowerCase() === "application/json";
-}
-
-function stripControlChars(value: string): string {
-  let result = "";
-  for (const char of value) {
-    const code = char.charCodeAt(0);
-    if ((code >= 0 && code <= 31) || code === 127) {
-      continue;
-    }
-    result += char;
-  }
-
-  return result;
-}
-
-function sanitizeIdentityField(value: string, maxLength: number): string {
-  const sanitized = stripControlChars(value).replaceAll(/\s+/g, " ").trim();
-
-  if (sanitized.length === 0) {
-    return "unknown";
-  }
-
-  return sanitized.slice(0, maxLength);
-}
-
-function buildIdentityBlock(
-  auth: NonNullable<ProxyRequestVariables["auth"]>,
-): string {
-  return [
-    "[Clawdentity Identity]",
-    `agentDid: ${sanitizeIdentityField(auth.agentDid, MAX_AGENT_DID_LENGTH)}`,
-    `ownerDid: ${sanitizeIdentityField(auth.ownerDid, MAX_OWNER_DID_LENGTH)}`,
-    `issuer: ${sanitizeIdentityField(auth.issuer, MAX_ISSUER_LENGTH)}`,
-    `aitJti: ${sanitizeIdentityField(auth.aitJti, MAX_AIT_JTI_LENGTH)}`,
-  ].join("\n");
-}
-
-function injectIdentityBlockIntoPayload(
-  payload: unknown,
-  auth: ProxyRequestVariables["auth"],
-): unknown {
-  if (auth === undefined || typeof payload !== "object" || payload === null) {
-    return payload;
-  }
-
-  if (!("message" in payload)) {
-    return payload;
-  }
-
-  const message = (payload as { message?: unknown }).message;
-  if (typeof message !== "string") {
-    return payload;
-  }
-
-  return {
-    ...(payload as Record<string, unknown>),
-    message: `${buildIdentityBlock(auth)}\n\n${message}`,
-  };
 }
 
 function parseRecipientAgentDid(c: ProxyContext): string {
@@ -156,7 +94,6 @@ function resolveDefaultSessionNamespace(
 export function createAgentHookHandler(
   options: CreateAgentHookHandlerOptions,
 ): (c: ProxyContext) => Promise<Response> {
-  const injectIdentityIntoMessage = options.injectIdentityIntoMessage ?? false;
   const now = options.now ?? (() => new Date());
   const resolveSessionNamespace =
     options.resolveSessionNamespace ?? resolveDefaultSessionNamespace;
@@ -183,8 +120,16 @@ export function createAgentHookHandler(
       });
     }
 
-    if (injectIdentityIntoMessage) {
-      payload = injectIdentityBlockIntoPayload(payload, c.get("auth"));
+    let encryptedPayload: ReturnType<typeof parseEncryptedRelayPayloadV1>;
+    try {
+      encryptedPayload = parseEncryptedRelayPayloadV1(payload);
+    } catch {
+      throw new AppError({
+        code: "PROXY_HOOK_E2EE_REQUIRED",
+        message: "Payload must be a valid E2EE envelope",
+        status: 400,
+        expose: true,
+      });
     }
 
     const auth = c.get("auth");
@@ -217,7 +162,7 @@ export function createAgentHookHandler(
       requestId,
       senderAgentDid: auth.agentDid,
       recipientAgentDid,
-      payload,
+      payload: encryptedPayload,
     };
 
     const relaySession = sessionNamespace.get(

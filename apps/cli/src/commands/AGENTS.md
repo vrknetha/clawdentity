@@ -113,12 +113,15 @@
 ## Pair Command Rules
 - `pair start <agentName>` must call proxy `/pair/start` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
 - `pair start` must rely on local Claw agent auth + PoP headers only; ownership is validated server-side via proxy-to-registry internal service auth.
+- `pair start` must load/create a local X25519 identity (`agents/<agent>/e2ee-identity.json`) and include `initiatorE2ee.{keyId,x25519PublicKey}` in the request.
 - `pair start --qr` must generate a one-time local PNG QR containing the returned ticket and print the filesystem path.
 - `pair start --qr` must sweep expired QR artifacts in `~/.clawdentity/pairing` before writing a new file.
 - `pair confirm <agentName>` must call proxy `/pair/confirm` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
 - `pair confirm` must accept either `--qr-file <path>` (primary) or `--ticket <clwpair1_...>` (fallback), never both.
+- `pair confirm` must include local `responderE2ee.{keyId,x25519PublicKey}` in the confirm request.
 - `pair confirm --qr-file` must delete the consumed QR file after successful confirm (best effort, non-fatal on cleanup failure).
 - `pair status <agentName> --ticket <clwpair1_...>` must poll `/pair/status` and persist peers locally when status transitions to `confirmed`.
+- Pair persistence must store peer E2EE bundle under `peers.<alias>.e2ee` so connector runtime can encrypt outbound traffic without additional bootstrap.
 - After peer persistence, pair flows must best-effort sync OpenClaw transform peer snapshot (`hooks/transforms/clawdentity-peers.json`) when `~/.clawdentity/openclaw-relay.json` provides `relayTransformPeersPath`, so relay delivery works without manual file copying.
 - `pair start --wait` should use `/pair/status` polling and auto-save the responder peer locally so reverse pairing is not required.
 - `pair` commands must resolve proxy URL automatically from CLI config/registry metadata, with `CLAWDENTITY_PROXY_URL` env override support.

@@ -30,7 +30,7 @@ export {
   DEFAULT_RELAY_DELIVER_TIMEOUT_MS,
   WS_READY_STATE_OPEN,
 } from "./constants.js";
-
+export { ConnectorE2eeManager } from "./e2ee.js";
 export type {
   ConnectorFrame,
   ConnectorFrameParseErrorCode,
