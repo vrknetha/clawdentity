@@ -93,3 +93,9 @@
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.
+
+## Agent Relay Session Modularization
+- Keep `agent-relay-session.ts` focused on Durable Object state machine orchestration; move helpers, parsers, and queue helpers into `apps/proxy/src/agent-relay-session/` so the entry file stays below 800 lines.
+- Name helper modules by concern (`types`, `errors`, `frames`, `parsers`, `queue`, `policy`, `rpc`) and avoid importing back from `agent-relay-session.ts` to prevent cycles.
+- Re-export the public API (`Relay*` types, `AgentRelaySession`, and RPC helpers) from `agent-relay-session.ts` so existing imports in routes/tests stay untouched.
+- When introducing a new helper, document it here so future splits keep the Durable Object surface lean and test coverage aware.
