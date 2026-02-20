@@ -113,6 +113,7 @@
 - `openclaw relay ws-test --peer <alias>` must verify paired-peer selection plus connector websocket readiness using connector `/v1/status`, and return deterministic remediation when websocket connectivity is down.
 
 ## Pair Command Rules
+- `pair.ts` must stay a thin public facade that re-exports pair APIs from `pair/*` modules.
 - `pair start <agentName>` must call proxy `/pair/start` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
 - `pair start` must rely on local Claw agent auth + PoP headers only; ownership is validated server-side via proxy-to-registry internal service auth.
 - `pair start --qr` must generate a one-time local PNG QR containing the returned ticket and print the filesystem path.
