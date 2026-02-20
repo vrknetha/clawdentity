@@ -190,12 +190,27 @@ jobs:
 
       - name: Dry-run package contents
         working-directory: apps/cli
+        env:
+          NPM_CONFIG_COLOR: false
+          NPM_CONFIG_LOGLEVEL: silent
+          NPM_CONFIG_PROGRESS: false
         run: |
-          PACK_OUTPUT="$(npm pack --dry-run)"
-          printf "%s\n" "$PACK_OUTPUT"
-          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/SKILL.md"
-          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/references/clawdentity-protocol.md"
-          printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/dist/relay-to-peer.mjs"
+          PACK_JSON="$(npm pack --dry-run --json --ignore-scripts)"
+          printf "%s\n" "$PACK_JSON"
+          PACK_JSON="$PACK_JSON" node <<'NODE'
+          const pack = JSON.parse(process.env.PACK_JSON ?? "[]");
+          const files = new Set((pack[0]?.files ?? []).map((entry) => entry.path));
+          const required = [
+            "skill-bundle/openclaw-skill/skill/SKILL.md",
+            "skill-bundle/openclaw-skill/skill/references/clawdentity-protocol.md",
+            "skill-bundle/openclaw-skill/dist/relay-to-peer.mjs",
+          ];
+          const missing = required.filter((file) => !files.has(file));
+          if (missing.length > 0) {
+            throw new Error(`Missing required packaged files: ${missing.join(", ")}`);
+          }
+          console.log("package contents validated");
+          NODE
 
       - name: Publish package
         working-directory: apps/cli

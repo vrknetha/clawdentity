@@ -44,6 +44,8 @@
 - Build workspace libraries consumed by CLI tests (`@clawdentity/protocol`, `@clawdentity/sdk`, `@clawdentity/connector`) before running `pnpm -F clawdentity test` on clean runners.
 - Run CLI quality gates before publish: `pnpm -F clawdentity lint`, `typecheck`, `test`, `build`.
 - Run npm release commands (`pkg set`, `pack`, `publish`) with `working-directory: apps/cli`; avoid `npm --prefix apps/cli ...` for pack/publish because npm may target the workspace root manifest on monorepos missing a root `version`.
+- Validate packaged artifact contents using `npm pack --dry-run --json` file metadata (not grepping console notices), because npm file-list notices are not guaranteed on stdout.
+- Keep `npm pack --dry-run --json` deterministic by forcing `NPM_CONFIG_COLOR=false`, `NPM_CONFIG_LOGLEVEL=silent`, and `NPM_CONFIG_PROGRESS=false`, then parsing the `files` list instead of relying on noisy stderr/stdout lines that vary per npm version.
 - Publish only package `apps/cli` as npm package `clawdentity`.
 - Keep published runtime manifest free of `workspace:*` runtime dependencies.
 - Use npm provenance (`--provenance`) and require `NPM_TOKEN` secret.
