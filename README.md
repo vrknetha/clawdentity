@@ -157,4 +157,3 @@ This repo uses a **deployment-first gate** tracked in [GitHub Issues](https://gi
 ## Deep Docs
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — full protocol flows, verification pipeline, security architecture, deployment details
-- **[PRD.md](./PRD.md)** — MVP product requirements and rollout strategy

@@ -5,11 +5,14 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import {
   decodeBase64url,
   encodeBase64url,
   RELAY_CONNECT_PATH,
+  RELAY_CONVERSATION_ID_HEADER,
+  RELAY_DELIVERY_RECEIPT_URL_HEADER,
+  RELAY_DELIVERY_RECEIPTS_PATH,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
 import {
@@ -25,10 +28,17 @@ import {
   toIso,
 } from "@clawdentity/sdk";
 import { WebSocket as NodeWebSocket } from "ws";
-import { ConnectorClient, type ConnectorWebSocket } from "./client.js";
+import {
+  ConnectorClient,
+  type ConnectorOutboundQueuePersistence,
+  type ConnectorWebSocket,
+} from "./client.js";
 import {
   AGENT_ACCESS_HEADER,
   DEFAULT_CONNECTOR_BASE_URL,
+  DEFAULT_CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS,
+  DEFAULT_CONNECTOR_INBOUND_EVENTS_MAX_BYTES,
+  DEFAULT_CONNECTOR_INBOUND_EVENTS_MAX_FILES,
   DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_BYTES,
   DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_MESSAGES,
   DEFAULT_CONNECTOR_INBOUND_REPLAY_BATCH_SIZE,
@@ -42,6 +52,7 @@ import {
   DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
   DEFAULT_OPENCLAW_HOOK_PATH,
 } from "./constants.js";
+import { type EnqueueFrame, enqueueFrameSchema } from "./frames.js";
 import {
   type ConnectorInboundInboxSnapshot,
   createConnectorInboundInbox,
@@ -81,14 +92,26 @@ export type ConnectorRuntimeHandle = {
 };
 
 type OutboundRelayRequest = {
+  conversationId?: string;
   payload: unknown;
   peer: string;
   peerDid: string;
   peerProxyUrl: string;
+  replyTo?: string;
+};
+
+type OutboundDeliveryReceiptStatus = "processed_by_openclaw" | "dead_lettered";
+
+type TrustedReceiptTargets = {
+  byAgentDid: Map<string, string>;
+  origins: Set<string>;
 };
 
 const REGISTRY_AUTH_FILENAME = "registry-auth.json";
+const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
 const AGENTS_DIR_NAME = "agents";
+const OUTBOUND_QUEUE_DIR_NAME = "outbound-queue";
+const OUTBOUND_QUEUE_FILENAME = "queue.json";
 const REFRESH_SINGLE_FLIGHT_PREFIX = "connector-runtime";
 const NONCE_SIZE = 16;
 const MAX_OUTBOUND_BODY_BYTES = 1024 * 1024;
@@ -108,6 +131,27 @@ function parseRequiredString(value: unknown, field: string): string {
   }
 
   return value.trim();
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseOptionalProxyOrigin(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+
+  try {
+    return new URL(value.trim()).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function normalizeOutboundBaseUrl(baseUrlInput: string | undefined): URL {
@@ -194,6 +238,17 @@ function toOpenclawHookUrl(baseUrl: string, hookPath: string): string {
   return new URL(normalizedHookPath, normalizedBase).toString();
 }
 
+function toHttpOriginFromWebSocketUrl(value: URL): string {
+  const normalized = new URL(value.toString());
+  if (normalized.protocol === "wss:") {
+    normalized.protocol = "https:";
+  } else if (normalized.protocol === "ws:") {
+    normalized.protocol = "http:";
+  }
+
+  return normalized.origin;
+}
+
 function parsePositiveIntEnv(
   key: string,
   fallback: number,
@@ -232,6 +287,9 @@ class LocalOpenclawDeliveryError extends Error {
 
 type InboundReplayPolicy = {
   batchSize: number;
+  deadLetterNonRetryableMaxAttempts: number;
+  eventsMaxBytes: number;
+  eventsMaxFiles: number;
   inboxMaxBytes: number;
   inboxMaxMessages: number;
   replayIntervalMs: number;
@@ -251,7 +309,7 @@ type InboundReplayStatus = {
 type InboundReplayView = {
   lastReplayAt?: string;
   lastReplayError?: string;
-  pending: ConnectorInboundInboxSnapshot;
+  snapshot: ConnectorInboundInboxSnapshot;
   replayerActive: boolean;
   openclawHook: {
     lastAttemptAt?: string;
@@ -266,6 +324,18 @@ function loadInboundReplayPolicy(): InboundReplayPolicy {
   );
 
   return {
+    deadLetterNonRetryableMaxAttempts: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS",
+      DEFAULT_CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS,
+    ),
+    eventsMaxBytes: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_EVENTS_MAX_BYTES",
+      DEFAULT_CONNECTOR_INBOUND_EVENTS_MAX_BYTES,
+    ),
+    eventsMaxFiles: parsePositiveIntEnv(
+      "CONNECTOR_INBOUND_EVENTS_MAX_FILES",
+      DEFAULT_CONNECTOR_INBOUND_EVENTS_MAX_FILES,
+    ),
     inboxMaxMessages: parsePositiveIntEnv(
       "CONNECTOR_INBOUND_INBOX_MAX_MESSAGES",
       DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_MESSAGES,
@@ -416,11 +486,27 @@ function parseOutboundRelayRequest(payload: unknown): OutboundRelayRequest {
     });
   }
 
+  const replyTo = parseOptionalString(payload.replyTo);
+  if (replyTo !== undefined) {
+    try {
+      new URL(replyTo);
+    } catch {
+      throw new AppError({
+        code: "CONNECTOR_OUTBOUND_INVALID_REQUEST",
+        message: "Outbound relay replyTo must be a valid URL",
+        status: 400,
+        expose: true,
+      });
+    }
+  }
+
   return {
     peer: parseRequiredString(payload.peer, "peer"),
     peerDid: parseRequiredString(payload.peerDid, "peerDid"),
     peerProxyUrl: parseRequiredString(payload.peerProxyUrl, "peerProxyUrl"),
     payload: payload.payload,
+    conversationId: parseOptionalString(payload.conversationId),
+    replyTo,
   };
 }
 
@@ -591,6 +677,89 @@ async function readRegistryAuthFromDisk(input: {
   return auth;
 }
 
+function resolveOutboundQueuePath(input: {
+  agentName: string;
+  configDir: string;
+}): string {
+  return join(
+    input.configDir,
+    AGENTS_DIR_NAME,
+    input.agentName,
+    OUTBOUND_QUEUE_DIR_NAME,
+    OUTBOUND_QUEUE_FILENAME,
+  );
+}
+
+function createOutboundQueuePersistence(input: {
+  agentName: string;
+  configDir: string;
+  logger: Logger;
+}): ConnectorOutboundQueuePersistence {
+  const queuePath = resolveOutboundQueuePath({
+    configDir: input.configDir,
+    agentName: input.agentName,
+  });
+
+  const load = async (): Promise<EnqueueFrame[]> => {
+    let raw: string;
+    try {
+      raw = await readFile(queuePath, "utf8");
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        (error as { code?: string }).code === "ENOENT"
+      ) {
+        return [];
+      }
+
+      input.logger.warn("connector.outbound.persistence_read_failed", {
+        queuePath,
+        reason: sanitizeErrorReason(error),
+      });
+      return [];
+    }
+
+    if (raw.trim().length === 0) {
+      return [];
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      input.logger.warn("connector.outbound.persistence_invalid_json", {
+        queuePath,
+        reason: sanitizeErrorReason(error),
+      });
+      return [];
+    }
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    const frames: EnqueueFrame[] = [];
+    for (const candidate of parsed) {
+      const parsedFrame = enqueueFrameSchema.safeParse(candidate);
+      if (parsedFrame.success) {
+        frames.push(parsedFrame.data);
+      }
+    }
+    return frames;
+  };
+
+  const save = async (frames: EnqueueFrame[]): Promise<void> => {
+    await mkdir(dirname(queuePath), { recursive: true });
+    const tmpPath = `${queuePath}.tmp-${nowUtcMs()}-${Math.random().toString(16).slice(2)}`;
+    await writeFile(tmpPath, `${JSON.stringify(frames, null, 2)}\n`, "utf8");
+    await rename(tmpPath, queuePath);
+  };
+
+  return { load, save };
+}
+
 async function readRequestJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -624,6 +793,24 @@ async function readRequestJson(req: IncomingMessage): Promise<unknown> {
       expose: true,
     });
   }
+}
+
+function parseRequestIds(value: unknown): string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((item) => (typeof item === "string" ? item.trim() : ""))
+        .filter((item) => item.length > 0),
+    ),
+  );
 }
 
 function writeJson(
@@ -665,6 +852,125 @@ async function buildUpgradeHeaders(input: {
     [AGENT_ACCESS_HEADER]: input.accessToken,
     ...signed.headers,
   };
+}
+
+async function loadTrustedReceiptTargets(input: {
+  configDir: string;
+  logger: Logger;
+}): Promise<TrustedReceiptTargets> {
+  const trustedReceiptTargets: TrustedReceiptTargets = {
+    origins: new Set<string>(),
+    byAgentDid: new Map<string, string>(),
+  };
+
+  const relayRuntimeConfigPath = join(
+    input.configDir,
+    OPENCLAW_RELAY_RUNTIME_FILE_NAME,
+  );
+  let relayRuntimeRaw: string;
+  try {
+    relayRuntimeRaw = await readFile(relayRuntimeConfigPath, "utf8");
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "ENOENT"
+    ) {
+      return trustedReceiptTargets;
+    }
+
+    input.logger.warn("connector.delivery_receipt.runtime_config_read_failed", {
+      relayRuntimeConfigPath,
+      reason: sanitizeErrorReason(error),
+    });
+    return trustedReceiptTargets;
+  }
+
+  let relayRuntimeParsed: unknown;
+  try {
+    relayRuntimeParsed = JSON.parse(relayRuntimeRaw);
+  } catch (error) {
+    input.logger.warn(
+      "connector.delivery_receipt.runtime_config_invalid_json",
+      {
+        relayRuntimeConfigPath,
+        reason: sanitizeErrorReason(error),
+      },
+    );
+    return trustedReceiptTargets;
+  }
+
+  if (!isRecord(relayRuntimeParsed)) {
+    return trustedReceiptTargets;
+  }
+
+  const relayTransformPeersPathRaw =
+    typeof relayRuntimeParsed.relayTransformPeersPath === "string" &&
+    relayRuntimeParsed.relayTransformPeersPath.trim().length > 0
+      ? relayRuntimeParsed.relayTransformPeersPath.trim()
+      : undefined;
+  if (!relayTransformPeersPathRaw) {
+    return trustedReceiptTargets;
+  }
+
+  const relayTransformPeersPath = isAbsolute(relayTransformPeersPathRaw)
+    ? relayTransformPeersPathRaw
+    : join(input.configDir, relayTransformPeersPathRaw);
+
+  let relayTransformPeersRaw: string;
+  try {
+    relayTransformPeersRaw = await readFile(relayTransformPeersPath, "utf8");
+  } catch (error) {
+    input.logger.warn("connector.delivery_receipt.peers_snapshot_read_failed", {
+      relayTransformPeersPath,
+      reason: sanitizeErrorReason(error),
+    });
+    return trustedReceiptTargets;
+  }
+
+  let relayTransformPeersParsed: unknown;
+  try {
+    relayTransformPeersParsed = JSON.parse(relayTransformPeersRaw);
+  } catch (error) {
+    input.logger.warn(
+      "connector.delivery_receipt.peers_snapshot_invalid_json",
+      {
+        relayTransformPeersPath,
+        reason: sanitizeErrorReason(error),
+      },
+    );
+    return trustedReceiptTargets;
+  }
+
+  if (!isRecord(relayTransformPeersParsed)) {
+    return trustedReceiptTargets;
+  }
+
+  const peersValue = relayTransformPeersParsed.peers;
+  if (!isRecord(peersValue)) {
+    return trustedReceiptTargets;
+  }
+
+  for (const peerValue of Object.values(peersValue)) {
+    if (!isRecord(peerValue)) {
+      continue;
+    }
+
+    const agentDid =
+      typeof peerValue.did === "string" && peerValue.did.trim().length > 0
+        ? peerValue.did.trim()
+        : undefined;
+    const origin = parseOptionalProxyOrigin(peerValue.proxyUrl);
+    if (!agentDid || !origin) {
+      continue;
+    }
+
+    trustedReceiptTargets.origins.add(origin);
+    trustedReceiptTargets.byAgentDid.set(agentDid, origin);
+  }
+
+  return trustedReceiptTargets;
 }
 
 export async function startConnectorRuntime(
@@ -733,14 +1039,27 @@ export async function startConnectorRuntime(
 
   const wsUrl = normalizeWebSocketUrl(input.proxyWebsocketUrl);
   const wsParsed = new URL(wsUrl);
+  const defaultReceiptCallbackUrl = new URL(
+    RELAY_DELIVERY_RECEIPTS_PATH.slice(1),
+    `${toHttpOriginFromWebSocketUrl(wsParsed)}/`,
+  ).toString();
+  const defaultReceiptCallbackOrigin = new URL(defaultReceiptCallbackUrl)
+    .origin;
   const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
   const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
   const openclawHookToken = resolveOpenclawHookToken(input.openclawHookToken);
   const openclawHookUrl = toOpenclawHookUrl(openclawBaseUrl, openclawHookPath);
   const inboundReplayPolicy = loadInboundReplayPolicy();
+  const trustedReceiptTargets = await loadTrustedReceiptTargets({
+    configDir: input.configDir,
+    logger,
+  });
+  trustedReceiptTargets.origins.add(defaultReceiptCallbackOrigin);
   const inboundInbox = createConnectorInboundInbox({
     configDir: input.configDir,
     agentName: input.agentName,
+    eventsMaxBytes: inboundReplayPolicy.eventsMaxBytes,
+    eventsMaxFiles: inboundReplayPolicy.eventsMaxFiles,
     maxPendingMessages: inboundReplayPolicy.inboxMaxMessages,
     maxPendingBytes: inboundReplayPolicy.inboxMaxBytes,
   });
@@ -774,54 +1093,118 @@ export async function startConnectorRuntime(
         nowMs: nowUtcMs(),
         limit: inboundReplayPolicy.batchSize,
       });
+      if (dueItems.length === 0) {
+        return;
+      }
+
+      const laneByKey = new Map<string, typeof dueItems>();
       for (const pending of dueItems) {
-        inboundReplayStatus.lastAttemptAt = nowIso();
-        try {
-          await deliverToOpenclawHook({
-            fetchImpl,
-            openclawHookUrl,
-            openclawHookToken,
-            requestId: pending.requestId,
-            payload: pending.payload,
-          });
-          await inboundInbox.markDelivered(pending.requestId);
-          inboundReplayStatus.lastReplayAt = nowIso();
-          inboundReplayStatus.lastReplayError = undefined;
-          inboundReplayStatus.lastAttemptStatus = "ok";
-          logger.info("connector.inbound.replay_succeeded", {
-            requestId: pending.requestId,
-            attemptCount: pending.attemptCount + 1,
-          });
-        } catch (error) {
-          const reason = sanitizeErrorReason(error);
-          const retryable =
-            error instanceof LocalOpenclawDeliveryError
-              ? error.retryable
-              : true;
-          const nextAttemptAt = toIso(
-            nowUtcMs() +
-              computeReplayDelayMs({
-                attemptCount: pending.attemptCount + 1,
-                policy: inboundReplayPolicy,
-              }) *
-                (retryable ? 1 : 10),
-          );
-          await inboundInbox.markReplayFailure({
-            requestId: pending.requestId,
-            errorMessage: reason,
-            nextAttemptAt,
-          });
-          inboundReplayStatus.lastReplayError = reason;
-          inboundReplayStatus.lastAttemptStatus = "failed";
-          logger.warn("connector.inbound.replay_failed", {
-            requestId: pending.requestId,
-            attemptCount: pending.attemptCount + 1,
-            retryable,
-            nextAttemptAt,
-            reason,
-          });
+        const laneKey =
+          pending.conversationId !== undefined
+            ? `conversation:${pending.conversationId}`
+            : "legacy-best-effort";
+        const lane = laneByKey.get(laneKey);
+        if (lane) {
+          lane.push(pending);
+        } else {
+          laneByKey.set(laneKey, [pending]);
         }
       }
+
+      await Promise.all(
+        Array.from(laneByKey.values()).map(async (laneItems) => {
+          for (const pending of laneItems) {
+            inboundReplayStatus.lastAttemptAt = nowIso();
+            try {
+              await deliverToOpenclawHook({
+                fetchImpl,
+                openclawHookUrl,
+                openclawHookToken,
+                requestId: pending.requestId,
+                payload: pending.payload,
+              });
+              await inboundInbox.markDelivered(pending.requestId);
+              inboundReplayStatus.lastReplayAt = nowIso();
+              inboundReplayStatus.lastReplayError = undefined;
+              inboundReplayStatus.lastAttemptStatus = "ok";
+              logger.info("connector.inbound.replay_succeeded", {
+                requestId: pending.requestId,
+                attemptCount: pending.attemptCount + 1,
+                conversationId: pending.conversationId,
+              });
+
+              if (pending.replyTo) {
+                try {
+                  await postDeliveryReceipt({
+                    requestId: pending.requestId,
+                    senderAgentDid: pending.fromAgentDid,
+                    recipientAgentDid: pending.toAgentDid,
+                    replyTo: pending.replyTo,
+                    status: "processed_by_openclaw",
+                  });
+                } catch (error) {
+                  logger.warn("connector.inbound.delivery_receipt_failed", {
+                    requestId: pending.requestId,
+                    reason: sanitizeErrorReason(error),
+                    status: "processed_by_openclaw",
+                  });
+                }
+              }
+            } catch (error) {
+              const reason = sanitizeErrorReason(error);
+              const retryable =
+                error instanceof LocalOpenclawDeliveryError
+                  ? error.retryable
+                  : true;
+              const nextAttemptAt = toIso(
+                nowUtcMs() +
+                  computeReplayDelayMs({
+                    attemptCount: pending.attemptCount + 1,
+                    policy: inboundReplayPolicy,
+                  }) *
+                    (retryable ? 1 : 10),
+              );
+              const markResult = await inboundInbox.markReplayFailure({
+                requestId: pending.requestId,
+                errorMessage: reason,
+                nextAttemptAt,
+                retryable,
+                maxNonRetryableAttempts:
+                  inboundReplayPolicy.deadLetterNonRetryableMaxAttempts,
+              });
+              inboundReplayStatus.lastReplayError = reason;
+              inboundReplayStatus.lastAttemptStatus = "failed";
+              logger.warn("connector.inbound.replay_failed", {
+                requestId: pending.requestId,
+                attemptCount: pending.attemptCount + 1,
+                retryable,
+                nextAttemptAt,
+                movedToDeadLetter: markResult.movedToDeadLetter,
+                reason,
+              });
+
+              if (markResult.movedToDeadLetter && pending.replyTo) {
+                try {
+                  await postDeliveryReceipt({
+                    requestId: pending.requestId,
+                    senderAgentDid: pending.fromAgentDid,
+                    recipientAgentDid: pending.toAgentDid,
+                    replyTo: pending.replyTo,
+                    status: "dead_lettered",
+                    reason,
+                  });
+                } catch (receiptError) {
+                  logger.warn("connector.inbound.delivery_receipt_failed", {
+                    requestId: pending.requestId,
+                    reason: sanitizeErrorReason(receiptError),
+                    status: "dead_lettered",
+                  });
+                }
+              }
+            }
+          }
+        }),
+      );
     } finally {
       replayInFlight = false;
       inboundReplayStatus.replayerActive = false;
@@ -829,9 +1212,9 @@ export async function startConnectorRuntime(
   };
 
   const readInboundReplayView = async (): Promise<InboundReplayView> => {
-    const pending = await inboundInbox.getSnapshot();
+    const snapshot = await inboundInbox.getSnapshot();
     return {
-      pending,
+      snapshot,
       replayerActive: inboundReplayStatus.replayerActive || replayInFlight,
       lastReplayAt: inboundReplayStatus.lastReplayAt,
       lastReplayError: inboundReplayStatus.lastReplayError,
@@ -842,6 +1225,12 @@ export async function startConnectorRuntime(
       },
     };
   };
+
+  const outboundQueuePersistence = createOutboundQueuePersistence({
+    configDir: input.configDir,
+    agentName: input.agentName,
+    logger,
+  });
 
   const connectorClient = new ConnectorClient({
     connectorUrl: wsParsed.toString(),
@@ -870,6 +1259,7 @@ export async function startConnectorRuntime(
         }
       },
     },
+    outboundQueuePersistence,
     inboundDeliverHandler: async (frame) => {
       const persisted = await inboundInbox.enqueue(frame);
       if (!persisted.accepted) {
@@ -898,15 +1288,21 @@ export async function startConnectorRuntime(
   const outboundBaseUrl = normalizeOutboundBaseUrl(input.outboundBaseUrl);
   const outboundPath = normalizeOutboundPath(input.outboundPath);
   const statusPath = DEFAULT_CONNECTOR_STATUS_PATH;
+  const deadLetterPath = "/v1/inbound/dead-letter";
+  const deadLetterReplayPath = "/v1/inbound/dead-letter/replay";
+  const deadLetterPurgePath = "/v1/inbound/dead-letter/purge";
   const outboundUrl = new URL(outboundPath, outboundBaseUrl).toString();
 
   const relayToPeer = async (request: OutboundRelayRequest): Promise<void> => {
     await syncAuthFromDisk();
     const peerUrl = new URL(request.peerProxyUrl);
+    trustedReceiptTargets.origins.add(peerUrl.origin);
+    trustedReceiptTargets.byAgentDid.set(request.peerDid, peerUrl.origin);
     const body = JSON.stringify(request.payload ?? {});
     const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}`;
 
     const performRelay = async (auth: AgentAuthBundle): Promise<void> => {
+      const replyTo = request.replyTo ?? defaultReceiptCallbackUrl;
       const unixSeconds = Math.floor(nowUtcMs() / 1000).toString();
       const nonce = encodeBase64url(randomBytes(NONCE_SIZE));
       const signed = await signHttpRequest({
@@ -925,6 +1321,10 @@ export async function startConnectorRuntime(
           "Content-Type": "application/json",
           [AGENT_ACCESS_HEADER]: auth.accessToken,
           [RELAY_RECIPIENT_AGENT_DID_HEADER]: request.peerDid,
+          ...(request.conversationId
+            ? { [RELAY_CONVERSATION_ID_HEADER]: request.conversationId }
+            : {}),
+          [RELAY_DELIVERY_RECEIPT_URL_HEADER]: replyTo,
           ...signed.headers,
         },
         body,
@@ -975,6 +1375,125 @@ export async function startConnectorRuntime(
     });
   };
 
+  const postDeliveryReceipt = async (inputReceipt: {
+    reason?: string;
+    recipientAgentDid: string;
+    replyTo: string;
+    requestId: string;
+    senderAgentDid: string;
+    status: OutboundDeliveryReceiptStatus;
+  }): Promise<void> => {
+    await syncAuthFromDisk();
+    const receiptUrl = new URL(inputReceipt.replyTo);
+    if (receiptUrl.pathname !== RELAY_DELIVERY_RECEIPTS_PATH) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+        message: "Delivery receipt callback target is invalid",
+        status: 400,
+      });
+    }
+    const expectedSenderOrigin = trustedReceiptTargets.byAgentDid.get(
+      inputReceipt.senderAgentDid,
+    );
+    if (
+      expectedSenderOrigin !== undefined &&
+      receiptUrl.origin !== expectedSenderOrigin
+    ) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
+        message: "Delivery receipt callback target is untrusted",
+        status: 400,
+      });
+    }
+    if (
+      expectedSenderOrigin === undefined &&
+      !trustedReceiptTargets.origins.has(receiptUrl.origin)
+    ) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
+        message: "Delivery receipt callback target is untrusted",
+        status: 400,
+      });
+    }
+    const body = JSON.stringify({
+      requestId: inputReceipt.requestId,
+      senderAgentDid: inputReceipt.senderAgentDid,
+      recipientAgentDid: inputReceipt.recipientAgentDid,
+      status: inputReceipt.status,
+      reason: inputReceipt.reason,
+      processedAt: nowIso(),
+    });
+    const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}:delivery-receipt`;
+
+    const performReceipt = async (auth: AgentAuthBundle): Promise<void> => {
+      const unixSeconds = Math.floor(nowUtcMs() / 1000).toString();
+      const nonce = encodeBase64url(randomBytes(NONCE_SIZE));
+      const signed = await signHttpRequest({
+        method: "POST",
+        pathWithQuery: toPathWithQuery(receiptUrl),
+        timestamp: unixSeconds,
+        nonce,
+        body: new TextEncoder().encode(body),
+        secretKey,
+      });
+
+      const response = await fetchImpl(receiptUrl.toString(), {
+        method: "POST",
+        headers: {
+          Authorization: `Claw ${input.credentials.ait}`,
+          "Content-Type": "application/json",
+          [AGENT_ACCESS_HEADER]: auth.accessToken,
+          ...signed.headers,
+        },
+        body,
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new AppError({
+            code: "OPENCLAW_RELAY_AGENT_AUTH_REJECTED",
+            message:
+              "Delivery receipt callback rejected agent auth credentials",
+            status: 401,
+            expose: true,
+          });
+        }
+
+        throw new AppError({
+          code: "CONNECTOR_DELIVERY_RECEIPT_FAILED",
+          message: "Delivery receipt callback request failed",
+          status: 502,
+        });
+      }
+    };
+
+    await executeWithAgentAuthRefreshRetry({
+      key: refreshKey,
+      shouldRetry: isRetryableRelayAuthError,
+      getAuth: async () => {
+        await syncAuthFromDisk();
+        return currentAuth;
+      },
+      persistAuth: async (nextAuth) => {
+        currentAuth = nextAuth;
+        await writeRegistryAuthAtomic({
+          configDir: input.configDir,
+          agentName: input.agentName,
+          auth: nextAuth,
+        });
+      },
+      refreshAuth: async (auth) =>
+        refreshAgentAuthWithClawProof({
+          registryUrl: input.registryUrl,
+          ait: input.credentials.ait,
+          secretKey,
+          refreshToken: auth.refreshToken,
+          fetchImpl,
+        }),
+      perform: performReceipt,
+    });
+  };
+
   const server = createServer(async (req, res) => {
     const requestPath = req.url
       ? new URL(req.url, outboundBaseUrl).pathname
@@ -1003,25 +1522,98 @@ export async function startConnectorRuntime(
           },
           outboundUrl,
           websocketUrl: wsUrl,
-          websocketConnected: connectorClient.isConnected(),
+          websocket: {
+            connected: connectorClient.isConnected(),
+          },
         });
         return;
       }
+      const clientMetrics = connectorClient.getMetricsSnapshot();
       writeJson(res, 200, {
         status: "ok",
         outboundUrl,
         websocketUrl: wsUrl,
-        websocketConnected: connectorClient.isConnected(),
-        inboundInbox: {
-          pendingCount: inboundReplayView.pending.pendingCount,
-          pendingBytes: inboundReplayView.pending.pendingBytes,
-          oldestPendingAt: inboundReplayView.pending.oldestPendingAt,
-          nextAttemptAt: inboundReplayView.pending.nextAttemptAt,
-          replayerActive: inboundReplayView.replayerActive,
-          lastReplayAt: inboundReplayView.lastReplayAt,
-          lastReplayError: inboundReplayView.lastReplayError,
+        websocket: {
+          ...clientMetrics.connection,
         },
-        openclawHook: inboundReplayView.openclawHook,
+        inbound: {
+          pending: inboundReplayView.snapshot.pending,
+          deadLetter: inboundReplayView.snapshot.deadLetter,
+          replay: {
+            replayerActive: inboundReplayView.replayerActive,
+            lastReplayAt: inboundReplayView.lastReplayAt,
+            lastReplayError: inboundReplayView.lastReplayError,
+          },
+          openclawHook: inboundReplayView.openclawHook,
+        },
+        outbound: {
+          queue: {
+            pendingCount: connectorClient.getQueuedOutboundCount(),
+          },
+        },
+        metrics: {
+          heartbeat: clientMetrics.heartbeat,
+          inboundDelivery: clientMetrics.inboundDelivery,
+          outboundQueue: clientMetrics.outboundQueue,
+        },
+      });
+      return;
+    }
+
+    if (requestPath === deadLetterPath) {
+      if (req.method !== "GET") {
+        res.statusCode = 405;
+        res.setHeader("allow", "GET");
+        writeJson(res, 405, { error: "Method Not Allowed" });
+        return;
+      }
+
+      const deadLetterItems = await inboundInbox.listDeadLetter();
+      writeJson(res, 200, {
+        status: "ok",
+        count: deadLetterItems.length,
+        items: deadLetterItems,
+      });
+      return;
+    }
+
+    if (requestPath === deadLetterReplayPath) {
+      if (req.method !== "POST") {
+        res.statusCode = 405;
+        res.setHeader("allow", "POST");
+        writeJson(res, 405, { error: "Method Not Allowed" });
+        return;
+      }
+
+      const body = await readRequestJson(req);
+      const requestIds = isRecord(body)
+        ? parseRequestIds(body.requestIds)
+        : undefined;
+      const replayResult = await inboundInbox.replayDeadLetter({ requestIds });
+      void replayPendingInboundMessages();
+      writeJson(res, 200, {
+        status: "ok",
+        replayedCount: replayResult.replayedCount,
+      });
+      return;
+    }
+
+    if (requestPath === deadLetterPurgePath) {
+      if (req.method !== "POST") {
+        res.statusCode = 405;
+        res.setHeader("allow", "POST");
+        writeJson(res, 405, { error: "Method Not Allowed" });
+        return;
+      }
+
+      const body = await readRequestJson(req);
+      const requestIds = isRecord(body)
+        ? parseRequestIds(body.requestIds)
+        : undefined;
+      const purgeResult = await inboundInbox.purgeDeadLetter({ requestIds });
+      writeJson(res, 200, {
+        status: "ok",
+        purgedCount: purgeResult.purgedCount,
       });
       return;
     }

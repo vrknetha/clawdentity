@@ -65,6 +65,40 @@ export type ConnectorClientHooks = {
   onDeliverFailed?: (frame: DeliverFrame, error: unknown) => void;
 };
 
+export type ConnectorOutboundQueuePersistence = {
+  load: () => Promise<EnqueueFrame[]>;
+  save: (frames: EnqueueFrame[]) => Promise<void>;
+};
+
+export type ConnectorClientMetricsSnapshot = {
+  connection: {
+    connectAttempts: number;
+    connected: boolean;
+    reconnectCount: number;
+    uptimeMs: number;
+    lastConnectedAt?: string;
+  };
+  heartbeat: {
+    avgRttMs?: number;
+    maxRttMs?: number;
+    lastRttMs?: number;
+    pendingAckCount: number;
+    sampleCount: number;
+  };
+  inboundDelivery: {
+    avgAckLatencyMs?: number;
+    maxAckLatencyMs?: number;
+    lastAckLatencyMs?: number;
+    sampleCount: number;
+  };
+  outboundQueue: {
+    currentDepth: number;
+    loadedFromPersistence: boolean;
+    maxDepth: number;
+    persistenceEnabled: boolean;
+  };
+};
+
 export type ConnectorClientOptions = {
   connectorUrl: string;
   connectionHeaders?: Record<string, string>;
@@ -94,6 +128,7 @@ export type ConnectorClientOptions = {
   fetchImpl?: typeof fetch;
   logger?: Logger;
   hooks?: ConnectorClientHooks;
+  outboundQueuePersistence?: ConnectorOutboundQueuePersistence;
   inboundDeliverHandler?:
     | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
     | undefined;
@@ -281,6 +316,9 @@ export class ConnectorClient {
   private readonly fetchImpl: typeof fetch;
   private readonly logger: Logger;
   private readonly hooks: ConnectorClientHooks;
+  private readonly outboundQueuePersistence:
+    | ConnectorOutboundQueuePersistence
+    | undefined;
   private readonly inboundDeliverHandler:
     | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
     | undefined;
@@ -295,6 +333,23 @@ export class ConnectorClient {
   private heartbeatAckTimeout: ReturnType<typeof setTimeout> | undefined;
   private readonly pendingHeartbeatAcks = new Map<string, number>();
   private reconnectAttempt = 0;
+  private reconnectCount = 0;
+  private connectAttempts = 0;
+  private connectedSinceMs: number | undefined;
+  private accumulatedConnectedMs = 0;
+  private lastConnectedAtIso: string | undefined;
+  private heartbeatRttSampleCount = 0;
+  private heartbeatRttTotalMs = 0;
+  private heartbeatRttMaxMs = 0;
+  private heartbeatRttLastMs: number | undefined;
+  private inboundAckLatencySampleCount = 0;
+  private inboundAckLatencyTotalMs = 0;
+  private inboundAckLatencyMaxMs = 0;
+  private inboundAckLatencyLastMs: number | undefined;
+  private maxObservedOutboundQueueDepth = 0;
+  private outboundQueueLoaded = false;
+  private outboundQueueLoadPromise: Promise<void> | undefined;
+  private outboundQueueSaveChain: Promise<void> = Promise.resolve();
   private authUpgradeImmediateRetryUsed = false;
   private started = false;
   private readonly outboundQueue: EnqueueFrame[] = [];
@@ -367,6 +422,7 @@ export class ConnectorClient {
       options.logger ??
       createLogger({ service: "connector", module: "client" });
     this.hooks = options.hooks ?? {};
+    this.outboundQueuePersistence = options.outboundQueuePersistence;
     this.inboundDeliverHandler = options.inboundDeliverHandler;
     this.now = options.now ?? Date.now;
     this.random = options.random ?? Math.random;
@@ -384,6 +440,9 @@ export class ConnectorClient {
     }
 
     this.started = true;
+    if (this.outboundQueuePersistence !== undefined) {
+      void this.ensureOutboundQueueLoaded();
+    }
     void this.connectSocket();
   }
 
@@ -407,6 +466,57 @@ export class ConnectorClient {
     return this.outboundQueue.length;
   }
 
+  getMetricsSnapshot(): ConnectorClientMetricsSnapshot {
+    const nowMs = this.now();
+    const uptimeMs =
+      this.accumulatedConnectedMs +
+      (this.connectedSinceMs === undefined ? 0 : nowMs - this.connectedSinceMs);
+
+    return {
+      connection: {
+        connectAttempts: this.connectAttempts,
+        connected: this.isConnected(),
+        reconnectCount: this.reconnectCount,
+        uptimeMs: Math.max(0, uptimeMs),
+        lastConnectedAt: this.lastConnectedAtIso,
+      },
+      heartbeat: {
+        pendingAckCount: this.pendingHeartbeatAcks.size,
+        sampleCount: this.heartbeatRttSampleCount,
+        lastRttMs: this.heartbeatRttLastMs,
+        maxRttMs:
+          this.heartbeatRttSampleCount > 0 ? this.heartbeatRttMaxMs : undefined,
+        avgRttMs:
+          this.heartbeatRttSampleCount > 0
+            ? Math.floor(
+                this.heartbeatRttTotalMs / this.heartbeatRttSampleCount,
+              )
+            : undefined,
+      },
+      inboundDelivery: {
+        sampleCount: this.inboundAckLatencySampleCount,
+        lastAckLatencyMs: this.inboundAckLatencyLastMs,
+        maxAckLatencyMs:
+          this.inboundAckLatencySampleCount > 0
+            ? this.inboundAckLatencyMaxMs
+            : undefined,
+        avgAckLatencyMs:
+          this.inboundAckLatencySampleCount > 0
+            ? Math.floor(
+                this.inboundAckLatencyTotalMs /
+                  this.inboundAckLatencySampleCount,
+              )
+            : undefined,
+      },
+      outboundQueue: {
+        currentDepth: this.outboundQueue.length,
+        maxDepth: this.maxObservedOutboundQueueDepth,
+        loadedFromPersistence: this.outboundQueueLoaded,
+        persistenceEnabled: this.outboundQueuePersistence !== undefined,
+      },
+    };
+  }
+
   enqueueOutbound(input: ConnectorOutboundEnqueueInput): EnqueueFrame {
     const frame = enqueueFrameSchema.parse({
       v: CONNECTOR_FRAME_VERSION,
@@ -420,12 +530,18 @@ export class ConnectorClient {
     });
 
     this.outboundQueue.push(frame);
+    this.recordOutboundQueueDepth();
+    this.persistOutboundQueue();
     this.flushOutboundQueue();
     return frame;
   }
 
   private async connectSocket(): Promise<void> {
     this.clearReconnectTimeout();
+    this.connectAttempts += 1;
+    if (this.outboundQueuePersistence !== undefined) {
+      await this.ensureOutboundQueueLoaded();
+    }
 
     let connectionHeaders = this.connectionHeaders;
     if (this.connectionHeadersProvider) {
@@ -468,6 +584,8 @@ export class ConnectorClient {
       this.clearHeartbeatTracking();
       this.reconnectAttempt = 0;
       this.authUpgradeImmediateRetryUsed = false;
+      this.connectedSinceMs = this.now();
+      this.lastConnectedAtIso = this.makeTimestamp();
       this.logger.info("connector.websocket.connected", {
         url: this.connectorUrl,
       });
@@ -580,6 +698,7 @@ export class ConnectorClient {
     if (options?.incrementAttempt ?? true) {
       this.reconnectAttempt += 1;
     }
+    this.reconnectCount += 1;
 
     this.reconnectTimeout = setTimeout(() => {
       void this.connectSocket();
@@ -651,6 +770,13 @@ export class ConnectorClient {
     }
 
     this.socket = undefined;
+    if (this.connectedSinceMs !== undefined) {
+      this.accumulatedConnectedMs += Math.max(
+        0,
+        this.now() - this.connectedSinceMs,
+      );
+      this.connectedSinceMs = undefined;
+    }
     this.clearSocketState();
     return true;
   }
@@ -764,9 +890,16 @@ export class ConnectorClient {
   }
 
   private handleHeartbeatAckFrame(frame: HeartbeatAckFrame): void {
-    if (!this.pendingHeartbeatAcks.delete(frame.ackId)) {
+    const sentAtMs = this.pendingHeartbeatAcks.get(frame.ackId);
+    if (sentAtMs === undefined) {
       return;
     }
+    this.pendingHeartbeatAcks.delete(frame.ackId);
+    const rttMs = Math.max(0, this.now() - sentAtMs);
+    this.heartbeatRttSampleCount += 1;
+    this.heartbeatRttTotalMs += rttMs;
+    this.heartbeatRttMaxMs = Math.max(this.heartbeatRttMaxMs, rttMs);
+    this.heartbeatRttLastMs = rttMs;
 
     this.scheduleHeartbeatAckTimeoutCheck();
   }
@@ -849,7 +982,87 @@ export class ConnectorClient {
         return;
       }
       this.outboundQueue.shift();
+      this.persistOutboundQueue();
     }
+  }
+
+  private recordOutboundQueueDepth(): void {
+    this.maxObservedOutboundQueueDepth = Math.max(
+      this.maxObservedOutboundQueueDepth,
+      this.outboundQueue.length,
+    );
+  }
+
+  private persistOutboundQueue(): void {
+    if (this.outboundQueuePersistence === undefined) {
+      return;
+    }
+
+    this.outboundQueueSaveChain = this.outboundQueueSaveChain
+      .then(async () => {
+        await this.ensureOutboundQueueLoaded();
+        await this.outboundQueuePersistence?.save([...this.outboundQueue]);
+      })
+      .catch((error) => {
+        this.logger.warn("connector.outbound.persistence_save_failed", {
+          reason: sanitizeErrorReason(error),
+        });
+      });
+  }
+
+  private async ensureOutboundQueueLoaded(): Promise<void> {
+    if (this.outboundQueueLoaded) {
+      return;
+    }
+
+    if (this.outboundQueuePersistence === undefined) {
+      this.outboundQueueLoaded = true;
+      return;
+    }
+
+    if (this.outboundQueueLoadPromise !== undefined) {
+      await this.outboundQueueLoadPromise;
+      return;
+    }
+
+    this.outboundQueueLoadPromise = (async () => {
+      try {
+        const loadedFrames = await this.outboundQueuePersistence?.load();
+        if (!loadedFrames || loadedFrames.length === 0) {
+          return;
+        }
+
+        const existingIds = new Set(this.outboundQueue.map((item) => item.id));
+        const validLoadedFrames: EnqueueFrame[] = [];
+        for (const candidate of loadedFrames) {
+          const parsed = enqueueFrameSchema.safeParse(candidate);
+          if (!parsed.success) {
+            continue;
+          }
+          if (existingIds.has(parsed.data.id)) {
+            continue;
+          }
+          validLoadedFrames.push(parsed.data);
+          existingIds.add(parsed.data.id);
+        }
+
+        if (validLoadedFrames.length === 0) {
+          return;
+        }
+
+        this.outboundQueue.unshift(...validLoadedFrames);
+        this.recordOutboundQueueDepth();
+      } catch (error) {
+        this.logger.warn("connector.outbound.persistence_load_failed", {
+          reason: sanitizeErrorReason(error),
+        });
+      } finally {
+        this.outboundQueueLoaded = true;
+      }
+    })();
+
+    await this.outboundQueueLoadPromise;
+    this.flushOutboundQueue();
   }
 
   private sendFrame(frame: ConnectorFrame): boolean {
@@ -915,6 +1128,7 @@ export class ConnectorClient {
   }
 
   private async handleDeliverFrame(frame: DeliverFrame): Promise<void> {
+    const startedAtMs = this.now();
     if (this.inboundDeliverHandler !== undefined) {
       try {
         const result = await this.inboundDeliverHandler(frame);
@@ -940,6 +1154,7 @@ export class ConnectorClient {
             ),
           );
         }
+        this.recordInboundDeliveryAckLatency(this.now() - startedAtMs);
       } catch (error) {
         const ackFrame: DeliverAckFrame = {
           v: CONNECTOR_FRAME_VERSION,
@@ -952,6 +1167,7 @@ export class ConnectorClient {
         };
         this.sendFrame(ackFrame);
         this.hooks.onDeliverFailed?.(frame, error);
+        this.recordInboundDeliveryAckLatency(this.now() - startedAtMs);
       }
       return;
     }
@@ -969,6 +1185,7 @@ export class ConnectorClient {
 
       this.sendFrame(ackFrame);
       this.hooks.onDeliverSucceeded?.(frame);
+      this.recordInboundDeliveryAckLatency(this.now() - startedAtMs);
     } catch (error) {
       const ackFrame: DeliverAckFrame = {
         v: CONNECTOR_FRAME_VERSION,
@@ -982,7 +1199,19 @@ export class ConnectorClient {
 
       this.sendFrame(ackFrame);
       this.hooks.onDeliverFailed?.(frame, error);
+      this.recordInboundDeliveryAckLatency(this.now() - startedAtMs);
     }
+  }
+
+  private recordInboundDeliveryAckLatency(durationMs: number): void {
+    const latencyMs = Math.max(0, Math.floor(durationMs));
+    this.inboundAckLatencySampleCount += 1;
+    this.inboundAckLatencyTotalMs += latencyMs;
+    this.inboundAckLatencyMaxMs = Math.max(
+      this.inboundAckLatencyMaxMs,
+      latencyMs,
+    );
+    this.inboundAckLatencyLastMs = latencyMs;
   }
 
   private async deliverToLocalOpenclaw(frame: DeliverFrame): Promise<void> {

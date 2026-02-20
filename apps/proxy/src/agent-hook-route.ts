@@ -1,5 +1,7 @@
 import {
   parseDid,
+  RELAY_CONVERSATION_ID_HEADER,
+  RELAY_DELIVERY_RECEIPT_URL_HEADER,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
 import { AppError, type Logger, nowIso } from "@clawdentity/sdk";
@@ -147,6 +149,19 @@ function parseRecipientAgentDid(c: ProxyContext): string {
   return recipientDid;
 }
 
+function parseOptionalHeaderValue(
+  c: ProxyContext,
+  headerName: string,
+): string | undefined {
+  const value = c.req.header(headerName);
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function resolveDefaultSessionNamespace(
   c: ProxyContext,
 ): AgentRelaySessionNamespace | undefined {
@@ -213,11 +228,21 @@ export function createAgentHookHandler(
     }
 
     const requestId = c.get("requestId");
+    const conversationId = parseOptionalHeaderValue(
+      c,
+      RELAY_CONVERSATION_ID_HEADER,
+    );
+    const deliveryReceiptUrl = parseOptionalHeaderValue(
+      c,
+      RELAY_DELIVERY_RECEIPT_URL_HEADER,
+    );
     const relayInput: RelayDeliveryInput = {
       requestId,
       senderAgentDid: auth.agentDid,
       recipientAgentDid,
       payload,
+      conversationId,
+      replyTo: deliveryReceiptUrl,
     };
 
     const relaySession = sessionNamespace.get(

@@ -12,6 +12,8 @@ import { parseProxyConfig } from "./config.js";
 
 const CONNECTOR_AGENT_DID_HEADER = "x-claw-connector-agent-did";
 const RELAY_RPC_DELIVER_PATH = "/rpc/deliver-to-connector";
+const RELAY_RPC_GET_RECEIPT_PATH = "/rpc/get-delivery-receipt";
+const RELAY_RPC_RECORD_RECEIPT_PATH = "/rpc/record-delivery-receipt";
 const RELAY_HEARTBEAT_INTERVAL_MS = 30_000;
 const RELAY_HEARTBEAT_ACK_TIMEOUT_MS = 60_000;
 const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
@@ -32,13 +34,19 @@ type DurableObjectStateLike = {
 };
 
 export type RelayDeliveryInput = {
+  conversationId?: string;
   payload: unknown;
   recipientAgentDid: string;
+  replyTo?: string;
   requestId: string;
   senderAgentDid: string;
 };
 
-export type RelayDeliveryState = "delivered" | "queued";
+export type RelayDeliveryState =
+  | "delivered"
+  | "queued"
+  | "processed_by_openclaw"
+  | "dead_lettered";
 
 export type RelayDeliveryResult = {
   connectedSockets: number;
@@ -47,6 +55,24 @@ export type RelayDeliveryResult = {
   queueDepth: number;
   queued: boolean;
   state: RelayDeliveryState;
+};
+
+export type RelayReceiptRecordInput = {
+  reason?: string;
+  recipientAgentDid: string;
+  requestId: string;
+  senderAgentDid: string;
+  status: "processed_by_openclaw" | "dead_lettered";
+};
+
+export type RelayReceiptLookupInput = {
+  requestId: string;
+  senderAgentDid: string;
+};
+
+export type RelayReceiptLookupResult = {
+  found: boolean;
+  receipt?: RelayDeliveryReceipt;
 };
 
 export class RelaySessionDeliveryError extends Error {
@@ -75,6 +101,10 @@ export type AgentRelaySessionStub = {
   deliverToConnector?: (
     input: RelayDeliveryInput,
   ) => Promise<RelayDeliveryResult>;
+  getDeliveryReceipt?: (
+    input: RelayReceiptLookupInput,
+  ) => Promise<RelayReceiptLookupResult>;
+  recordDeliveryReceipt?: (input: RelayReceiptRecordInput) => Promise<void>;
   fetch: (request: Request) => Promise<Response>;
 };
 
@@ -97,14 +127,20 @@ type QueuedRelayDelivery = {
   nextAttemptAtMs: number;
   payload: unknown;
   recipientAgentDid: string;
+  replyTo?: string;
   requestId: string;
   senderAgentDid: string;
+  conversationId?: string;
 };
 
 type RelayDeliveryReceipt = {
   deliveryId: string;
   expiresAtMs: number;
+  recipientAgentDid: string;
+  reason?: string;
   requestId: string;
+  senderAgentDid: string;
+  statusUpdatedAt: string;
   state: RelayDeliveryState;
 };
 
@@ -114,6 +150,8 @@ type RelayQueueState = {
 };
 
 type RelayDeliveryPolicy = {
+  maxFrameBytes: number;
+  maxInFlightDeliveries: number;
   queueMaxMessagesPerAgent: number;
   queueTtlMs: number;
   retryInitialMs: number;
@@ -158,7 +196,17 @@ function toDeliverFrame(input: RelayDeliveryInput): DeliverFrame {
     fromAgentDid: input.senderAgentDid,
     toAgentDid: input.recipientAgentDid,
     payload: input.payload,
+    conversationId: input.conversationId,
+    replyTo: input.replyTo,
   };
+}
+
+function getWebSocketMessageBytes(message: string | ArrayBuffer): number {
+  if (typeof message === "string") {
+    return new TextEncoder().encode(message).byteLength;
+  }
+
+  return message.byteLength;
 }
 
 function parseDeliveryInput(value: unknown): RelayDeliveryInput {
@@ -175,11 +223,91 @@ function parseDeliveryInput(value: unknown): RelayDeliveryInput {
     throw new TypeError("Relay delivery input is invalid");
   }
 
+  if (
+    input.replyTo !== undefined &&
+    (typeof input.replyTo !== "string" || input.replyTo.trim().length === 0)
+  ) {
+    throw new TypeError("Relay delivery input is invalid");
+  }
+  if (typeof input.replyTo === "string") {
+    try {
+      new URL(input.replyTo);
+    } catch {
+      throw new TypeError("Relay delivery input is invalid");
+    }
+  }
+
   return {
     requestId: input.requestId,
     senderAgentDid: input.senderAgentDid,
     recipientAgentDid: input.recipientAgentDid,
     payload: input.payload,
+    conversationId:
+      typeof input.conversationId === "string" &&
+      input.conversationId.trim().length > 0
+        ? input.conversationId.trim()
+        : undefined,
+    replyTo:
+      typeof input.replyTo === "string" && input.replyTo.trim().length > 0
+        ? input.replyTo.trim()
+        : undefined,
+  };
+}
+
+function parseReceiptRecordInput(value: unknown): RelayReceiptRecordInput {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError("Relay receipt input must be an object");
+  }
+
+  const input = value as Partial<RelayReceiptRecordInput>;
+  if (
+    typeof input.requestId !== "string" ||
+    input.requestId.trim().length === 0 ||
+    typeof input.senderAgentDid !== "string" ||
+    input.senderAgentDid.trim().length === 0 ||
+    typeof input.recipientAgentDid !== "string" ||
+    input.recipientAgentDid.trim().length === 0
+  ) {
+    throw new TypeError("Relay receipt input is invalid");
+  }
+
+  if (
+    input.status !== "processed_by_openclaw" &&
+    input.status !== "dead_lettered"
+  ) {
+    throw new TypeError("Relay receipt input is invalid");
+  }
+
+  return {
+    requestId: input.requestId.trim(),
+    senderAgentDid: input.senderAgentDid.trim(),
+    recipientAgentDid: input.recipientAgentDid.trim(),
+    status: input.status,
+    reason:
+      typeof input.reason === "string" && input.reason.trim().length > 0
+        ? input.reason.trim()
+        : undefined,
+  };
+}
+
+function parseReceiptLookupInput(value: unknown): RelayReceiptLookupInput {
+  if (typeof value !== "object" || value === null) {
+    throw new TypeError("Relay receipt lookup input must be an object");
+  }
+
+  const input = value as Partial<RelayReceiptLookupInput>;
+  if (
+    typeof input.requestId !== "string" ||
+    input.requestId.trim().length === 0 ||
+    typeof input.senderAgentDid !== "string" ||
+    input.senderAgentDid.trim().length === 0
+  ) {
+    throw new TypeError("Relay receipt lookup input is invalid");
+  }
+
+  return {
+    requestId: input.requestId.trim(),
+    senderAgentDid: input.senderAgentDid.trim(),
   };
 }
 
@@ -256,6 +384,54 @@ export async function deliverToRelaySession(
   return (await response.json()) as RelayDeliveryResult;
 }
 
+export async function recordRelayDeliveryReceipt(
+  relaySession: AgentRelaySessionStub,
+  input: RelayReceiptRecordInput,
+): Promise<void> {
+  const response = await relaySession.fetch(
+    new Request(`https://agent-relay-session${RELAY_RPC_RECORD_RECEIPT_PATH}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input),
+    }),
+  );
+
+  if (!response.ok) {
+    throw new RelaySessionDeliveryError({
+      code: "PROXY_RELAY_RECEIPT_WRITE_FAILED",
+      message: "Relay delivery receipt write RPC failed",
+      status: response.status,
+    });
+  }
+}
+
+export async function getRelayDeliveryReceipt(
+  relaySession: AgentRelaySessionStub,
+  input: RelayReceiptLookupInput,
+): Promise<RelayReceiptLookupResult> {
+  const response = await relaySession.fetch(
+    new Request(`https://agent-relay-session${RELAY_RPC_GET_RECEIPT_PATH}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input),
+    }),
+  );
+
+  if (!response.ok) {
+    throw new RelaySessionDeliveryError({
+      code: "PROXY_RELAY_RECEIPT_READ_FAILED",
+      message: "Relay delivery receipt read RPC failed",
+      status: response.status,
+    });
+  }
+
+  return (await response.json()) as RelayReceiptLookupResult;
+}
+
 export class AgentRelaySession {
   private readonly deliveryPolicy: RelayDeliveryPolicy;
   private readonly heartbeatAckSockets = new Map<string, WebSocket>();
@@ -272,6 +448,8 @@ export class AgentRelaySession {
     this.state = state;
     const config = parseProxyConfig(env ?? {});
     this.deliveryPolicy = {
+      maxFrameBytes: config.relayMaxFrameBytes,
+      maxInFlightDeliveries: config.relayMaxInFlightDeliveries,
       queueMaxMessagesPerAgent: config.relayQueueMaxMessagesPerAgent,
       queueTtlMs: config.relayQueueTtlSeconds * 1000,
       retryInitialMs: config.relayRetryInitialMs,
@@ -312,6 +490,38 @@ export class AgentRelaySession {
       }
     }
 
+    if (
+      request.method === "POST" &&
+      url.pathname === RELAY_RPC_RECORD_RECEIPT_PATH
+    ) {
+      let input: RelayReceiptRecordInput;
+      try {
+        input = parseReceiptRecordInput(await request.json());
+      } catch {
+        return new Response("Invalid relay receipt input", { status: 400 });
+      }
+
+      await this.recordDeliveryReceipt(input);
+      return Response.json({ accepted: true }, { status: 202 });
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname === RELAY_RPC_GET_RECEIPT_PATH
+    ) {
+      let input: RelayReceiptLookupInput;
+      try {
+        input = parseReceiptLookupInput(await request.json());
+      } catch {
+        return new Response("Invalid relay receipt lookup input", {
+          status: 400,
+        });
+      }
+
+      const receipt = await this.getDeliveryReceipt(input);
+      return Response.json(receipt, { status: 200 });
+    }
+
     return new Response("Not found", { status: 404 });
   }
 
@@ -341,7 +551,12 @@ export class AgentRelaySession {
     const queueState = await this.loadQueueState(nowMs);
     const existingReceipt = queueState.receipts[input.requestId];
 
-    if (existingReceipt !== undefined && existingReceipt.expiresAtMs > nowMs) {
+    if (
+      existingReceipt !== undefined &&
+      existingReceipt.expiresAtMs > nowMs &&
+      existingReceipt.senderAgentDid === input.senderAgentDid &&
+      existingReceipt.recipientAgentDid === input.recipientAgentDid
+    ) {
       return toRelayDeliveryResult({
         deliveryId: existingReceipt.deliveryId,
         state: existingReceipt.state,
@@ -355,7 +570,10 @@ export class AgentRelaySession {
     const deliveryTtlExpiresAtMs = nowMs + this.deliveryPolicy.queueTtlMs;
     let priorAttempts = 0;
 
-    if (sockets.length > 0) {
+    if (
+      sockets.length > 0 &&
+      this.pendingDeliveries.size < this.deliveryPolicy.maxInFlightDeliveries
+    ) {
       priorAttempts = 1;
       try {
         const accepted = await this.sendDeliverFrame(sockets[0], input);
@@ -365,6 +583,9 @@ export class AgentRelaySession {
             deliveryId,
             state: "delivered",
             expiresAtMs: deliveryTtlExpiresAtMs,
+            senderAgentDid: input.senderAgentDid,
+            recipientAgentDid: input.recipientAgentDid,
+            statusUpdatedAt: toIso(nowMs),
           });
           await this.saveQueueState(queueState);
           await this.scheduleNextAlarm(queueState, nowMs);
@@ -397,6 +618,8 @@ export class AgentRelaySession {
       requestId: input.requestId,
       senderAgentDid: input.senderAgentDid,
       recipientAgentDid: input.recipientAgentDid,
+      conversationId: input.conversationId,
+      replyTo: input.replyTo,
       payload: input.payload,
       createdAtMs: nowMs,
       attemptCount: priorAttempts,
@@ -410,6 +633,9 @@ export class AgentRelaySession {
       deliveryId: queuedDelivery.deliveryId,
       state: "queued",
       expiresAtMs: queuedDelivery.expiresAtMs,
+      senderAgentDid: queuedDelivery.senderAgentDid,
+      recipientAgentDid: queuedDelivery.recipientAgentDid,
+      statusUpdatedAt: toIso(nowMs),
     });
 
     await this.saveQueueState(queueState);
@@ -423,10 +649,59 @@ export class AgentRelaySession {
     });
   }
 
+  async recordDeliveryReceipt(input: RelayReceiptRecordInput): Promise<void> {
+    const nowMs = nowUtcMs();
+    const queueState = await this.loadQueueState(nowMs);
+    const existing = queueState.receipts[input.requestId];
+    if (existing === undefined) {
+      return;
+    }
+
+    if (
+      existing.senderAgentDid !== input.senderAgentDid ||
+      existing.recipientAgentDid !== input.recipientAgentDid
+    ) {
+      return;
+    }
+
+    existing.state = input.status;
+    existing.reason = input.reason;
+    existing.expiresAtMs = nowMs + this.deliveryPolicy.queueTtlMs;
+    existing.statusUpdatedAt = toIso(nowMs);
+    await this.saveQueueState(queueState);
+    await this.scheduleNextAlarm(queueState, nowMs);
+  }
+
+  async getDeliveryReceipt(
+    input: RelayReceiptLookupInput,
+  ): Promise<RelayReceiptLookupResult> {
+    const nowMs = nowUtcMs();
+    const queueState = await this.loadQueueState(nowMs);
+    const existing = queueState.receipts[input.requestId];
+    if (
+      existing === undefined ||
+      existing.senderAgentDid !== input.senderAgentDid
+    ) {
+      return { found: false };
+    }
+
+    return {
+      found: true,
+      receipt: existing,
+    };
+  }
+
   async webSocketMessage(
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    const frameBytes = getWebSocketMessageBytes(message);
+    if (frameBytes > this.deliveryPolicy.maxFrameBytes) {
+      this.closeSocket(ws, 1009, "frame_too_large");
+      await this.scheduleFromStorage();
+      return;
+    }
+
     const nowMs = nowUtcMs();
     const frameResult = (() => {
       try {
@@ -581,6 +856,10 @@ export class AgentRelaySession {
       typeof candidate.requestId === "string" &&
       typeof candidate.senderAgentDid === "string" &&
       typeof candidate.recipientAgentDid === "string" &&
+      (candidate.conversationId === undefined ||
+        typeof candidate.conversationId === "string") &&
+      (candidate.replyTo === undefined ||
+        typeof candidate.replyTo === "string") &&
       typeof candidate.createdAtMs === "number" &&
       Number.isFinite(candidate.createdAtMs) &&
       typeof candidate.attemptCount === "number" &&
@@ -613,9 +892,17 @@ export class AgentRelaySession {
         typeof receipt.requestId !== "string" ||
         receipt.requestId !== key ||
         typeof receipt.deliveryId !== "string" ||
+        typeof receipt.senderAgentDid !== "string" ||
+        typeof receipt.recipientAgentDid !== "string" ||
         typeof receipt.expiresAtMs !== "number" ||
         !Number.isFinite(receipt.expiresAtMs) ||
-        (receipt.state !== "queued" && receipt.state !== "delivered")
+        typeof receipt.statusUpdatedAt !== "string" ||
+        !(
+          receipt.state === "queued" ||
+          receipt.state === "delivered" ||
+          receipt.state === "processed_by_openclaw" ||
+          receipt.state === "dead_lettered"
+        )
       ) {
         continue;
       }
@@ -624,7 +911,11 @@ export class AgentRelaySession {
         requestId: receipt.requestId,
         deliveryId: receipt.deliveryId,
         expiresAtMs: receipt.expiresAtMs,
+        senderAgentDid: receipt.senderAgentDid,
+        recipientAgentDid: receipt.recipientAgentDid,
         state: receipt.state,
+        reason: typeof receipt.reason === "string" ? receipt.reason : undefined,
+        statusUpdatedAt: receipt.statusUpdatedAt,
       };
     }
 
@@ -725,6 +1016,12 @@ export class AgentRelaySession {
     const socket = sockets[0];
 
     for (let index = 0; index < queueState.deliveries.length; ) {
+      if (
+        this.pendingDeliveries.size >= this.deliveryPolicy.maxInFlightDeliveries
+      ) {
+        break;
+      }
+
       const delivery = queueState.deliveries[index];
 
       if (delivery.expiresAtMs <= nowMs) {
@@ -761,6 +1058,8 @@ export class AgentRelaySession {
           requestId: delivery.requestId,
           senderAgentDid: delivery.senderAgentDid,
           recipientAgentDid: delivery.recipientAgentDid,
+          conversationId: delivery.conversationId,
+          replyTo: delivery.replyTo,
           payload: delivery.payload,
         });
       } catch {
@@ -774,6 +1073,9 @@ export class AgentRelaySession {
           deliveryId: delivery.deliveryId,
           state: "delivered",
           expiresAtMs: nowMs + this.deliveryPolicy.queueTtlMs,
+          senderAgentDid: delivery.senderAgentDid,
+          recipientAgentDid: delivery.recipientAgentDid,
+          statusUpdatedAt: toIso(nowMs),
         });
         mutated = true;
         continue;
@@ -840,8 +1142,18 @@ export class AgentRelaySession {
     socket: WebSocket,
     input: RelayDeliveryInput,
   ): Promise<boolean> {
+    if (
+      this.pendingDeliveries.size >= this.deliveryPolicy.maxInFlightDeliveries
+    ) {
+      throw new Error("Relay connector in-flight window is full");
+    }
+
     const frame = toDeliverFrame(input);
     const framePayload = serializeFrame(frame);
+    const frameBytes = new TextEncoder().encode(framePayload).byteLength;
+    if (frameBytes > this.deliveryPolicy.maxFrameBytes) {
+      throw new Error("Relay connector frame exceeds max allowed size");
+    }
 
     return new Promise<boolean>((resolve, reject) => {
       const timeoutHandle = setTimeout(() => {

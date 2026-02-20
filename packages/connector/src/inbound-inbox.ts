@@ -3,6 +3,8 @@ import {
   mkdir,
   readFile,
   rename,
+  stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -11,14 +13,42 @@ import type { DeliverFrame } from "./frames.js";
 
 const INBOUND_INBOX_DIR_NAME = "inbound-inbox";
 const INBOUND_INBOX_INDEX_FILE_NAME = "index.json";
+const INBOUND_INBOX_INDEX_LOCK_FILE_NAME = "index.lock";
 const INBOUND_INBOX_EVENTS_FILE_NAME = "events.jsonl";
-const INBOUND_INBOX_SCHEMA_VERSION = 1;
+const INBOUND_INBOX_SCHEMA_VERSION = 2;
+
+const DEFAULT_INDEX_LOCK_TIMEOUT_MS = 5_000;
+const DEFAULT_INDEX_LOCK_STALE_MS = 30_000;
+const DEFAULT_INDEX_LOCK_RETRY_MS = 50;
+
+export type ConnectorInboundInboxItem = {
+  attemptCount: number;
+  conversationId?: string;
+  fromAgentDid: string;
+  id: string;
+  lastAttemptAt?: string;
+  lastError?: string;
+  nextAttemptAt: string;
+  payload: unknown;
+  payloadBytes: number;
+  receivedAt: string;
+  replyTo?: string;
+  requestId: string;
+  toAgentDid: string;
+};
+
+export type ConnectorInboundDeadLetterItem = ConnectorInboundInboxItem & {
+  deadLetterReason: string;
+  deadLetteredAt: string;
+};
 
 type InboundInboxIndexFile = {
-  version: number;
+  deadLetterByRequestId: Record<string, ConnectorInboundDeadLetterItem>;
+  deadLetterBytes: number;
   pendingBytes: number;
   pendingByRequestId: Record<string, ConnectorInboundInboxItem>;
   updatedAt: string;
+  version: number;
 };
 
 type InboundInboxEvent = {
@@ -29,28 +59,28 @@ type InboundInboxEvent = {
     | "inbound_duplicate"
     | "replay_succeeded"
     | "replay_failed"
+    | "dead_letter_moved"
+    | "dead_letter_replayed"
+    | "dead_letter_purged"
     | "inbox_pruned";
 };
 
-export type ConnectorInboundInboxItem = {
-  attemptCount: number;
-  fromAgentDid: string;
-  id: string;
-  lastAttemptAt?: string;
-  lastError?: string;
-  nextAttemptAt: string;
-  payload: unknown;
-  payloadBytes: number;
-  receivedAt: string;
-  requestId: string;
-  toAgentDid: string;
-};
-
-export type ConnectorInboundInboxSnapshot = {
+export type ConnectorInboundInboxPendingSnapshot = {
   nextAttemptAt?: string;
   oldestPendingAt?: string;
   pendingBytes: number;
   pendingCount: number;
+};
+
+export type ConnectorInboundInboxDeadLetterSnapshot = {
+  deadLetterBytes: number;
+  deadLetterCount: number;
+  oldestDeadLetterAt?: string;
+};
+
+export type ConnectorInboundInboxSnapshot = {
+  deadLetter: ConnectorInboundInboxDeadLetterSnapshot;
+  pending: ConnectorInboundInboxPendingSnapshot;
 };
 
 export type ConnectorInboundInboxEnqueueResult = {
@@ -60,15 +90,31 @@ export type ConnectorInboundInboxEnqueueResult = {
   reason?: string;
 };
 
+export type ConnectorInboundInboxMarkFailureResult = {
+  movedToDeadLetter: boolean;
+};
+
 export type ConnectorInboundInboxOptions = {
   agentName: string;
   configDir: string;
+  eventsMaxBytes: number;
+  eventsMaxFiles: number;
   maxPendingBytes: number;
   maxPendingMessages: number;
 };
 
+type ReleaseLock = () => Promise<void>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseOptionalNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function parsePendingItem(
@@ -78,17 +124,12 @@ function parsePendingItem(
     return undefined;
   }
 
-  const id = typeof value.id === "string" ? value.id.trim() : "";
-  const requestId =
-    typeof value.requestId === "string" ? value.requestId.trim() : "";
-  const fromAgentDid =
-    typeof value.fromAgentDid === "string" ? value.fromAgentDid.trim() : "";
-  const toAgentDid =
-    typeof value.toAgentDid === "string" ? value.toAgentDid.trim() : "";
-  const receivedAt =
-    typeof value.receivedAt === "string" ? value.receivedAt.trim() : "";
-  const nextAttemptAt =
-    typeof value.nextAttemptAt === "string" ? value.nextAttemptAt.trim() : "";
+  const id = parseOptionalNonEmptyString(value.id) ?? "";
+  const requestId = parseOptionalNonEmptyString(value.requestId) ?? "";
+  const fromAgentDid = parseOptionalNonEmptyString(value.fromAgentDid) ?? "";
+  const toAgentDid = parseOptionalNonEmptyString(value.toAgentDid) ?? "";
+  const receivedAt = parseOptionalNonEmptyString(value.receivedAt) ?? "";
+  const nextAttemptAt = parseOptionalNonEmptyString(value.nextAttemptAt) ?? "";
   const attemptCount =
     typeof value.attemptCount === "number" &&
     Number.isInteger(value.attemptCount)
@@ -115,11 +156,6 @@ function parsePendingItem(
     return undefined;
   }
 
-  const lastError =
-    typeof value.lastError === "string" ? value.lastError : undefined;
-  const lastAttemptAt =
-    typeof value.lastAttemptAt === "string" ? value.lastAttemptAt : undefined;
-
   return {
     id,
     requestId,
@@ -130,8 +166,37 @@ function parsePendingItem(
     receivedAt,
     nextAttemptAt,
     attemptCount,
-    lastError,
-    lastAttemptAt,
+    lastError: parseOptionalNonEmptyString(value.lastError),
+    lastAttemptAt: parseOptionalNonEmptyString(value.lastAttemptAt),
+    conversationId: parseOptionalNonEmptyString(value.conversationId),
+    replyTo: parseOptionalNonEmptyString(value.replyTo),
+  };
+}
+
+function parseDeadLetterItem(
+  value: unknown,
+): ConnectorInboundDeadLetterItem | undefined {
+  const pending = parsePendingItem(value);
+  if (!pending) {
+    return undefined;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const deadLetteredAt =
+    parseOptionalNonEmptyString(value.deadLetteredAt) ?? "";
+  const deadLetterReason =
+    parseOptionalNonEmptyString(value.deadLetterReason) ?? "";
+  if (deadLetteredAt.length === 0 || deadLetterReason.length === 0) {
+    return undefined;
+  }
+
+  return {
+    ...pending,
+    deadLetteredAt,
+    deadLetterReason,
   };
 }
 
@@ -139,7 +204,9 @@ function toDefaultIndexFile(): InboundInboxIndexFile {
   return {
     version: INBOUND_INBOX_SCHEMA_VERSION,
     pendingBytes: 0,
+    deadLetterBytes: 0,
     pendingByRequestId: {},
+    deadLetterByRequestId: {},
     updatedAt: nowIso(),
   };
 }
@@ -149,33 +216,55 @@ function normalizeIndexFile(raw: unknown): InboundInboxIndexFile {
     throw new Error("Inbound inbox index root must be an object");
   }
 
+  if (raw.version !== INBOUND_INBOX_SCHEMA_VERSION) {
+    throw new Error(
+      `Inbound inbox index schema version ${String(raw.version)} is unsupported`,
+    );
+  }
+
   const pendingByRequestIdRaw = raw.pendingByRequestId;
+  const deadLetterByRequestIdRaw = raw.deadLetterByRequestId;
   if (!isRecord(pendingByRequestIdRaw)) {
     throw new Error("Inbound inbox index pendingByRequestId must be an object");
+  }
+  if (!isRecord(deadLetterByRequestIdRaw)) {
+    throw new Error(
+      "Inbound inbox index deadLetterByRequestId must be an object",
+    );
   }
 
   const pendingByRequestId: Record<string, ConnectorInboundInboxItem> = {};
   let pendingBytes = 0;
   for (const [requestId, candidate] of Object.entries(pendingByRequestIdRaw)) {
     const entry = parsePendingItem(candidate);
-    if (entry === undefined || entry.requestId !== requestId) {
+    if (!entry || entry.requestId !== requestId) {
       continue;
     }
     pendingByRequestId[requestId] = entry;
     pendingBytes += entry.payloadBytes;
   }
 
+  const deadLetterByRequestId: Record<string, ConnectorInboundDeadLetterItem> =
+    {};
+  let deadLetterBytes = 0;
+  for (const [requestId, candidate] of Object.entries(
+    deadLetterByRequestIdRaw,
+  )) {
+    const entry = parseDeadLetterItem(candidate);
+    if (!entry || entry.requestId !== requestId) {
+      continue;
+    }
+    deadLetterByRequestId[requestId] = entry;
+    deadLetterBytes += entry.payloadBytes;
+  }
+
   return {
-    version:
-      typeof raw.version === "number" && Number.isFinite(raw.version)
-        ? raw.version
-        : INBOUND_INBOX_SCHEMA_VERSION,
-    pendingBytes,
+    version: INBOUND_INBOX_SCHEMA_VERSION,
     pendingByRequestId,
-    updatedAt:
-      typeof raw.updatedAt === "string" && raw.updatedAt.trim().length > 0
-        ? raw.updatedAt
-        : nowIso(),
+    deadLetterByRequestId,
+    pendingBytes,
+    deadLetterBytes,
+    updatedAt: parseOptionalNonEmptyString(raw.updatedAt) ?? nowIso(),
   };
 }
 
@@ -190,11 +279,14 @@ function toComparableTimeMs(value: string): number {
 
 export class ConnectorInboundInbox {
   private readonly agentName: string;
+  private readonly eventsMaxBytes: number;
+  private readonly eventsMaxFiles: number;
   private readonly eventsPath: string;
+  private readonly inboxDir: string;
   private readonly indexPath: string;
+  private readonly indexLockPath: string;
   private readonly maxPendingBytes: number;
   private readonly maxPendingMessages: number;
-  private readonly inboxDir: string;
 
   private writeChain: Promise<void> = Promise.resolve();
 
@@ -207,9 +299,15 @@ export class ConnectorInboundInbox {
       INBOUND_INBOX_DIR_NAME,
     );
     this.indexPath = join(this.inboxDir, INBOUND_INBOX_INDEX_FILE_NAME);
+    this.indexLockPath = join(
+      this.inboxDir,
+      INBOUND_INBOX_INDEX_LOCK_FILE_NAME,
+    );
     this.eventsPath = join(this.inboxDir, INBOUND_INBOX_EVENTS_FILE_NAME);
     this.maxPendingBytes = options.maxPendingBytes;
     this.maxPendingMessages = options.maxPendingMessages;
+    this.eventsMaxBytes = Math.max(0, options.eventsMaxBytes);
+    this.eventsMaxFiles = Math.max(0, options.eventsMaxFiles);
   }
 
   async enqueue(
@@ -217,8 +315,10 @@ export class ConnectorInboundInbox {
   ): Promise<ConnectorInboundInboxEnqueueResult> {
     return await this.withWriteLock(async () => {
       const index = await this.loadIndex();
-      const existing = index.pendingByRequestId[frame.id];
-      if (existing !== undefined) {
+      if (
+        index.pendingByRequestId[frame.id] !== undefined ||
+        index.deadLetterByRequestId[frame.id] !== undefined
+      ) {
         await this.appendEvent({
           type: "inbound_duplicate",
           requestId: frame.id,
@@ -264,6 +364,8 @@ export class ConnectorInboundInbox {
         receivedAt: nowIso(),
         nextAttemptAt: nowIso(),
         attemptCount: 0,
+        conversationId: parseOptionalNonEmptyString(frame.conversationId),
+        replyTo: parseOptionalNonEmptyString(frame.replyTo),
       };
 
       index.pendingByRequestId[pendingItem.requestId] = pendingItem;
@@ -277,6 +379,8 @@ export class ConnectorInboundInbox {
           payloadBytes,
           fromAgentDid: pendingItem.fromAgentDid,
           toAgentDid: pendingItem.toAgentDid,
+          conversationId: pendingItem.conversationId,
+          replyTo: pendingItem.replyTo,
         },
       });
 
@@ -332,19 +436,53 @@ export class ConnectorInboundInbox {
 
   async markReplayFailure(input: {
     errorMessage: string;
+    maxNonRetryableAttempts: number;
     nextAttemptAt: string;
     requestId: string;
-  }): Promise<void> {
-    await this.withWriteLock(async () => {
+    retryable: boolean;
+  }): Promise<ConnectorInboundInboxMarkFailureResult> {
+    return await this.withWriteLock(async () => {
       const index = await this.loadIndex();
       const entry = index.pendingByRequestId[input.requestId];
       if (entry === undefined) {
-        return;
+        return { movedToDeadLetter: false };
       }
 
       entry.attemptCount += 1;
       entry.lastError = input.errorMessage;
       entry.lastAttemptAt = nowIso();
+
+      const shouldMoveToDeadLetter =
+        !input.retryable &&
+        entry.attemptCount >= Math.max(1, input.maxNonRetryableAttempts);
+
+      if (shouldMoveToDeadLetter) {
+        const deadLetterEntry: ConnectorInboundDeadLetterItem = {
+          ...entry,
+          deadLetteredAt: nowIso(),
+          deadLetterReason: input.errorMessage,
+        };
+        delete index.pendingByRequestId[input.requestId];
+        index.pendingBytes = Math.max(
+          0,
+          index.pendingBytes - entry.payloadBytes,
+        );
+        index.deadLetterByRequestId[input.requestId] = deadLetterEntry;
+        index.deadLetterBytes += deadLetterEntry.payloadBytes;
+        index.updatedAt = nowIso();
+        await this.saveIndex(index);
+        await this.appendEvent({
+          type: "dead_letter_moved",
+          requestId: input.requestId,
+          details: {
+            attemptCount: deadLetterEntry.attemptCount,
+            retryable: input.retryable,
+            errorMessage: input.errorMessage,
+          },
+        });
+        return { movedToDeadLetter: true };
+      }
+
       entry.nextAttemptAt = input.nextAttemptAt;
       index.updatedAt = nowIso();
       await this.saveIndex(index);
@@ -354,21 +492,160 @@ export class ConnectorInboundInbox {
         details: {
           attemptCount: entry.attemptCount,
           nextAttemptAt: input.nextAttemptAt,
+          retryable: input.retryable,
           errorMessage: input.errorMessage,
         },
       });
+      return { movedToDeadLetter: false };
+    });
+  }
+
+  async listDeadLetter(input?: {
+    limit?: number;
+  }): Promise<ConnectorInboundDeadLetterItem[]> {
+    const index = await this.loadIndex();
+    const entries = Object.values(index.deadLetterByRequestId).sort(
+      (left, right) => {
+        const leftDeadAt = toComparableTimeMs(left.deadLetteredAt);
+        const rightDeadAt = toComparableTimeMs(right.deadLetteredAt);
+        if (leftDeadAt !== rightDeadAt) {
+          return leftDeadAt - rightDeadAt;
+        }
+
+        return (
+          toComparableTimeMs(left.receivedAt) -
+          toComparableTimeMs(right.receivedAt)
+        );
+      },
+    );
+
+    const limit = Math.max(1, input?.limit ?? (entries.length || 1));
+    return entries.slice(0, limit);
+  }
+
+  async replayDeadLetter(input?: {
+    requestIds?: string[];
+  }): Promise<{ replayedCount: number }> {
+    return await this.withWriteLock(async () => {
+      const index = await this.loadIndex();
+      const requestIds =
+        input?.requestIds !== undefined
+          ? Array.from(
+              new Set(
+                input.requestIds
+                  .map((item) => item.trim())
+                  .filter((item) => item.length > 0),
+              ),
+            )
+          : Object.keys(index.deadLetterByRequestId);
+
+      let replayedCount = 0;
+      for (const requestId of requestIds) {
+        if (requestId.length === 0) {
+          continue;
+        }
+
+        const dead = index.deadLetterByRequestId[requestId];
+        if (!dead) {
+          continue;
+        }
+
+        delete index.deadLetterByRequestId[requestId];
+        index.deadLetterBytes = Math.max(
+          0,
+          index.deadLetterBytes - dead.payloadBytes,
+        );
+
+        index.pendingByRequestId[requestId] = {
+          ...dead,
+          nextAttemptAt: nowIso(),
+          lastError: dead.deadLetterReason,
+        };
+        index.pendingBytes += dead.payloadBytes;
+        replayedCount += 1;
+        await this.appendEvent({
+          type: "dead_letter_replayed",
+          requestId,
+          details: {
+            deadLetteredAt: dead.deadLetteredAt,
+            deadLetterReason: dead.deadLetterReason,
+          },
+        });
+      }
+
+      if (replayedCount > 0) {
+        index.updatedAt = nowIso();
+        await this.saveIndex(index);
+      }
+
+      return { replayedCount };
+    });
+  }
+
+  async purgeDeadLetter(input?: {
+    requestIds?: string[];
+  }): Promise<{ purgedCount: number }> {
+    return await this.withWriteLock(async () => {
+      const index = await this.loadIndex();
+      const requestIds =
+        input?.requestIds !== undefined
+          ? Array.from(
+              new Set(
+                input.requestIds
+                  .map((item) => item.trim())
+                  .filter((item) => item.length > 0),
+              ),
+            )
+          : Object.keys(index.deadLetterByRequestId);
+
+      let purgedCount = 0;
+      for (const requestId of requestIds) {
+        if (requestId.length === 0) {
+          continue;
+        }
+
+        const dead = index.deadLetterByRequestId[requestId];
+        if (!dead) {
+          continue;
+        }
+
+        delete index.deadLetterByRequestId[requestId];
+        index.deadLetterBytes = Math.max(
+          0,
+          index.deadLetterBytes - dead.payloadBytes,
+        );
+        purgedCount += 1;
+        await this.appendEvent({
+          type: "dead_letter_purged",
+          requestId,
+          details: {
+            deadLetteredAt: dead.deadLetteredAt,
+            deadLetterReason: dead.deadLetterReason,
+          },
+        });
+      }
+
+      if (purgedCount > 0) {
+        index.updatedAt = nowIso();
+        await this.saveIndex(index);
+      }
+
+      return { purgedCount };
     });
   }
 
   async pruneDelivered(): Promise<void> {
     await this.withWriteLock(async () => {
       const index = await this.loadIndex();
-      const beforeCount = Object.keys(index.pendingByRequestId).length;
-      if (beforeCount === 0) {
+      const beforePendingCount = Object.keys(index.pendingByRequestId).length;
+      const beforeDeadLetterCount = Object.keys(
+        index.deadLetterByRequestId,
+      ).length;
+      if (beforePendingCount === 0 && beforeDeadLetterCount === 0) {
         return;
       }
 
-      const after: Record<string, ConnectorInboundInboxItem> = {};
+      const nextPending: Record<string, ConnectorInboundInboxItem> = {};
       let pendingBytes = 0;
       for (const [requestId, entry] of Object.entries(
         index.pendingByRequestId,
@@ -376,20 +653,35 @@ export class ConnectorInboundInbox {
         if (entry.attemptCount < 0) {
           continue;
         }
-
-        after[requestId] = entry;
+        nextPending[requestId] = entry;
         pendingBytes += entry.payloadBytes;
       }
 
-      index.pendingByRequestId = after;
+      const nextDead: Record<string, ConnectorInboundDeadLetterItem> = {};
+      let deadLetterBytes = 0;
+      for (const [requestId, entry] of Object.entries(
+        index.deadLetterByRequestId,
+      )) {
+        if (entry.attemptCount < 0) {
+          continue;
+        }
+        nextDead[requestId] = entry;
+        deadLetterBytes += entry.payloadBytes;
+      }
+
+      index.pendingByRequestId = nextPending;
       index.pendingBytes = pendingBytes;
+      index.deadLetterByRequestId = nextDead;
+      index.deadLetterBytes = deadLetterBytes;
       index.updatedAt = nowIso();
       await this.saveIndex(index);
       await this.appendEvent({
         type: "inbox_pruned",
         details: {
-          beforeCount,
-          afterCount: Object.keys(after).length,
+          beforePendingCount,
+          afterPendingCount: Object.keys(nextPending).length,
+          beforeDeadLetterCount,
+          afterDeadLetterCount: Object.keys(nextDead).length,
         },
       });
     });
@@ -397,32 +689,35 @@ export class ConnectorInboundInbox {
 
   async getSnapshot(): Promise<ConnectorInboundInboxSnapshot> {
     const index = await this.loadIndex();
-    const entries = Object.values(index.pendingByRequestId);
-    if (entries.length === 0) {
-      return {
-        pendingCount: 0,
-        pendingBytes: index.pendingBytes,
-      };
-    }
-
-    entries.sort((left, right) => {
-      return (
+    const pendingEntries = Object.values(index.pendingByRequestId).sort(
+      (left, right) =>
         toComparableTimeMs(left.receivedAt) -
-        toComparableTimeMs(right.receivedAt)
-      );
-    });
+        toComparableTimeMs(right.receivedAt),
+    );
+    const deadEntries = Object.values(index.deadLetterByRequestId).sort(
+      (left, right) =>
+        toComparableTimeMs(left.deadLetteredAt) -
+        toComparableTimeMs(right.deadLetteredAt),
+    );
 
-    const nextAttemptAt = entries
+    const nextAttemptAt = pendingEntries
       .map((entry) => entry.nextAttemptAt)
       .sort(
         (left, right) => toComparableTimeMs(left) - toComparableTimeMs(right),
       )[0];
 
     return {
-      pendingCount: entries.length,
-      pendingBytes: index.pendingBytes,
-      oldestPendingAt: entries[0]?.receivedAt,
-      nextAttemptAt,
+      pending: {
+        pendingCount: pendingEntries.length,
+        pendingBytes: index.pendingBytes,
+        oldestPendingAt: pendingEntries[0]?.receivedAt,
+        nextAttemptAt,
+      },
+      deadLetter: {
+        deadLetterCount: deadEntries.length,
+        deadLetterBytes: index.deadLetterBytes,
+        oldestDeadLetterAt: deadEntries[0]?.deadLetteredAt,
+      },
     };
   }
 
@@ -434,10 +729,79 @@ export class ConnectorInboundInbox {
     });
 
     await previous;
+    const releaseFileLock = await this.acquireIndexFileLock();
     try {
       return await fn();
     } finally {
+      await releaseFileLock();
       release?.();
+    }
+  }
+
+  private async acquireIndexFileLock(): Promise<ReleaseLock> {
+    const startedAt = nowUtcMs();
+    await mkdir(this.inboxDir, { recursive: true });
+
+    while (true) {
+      try {
+        await writeFile(
+          this.indexLockPath,
+          `${JSON.stringify({ pid: process.pid, createdAt: nowIso() })}\n`,
+          {
+            encoding: "utf8",
+            flag: "wx",
+          },
+        );
+
+        let released = false;
+        return async () => {
+          if (released) {
+            return;
+          }
+          released = true;
+          try {
+            await unlink(this.indexLockPath);
+          } catch {
+            // ignore
+          }
+        };
+      } catch (error) {
+        const code =
+          error && typeof error === "object" && "code" in error
+            ? (error as { code?: string }).code
+            : undefined;
+        if (code !== "EEXIST") {
+          throw error;
+        }
+
+        const lockStats = await this.readLockStats();
+        if (
+          lockStats !== undefined &&
+          nowUtcMs() - lockStats.mtimeMs > DEFAULT_INDEX_LOCK_STALE_MS
+        ) {
+          try {
+            await unlink(this.indexLockPath);
+          } catch {
+            // ignore stale lock unlink race
+          }
+          continue;
+        }
+
+        if (nowUtcMs() - startedAt >= DEFAULT_INDEX_LOCK_TIMEOUT_MS) {
+          throw new Error("Timed out waiting for inbound inbox index lock");
+        }
+
+        await this.sleep(DEFAULT_INDEX_LOCK_RETRY_MS);
+      }
+    }
+  }
+
+  private async readLockStats(): Promise<{ mtimeMs: number } | undefined> {
+    try {
+      const lockStat = await stat(this.indexLockPath);
+      return { mtimeMs: lockStat.mtimeMs };
+    } catch {
+      return undefined;
     }
   }
 
@@ -489,6 +853,60 @@ export class ConnectorInboundInbox {
       `${JSON.stringify({ ...event, at: nowIso() })}\n`,
       "utf8",
     );
+    await this.rotateEventsIfNeeded();
+  }
+
+  private async rotateEventsIfNeeded(): Promise<void> {
+    if (this.eventsMaxBytes <= 0 || this.eventsMaxFiles <= 0) {
+      return;
+    }
+
+    let currentSize: number;
+    try {
+      const current = await stat(this.eventsPath);
+      currentSize = current.size;
+    } catch {
+      return;
+    }
+
+    if (currentSize <= this.eventsMaxBytes) {
+      return;
+    }
+
+    for (let index = this.eventsMaxFiles; index >= 1; index -= 1) {
+      const fromPath =
+        index === 1 ? this.eventsPath : `${this.eventsPath}.${index - 1}`;
+      const toPath = `${this.eventsPath}.${index}`;
+
+      const fromExists = await this.pathExists(fromPath);
+      if (!fromExists) {
+        continue;
+      }
+
+      const toExists = await this.pathExists(toPath);
+      if (toExists) {
+        await unlink(toPath);
+      }
+
+      await rename(fromPath, toPath);
+    }
+
+    await writeFile(this.eventsPath, "", "utf8");
+  }
+
+  private async pathExists(pathValue: string): Promise<boolean> {
+    try {
+      await stat(pathValue);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async sleep(durationMs: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, durationMs);
+    });
   }
 }
 

@@ -1,7 +1,9 @@
 export type {
   ConnectorClientHooks,
+  ConnectorClientMetricsSnapshot,
   ConnectorClientOptions,
   ConnectorOutboundEnqueueInput,
+  ConnectorOutboundQueuePersistence,
   ConnectorWebSocket,
 } from "./client.js";
 export { ConnectorClient } from "./client.js";
@@ -11,6 +13,9 @@ export {
   CONNECTOR_VERSION,
   DEFAULT_CONNECT_TIMEOUT_MS,
   DEFAULT_CONNECTOR_BASE_URL,
+  DEFAULT_CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS,
+  DEFAULT_CONNECTOR_INBOUND_EVENTS_MAX_BYTES,
+  DEFAULT_CONNECTOR_INBOUND_EVENTS_MAX_FILES,
   DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_BYTES,
   DEFAULT_CONNECTOR_INBOUND_INBOX_MAX_MESSAGES,
   DEFAULT_CONNECTOR_INBOUND_REPLAY_BATCH_SIZE,

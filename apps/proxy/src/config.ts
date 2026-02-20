@@ -34,6 +34,8 @@ export const DEFAULT_RELAY_RETRY_INITIAL_MS = 1000;
 export const DEFAULT_RELAY_RETRY_MAX_MS = 30_000;
 export const DEFAULT_RELAY_RETRY_MAX_ATTEMPTS = 25;
 export const DEFAULT_RELAY_RETRY_JITTER_RATIO = 0.2;
+export const DEFAULT_RELAY_MAX_IN_FLIGHT_DELIVERIES = 5;
+export const DEFAULT_RELAY_MAX_FRAME_BYTES = 1024 * 1024;
 
 export class ProxyConfigError extends Error {
   readonly code = "CONFIG_VALIDATION_FAILED";
@@ -146,6 +148,16 @@ const proxyRuntimeEnvSchema = z.object({
     .min(0)
     .max(1)
     .default(DEFAULT_RELAY_RETRY_JITTER_RATIO),
+  RELAY_MAX_IN_FLIGHT_DELIVERIES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_MAX_IN_FLIGHT_DELIVERIES),
+  RELAY_MAX_FRAME_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(DEFAULT_RELAY_MAX_FRAME_BYTES),
 });
 
 export const proxyConfigSchema = z.object({
@@ -167,6 +179,8 @@ export const proxyConfigSchema = z.object({
   relayRetryMaxMs: z.number().int().positive(),
   relayRetryMaxAttempts: z.number().int().positive(),
   relayRetryJitterRatio: z.number().min(0).max(1),
+  relayMaxInFlightDeliveries: z.number().int().positive(),
+  relayMaxFrameBytes: z.number().int().positive(),
 });
 
 export type ProxyConfig = z.infer<typeof proxyConfigSchema>;
@@ -196,6 +210,8 @@ type RuntimeEnvInput = {
   RELAY_RETRY_MAX_MS?: unknown;
   RELAY_RETRY_MAX_ATTEMPTS?: unknown;
   RELAY_RETRY_JITTER_RATIO?: unknown;
+  RELAY_MAX_IN_FLIGHT_DELIVERIES?: unknown;
+  RELAY_MAX_FRAME_BYTES?: unknown;
   OPENCLAW_STATE_DIR?: unknown;
   HOME?: unknown;
   USERPROFILE?: unknown;
@@ -496,6 +512,10 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
     RELAY_RETRY_MAX_MS: firstNonEmpty(env, ["RELAY_RETRY_MAX_MS"]),
     RELAY_RETRY_MAX_ATTEMPTS: firstNonEmpty(env, ["RELAY_RETRY_MAX_ATTEMPTS"]),
     RELAY_RETRY_JITTER_RATIO: firstNonEmpty(env, ["RELAY_RETRY_JITTER_RATIO"]),
+    RELAY_MAX_IN_FLIGHT_DELIVERIES: firstNonEmpty(env, [
+      "RELAY_MAX_IN_FLIGHT_DELIVERIES",
+    ]),
+    RELAY_MAX_FRAME_BYTES: firstNonEmpty(env, ["RELAY_MAX_FRAME_BYTES"]),
   };
 }
 
@@ -617,6 +637,9 @@ export function parseProxyConfig(
     relayRetryMaxMs: parsedRuntimeEnv.data.RELAY_RETRY_MAX_MS,
     relayRetryMaxAttempts: parsedRuntimeEnv.data.RELAY_RETRY_MAX_ATTEMPTS,
     relayRetryJitterRatio: parsedRuntimeEnv.data.RELAY_RETRY_JITTER_RATIO,
+    relayMaxInFlightDeliveries:
+      parsedRuntimeEnv.data.RELAY_MAX_IN_FLIGHT_DELIVERIES,
+    relayMaxFrameBytes: parsedRuntimeEnv.data.RELAY_MAX_FRAME_BYTES,
   };
   if (parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_ID !== undefined) {
     candidateConfig.registryInternalServiceId =

@@ -38,6 +38,8 @@ export type ProxyWorkerBindings = {
   RELAY_RETRY_MAX_MS?: string;
   RELAY_RETRY_MAX_ATTEMPTS?: string;
   RELAY_RETRY_JITTER_RATIO?: string;
+  RELAY_MAX_IN_FLIGHT_DELIVERIES?: string;
+  RELAY_MAX_FRAME_BYTES?: string;
   APP_VERSION?: string;
   PROXY_VERSION?: string;
   [key: string]: unknown;
@@ -74,6 +76,8 @@ function toCacheKey(env: ProxyWorkerBindings): string {
     env.RELAY_RETRY_MAX_MS,
     env.RELAY_RETRY_MAX_ATTEMPTS,
     env.RELAY_RETRY_JITTER_RATIO,
+    env.RELAY_MAX_IN_FLIGHT_DELIVERIES,
+    env.RELAY_MAX_FRAME_BYTES,
     env.APP_VERSION,
     env.PROXY_VERSION,
   ];

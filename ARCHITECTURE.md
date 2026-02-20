@@ -551,5 +551,4 @@ clawdentity/
 ## Further Reading
 
 - **[README.md](./README.md)** — overview, quick start, and comparison
-- **[PRD.md](./PRD.md)** — MVP product requirements and rollout strategy
 - **Execution and issue governance:** [GitHub issue tracker](https://github.com/vrknetha/clawdentity/issues/74)

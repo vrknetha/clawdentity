@@ -36,8 +36,8 @@
 
 ## Documentation Sync
 - `README.md` must reflect current execution model and links to issue governance.
-- `PRD.md` must reflect current rollout order, deployment gating, and verification strategy.
-- If backlog shape changes, update README + PRD + the relevant GitHub issue threads in the same change.
+- Architecture and rollout docs (for example `ARCHITECTURE.md`) must reflect current deployment gating and verification strategy.
+- If backlog shape changes, update README + architecture docs + the relevant GitHub issue threads in the same change.
 
 ## Validation Baseline
 - Run and pass: `pnpm lint`, `pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build` for implementation changes.
@@ -148,7 +148,7 @@
     - `http://localhost:18789/` and `http://localhost:19001/`
 
 ## Scaffold Best Practices
-- Start by reviewing README, PRD, and the active execution tracker issue so documentation mirrors the execution model.
+- Start by reviewing README, ARCHITECTURE.md, and the active execution tracker issue so documentation mirrors the execution model.
 - Define the workspace layout now: `apps/registry`, `apps/proxy`, `apps/cli`, `packages/sdk`, and `packages/protocol` (with shared tooling such as `pnpm-workspace.yaml`, `tsconfig.base.json`, and `biome.json`) so downstream tickets have a known structure.
 - Declare placeholder scripts for lint/test/build (e.g., `pnpm -r lint`, `pnpm -r test`, `pnpm -r build`) and identify the expected toolchain (Biome, Vitest, tsup, etc.) so future work can fill implementations without duplication.
 - Document the CI entrypoints (GitHub Actions or another pipeline) that will run the above scripts, so deployment scaffolding can wire the baseline checks without guessing what belongs in initial setup.

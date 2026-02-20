@@ -96,15 +96,25 @@ function connectorReadyFetch(): typeof fetch {
     new Response(
       JSON.stringify({
         status: "ok",
-        websocketConnected: true,
-        inboundInbox: {
-          pendingCount: 0,
-          pendingBytes: 0,
-          replayerActive: false,
+        websocket: {
+          connected: true,
         },
-        openclawHook: {
-          url: "http://127.0.0.1:18789/hooks/agent",
-          lastAttemptStatus: "ok",
+        inbound: {
+          pending: {
+            pendingCount: 0,
+            pendingBytes: 0,
+          },
+          deadLetter: {
+            deadLetterCount: 0,
+            deadLetterBytes: 0,
+          },
+          replay: {
+            replayerActive: false,
+          },
+          openclawHook: {
+            url: "http://127.0.0.1:18789/hooks/agent",
+            lastAttemptStatus: "ok",
+          },
         },
       }),
       {
@@ -1503,19 +1513,29 @@ describe("openclaw command helpers", () => {
         new Response(
           JSON.stringify({
             status: "ok",
-            websocketConnected: true,
-            inboundInbox: {
-              pendingCount: 2,
-              pendingBytes: 512,
-              oldestPendingAt: "2026-01-01T00:00:00.000Z",
-              lastReplayError:
-                "Local OpenClaw hook rejected payload with status 500",
-              replayerActive: false,
+            websocket: {
+              connected: true,
             },
-            openclawHook: {
-              url: "http://127.0.0.1:18789/hooks/agent",
-              lastAttemptStatus: "failed",
-              lastAttemptAt: "2026-01-01T00:00:00.000Z",
+            inbound: {
+              pending: {
+                pendingCount: 2,
+                pendingBytes: 512,
+                oldestPendingAt: "2026-01-01T00:00:00.000Z",
+              },
+              deadLetter: {
+                deadLetterCount: 0,
+                deadLetterBytes: 0,
+              },
+              replay: {
+                lastReplayError:
+                  "Local OpenClaw hook rejected payload with status 500",
+                replayerActive: false,
+              },
+              openclawHook: {
+                url: "http://127.0.0.1:18789/hooks/agent",
+                lastAttemptStatus: "failed",
+                lastAttemptAt: "2026-01-01T00:00:00.000Z",
+              },
             },
           }),
           {
@@ -1906,7 +1926,9 @@ describe("openclaw command helpers", () => {
         new Response(
           JSON.stringify({
             status: "ok",
-            websocketConnected: false,
+            websocket: {
+              connected: false,
+            },
           }),
           {
             status: 200,
