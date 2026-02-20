@@ -16,6 +16,10 @@ const RESPONDER_PROFILE = {
   agentName: "beta",
   humanName: "Ira",
 };
+const RESPONDER_PROFILE_WITH_PROXY_ORIGIN = {
+  ...RESPONDER_PROFILE,
+  proxyOrigin: "https://beta.proxy.example",
+};
 
 function tamperTicketNonce(ticket: string): string {
   const prefix = "clwpair1_";
@@ -143,7 +147,7 @@ describe("ProxyTrustState", () => {
       makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
         ticket: ticketBody.ticket,
         responderAgentDid: "did:claw:agent:bob",
-        responderProfile: RESPONDER_PROFILE,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
         nowMs: 1_700_000_000_100,
       }),
     );
@@ -159,7 +163,7 @@ describe("ProxyTrustState", () => {
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
       responderAgentDid: "did:claw:agent:bob",
-      responderProfile: RESPONDER_PROFILE,
+      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       issuerProxyUrl: "https://proxy-a.example.com",
     });
 
@@ -192,7 +196,7 @@ describe("ProxyTrustState", () => {
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
       responderAgentDid: "did:claw:agent:bob",
-      responderProfile: RESPONDER_PROFILE,
+      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       expiresAtMs: 1_700_000_060_000,
       confirmedAtMs: 1_700_000_000_000,
     });

@@ -304,46 +304,72 @@ describe("pair command helpers", () => {
     });
   });
 
-  it("fails confirm when ticket issuer does not match configured proxy URL", async () => {
+  it("routes confirm to ticket issuer proxy when local proxy origin differs", async () => {
     const fixture = await createPairFixture();
     const ticket = `clwpair1_${Buffer.from(
       JSON.stringify({ iss: "https://alpha.proxy.example" }),
     ).toString("base64url")}`;
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/v1/metadata")) {
+        return Response.json(
+          {
+            status: "ok",
+            proxyUrl: "https://beta.proxy.example",
+          },
+          { status: 200 },
+        );
+      }
 
-    await expect(
-      confirmPairing(
-        "beta",
+      expect(url).toBe("https://alpha.proxy.example/pair/confirm");
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+        responderProfile?: { proxyOrigin?: string };
+      };
+      expect(requestBody.responderProfile?.proxyOrigin).toBe(
+        "https://beta.proxy.example",
+      );
+
+      return Response.json(
         {
-          ticket,
+          paired: true,
+          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorProfile: INITIATOR_PROFILE,
+          responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+          responderProfile: RESPONDER_PROFILE,
         },
-        {
-          fetchImpl: (async (url: string) => {
-            if (url.endsWith("/v1/metadata")) {
-              return Response.json(
-                {
-                  status: "ok",
-                  proxyUrl: "https://beta.proxy.example",
-                },
-                { status: 200 },
-              );
-            }
-            return Response.json({}, { status: 200 });
-          }) as unknown as typeof fetch,
-          nowSecondsImpl: () => 1_700_000_000,
-          nonceFactoryImpl: () => "nonce-confirm",
-          readFileImpl: createReadFileMock(
-            fixture,
-          ) as unknown as typeof import("node:fs/promises").readFile,
-          resolveConfigImpl: async () => ({
-            registryUrl: "https://registry.clawdentity.com/",
-            humanName: RESPONDER_PROFILE.humanName,
-          }),
-          getConfigDirImpl: () => "/tmp/.clawdentity",
-        },
-      ),
-    ).rejects.toMatchObject({
-      code: "CLI_PAIR_TICKET_ISSUER_MISMATCH",
+        { status: 201 },
+      );
     });
+
+    const result = await confirmPairing(
+      "beta",
+      {
+        ticket,
+      },
+      {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        nowSecondsImpl: () => 1_700_000_000,
+        nonceFactoryImpl: () => "nonce-confirm",
+        readFileImpl: createReadFileMock(
+          fixture,
+        ) as unknown as typeof import("node:fs/promises").readFile,
+        writeFileImpl: vi.fn(
+          async () => undefined,
+        ) as unknown as typeof import("node:fs/promises").writeFile,
+        mkdirImpl: vi.fn(
+          async () => undefined,
+        ) as unknown as typeof import("node:fs/promises").mkdir,
+        chmodImpl: vi.fn(
+          async () => undefined,
+        ) as unknown as typeof import("node:fs/promises").chmod,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://registry.clawdentity.com/",
+          humanName: RESPONDER_PROFILE.humanName,
+        }),
+        getConfigDirImpl: () => "/tmp/.clawdentity",
+      },
+    );
+
+    expect(result.proxyUrl).toBe("https://alpha.proxy.example/");
   });
 
   it("normalizes wrapped tickets before pair status request", async () => {
@@ -646,7 +672,13 @@ describe("pair command helpers", () => {
 
   it("polls pair status until confirmed and persists peer for initiator", async () => {
     const fixture = await createPairFixture();
-    const writeFileImpl = vi.fn(async () => undefined);
+    const writeFileImpl = vi.fn(
+      async (
+        _filePath: string,
+        _data: string | Uint8Array,
+        _encoding?: BufferEncoding,
+      ) => undefined,
+    );
     const mkdirImpl = vi.fn(async () => undefined);
     const chmodImpl = vi.fn(async () => undefined);
     const sleepImpl = vi.fn(async () => undefined);
@@ -665,7 +697,10 @@ describe("pair command helpers", () => {
         initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
         initiatorProfile: INITIATOR_PROFILE,
         responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
-        responderProfile: RESPONDER_PROFILE,
+        responderProfile: {
+          ...RESPONDER_PROFILE,
+          proxyOrigin: "https://beta.proxy.example",
+        },
         expiresAt: "2026-02-18T00:00:00.000Z",
         confirmedAt: "2026-02-18T00:00:05.000Z",
       },
@@ -724,6 +759,18 @@ describe("pair command helpers", () => {
     expect(writeFileImpl).toHaveBeenCalledTimes(1);
     expect(mkdirImpl).toHaveBeenCalledTimes(1);
     expect(chmodImpl).toHaveBeenCalledTimes(1);
+    const peerWriteCall = writeFileImpl.mock.calls[0];
+    const persistedPeers = JSON.parse(String(peerWriteCall?.[1] ?? "{}")) as {
+      peers: {
+        [key: string]: {
+          did: string;
+          proxyUrl: string;
+        };
+      };
+    };
+    expect(persistedPeers.peers["peer-22222222"]?.proxyUrl).toBe(
+      "https://beta.proxy.example/hooks/agent",
+    );
   });
 });
 

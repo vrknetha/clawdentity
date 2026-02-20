@@ -116,9 +116,11 @@
 - `pair start --qr` must generate a one-time local PNG QR containing the returned ticket and print the filesystem path.
 - `pair start --qr` must sweep expired QR artifacts in `~/.clawdentity/pairing` before writing a new file.
 - `pair confirm <agentName>` must call proxy `/pair/confirm` with `Authorization: Claw <AIT>` and signed PoP headers from local agent `secret.key`.
+- `pair confirm <agentName>` must send `/pair/confirm` to the proxy origin embedded in the pairing ticket issuer (`iss`), not the local resolved proxy URL.
 - `pair confirm` must accept either `--qr-file <path>` (primary) or `--ticket <clwpair1_...>` (fallback), never both.
 - `pair confirm --qr-file` must delete the consumed QR file after successful confirm (best effort, non-fatal on cleanup failure).
 - `pair status <agentName> --ticket <clwpair1_...>` must poll `/pair/status` and persist peers locally when status transitions to `confirmed`.
+- Pair profile payloads/responses may include `proxyOrigin`; persistence must prefer the peer's `proxyOrigin` (when present) and only fall back to ticket issuer origin.
 - After peer persistence, pair flows must best-effort sync OpenClaw transform peer snapshot (`hooks/transforms/clawdentity-peers.json`) when `~/.clawdentity/openclaw-relay.json` provides `relayTransformPeersPath`, so relay delivery works without manual file copying.
 - `pair start --wait` should use `/pair/status` polling and auto-save the responder peer locally so reverse pairing is not required.
 - `pair` commands must resolve proxy URL automatically from CLI config/registry metadata, with `CLAWDENTITY_PROXY_URL` env override support.

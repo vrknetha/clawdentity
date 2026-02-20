@@ -67,6 +67,7 @@ export type PairingTicketStatusResult =
 export type PeerProfile = {
   agentName: string;
   humanName: string;
+  proxyOrigin?: string;
 };
 
 export type PairingInput = {
