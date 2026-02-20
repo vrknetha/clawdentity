@@ -43,6 +43,7 @@
 - Serialize CLI publishes with a single global workflow concurrency group to avoid parallel release races across branches.
 - Build workspace libraries consumed by CLI tests (`@clawdentity/protocol`, `@clawdentity/sdk`, `@clawdentity/connector`) before running `pnpm -F clawdentity test` on clean runners.
 - Run CLI quality gates before publish: `pnpm -F clawdentity lint`, `typecheck`, `test`, `build`.
+- Run npm release commands (`pkg set`, `pack`, `publish`) with `working-directory: apps/cli`; avoid `npm --prefix apps/cli ...` for pack/publish because npm may target the workspace root manifest on monorepos missing a root `version`.
 - Publish only package `apps/cli` as npm package `clawdentity`.
 - Keep published runtime manifest free of `workspace:*` runtime dependencies.
 - Use npm provenance (`--provenance`) and require `NPM_TOKEN` secret.

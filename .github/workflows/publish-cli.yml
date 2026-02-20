@@ -146,15 +146,26 @@ jobs:
         run: pnpm -F clawdentity verify:skill-bundle
 
       - name: Set package version for release
-        run: npm --prefix apps/cli pkg set version=${{ steps.version.outputs.next_version }}
+        working-directory: apps/cli
+        run: npm pkg set version=${{ steps.version.outputs.next_version }}
 
       - name: Validate publish manifest
+        env:
+          EXPECTED_VERSION: ${{ steps.version.outputs.next_version }}
         run: |
           node <<'NODE'
           const fs = require("node:fs");
           const pkg = JSON.parse(fs.readFileSync("apps/cli/package.json", "utf8"));
           if (pkg.name !== "clawdentity") {
             throw new Error(`Unexpected package name: ${pkg.name}`);
+          }
+          if (typeof pkg.version !== "string" || pkg.version.length === 0) {
+            throw new Error("Package version is missing; publish would fail");
+          }
+          if (pkg.version !== process.env.EXPECTED_VERSION) {
+            throw new Error(
+              `Package version mismatch: expected ${process.env.EXPECTED_VERSION}, got ${pkg.version}`,
+            );
           }
           if (pkg.private === true) {
             throw new Error("Package is private; publish would fail");
@@ -178,12 +189,14 @@ jobs:
           NODE
 
       - name: Dry-run package contents
+        working-directory: apps/cli
         run: |
-          PACK_OUTPUT="$(npm --prefix apps/cli pack --dry-run)"
+          PACK_OUTPUT="$(npm pack --dry-run)"
           printf "%s\n" "$PACK_OUTPUT"
           printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/SKILL.md"
           printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/skill/references/clawdentity-protocol.md"
           printf "%s\n" "$PACK_OUTPUT" | grep -q "skill-bundle/openclaw-skill/dist/relay-to-peer.mjs"
 
       - name: Publish package
-        run: npm --prefix apps/cli publish --access public --provenance --tag ${{ inputs.dist_tag }}
+        working-directory: apps/cli
+        run: npm publish --access public --provenance --tag ${{ inputs.dist_tag }}
