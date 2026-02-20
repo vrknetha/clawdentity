@@ -54,3 +54,4 @@
 - For OpenClaw setup flow, cover self-setup behavior, config patch idempotency, and missing-file validation.
 - For registry invite flow, cover admin-auth create path, public redeem path, config persistence failures, and command exit-code behavior.
 - Keep tests deterministic by mocking network and filesystem dependencies.
+- File-copy/integration-style skill installer tests must set explicit per-test timeouts (for example `15_000ms`) to avoid false failures under loaded CI/pre-push environments.

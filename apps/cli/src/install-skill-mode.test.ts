@@ -119,35 +119,39 @@ describe("installOpenclawSkillArtifacts", () => {
     }
   });
 
-  it("reports updated artifacts when source content changes", async () => {
-    const sandbox = createSkillSandbox();
+  it(
+    "reports updated artifacts when source content changes",
+    async () => {
+      const sandbox = createSkillSandbox();
 
-    try {
-      await installOpenclawSkillArtifacts({
-        homeDir: sandbox.homeDir,
-        openclawDir: sandbox.openclawDir,
-        skillPackageRoot: sandbox.skillPackageRoot,
-      });
+      try {
+        await installOpenclawSkillArtifacts({
+          homeDir: sandbox.homeDir,
+          openclawDir: sandbox.openclawDir,
+          skillPackageRoot: sandbox.skillPackageRoot,
+        });
 
-      writeFileSync(
-        join(sandbox.referencesRoot, "clawdentity-protocol.md"),
-        "Protocol reference v2\n",
-        "utf8",
-      );
+        writeFileSync(
+          join(sandbox.referencesRoot, "clawdentity-protocol.md"),
+          "Protocol reference v2\n",
+          "utf8",
+        );
 
-      const rerun = await installOpenclawSkillArtifacts({
-        homeDir: sandbox.homeDir,
-        openclawDir: sandbox.openclawDir,
-        skillPackageRoot: sandbox.skillPackageRoot,
-      });
+        const rerun = await installOpenclawSkillArtifacts({
+          homeDir: sandbox.homeDir,
+          openclawDir: sandbox.openclawDir,
+          skillPackageRoot: sandbox.skillPackageRoot,
+        });
 
-      expect(rerun.records.some((record) => record.action === "updated")).toBe(
-        true,
-      );
-    } finally {
-      sandbox.cleanup();
-    }
-  });
+        expect(
+          rerun.records.some((record) => record.action === "updated"),
+        ).toBe(true);
+      } finally {
+        sandbox.cleanup();
+      }
+    },
+    15_000,
+  );
 
   it("fails with actionable error when required artifact is missing", async () => {
     const sandbox = createSkillSandbox();
