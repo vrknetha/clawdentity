@@ -159,6 +159,8 @@ const PROXY_URL_BY_ENVIRONMENT: Record<RegistryConfig["ENVIRONMENT"], string> =
   };
 // Deterministic bootstrap identity guarantees one-time admin creation under races.
 const BOOTSTRAP_ADMIN_HUMAN_ID = "00000000000000000000000000";
+const BOOTSTRAP_INTERNAL_SERVICE_NAME = "proxy-pairing";
+const BOOTSTRAP_INTERNAL_SERVICE_SCOPES = ["identity.read"] as const;
 const REGISTRY_SERVICE_EVENT_VERSION = "v1";
 
 const AGENT_AUTH_EVENT_NAME_BY_TYPE: Record<
@@ -1116,11 +1118,34 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const apiKeyHash = await hashApiKeyToken(apiKeyToken);
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);
     const apiKeyId = generateUlid(nowUtcMs() + 1);
+    const internalServiceSecret = generateInternalServiceSecret();
+    const internalServiceSecretHash = await hashInternalServiceSecret(
+      internalServiceSecret,
+    );
+    const internalServiceSecretPrefix = deriveInternalServiceSecretPrefix(
+      internalServiceSecret,
+    );
+    const internalServiceId = generateUlid(nowUtcMs() + 2);
     const createdAt = nowIso();
+
+    const rollbackBootstrapMutation = async (
+      executor: typeof db,
+    ): Promise<void> => {
+      await executor
+        .delete(internal_services)
+        .where(
+          and(
+            eq(internal_services.created_by, humanId),
+            eq(internal_services.name, BOOTSTRAP_INTERNAL_SERVICE_NAME),
+          ),
+        );
+      await executor.delete(api_keys).where(eq(api_keys.human_id, humanId));
+      await executor.delete(humans).where(eq(humans.id, humanId));
+    };
 
     const applyBootstrapMutation = async (
       executor: typeof db,
-      options: { rollbackOnApiKeyFailure: boolean },
+      options: { rollbackOnFailure: boolean },
     ): Promise<void> => {
       const insertAdminResult = await executor
         .insert(humans)
@@ -1153,10 +1178,24 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
           created_at: createdAt,
           last_used_at: null,
         });
+
+        await executor.insert(internal_services).values({
+          id: internalServiceId,
+          name: BOOTSTRAP_INTERNAL_SERVICE_NAME,
+          secret_hash: internalServiceSecretHash,
+          secret_prefix: internalServiceSecretPrefix,
+          scopes_json: JSON.stringify(BOOTSTRAP_INTERNAL_SERVICE_SCOPES),
+          status: "active",
+          created_by: humanId,
+          rotated_at: null,
+          last_used_at: null,
+          created_at: createdAt,
+          updated_at: createdAt,
+        });
       } catch (error) {
-        if (options.rollbackOnApiKeyFailure) {
+        if (options.rollbackOnFailure) {
           try {
-            await executor.delete(humans).where(eq(humans.id, humanId));
+            await rollbackBootstrapMutation(executor);
           } catch (rollbackError) {
             logger.error("registry.admin_bootstrap_rollback_failed", {
               rollbackErrorName:
@@ -1172,7 +1211,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     try {
       await db.transaction(async (tx) => {
         await applyBootstrapMutation(tx as unknown as typeof db, {
-          rollbackOnApiKeyFailure: false,
+          rollbackOnFailure: false,
         });
       });
     } catch (error) {
@@ -1181,7 +1220,7 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
       }
 
       await applyBootstrapMutation(db, {
-        rollbackOnApiKeyFailure: true,
+        rollbackOnFailure: true,
       });
     }
 
@@ -1198,6 +1237,11 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
           id: apiKeyId,
           name: bootstrapPayload.apiKeyName,
           token: apiKeyToken,
+        },
+        internalService: {
+          id: internalServiceId,
+          name: BOOTSTRAP_INTERNAL_SERVICE_NAME,
+          secret: internalServiceSecret,
         },
       },
       201,
