@@ -65,6 +65,8 @@ Current pairing contract is ticket-based with CLI support:
 }
 ```
 
+> **Agent note:** `initiatorProfile` is auto-constructed by CLI from `config.humanName` and the `<agent-name>` argument. Do not pass or ask for this value.
+
 2. Responder confirms pairing:
    - CLI: `clawdentity pair confirm <agent-name> --qr-file <path>`
    - proxy route: `POST /pair/confirm`
@@ -81,6 +83,8 @@ Current pairing contract is ticket-based with CLI support:
   }
 }
 ```
+
+> **Agent note:** `responderProfile` is auto-constructed by CLI from `config.humanName` and the `<agent-name>` argument. Do not pass or ask for this value.
 
 Rules:
 - `ticket` is one-time and expires (default 5 minutes, max 15 minutes).
@@ -177,6 +181,8 @@ CLI resolves proxy URL in this order (first non-empty wins):
 3. Registry metadata from `GET /v1/metadata`
 4. Error when configured proxy does not match metadata (`CLI_PAIR_PROXY_URL_MISMATCH`) or metadata lookup fails
 
+> **Agent note:** Proxy URL resolution is fully automatic. Do not ask the user for a proxy URL. The CLI resolves it from env, config, or registry metadata without user input.
+
 ### Metadata expectation
 
 Registry metadata (`/v1/metadata`) should return a valid `proxyUrl`.
@@ -229,7 +235,7 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | 503 | `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` | Registry ownership lookup unavailable | Ensure registry deterministic bootstrap credentials are configured (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`) and proxy credentials match (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`); for existing envs rotate credentials together |
 | — | `CLI_PAIR_AGENT_NOT_FOUND` | Agent ait.jwt or secret.key missing/empty | Run `agent create` or `agent auth refresh` |
 | — | `CLI_PAIR_HUMAN_NAME_MISSING` | Local config is missing `humanName` | Set via `invite redeem` or config |
-| — | `CLI_PAIR_PROXY_URL_REQUIRED` | Proxy URL could not be resolved | Run `invite redeem` or set `CLAWDENTITY_PROXY_URL` |
+| — | `CLI_PAIR_PROXY_URL_INVALID` | Configured proxy URL is malformed | Fix proxy URL: `clawdentity config set proxyUrl <url>` |
 | — | `CLI_PAIR_START_INVALID_TTL` | ttlSeconds must be a positive integer | Use valid `--ttl-seconds` value |
 | — | `CLI_PAIR_INVALID_PROXY_URL` | Proxy URL is invalid | Fix proxy URL in config |
 | — | `CLI_PAIR_REQUEST_FAILED` | Unable to connect to proxy URL | Check DNS, firewall, proxy URL |
@@ -250,6 +256,7 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | — | `CLI_PAIR_CONFIRM_FAILED` | Generic pair confirm failure | Retry with new ticket |
 | — | `CLI_PAIR_CONFIRM_QR_FILE_INVALID` | QR image file corrupt or unsupported | Request new QR from initiator |
 | — | `CLI_PAIR_CONFIRM_QR_FILE_REQUIRED` | QR path unusable | Verify file path and format |
+| — | `CLI_PAIR_TICKET_ISSUER_MISMATCH` | Ticket issuer does not match configured proxy URL | `clawdentity config set proxyUrl <issuer-url>` and retry |
 
 ### `pair status` errors
 
@@ -259,6 +266,8 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | — | `CLI_PAIR_STATUS_WAIT_TIMEOUT` | Wait polling timed out | Generate new ticket via `pair start` |
 | — | `CLI_PAIR_STATUS_FORBIDDEN` | 403 on status check — ownership mismatch | Verify correct agent |
 | — | `CLI_PAIR_STATUS_TICKET_REQUIRED` | Missing ticket argument | Provide `--ticket <clwpair1_...>` |
+| — | `CLI_PAIR_STATUS_WAIT_INVALID` | Wait/poll option is not a positive integer | Use a valid positive integer for `--wait-seconds` or `--poll-interval-seconds` |
+| — | `CLI_PAIR_TICKET_ISSUER_MISMATCH` | Ticket issuer does not match configured proxy URL | `clawdentity config set proxyUrl <issuer-url>` and retry |
 
 ### Peer persistence errors
 

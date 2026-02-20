@@ -1,7 +1,7 @@
 ---
 name: clawdentity_openclaw_relay
 description: This skill should be used when the user asks to "set up Clawdentity relay", "pair two agents", "verify an agent token", "rotate API key", "refresh agent auth", "revoke an agent", "troubleshoot relay", "uninstall connector service", "check relay health", "run relay doctor", "test relay connection", "send relay test", "install relay skill", "bootstrap registry", "create onboarding invite", "decommission agent", or needs OpenClaw relay onboarding, lifecycle management, or pairing workflows.
-version: 0.3.0
+version: 0.3.1
 ---
 
 # Clawdentity OpenClaw Relay Skill
@@ -261,6 +261,9 @@ Use `--no-runtime-start` when the connector runs as a separate container or proc
 - At this point the agent is ready to start pairing or accept pairing.
 
 8. Pairing phase (separate from onboarding).
+- Prerequisites (must be satisfied before any `pair` command):
+  - `humanName` must be set in local config. It is set automatically by `invite redeem --display-name`; if missing, set it with `clawdentity config set humanName <name>`. If absent, CLI fails with `CLI_PAIR_HUMAN_NAME_MISSING`.
+  - Proxy URL is auto-resolved by CLI (env → config → registry metadata). Do not ask the user for a proxy URL.
 - Required default initiator flow:
   - `clawdentity pair start <agent-name> --qr --wait`
   - Optional overrides: `--ttl-seconds <seconds>`, `--qr-output <path>`, `--wait-seconds <seconds>`, `--poll-interval-seconds <seconds>`
@@ -273,8 +276,9 @@ Use `--no-runtime-start` when the connector runs as a separate container or proc
   - Cannot provide both `--qr-file` and `--ticket` simultaneously.
 - Pair confirm auto-saves peer DID/proxy mapping locally from QR ticket metadata.
 - Pair start/confirm/status exchange profile metadata:
-  - `initiatorProfile = { agentName, humanName }`
-  - `responderProfile = { agentName, humanName }`
+  - `initiatorProfile = { agentName, humanName, proxyOrigin? }`
+  - `responderProfile = { agentName, humanName, proxyOrigin? }`
+  - These are NOT CLI flags. The CLI auto-constructs them from `config.humanName` and the `<agent-name>` argument. Do not pass or ask for these values.
 - Local peer entries in `~/.clawdentity/peers.json` should include:
   - `did`
   - `proxyUrl`
@@ -389,6 +393,9 @@ Do not ask for relay invite codes.
 Do not ask for `clawd1_...` values.
 Do not state that API key is required before invite redeem.
 Do not suggest switching endpoints unless user explicitly asks for endpoint changes.
+Do not ask for proxy URL — it is auto-resolved by CLI from env, config, and registry metadata.
+Do not ask for `initiatorProfile` or `responderProfile` — CLI auto-constructs these internally.
+Do not re-ask for human display name if onboarding (invite redeem) was already completed.
 
 ## Failure Handling
 
@@ -407,6 +414,8 @@ Do not suggest switching endpoints unless user explicitly asks for endpoint chan
 - `CLI_PAIR_CONFIRM_INPUT_CONFLICT`: cannot provide both `--ticket` and `--qr-file`. Use one path only.
 - `CLI_PAIR_PROXY_URL_MISMATCH`: local `proxyUrl` does not match registry metadata. Rerun `clawdentity invite redeem <clw_inv_...>`.
 - `PROXY_PAIR_OWNERSHIP_UNAVAILABLE`: proxy cannot authenticate to registry ownership endpoint. Ensure registry deterministic bootstrap credentials are configured (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`) and proxy secrets match (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`). On already-bootstrapped environments, rotate internal service via admin API and update proxy secrets together.
+- `CLI_PAIR_HUMAN_NAME_MISSING`: local config is missing `humanName`. Set via `clawdentity invite redeem <clw_inv_...> --display-name <name>` or `clawdentity config set humanName <name>`.
+- `CLI_PAIR_TICKET_ISSUER_MISMATCH`: pairing ticket was issued by a different proxy than the currently configured one. Set `proxyUrl` to match the ticket issuer: `clawdentity config set proxyUrl <issuer-url>`.
 - Responder shows peer but initiator does not:
   - Cause: initiator started pairing without `--wait`.
   - Fix: run `clawdentity pair status <initiator-agent> --ticket <clwpair1_...> --wait` on initiator.
