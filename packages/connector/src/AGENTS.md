@@ -2,9 +2,24 @@
 
 ## Source Layout
 - Keep frame schema definitions in `frames.ts` and validate every inbound/outbound frame through parser helpers.
-- Keep websocket lifecycle + ack behavior in `client.ts`.
-- Keep local runtime orchestration (`/v1/outbound`, `/v1/status`, auth refresh, replay loop) in `runtime.ts`.
-- Keep durable inbound storage logic isolated in `inbound-inbox.ts`.
+- Keep `client.ts` as the stable public surface (`ConnectorClient` + exported client types) and route internal concerns through `client/` modules:
+  - `client/types.ts` for externally consumed client types.
+  - `client/helpers.ts` for shared pure helpers (event parsing, sanitization, normalization).
+  - `client/retry.ts` for reusable backoff math.
+  - `client/heartbeat.ts` for heartbeat scheduling, ack tracking, and RTT metrics.
+  - `client/queue.ts` for outbound queue + persistence orchestration.
+  - `client/delivery.ts` for local OpenClaw delivery + retry behavior.
+- Keep `runtime.ts` as the runtime entrypoint and wire internal concerns through `runtime/` modules:
+  - `runtime/auth-storage.ts` for registry auth disk sync + atomic persistence.
+  - `runtime/openclaw.ts` for hook token discovery and abort-aware local hook delivery.
+  - `runtime/policy.ts` for replay/probe configuration loading and retry-delay calculation.
+  - `runtime/relay-service.ts` for outbound relay and signed delivery-receipt callbacks.
+  - `runtime/server.ts` for HTTP route handling (`/v1/status`, dead-letter ops, `/v1/outbound`).
+  - `runtime/trusted-receipts.ts`, `runtime/url.ts`, `runtime/ws.ts`, and `runtime/parse.ts` for focused helper concerns.
+- Keep `inbound-inbox.ts` as the public API surface (`ConnectorInboundInbox`, factory helpers, exported types) and route internals through `inbound-inbox/` modules:
+  - `inbound-inbox/types.ts` for inbox/dead-letter/index/event type contracts.
+  - `inbound-inbox/schema.ts` for index parsing/normalization rules.
+  - `inbound-inbox/storage.ts` for lock/index/events file persistence concerns.
 
 ## Inbound Durability Rules
 - Connector must persist inbound relay payloads before sending `deliver_ack accepted=true`.

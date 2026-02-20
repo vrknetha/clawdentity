@@ -1,5 +1,5 @@
 {
-  "name": "@clawdentity/connector",
+  "name": "@clawdentity/common",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -15,18 +15,10 @@
     "build": "tsup",
     "format": "biome format .",
     "lint": "biome lint .",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": {
-    "@clawdentity/common": "workspace:*",
-    "@clawdentity/protocol": "workspace:*",
-    "@clawdentity/sdk": "workspace:*",
-    "ws": "^8.18.3",
-    "zod": "^4.1.12"
-  },
   "devDependencies": {
-    "@types/node": "^22.17.2",
-    "@types/ws": "^8.18.1"
+    "@types/node": "^22.17.2"
   }
 }

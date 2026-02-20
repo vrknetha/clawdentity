@@ -15,6 +15,7 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
+      "@clawdentity/common": ["packages/common/src/index.ts"],
       "@clawdentity/connector": ["packages/connector/src/index.ts"],
       "@clawdentity/protocol": ["packages/protocol/src/index.ts"],
       "@clawdentity/sdk": ["packages/sdk/src/index.ts"],

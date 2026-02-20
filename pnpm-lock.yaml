@@ -139,8 +139,17 @@ importers:
         specifier: ^0.31.9
         version: 0.31.9
 
+  packages/common:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.17.2
+        version: 22.19.11
+
   packages/connector:
     dependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../common
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../protocol
