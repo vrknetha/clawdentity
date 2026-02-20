@@ -13,7 +13,11 @@
 - `gateway.ts`: OpenClaw gateway pending-device approval flow.
 - `connector.ts`: connector runtime status/probing/runtime-start helpers.
 - `config.ts`: OpenClaw config patching and hook/gateway auth normalization.
-- `doctor*.ts`: doctor orchestration and check groups.
+- `doctor.ts`: doctor orchestration only.
+- `doctor-static-checks.ts`: stable export facade only; do not put check logic here.
+- `doctor-config-checks.ts`: CLI config doctor checks.
+- `doctor-state-checks.ts`: local state marker/credentials/peer/transform checks.
+- `doctor-openclaw-checks.ts`: OpenClaw config, base URL, and gateway pairing checks.
 - `relay.ts`: relay probe and websocket diagnostics.
 - `setup.ts`: invite encode/decode and setup orchestration.
 - `command.ts`: commander wiring + stdout formatting calls.
