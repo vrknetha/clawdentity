@@ -41,6 +41,10 @@ import {
   deriveApiKeyLookupPrefix,
   hashApiKeyToken,
 } from "./auth/api-key-auth.js";
+import {
+  deriveInternalServiceSecretPrefix,
+  hashInternalServiceSecret,
+} from "./auth/service-auth.js";
 import { RESOLVE_RATE_LIMIT_MAX_REQUESTS } from "./rate-limit.js";
 import app, { createRegistryApp } from "./server.js";
 
@@ -128,6 +132,7 @@ type FakeApiKeySelectRow = {
 type FakeAgentInsertRow = Record<string, unknown>;
 type FakeHumanInsertRow = Record<string, unknown>;
 type FakeApiKeyInsertRow = Record<string, unknown>;
+type FakeInternalServiceInsertRow = Record<string, unknown>;
 type FakeAgentUpdateRow = Record<string, unknown>;
 type FakeRevocationInsertRow = Record<string, unknown>;
 type FakeAgentRegistrationChallengeInsertRow = Record<string, unknown>;
@@ -196,6 +201,7 @@ type FakeDbOptions = {
     sessionRows: FakeAgentAuthSessionRow[],
   ) => void;
   failApiKeyInsertCount?: number;
+  failInternalServiceInsertCount?: number;
   failBeginTransaction?: boolean;
   inviteRows?: FakeInviteRow[];
   revocationRows?: FakeRevocationRow[];
@@ -1006,6 +1012,7 @@ function createFakeDb(
   const updates: Array<{ lastUsedAt: string; apiKeyId: string }> = [];
   const humanInserts: FakeHumanInsertRow[] = [];
   const apiKeyInserts: FakeApiKeyInsertRow[] = [];
+  const internalServiceInserts: FakeInternalServiceInsertRow[] = [];
   const agentInserts: FakeAgentInsertRow[] = [];
   const agentUpdates: FakeAgentUpdateRow[] = [];
   const revocationInserts: FakeRevocationInsertRow[] = [];
@@ -1053,6 +1060,8 @@ function createFakeDb(
   let beforeFirstAgentUpdateApplied = false;
   let beforeFirstAgentAuthSessionUpdateApplied = false;
   let remainingApiKeyInsertFailures = options.failApiKeyInsertCount ?? 0;
+  let remainingInternalServiceInsertFailures =
+    options.failInternalServiceInsertCount ?? 0;
 
   const database: D1Database = {
     prepare(query: string) {
@@ -1611,6 +1620,26 @@ function createFakeDb(
             changes = 1;
           }
           if (
+            normalizedQuery.includes('insert into "internal_services"') ||
+            normalizedQuery.includes("insert into internal_services")
+          ) {
+            if (remainingInternalServiceInsertFailures > 0) {
+              remainingInternalServiceInsertFailures -= 1;
+              throw new Error("internal service insert failed");
+            }
+
+            const columns = parseInsertColumns(query, "internal_services");
+            const row = columns.reduce<FakeInternalServiceInsertRow>(
+              (acc, column, index) => {
+                acc[column] = params[index];
+                return acc;
+              },
+              {},
+            );
+            internalServiceInserts.push(row);
+            changes = 1;
+          }
+          if (
             normalizedQuery.includes('insert into "agent_auth_sessions"') ||
             normalizedQuery.includes("insert into agent_auth_sessions")
           ) {
@@ -1986,6 +2015,35 @@ function createFakeDb(
             }
           }
           if (
+            normalizedQuery.includes('delete from "api_keys"') ||
+            normalizedQuery.includes("delete from api_keys")
+          ) {
+            const whereClause = extractWhereClause(query);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params,
+            });
+            const humanIdFilter =
+              typeof equalityParams.values.human_id?.[0] === "string"
+                ? String(equalityParams.values.human_id[0])
+                : undefined;
+
+            if (humanIdFilter) {
+              for (let index = apiKeyRows.length - 1; index >= 0; index -= 1) {
+                if (apiKeyRows[index]?.humanId === humanIdFilter) {
+                  apiKeyRows.splice(index, 1);
+                  changes += 1;
+                }
+              }
+            }
+          }
+          if (
+            normalizedQuery.includes('delete from "internal_services"') ||
+            normalizedQuery.includes("delete from internal_services")
+          ) {
+            changes = 1;
+          }
+          if (
             normalizedQuery.includes('insert into "agents"') ||
             normalizedQuery.includes("insert into agents")
           ) {
@@ -2263,6 +2321,7 @@ function createFakeDb(
     humanRows,
     humanInserts,
     apiKeyInserts,
+    internalServiceInserts,
     agentAuthSessionRows,
     agentAuthSessionInserts,
     agentAuthSessionUpdates,
@@ -2604,7 +2663,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   });
 
   it("creates admin human and PAT token once", async () => {
-    const { database, humanInserts, apiKeyInserts } = createFakeDb([]);
+    const { database, humanInserts, apiKeyInserts, internalServiceInserts } =
+      createFakeDb([]);
 
     const response = await createRegistryApp().request(
       ADMIN_BOOTSTRAP_PATH,
@@ -2641,6 +2701,11 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         name: string;
         token: string;
       };
+      internalService: {
+        id: string;
+        name: string;
+        secret: string;
+      };
     };
 
     expect(body.human.id).toBe("00000000000000000000000000");
@@ -2650,14 +2715,27 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(body.human.status).toBe("active");
     expect(body.apiKey.name).toBe("prod-admin-key");
     expect(body.apiKey.token.startsWith("clw_pat_")).toBe(true);
+    expect(body.internalService.name).toBe("proxy-pairing");
+    expect(body.internalService.secret.startsWith("clw_srv_")).toBe(true);
 
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
+    expect(internalServiceInserts).toHaveLength(1);
     expect(apiKeyInserts[0]?.key_prefix).toBe(
       deriveApiKeyLookupPrefix(body.apiKey.token),
     );
     expect(apiKeyInserts[0]?.key_hash).toBe(
       await hashApiKeyToken(body.apiKey.token),
+    );
+    expect(internalServiceInserts[0]?.name).toBe("proxy-pairing");
+    expect(internalServiceInserts[0]?.scopes_json).toBe(
+      JSON.stringify(["identity.read"]),
+    );
+    expect(internalServiceInserts[0]?.secret_prefix).toBe(
+      deriveInternalServiceSecretPrefix(body.internalService.secret),
+    );
+    expect(internalServiceInserts[0]?.secret_hash).toBe(
+      await hashInternalServiceSecret(body.internalService.secret),
     );
   });
 
@@ -2739,9 +2817,10 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   });
 
   it("falls back to manual mutation when transactions are unavailable", async () => {
-    const { database, humanInserts, apiKeyInserts } = createFakeDb([], [], {
-      failBeginTransaction: true,
-    });
+    const { database, humanInserts, apiKeyInserts, internalServiceInserts } =
+      createFakeDb([], [], {
+        failBeginTransaction: true,
+      });
 
     const response = await createRegistryApp().request(
       ADMIN_BOOTSTRAP_PATH,
@@ -2766,12 +2845,66 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(response.status).toBe(201);
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
+    expect(internalServiceInserts).toHaveLength(1);
   });
 
   it("rolls back admin insert when fallback api key insert fails", async () => {
     const { database, humanRows } = createFakeDb([], [], {
       failBeginTransaction: true,
       failApiKeyInsertCount: 1,
+    });
+
+    const firstResponse = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(firstResponse.status).toBe(500);
+    expect(humanRows).toHaveLength(0);
+
+    const secondResponse = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(secondResponse.status).toBe(201);
+    expect(humanRows).toHaveLength(1);
+  });
+
+  it("rolls back admin insert when fallback internal service insert fails", async () => {
+    const { database, humanRows } = createFakeDb([], [], {
+      failBeginTransaction: true,
+      failInternalServiceInsertCount: 1,
     });
 
     const firstResponse = await createRegistryApp().request(

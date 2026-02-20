@@ -31,6 +31,11 @@ type AdminBootstrapResponse = {
     name: string;
     token: string;
   };
+  internalService: {
+    id: string;
+    name: string;
+    secret: string;
+  };
 };
 
 export type AdminBootstrapResult = AdminBootstrapResponse & {
@@ -96,7 +101,10 @@ function parseBootstrapResponse(payload: unknown): AdminBootstrapResponse {
   const body = payload as Record<string, unknown>;
   const human = body.human as Record<string, unknown> | undefined;
   const apiKey = body.apiKey as Record<string, unknown> | undefined;
-  if (!human || !apiKey) {
+  const internalService = body.internalService as
+    | Record<string, unknown>
+    | undefined;
+  if (!human || !apiKey || !internalService) {
     throw createCliError(
       "CLI_ADMIN_BOOTSTRAP_INVALID_RESPONSE",
       "Bootstrap response is invalid",
@@ -109,6 +117,9 @@ function parseBootstrapResponse(payload: unknown): AdminBootstrapResponse {
   const apiKeyId = parseNonEmptyString(apiKey.id);
   const apiKeyName = parseNonEmptyString(apiKey.name);
   const apiKeyToken = parseNonEmptyString(apiKey.token);
+  const internalServiceId = parseNonEmptyString(internalService.id);
+  const internalServiceName = parseNonEmptyString(internalService.name);
+  const internalServiceSecret = parseNonEmptyString(internalService.secret);
 
   if (
     humanId.length === 0 ||
@@ -116,7 +127,10 @@ function parseBootstrapResponse(payload: unknown): AdminBootstrapResponse {
     humanDisplayName.length === 0 ||
     apiKeyId.length === 0 ||
     apiKeyName.length === 0 ||
-    apiKeyToken.length === 0
+    apiKeyToken.length === 0 ||
+    internalServiceId.length === 0 ||
+    internalServiceName.length === 0 ||
+    internalServiceSecret.length === 0
   ) {
     throw createCliError(
       "CLI_ADMIN_BOOTSTRAP_INVALID_RESPONSE",
@@ -136,6 +150,11 @@ function parseBootstrapResponse(payload: unknown): AdminBootstrapResponse {
       id: apiKeyId,
       name: apiKeyName,
       token: apiKeyToken,
+    },
+    internalService: {
+      id: internalServiceId,
+      name: internalServiceName,
+      secret: internalServiceSecret,
     },
   };
 }
@@ -274,6 +293,12 @@ export const createAdminCommand = (): Command => {
           writeStdoutLine(`API key name: ${result.apiKey.name}`);
           writeStdoutLine("API key token (shown once):");
           writeStdoutLine(result.apiKey.token);
+          writeStdoutLine(`Internal service ID: ${result.internalService.id}`);
+          writeStdoutLine(
+            `Internal service name: ${result.internalService.name}`,
+          );
+          writeStdoutLine("Internal service secret (shown once):");
+          writeStdoutLine(result.internalService.secret);
 
           await persistBootstrapConfig(result.registryUrl, result.apiKey.token);
           writeStdoutLine("API key saved to local config");

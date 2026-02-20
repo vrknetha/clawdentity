@@ -18,9 +18,10 @@
 - Require `x-bootstrap-secret` header and compare with constant-time semantics; invalid/missing secret must return `401 ADMIN_BOOTSTRAP_UNAUTHORIZED`.
 - If `BOOTSTRAP_SECRET` is not configured, return `503 ADMIN_BOOTSTRAP_DISABLED`.
 - If any admin human already exists, return `409 ADMIN_BOOTSTRAP_ALREADY_COMPLETED`.
-- Success response must include `{ human, apiKey }` and return the PAT token only in bootstrap response.
-- Persist admin bootstrap atomically where supported (transaction). When falling back because transactions are unavailable, run the manual mutation with rollback-on-api-key-failure so that no admin human exists without the new API key even if part of the bootstrap fails.
-- Fallback path must be compensation-safe: if API key insert fails after admin insert, delete the inserted admin row before returning failure so retry remains possible.
+- Success response must include `{ human, apiKey, internalService }`; return plaintext PAT and internal service secret only in bootstrap response.
+- Bootstrap must create a default internal service named `proxy-pairing` with scope `identity.read` in the same mutation unit as admin + PAT creation.
+- Persist admin bootstrap atomically where supported (transaction). When falling back because transactions are unavailable, run manual compensation rollback so no partial bootstrap state survives.
+- Fallback path must be compensation-safe: if API key/internal-service insert fails after admin insert, delete inserted `internal_services` + `api_keys` rows before deleting the admin human so retry remains possible under FK constraints.
 
 ## Registry Keyset Contract
 - `/.well-known/claw-keys.json` is a public endpoint and must remain unauthenticated.

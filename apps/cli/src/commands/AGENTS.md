@@ -59,10 +59,11 @@
 ## Admin Command Rules
 - `admin bootstrap` must call registry `/v1/admin/bootstrap` with `x-bootstrap-secret` and fail with stable CLI error codes/messages.
 - `admin bootstrap` must import `ADMIN_BOOTSTRAP_PATH` from `@clawdentity/protocol` instead of duplicating endpoint literals in command code/tests.
-- Treat bootstrap API key token as write-once secret: print once, persist via config manager, and never log token contents.
+- Treat bootstrap API key token and internal service secret as write-once secrets: print once and never log secret contents.
 - Normalize registry URL through URL parsing before requests; reject invalid URLs before network calls.
 - Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
-- Config persistence failures after successful bootstrap must not hide the returned PAT token; print token first, then surface recovery instructions.
+- Bootstrap response parsing must require `{ human, apiKey, internalService }` to prevent partially-valid onboarding state.
+- Config persistence failures after successful bootstrap must not hide the returned PAT token; print secrets first, then surface recovery instructions.
 
 ## API Key Command Rules
 - `api-key create` must call registry `POST /v1/me/api-keys` and print the plaintext PAT token once without persisting it into local config automatically.
