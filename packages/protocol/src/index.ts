@@ -20,6 +20,11 @@ export type { CrlClaims } from "./crl.js";
 export { crlClaimsSchema, parseCrlClaims } from "./crl.js";
 export type { ClawDidKind } from "./did.js";
 export { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
+export type { EncryptedRelayPayloadV1 } from "./e2ee.js";
+export {
+  encryptedRelayPayloadV1Schema,
+  parseEncryptedRelayPayloadV1,
+} from "./e2ee.js";
 export {
   ADMIN_BOOTSTRAP_PATH,
   ADMIN_INTERNAL_SERVICES_PATH,

@@ -17,6 +17,20 @@ const RESPONDER_PROFILE = {
   humanName: "Ira",
 };
 
+const INITIATOR_E2EE = {
+  keyId: "init-key-1",
+  x25519PublicKey: encodeBase64url(
+    Uint8Array.from({ length: 32 }, (_value, index) => index + 1),
+  ),
+};
+
+const RESPONDER_E2EE = {
+  keyId: "resp-key-1",
+  x25519PublicKey: encodeBase64url(
+    Uint8Array.from({ length: 32 }, (_value, index) => index + 2),
+  ),
+};
+
 function tamperTicketNonce(ticket: string): string {
   const prefix = "clwpair1_";
   if (!ticket.startsWith(prefix)) {
@@ -131,6 +145,7 @@ describe("ProxyTrustState", () => {
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
         initiatorAgentDid: "did:claw:agent:alice",
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
         expiresAtMs: 1_700_000_060_000,
@@ -144,6 +159,7 @@ describe("ProxyTrustState", () => {
         ticket: ticketBody.ticket,
         responderAgentDid: "did:claw:agent:bob",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         nowMs: 1_700_000_000_100,
       }),
     );
@@ -158,8 +174,10 @@ describe("ProxyTrustState", () => {
     ).toEqual({
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
     });
 
@@ -191,8 +209,10 @@ describe("ProxyTrustState", () => {
       status: "confirmed",
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE,
+      responderE2ee: RESPONDER_E2EE,
       expiresAtMs: 1_700_000_060_000,
       confirmedAtMs: 1_700_000_000_000,
     });
@@ -210,6 +230,7 @@ describe("ProxyTrustState", () => {
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
         initiatorAgentDid: "did:claw:agent:alice",
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
         expiresAtMs: 1_700_000_060_000,
@@ -234,6 +255,7 @@ describe("ProxyTrustState", () => {
       status: "pending",
       initiatorAgentDid: "did:claw:agent:alice",
       initiatorProfile: INITIATOR_PROFILE,
+      initiatorE2ee: INITIATOR_E2EE,
       issuerProxyUrl: "https://proxy-a.example.com",
       expiresAtMs: 1_700_000_060_000,
     });
@@ -251,6 +273,7 @@ describe("ProxyTrustState", () => {
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
         initiatorAgentDid: "did:claw:agent:alice",
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
         expiresAtMs: 1_700_000_060_123,
@@ -280,6 +303,7 @@ describe("ProxyTrustState", () => {
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
         initiatorAgentDid: "did:claw:agent:alice",
         initiatorProfile: INITIATOR_PROFILE,
+        initiatorE2ee: INITIATOR_E2EE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
         expiresAtMs: 1_700_000_060_000,
@@ -293,6 +317,7 @@ describe("ProxyTrustState", () => {
         ticket: tamperTicketNonce(ticketBody.ticket),
         responderAgentDid: "did:claw:agent:bob",
         responderProfile: RESPONDER_PROFILE,
+        responderE2ee: RESPONDER_E2EE,
         nowMs: 1_700_000_000_100,
       }),
     );

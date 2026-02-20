@@ -3,7 +3,8 @@ export type ProtocolParseErrorCode =
   | "INVALID_BASE64URL"
   | "INVALID_ULID"
   | "INVALID_DID"
-  | "INVALID_CRL_CLAIMS";
+  | "INVALID_CRL_CLAIMS"
+  | "INVALID_E2EE_PAYLOAD";
 
 export class ProtocolParseError extends Error {
   readonly code: ProtocolParseErrorCode;

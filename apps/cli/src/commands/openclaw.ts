@@ -196,10 +196,16 @@ type PeerEntry = {
   proxyUrl: string;
   agentName?: string;
   humanName?: string;
+  e2ee?: PeerE2eeBundle;
 };
 
 type PeersConfig = {
   peers: Record<string, PeerEntry>;
+};
+
+type PeerE2eeBundle = {
+  keyId: string;
+  x25519PublicKey: string;
 };
 
 export type OpenclawInviteResult = {
@@ -364,6 +370,42 @@ function parseOptionalProfileName(
   }
 
   return parseNonEmptyString(value, label);
+}
+
+function parsePeerE2eeBundle(
+  value: unknown,
+  alias: string,
+): PeerE2eeBundle | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw createCliError(
+      "CLI_OPENCLAW_INVALID_PEERS_CONFIG",
+      "Peer e2ee config must be an object",
+      { alias },
+    );
+  }
+
+  const keyId = parseNonEmptyString(value.keyId, `Peer ${alias} e2ee.keyId`);
+  const x25519PublicKey = parseNonEmptyString(
+    value.x25519PublicKey,
+    `Peer ${alias} e2ee.x25519PublicKey`,
+  );
+
+  try {
+    if (decodeBase64url(x25519PublicKey).length !== 32) {
+      throw new Error("invalid key length");
+    }
+  } catch {
+    throw createCliError(
+      "CLI_OPENCLAW_INVALID_PEERS_CONFIG",
+      "Peer e2ee x25519PublicKey is invalid",
+      { alias },
+    );
+  }
+
+  return { keyId, x25519PublicKey };
 }
 
 function parsePeerAlias(value: unknown): string {
@@ -996,13 +1038,18 @@ async function loadPeersConfig(peersPath: string): Promise<PeersConfig> {
     const proxyUrl = parseProxyUrl(value.proxyUrl);
     const agentName = parseOptionalProfileName(value.agentName, "agentName");
     const humanName = parseOptionalProfileName(value.humanName, "humanName");
+    const e2ee = parsePeerE2eeBundle(value.e2ee, normalizedAlias);
 
-    if (agentName === undefined && humanName === undefined) {
+    if (
+      agentName === undefined &&
+      humanName === undefined &&
+      e2ee === undefined
+    ) {
       peers[normalizedAlias] = { did, proxyUrl };
       continue;
     }
 
-    peers[normalizedAlias] = { did, proxyUrl, agentName, humanName };
+    peers[normalizedAlias] = { did, proxyUrl, agentName, humanName, e2ee };
   }
 
   return { peers };

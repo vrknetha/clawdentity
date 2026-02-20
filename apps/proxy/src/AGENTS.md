@@ -63,13 +63,16 @@
 - Keep AIT verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_AIT_KID` before rejecting.
 - Keep CRL verification resilient to routine key rotation: retry once with a forced keyset refresh on `UNKNOWN_CRL_KID` before dependency-failure mapping.
 - Keep `/hooks/agent` input contract strict: require `Content-Type: application/json` and reject malformed JSON with explicit client errors.
+- Keep `/hooks/agent` payload contract strict: accept only `claw_e2ee_v1` envelopes validated via protocol parser; reject plaintext/non-envelope JSON with `400 PROXY_HOOK_E2EE_REQUIRED`.
 - Keep agent-access validation centralized in `auth-middleware.ts` and call registry `POST /v1/agents/auth/validate`; treat non-`204` non-`401` responses as dependency failures (`503`).
 - Keep relay delivery failure mapping explicit for `/hooks/agent`: DO delivery/RPC failures -> `502`, unavailable DO namespace -> `503`.
 - Keep relay delivery semantics asynchronous and durable: `/hooks/agent` accepts queued deliveries with `202` (`state=queued`) when recipient connector is offline.
 - Keep relay queue saturation explicit: reject new deliveries with `507 PROXY_RELAY_QUEUE_FULL`; do not evict queued messages implicitly.
 - Keep relay retries inside `agent-relay-session.ts` with bounded backoff (`RELAY_RETRY_*`) and per-agent queue caps/TTL (`RELAY_QUEUE_*`); do not add ad-hoc retry loops in route handlers.
-- Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
+- Keep proxy relay semantics metadata-only: proxy routes/auth may inspect headers and routing claims, but message bodies forwarded through `/hooks/agent` must remain opaque ciphertext envelopes.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
-- Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
-- When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.
+- Keep pairing E2EE contract strict:
+  - `/pair/start` requires `initiatorE2ee.{keyId,x25519PublicKey}`
+  - `/pair/confirm` requires `responderE2ee.{keyId,x25519PublicKey}`
+  - `/pair/status` returns stored `initiatorE2ee` and `responderE2ee` bundles

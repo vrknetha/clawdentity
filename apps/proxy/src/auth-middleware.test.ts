@@ -21,6 +21,17 @@ const NOW_MS = Date.now();
 const NOW_SECONDS = Math.floor(NOW_MS / 1000);
 const ISSUER = "https://registry.clawdentity.com";
 const BODY_JSON = JSON.stringify({ message: "hello" });
+const E2EE_BODY_JSON = JSON.stringify({
+  kind: "claw_e2ee_v1",
+  alg: "X25519_XCHACHA20POLY1305_HKDF_SHA256",
+  sessionId: "01HF7YAT31JZHSMW1CG6Q6MHB7",
+  epoch: 1,
+  counter: 0,
+  nonce: Buffer.alloc(24, 7).toString("base64url"),
+  ciphertext: Buffer.from("ciphertext").toString("base64url"),
+  senderE2eePub: Buffer.alloc(32, 8).toString("base64url"),
+  sentAt: "2026-02-16T20:00:00.000Z",
+});
 const KNOWN_PEER_DID = "did:claw:agent:known-peer";
 
 type AuthHarnessOptions = {
@@ -318,6 +329,10 @@ describe("proxy auth middleware", () => {
       responderProfile: {
         agentName: "beta",
         humanName: "Ira",
+      },
+      responderE2ee: {
+        keyId: "resp-key-1",
+        x25519PublicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
       },
     });
     const headers = await harness.createSignedHeaders({
@@ -677,6 +692,7 @@ describe("proxy auth middleware", () => {
       validateStatus: 204,
     });
     const headers = await harness.createSignedHeaders({
+      body: E2EE_BODY_JSON,
       pathWithQuery: "/hooks/agent",
       nonce: "nonce-hooks-agent-access-valid",
     });
@@ -687,7 +703,7 @@ describe("proxy auth middleware", () => {
         "x-claw-agent-access": "clw_agt_validtoken",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]: harness.claims.sub,
       },
-      body: BODY_JSON,
+      body: E2EE_BODY_JSON,
     });
 
     expect(response.status).toBe(202);

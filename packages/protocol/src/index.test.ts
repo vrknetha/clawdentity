@@ -15,6 +15,7 @@ import {
   crlClaimsSchema,
   decodeBase64url,
   encodeBase64url,
+  encryptedRelayPayloadV1Schema,
   generateUlid,
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   INVITES_PATH,
@@ -29,6 +30,7 @@ import {
   parseAitClaims,
   parseCrlClaims,
   parseDid,
+  parseEncryptedRelayPayloadV1,
   parseUlid,
   REGISTRY_METADATA_PATH,
   RELAY_CONNECT_PATH,
@@ -183,5 +185,26 @@ describe("protocol", () => {
 
     expect(parsed.revocations[0].agentDid).toBe(agentDid);
     expect(crlClaimsSchema).toBeDefined();
+  });
+
+  it("exports E2EE payload helpers from package root", () => {
+    const parsed = parseEncryptedRelayPayloadV1({
+      kind: "claw_e2ee_v1",
+      alg: "X25519_XCHACHA20POLY1305_HKDF_SHA256",
+      sessionId: "sess_01JABCDE1234567890",
+      epoch: 1,
+      counter: 0,
+      nonce: encodeBase64url(Uint8Array.from({ length: 24 }, (_, i) => i + 1)),
+      ciphertext: encodeBase64url(
+        Uint8Array.from({ length: 32 }, (_, i) => i + 2),
+      ),
+      senderE2eePub: encodeBase64url(
+        Uint8Array.from({ length: 32 }, (_, i) => i + 3),
+      ),
+      sentAt: "2026-02-20T01:00:00.000Z",
+    });
+
+    expect(parsed.kind).toBe("claw_e2ee_v1");
+    expect(encryptedRelayPayloadV1Schema).toBeDefined();
   });
 });

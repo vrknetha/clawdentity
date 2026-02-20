@@ -8,8 +8,14 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { decodeBase64url, parseDid } from "@clawdentity/protocol";
-import { AppError, createLogger, signHttpRequest } from "@clawdentity/sdk";
+import { decodeBase64url, generateUlid, parseDid } from "@clawdentity/protocol";
+import {
+  AppError,
+  createLogger,
+  encodeX25519KeypairBase64url,
+  generateX25519Keypair,
+  signHttpRequest,
+} from "@clawdentity/sdk";
 import { Command } from "commander";
 import jsQR from "jsqr";
 import { PNG } from "pngjs";
@@ -32,6 +38,7 @@ const SECRET_KEY_FILE_NAME = "secret.key";
 const PAIRING_QR_DIR_NAME = "pairing";
 const PEERS_FILE_NAME = "peers.json";
 const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
+const E2EE_IDENTITY_FILE_NAME = "e2ee-identity.json";
 
 const PAIR_START_PATH = "/pair/start";
 const PAIR_CONFIRM_PATH = "/pair/confirm";
@@ -89,6 +96,7 @@ type PairCommandDependencies = PairRequestOptions;
 type PairStartResult = {
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   ticket: string;
   expiresAt: string;
   proxyUrl: string;
@@ -99,8 +107,10 @@ type PairConfirmResult = {
   paired: boolean;
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   responderAgentDid: string;
   responderProfile: PeerProfile;
+  responderE2ee: PeerE2eeBundle;
   proxyUrl: string;
   peerAlias?: string;
 };
@@ -109,12 +119,20 @@ type PairStatusResult = {
   status: "pending" | "confirmed";
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
+  initiatorE2ee: PeerE2eeBundle;
   responderAgentDid?: string;
   responderProfile?: PeerProfile;
+  responderE2ee?: PeerE2eeBundle;
   expiresAt: string;
   confirmedAt?: string;
   proxyUrl: string;
   peerAlias?: string;
+};
+
+type PairE2eeIdentity = {
+  keyId: string;
+  x25519PublicKey: string;
+  x25519SecretKey: string;
 };
 
 type RegistryErrorEnvelope = {
@@ -129,6 +147,7 @@ type PeerEntry = {
   proxyUrl: string;
   agentName?: string;
   humanName?: string;
+  e2ee?: PeerE2eeBundle;
 };
 
 type PeersConfig = {
@@ -143,6 +162,11 @@ type LocalAgentProofMaterial = {
 type PeerProfile = {
   agentName: string;
   humanName: string;
+};
+
+type PeerE2eeBundle = {
+  keyId: string;
+  x25519PublicKey: string;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
@@ -216,6 +240,35 @@ function parsePeerProfile(payload: unknown): PeerProfile {
   return {
     agentName: parseProfileName(payload.agentName, "agentName"),
     humanName: parseProfileName(payload.humanName, "humanName"),
+  };
+}
+
+function parsePeerE2eeBundle(
+  payload: unknown,
+  code: string,
+  message: string,
+): PeerE2eeBundle {
+  if (!isRecord(payload)) {
+    throw createCliError(code, message);
+  }
+
+  const keyId = parseNonEmptyString(payload.keyId);
+  const x25519PublicKey = parseNonEmptyString(payload.x25519PublicKey);
+  if (keyId.length === 0 || x25519PublicKey.length === 0) {
+    throw createCliError(code, message);
+  }
+
+  try {
+    if (decodeBase64url(x25519PublicKey).length !== 32) {
+      throw new Error("invalid length");
+    }
+  } catch {
+    throw createCliError(code, message);
+  }
+
+  return {
+    keyId,
+    x25519PublicKey,
   };
 }
 
@@ -442,6 +495,120 @@ function resolvePeersConfigPath(getConfigDirImpl: typeof getConfigDir): string {
   return join(getConfigDirImpl(), PEERS_FILE_NAME);
 }
 
+function resolveAgentE2eeIdentityPath(input: {
+  getConfigDirImpl: typeof getConfigDir;
+  agentName: string;
+}): string {
+  return join(
+    input.getConfigDirImpl(),
+    AGENTS_DIR_NAME,
+    assertValidAgentName(input.agentName),
+    E2EE_IDENTITY_FILE_NAME,
+  );
+}
+
+function parsePairE2eeIdentity(payload: unknown): PairE2eeIdentity {
+  if (!isRecord(payload)) {
+    throw createCliError(
+      "CLI_PAIR_E2EE_IDENTITY_INVALID",
+      "Local E2EE identity file is invalid. Delete it and rerun pairing.",
+    );
+  }
+
+  const keyId = parseNonEmptyString(payload.keyId);
+  const x25519PublicKey = parseNonEmptyString(payload.x25519PublicKey);
+  const x25519SecretKey = parseNonEmptyString(payload.x25519SecretKey);
+  if (
+    keyId.length === 0 ||
+    x25519PublicKey.length === 0 ||
+    x25519SecretKey.length === 0
+  ) {
+    throw createCliError(
+      "CLI_PAIR_E2EE_IDENTITY_INVALID",
+      "Local E2EE identity file is invalid. Delete it and rerun pairing.",
+    );
+  }
+
+  try {
+    if (decodeBase64url(x25519PublicKey).length !== 32) {
+      throw new Error("invalid public key length");
+    }
+    if (decodeBase64url(x25519SecretKey).length !== 32) {
+      throw new Error("invalid secret key length");
+    }
+  } catch {
+    throw createCliError(
+      "CLI_PAIR_E2EE_IDENTITY_INVALID",
+      "Local E2EE identity file is invalid. Delete it and rerun pairing.",
+    );
+  }
+
+  return {
+    keyId,
+    x25519PublicKey,
+    x25519SecretKey,
+  };
+}
+
+async function loadOrCreateLocalPairE2eeIdentity(input: {
+  agentName: string;
+  getConfigDirImpl: typeof getConfigDir;
+  readFileImpl: typeof readFile;
+  writeFileImpl: typeof writeFile;
+  chmodImpl: typeof chmod;
+  mkdirImpl: typeof mkdir;
+  nowSecondsImpl: () => number;
+}): Promise<PairE2eeIdentity> {
+  const identityPath = resolveAgentE2eeIdentityPath({
+    getConfigDirImpl: input.getConfigDirImpl,
+    agentName: input.agentName,
+  });
+
+  try {
+    const raw = await input.readFileImpl(identityPath, "utf8");
+    return parsePairE2eeIdentity(JSON.parse(raw));
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      // Create a new identity when absent.
+    } else if (error instanceof SyntaxError) {
+      throw createCliError(
+        "CLI_PAIR_E2EE_IDENTITY_INVALID",
+        "Local E2EE identity file is invalid. Delete it and rerun pairing.",
+      );
+    } else if (error instanceof AppError) {
+      throw error;
+    } else {
+      throw error;
+    }
+  }
+
+  const generated = generateX25519Keypair();
+  const encoded = encodeX25519KeypairBase64url(generated);
+  const identity: PairE2eeIdentity = {
+    keyId: generateUlid(input.nowSecondsImpl() * 1000),
+    x25519PublicKey: encoded.publicKey,
+    x25519SecretKey: encoded.secretKey,
+  };
+
+  await input.mkdirImpl(dirname(identityPath), { recursive: true });
+  await input.writeFileImpl(
+    identityPath,
+    `${JSON.stringify({ version: 1, ...identity }, null, 2)}\n`,
+    "utf8",
+  );
+  try {
+    await input.chmodImpl(identityPath, FILE_MODE);
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  return identity;
+}
+
 function parsePeerEntry(value: unknown): PeerEntry {
   if (!isRecord(value)) {
     throw createCliError(
@@ -471,6 +638,13 @@ function parsePeerEntry(value: unknown): PeerEntry {
   }
   if (humanNameRaw.length > 0) {
     entry.humanName = parseProfileName(humanNameRaw, "humanName");
+  }
+  if (value.e2ee !== undefined) {
+    entry.e2ee = parsePeerE2eeBundle(
+      value.e2ee,
+      "CLI_PAIR_PEERS_CONFIG_INVALID",
+      "Peer entry is invalid",
+    );
   }
   return entry;
 }
@@ -951,6 +1125,7 @@ function parsePairStartResponse(
   const initiatorAgentDid = parseNonEmptyString(payload.initiatorAgentDid);
   const expiresAt = parseNonEmptyString(payload.expiresAt);
   let initiatorProfile: PeerProfile;
+  let initiatorE2ee: PeerE2eeBundle;
 
   if (initiatorAgentDid.length === 0 || expiresAt.length === 0) {
     throw createCliError(
@@ -960,6 +1135,11 @@ function parsePairStartResponse(
   }
   try {
     initiatorProfile = parsePeerProfile(payload.initiatorProfile);
+    initiatorE2ee = parsePeerE2eeBundle(
+      payload.initiatorE2ee,
+      "CLI_PAIR_START_INVALID_RESPONSE",
+      "Pair start response is invalid",
+    );
   } catch {
     throw createCliError(
       "CLI_PAIR_START_INVALID_RESPONSE",
@@ -971,6 +1151,7 @@ function parsePairStartResponse(
     ticket,
     initiatorAgentDid,
     initiatorProfile,
+    initiatorE2ee,
     expiresAt,
   };
 }
@@ -990,6 +1171,8 @@ function parsePairConfirmResponse(
   const responderAgentDid = parseNonEmptyString(payload.responderAgentDid);
   let initiatorProfile: PeerProfile;
   let responderProfile: PeerProfile;
+  let initiatorE2ee: PeerE2eeBundle;
+  let responderE2ee: PeerE2eeBundle;
 
   if (
     !paired ||
@@ -1004,6 +1187,16 @@ function parsePairConfirmResponse(
   try {
     initiatorProfile = parsePeerProfile(payload.initiatorProfile);
     responderProfile = parsePeerProfile(payload.responderProfile);
+    initiatorE2ee = parsePeerE2eeBundle(
+      payload.initiatorE2ee,
+      "CLI_PAIR_CONFIRM_INVALID_RESPONSE",
+      "Pair confirm response is invalid",
+    );
+    responderE2ee = parsePeerE2eeBundle(
+      payload.responderE2ee,
+      "CLI_PAIR_CONFIRM_INVALID_RESPONSE",
+      "Pair confirm response is invalid",
+    );
   } catch {
     throw createCliError(
       "CLI_PAIR_CONFIRM_INVALID_RESPONSE",
@@ -1017,6 +1210,8 @@ function parsePairConfirmResponse(
     responderAgentDid,
     initiatorProfile,
     responderProfile,
+    initiatorE2ee,
+    responderE2ee,
   };
 }
 
@@ -1043,6 +1238,7 @@ function parsePairStatusResponse(
   const expiresAt = parseNonEmptyString(payload.expiresAt);
   const confirmedAt = parseNonEmptyString(payload.confirmedAt);
   let initiatorProfile: PeerProfile;
+  let initiatorE2ee: PeerE2eeBundle;
 
   if (initiatorAgentDid.length === 0 || expiresAt.length === 0) {
     throw createCliError(
@@ -1059,6 +1255,11 @@ function parsePairStatusResponse(
   }
   try {
     initiatorProfile = parsePeerProfile(payload.initiatorProfile);
+    initiatorE2ee = parsePeerE2eeBundle(
+      payload.initiatorE2ee,
+      "CLI_PAIR_STATUS_INVALID_RESPONSE",
+      "Pair status response is invalid",
+    );
   } catch {
     throw createCliError(
       "CLI_PAIR_STATUS_INVALID_RESPONSE",
@@ -1067,6 +1268,7 @@ function parsePairStatusResponse(
   }
 
   let responderProfile: PeerProfile | undefined;
+  let responderE2ee: PeerE2eeBundle | undefined;
   if (payload.responderProfile !== undefined) {
     try {
       responderProfile = parsePeerProfile(payload.responderProfile);
@@ -1083,14 +1285,29 @@ function parsePairStatusResponse(
       "Pair status response is invalid",
     );
   }
+  if (payload.responderE2ee !== undefined) {
+    responderE2ee = parsePeerE2eeBundle(
+      payload.responderE2ee,
+      "CLI_PAIR_STATUS_INVALID_RESPONSE",
+      "Pair status response is invalid",
+    );
+  }
+  if (statusRaw === "confirmed" && responderE2ee === undefined) {
+    throw createCliError(
+      "CLI_PAIR_STATUS_INVALID_RESPONSE",
+      "Pair status response is invalid",
+    );
+  }
 
   return {
     status: statusRaw,
     initiatorAgentDid,
     initiatorProfile,
+    initiatorE2ee,
     responderAgentDid:
       responderAgentDid.length > 0 ? responderAgentDid : undefined,
     responderProfile,
+    responderE2ee,
     expiresAt,
     confirmedAt: confirmedAt.length > 0 ? confirmedAt : undefined,
   };
@@ -1337,6 +1554,7 @@ async function persistPairedPeer(input: {
   ticket: string;
   peerDid: string;
   peerProfile: PeerProfile;
+  peerE2ee: PeerE2eeBundle;
   dependencies: PairRequestOptions;
 }): Promise<string> {
   const getConfigDirImpl = input.dependencies.getConfigDirImpl ?? getConfigDir;
@@ -1360,6 +1578,7 @@ async function persistPairedPeer(input: {
     proxyUrl: peerProxyUrl,
     agentName: input.peerProfile.agentName,
     humanName: input.peerProfile.humanName,
+    e2ee: input.peerE2ee,
   };
   await savePeersConfig({
     config: peersConfig,
@@ -1409,11 +1628,30 @@ export async function startPairing(
     normalizedAgentName,
     dependencies,
   );
+  const readFileImpl = dependencies.readFileImpl ?? readFile;
+  const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
+  const chmodImpl = dependencies.chmodImpl ?? chmod;
+  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
+  const getConfigDirImpl = dependencies.getConfigDirImpl ?? getConfigDir;
+  const localE2eeIdentity = await loadOrCreateLocalPairE2eeIdentity({
+    agentName: normalizedAgentName,
+    getConfigDirImpl,
+    readFileImpl,
+    writeFileImpl,
+    chmodImpl,
+    mkdirImpl,
+    nowSecondsImpl,
+  });
+  const initiatorE2ee: PeerE2eeBundle = {
+    keyId: localE2eeIdentity.keyId,
+    x25519PublicKey: localE2eeIdentity.x25519PublicKey,
+  };
 
   const requestUrl = toProxyRequestUrl(proxyUrl, PAIR_START_PATH);
   const requestBody = JSON.stringify({
     ttlSeconds,
     initiatorProfile,
+    initiatorE2ee,
   });
   const bodyBytes = new TextEncoder().encode(requestBody);
 
@@ -1534,11 +1772,29 @@ export async function confirmPairing(
     normalizedAgentName,
     dependencies,
   );
+  const writeFileImpl = dependencies.writeFileImpl ?? writeFile;
+  const chmodImpl = dependencies.chmodImpl ?? chmod;
+  const mkdirImpl = dependencies.mkdirImpl ?? mkdir;
+  const getConfigDirImpl = dependencies.getConfigDirImpl ?? getConfigDir;
+  const localE2eeIdentity = await loadOrCreateLocalPairE2eeIdentity({
+    agentName: normalizedAgentName,
+    getConfigDirImpl,
+    readFileImpl,
+    writeFileImpl,
+    chmodImpl,
+    mkdirImpl,
+    nowSecondsImpl,
+  });
+  const responderE2ee: PeerE2eeBundle = {
+    keyId: localE2eeIdentity.keyId,
+    x25519PublicKey: localE2eeIdentity.x25519PublicKey,
+  };
 
   const requestUrl = toProxyRequestUrl(proxyUrl, PAIR_CONFIRM_PATH);
   const requestBody = JSON.stringify({
     ticket,
     responderProfile,
+    responderE2ee,
   });
   const bodyBytes = new TextEncoder().encode(requestBody);
 
@@ -1581,6 +1837,7 @@ export async function confirmPairing(
     ticket,
     peerDid: parsed.initiatorAgentDid,
     peerProfile: parsed.initiatorProfile,
+    peerE2ee: parsed.initiatorE2ee,
     dependencies,
   });
 
@@ -1697,6 +1954,12 @@ async function getPairingStatusOnce(
         : callerAgentDid === responderAgentDid
           ? parsed.initiatorProfile
           : undefined;
+    const peerE2ee =
+      callerAgentDid === parsed.initiatorAgentDid
+        ? parsed.responderE2ee
+        : callerAgentDid === responderAgentDid
+          ? parsed.initiatorE2ee
+          : undefined;
     if (!peerDid) {
       throw createCliError(
         "CLI_PAIR_STATUS_FORBIDDEN",
@@ -1709,11 +1972,18 @@ async function getPairingStatusOnce(
         "Pair status response is invalid",
       );
     }
+    if (!peerE2ee) {
+      throw createCliError(
+        "CLI_PAIR_STATUS_INVALID_RESPONSE",
+        "Pair status response is invalid",
+      );
+    }
 
     peerAlias = await persistPairedPeer({
       ticket,
       peerDid,
       peerProfile,
+      peerE2ee,
       dependencies,
     });
   }

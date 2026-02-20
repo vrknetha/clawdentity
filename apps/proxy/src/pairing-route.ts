@@ -1,3 +1,4 @@
+import { decodeBase64url } from "@clawdentity/protocol";
 import {
   AppError,
   createRegistryIdentityClient,
@@ -20,6 +21,7 @@ import {
   parsePairingTicket,
 } from "./pairing-ticket.js";
 import {
+  type PeerE2eeBundle,
   type PeerProfile,
   type ProxyTrustStore,
   ProxyTrustStoreError,
@@ -64,6 +66,7 @@ type CreatePairStatusHandlerOptions = PairStatusRuntimeOptions & {
 };
 
 const MAX_PROFILE_NAME_LENGTH = 64;
+const X25519_PUBLIC_KEY_BYTES = 32;
 
 function parseInternalServiceCredentials(input: {
   serviceId?: string;
@@ -191,6 +194,50 @@ function parsePeerProfile(value: unknown, label: string): PeerProfile {
   };
 }
 
+function parsePeerE2eeBundle(value: unknown, label: string): PeerE2eeBundle {
+  if (typeof value !== "object" || value === null) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: `${label} is required`,
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const payload = value as { keyId?: unknown; x25519PublicKey?: unknown };
+  const keyId = parseProfileName(payload.keyId, `${label}.keyId`);
+  const x25519PublicKey = parseProfileName(
+    payload.x25519PublicKey,
+    `${label}.x25519PublicKey`,
+  );
+
+  let decodedPublicKey: Uint8Array;
+  try {
+    decodedPublicKey = decodeBase64url(x25519PublicKey);
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: `${label}.x25519PublicKey must be valid base64url`,
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (decodedPublicKey.length !== X25519_PUBLIC_KEY_BYTES) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: `${label}.x25519PublicKey must decode to ${X25519_PUBLIC_KEY_BYTES} bytes`,
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return {
+    keyId,
+    x25519PublicKey,
+  };
+}
+
 async function parseJsonBody(c: PairingRouteContext): Promise<unknown> {
   try {
     return await c.req.json();
@@ -297,11 +344,16 @@ export function createPairStartHandler(
     const body = (await parseJsonBody(c)) as {
       ttlSeconds?: unknown;
       initiatorProfile?: unknown;
+      initiatorE2ee?: unknown;
     };
     const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
     const initiatorProfile = parsePeerProfile(
       body.initiatorProfile,
       "initiatorProfile",
+    );
+    const initiatorE2ee = parsePeerE2eeBundle(
+      body.initiatorE2ee,
+      "initiatorE2ee",
     );
     const internalServiceCredentials = parseInternalServiceCredentials({
       serviceId: options.registryInternalServiceId,
@@ -353,6 +405,7 @@ export function createPairStartHandler(
       .createPairingTicket({
         initiatorAgentDid: auth.agentDid,
         initiatorProfile,
+        initiatorE2ee,
         issuerProxyUrl,
         ticket: createdTicket.ticket,
         expiresAtMs,
@@ -373,6 +426,7 @@ export function createPairStartHandler(
     return c.json({
       initiatorAgentDid: pairingTicketResult.initiatorAgentDid,
       initiatorProfile: pairingTicketResult.initiatorProfile,
+      initiatorE2ee: pairingTicketResult.initiatorE2ee,
       ticket: pairingTicketResult.ticket,
       expiresAt: new Date(pairingTicketResult.expiresAtMs).toISOString(),
     });
@@ -397,6 +451,7 @@ export function createPairConfirmHandler(
     const body = (await parseJsonBody(c)) as {
       ticket?: unknown;
       responderProfile?: unknown;
+      responderE2ee?: unknown;
     };
     if (typeof body.ticket !== "string" || body.ticket.trim() === "") {
       throw new AppError({
@@ -409,6 +464,10 @@ export function createPairConfirmHandler(
     const responderProfile = parsePeerProfile(
       body.responderProfile,
       "responderProfile",
+    );
+    const responderE2ee = parsePeerE2eeBundle(
+      body.responderE2ee,
+      "responderE2ee",
     );
 
     const ticket = normalizePairingTicketText(body.ticket);
@@ -437,6 +496,7 @@ export function createPairConfirmHandler(
         ticket,
         responderAgentDid: auth.agentDid,
         responderProfile,
+        responderE2ee,
         nowMs: nowMs(),
       })
       .catch((error: unknown) => {
@@ -455,8 +515,10 @@ export function createPairConfirmHandler(
         paired: true,
         initiatorAgentDid: confirmedPairingTicket.initiatorAgentDid,
         initiatorProfile: confirmedPairingTicket.initiatorProfile,
+        initiatorE2ee: confirmedPairingTicket.initiatorE2ee,
         responderAgentDid: confirmedPairingTicket.responderAgentDid,
         responderProfile: confirmedPairingTicket.responderProfile,
+        responderE2ee: confirmedPairingTicket.responderE2ee,
       },
       201,
     );
@@ -517,6 +579,7 @@ export function createPairStatusHandler(
       initiatorAgentDid: status.initiatorAgentDid,
       initiatorAgentName: status.initiatorProfile.agentName,
       initiatorHumanName: status.initiatorProfile.humanName,
+      initiatorE2eeKeyId: status.initiatorE2ee.keyId,
       responderAgentDid:
         status.status === "confirmed" ? status.responderAgentDid : undefined,
       responderAgentName:
@@ -527,6 +590,8 @@ export function createPairStatusHandler(
         status.status === "confirmed"
           ? status.responderProfile.humanName
           : undefined,
+      responderE2eeKeyId:
+        status.status === "confirmed" ? status.responderE2ee.keyId : undefined,
       expiresAt: new Date(status.expiresAtMs).toISOString(),
       confirmedAt:
         status.status === "confirmed"
@@ -538,10 +603,13 @@ export function createPairStatusHandler(
       status: status.status,
       initiatorAgentDid: status.initiatorAgentDid,
       initiatorProfile: status.initiatorProfile,
+      initiatorE2ee: status.initiatorE2ee,
       responderAgentDid:
         status.status === "confirmed" ? status.responderAgentDid : undefined,
       responderProfile:
         status.status === "confirmed" ? status.responderProfile : undefined,
+      responderE2ee:
+        status.status === "confirmed" ? status.responderE2ee : undefined,
       expiresAt: new Date(status.expiresAtMs).toISOString(),
       confirmedAt:
         status.status === "confirmed"
