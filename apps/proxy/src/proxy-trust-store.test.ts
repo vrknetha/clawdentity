@@ -42,7 +42,7 @@ async function createSignedTicket(input: {
     nowMs: input.nowMs,
   });
 
-  return createPairingTicket({
+  const created = await createPairingTicket({
     issuerProxyUrl: input.issuerProxyUrl,
     expiresAtMs: input.expiresAtMs,
     nowMs: input.nowMs,
@@ -51,6 +51,10 @@ async function createSignedTicket(input: {
       privateKey: signingKey.privateKey,
     },
   });
+  return {
+    ticket: created.ticket,
+    publicKeyX: signingKey.publicKeyX,
+  };
 }
 
 describe("in-memory proxy trust store", () => {
@@ -112,6 +116,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
+      publicKeyX: created.publicKeyX,
       expiresAtMs: 1_700_000_060_000,
       nowMs: 1_700_000_000_000,
     });
@@ -139,8 +144,8 @@ describe("in-memory proxy trust store", () => {
         nowMs: 1_700_000_000_200,
       }),
     ).rejects.toMatchObject({
-      code: "PROXY_PAIR_TICKET_NOT_FOUND",
-      status: 404,
+      code: "PROXY_PAIR_TICKET_ALREADY_CONFIRMED",
+      status: 409,
     });
 
     expect(await store.isAgentKnown("did:claw:agent:alice")).toBe(true);
@@ -159,6 +164,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
+      publicKeyX: created.publicKeyX,
       expiresAtMs: 1_700_000_060_000,
       nowMs: 1_700_000_000_000,
     });
@@ -215,6 +221,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
+      publicKeyX: created.publicKeyX,
       expiresAtMs: 1_700_000_060_123,
       nowMs: 1_700_000_000_123,
     });
@@ -234,6 +241,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
+      publicKeyX: created.publicKeyX,
       expiresAtMs: 1_700_000_060_000,
       nowMs: 1_700_000_000_000,
     });
@@ -246,8 +254,8 @@ describe("in-memory proxy trust store", () => {
         nowMs: 1_700_000_000_100,
       }),
     ).rejects.toMatchObject({
-      code: "PROXY_PAIR_TICKET_NOT_FOUND",
-      status: 404,
+      code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+      status: 400,
     });
   });
 
@@ -263,6 +271,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
+      publicKeyX: created.publicKeyX,
       expiresAtMs: 1_700_000_001_000,
       nowMs: 1_700_000_000_000,
     });
@@ -303,6 +312,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: expired.ticket,
+      publicKeyX: expired.publicKeyX,
       expiresAtMs: 1_700_000_001_000,
       nowMs: 1_700_000_000_000,
     });
@@ -317,6 +327,7 @@ describe("in-memory proxy trust store", () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: valid.ticket,
+      publicKeyX: valid.publicKeyX,
       expiresAtMs: 1_700_000_060_000,
       nowMs: 1_700_000_000_000,
     });

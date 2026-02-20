@@ -17,6 +17,7 @@ import { writeStdoutLine } from "../io.js";
 import { assertValidAgentName } from "./agent-name.js";
 import { installConnectorServiceForAgent } from "./connector.js";
 import { withErrorHandling } from "./helpers.js";
+import { getPairingStatusSnapshot, loadPendingPairingTicket } from "./pair.js";
 
 const logger = createLogger({ service: "cli", module: "openclaw" });
 
@@ -255,6 +256,7 @@ type OpenclawDoctorCheckId =
   | "state.selectedAgent"
   | "state.credentials"
   | "state.peers"
+  | "state.pairingConsistency"
   | "state.transform"
   | "state.hookMapping"
   | "state.hookToken"
@@ -891,6 +893,59 @@ async function ensureLocalAgentCredentials(
       );
     }
   }
+}
+
+async function resolveLocalAgentDid(
+  homeDir: string,
+  agentName: string,
+): Promise<string | undefined> {
+  const aitPath = join(
+    resolveAgentDirectory(homeDir, agentName),
+    AIT_FILE_NAME,
+  );
+  let rawAit: string;
+  try {
+    rawAit = (await readFile(aitPath, "utf8")).trim();
+  } catch {
+    return undefined;
+  }
+
+  const segments = rawAit.split(".");
+  if (segments.length < 2) {
+    return undefined;
+  }
+
+  let payloadRaw: string;
+  try {
+    payloadRaw = textDecoder.decode(decodeBase64url(segments[1] ?? ""));
+  } catch {
+    return undefined;
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(payloadRaw);
+  } catch {
+    return undefined;
+  }
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+
+  const subject = (payload as { sub?: unknown }).sub;
+  if (typeof subject !== "string" || subject.trim().length === 0) {
+    return undefined;
+  }
+  try {
+    const parsed = parseDid(subject.trim());
+    if (parsed.kind !== "agent") {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return subject.trim();
 }
 
 function encodeInvitePayload(payload: OpenclawInvitePayload): string {
@@ -2512,6 +2567,155 @@ export async function runOpenclawDoctor(
         details: { peersPath },
       }),
     );
+  }
+
+  if (selectedAgentName === undefined) {
+    checks.push(
+      toDoctorCheck({
+        id: "state.pairingConsistency",
+        label: "Pairing consistency",
+        status: "fail",
+        message: "cannot validate pairing consistency without selected agent",
+        remediationHint: OPENCLAW_SETUP_COMMAND_HINT,
+      }),
+    );
+  } else if (peersConfig === undefined) {
+    checks.push(
+      toDoctorCheck({
+        id: "state.pairingConsistency",
+        label: "Pairing consistency",
+        status: "fail",
+        message:
+          "cannot validate pairing consistency due to invalid peers config",
+        remediationHint: `Fix JSON in ${peersPath} or rerun openclaw setup`,
+      }),
+    );
+  } else {
+    const getConfigDirForHome = () => getConfigDir({ homeDir });
+    let pendingPair: Awaited<ReturnType<typeof loadPendingPairingTicket>>;
+    try {
+      pendingPair = await loadPendingPairingTicket(selectedAgentName, {
+        getConfigDirImpl: getConfigDirForHome,
+        readFileImpl: readFile,
+      });
+    } catch (error) {
+      checks.push(
+        toDoctorCheck({
+          id: "state.pairingConsistency",
+          label: "Pairing consistency",
+          status: "fail",
+          message:
+            error instanceof Error && error.message.length > 0
+              ? `invalid pending pairing state: ${error.message}`
+              : "invalid pending pairing state",
+          remediationHint: `Run: clawdentity pair recover ${selectedAgentName}`,
+        }),
+      );
+      pendingPair = undefined;
+    }
+    if (pendingPair === undefined) {
+      checks.push(
+        toDoctorCheck({
+          id: "state.pairingConsistency",
+          label: "Pairing consistency",
+          status: "pass",
+          message: "no pending pairing recovery state",
+        }),
+      );
+    } else {
+      const localAgentDid = await resolveLocalAgentDid(
+        homeDir,
+        selectedAgentName,
+      );
+      if (localAgentDid === undefined) {
+        checks.push(
+          toDoctorCheck({
+            id: "state.pairingConsistency",
+            label: "Pairing consistency",
+            status: "fail",
+            message: "unable to resolve local agent DID from ait.jwt",
+            remediationHint: OPENCLAW_SETUP_COMMAND_HINT,
+          }),
+        );
+      } else {
+        try {
+          const pairingStatus = await getPairingStatusSnapshot(
+            selectedAgentName,
+            {
+              ticket: pendingPair.ticket,
+              proxyUrl: pendingPair.proxyUrl,
+            },
+            {
+              fetchImpl: options.fetchImpl,
+              resolveConfigImpl: options.resolveConfigImpl,
+              getConfigDirImpl: getConfigDirForHome,
+              readFileImpl: readFile,
+            },
+          );
+
+          if (pairingStatus.status === "pending") {
+            checks.push(
+              toDoctorCheck({
+                id: "state.pairingConsistency",
+                label: "Pairing consistency",
+                status: "pass",
+                message:
+                  "pending pairing recovery exists but is not confirmed yet",
+                remediationHint: `Run: clawdentity pair recover ${selectedAgentName}`,
+              }),
+            );
+          } else {
+            const peerDid =
+              localAgentDid === pairingStatus.initiatorAgentDid
+                ? pairingStatus.responderAgentDid
+                : localAgentDid === pairingStatus.responderAgentDid
+                  ? pairingStatus.initiatorAgentDid
+                  : undefined;
+            const hasPeer =
+              peerDid !== undefined &&
+              Object.values(peersConfig.peers).some(
+                (entry) => entry.did === peerDid,
+              );
+
+            if (!peerDid || !hasPeer) {
+              checks.push(
+                toDoctorCheck({
+                  id: "state.pairingConsistency",
+                  label: "Pairing consistency",
+                  status: "fail",
+                  message:
+                    "proxy pairing is confirmed but local peers.json is missing the paired peer",
+                  remediationHint: `Run: clawdentity pair recover ${selectedAgentName}`,
+                }),
+              );
+            } else {
+              checks.push(
+                toDoctorCheck({
+                  id: "state.pairingConsistency",
+                  label: "Pairing consistency",
+                  status: "pass",
+                  message:
+                    "pending pairing state and local peers are consistent",
+                }),
+              );
+            }
+          }
+        } catch (error) {
+          checks.push(
+            toDoctorCheck({
+              id: "state.pairingConsistency",
+              label: "Pairing consistency",
+              status: "fail",
+              message:
+                error instanceof Error && error.message.length > 0
+                  ? `unable to validate pending pairing: ${error.message}`
+                  : "unable to validate pending pairing",
+              remediationHint: `Run: clawdentity pair recover ${selectedAgentName}`,
+            }),
+          );
+        }
+      }
+    }
   }
 
   const transformTargetPath = resolveTransformTargetPath(openclawDir);

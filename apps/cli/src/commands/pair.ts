@@ -35,6 +35,7 @@ const AGENTS_DIR_NAME = "agents";
 const AIT_FILE_NAME = "ait.jwt";
 const SECRET_KEY_FILE_NAME = "secret.key";
 const PAIRING_QR_DIR_NAME = "pairing";
+const PAIRING_PENDING_DIR_NAME = "pairing/pending";
 const PEERS_FILE_NAME = "peers.json";
 const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
 
@@ -49,10 +50,14 @@ const FILE_MODE = 0o600;
 const PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
 const DEFAULT_STATUS_WAIT_SECONDS = 300;
 const DEFAULT_STATUS_POLL_INTERVAL_SECONDS = 3;
+const DEFAULT_PROGRESS_UPDATE_SECONDS = 30;
+const MAX_CONSECUTIVE_TRANSIENT_POLL_FAILURES = 5;
 const MAX_PROFILE_NAME_LENGTH = 64;
 
 export type PairStartOptions = {
   ttlSeconds?: string;
+  allowResponder?: string;
+  callbackUrl?: string;
   qr?: boolean;
   qrOutput?: string;
   wait?: boolean;
@@ -87,6 +92,9 @@ type PairRequestOptions = {
   resolveConfigImpl?: () => Promise<CliConfig>;
   qrEncodeImpl?: (ticket: string) => Promise<Uint8Array>;
   qrDecodeImpl?: (imageBytes: Uint8Array) => string;
+  registerSigintHandlerImpl?: (handler: () => void) => void;
+  unregisterSigintHandlerImpl?: (handler: () => void) => void;
+  writeStdoutLineImpl?: (message: string) => void;
 };
 
 type PairCommandDependencies = PairRequestOptions;
@@ -120,6 +128,14 @@ type PairStatusResult = {
   confirmedAt?: string;
   proxyUrl: string;
   peerAlias?: string;
+};
+
+type PendingPairingTicket = {
+  agentName: string;
+  ticket: string;
+  proxyUrl: string;
+  createdAt: string;
+  expiresAt?: string;
 };
 
 type RegistryErrorEnvelope = {
@@ -466,6 +482,138 @@ function resolvePeersConfigPath(getConfigDirImpl: typeof getConfigDir): string {
   return join(getConfigDirImpl(), PEERS_FILE_NAME);
 }
 
+function resolvePendingPairingTicketPath(input: {
+  getConfigDirImpl: typeof getConfigDir;
+  agentName: string;
+}): string {
+  return join(
+    input.getConfigDirImpl(),
+    PAIRING_PENDING_DIR_NAME,
+    `${input.agentName}.json`,
+  );
+}
+
+function parsePendingPairingTicket(
+  payload: unknown,
+  expectedAgentName: string,
+): PendingPairingTicket {
+  if (!isRecord(payload)) {
+    throw createCliError(
+      "CLI_PAIR_PENDING_TICKET_INVALID",
+      "Pending pairing state is invalid",
+    );
+  }
+
+  const agentName = parseNonEmptyString(payload.agentName);
+  const ticket = parsePairingTicket(payload.ticket);
+  const proxyUrl = parseProxyUrl(parseNonEmptyString(payload.proxyUrl));
+  const createdAt = parseNonEmptyString(payload.createdAt);
+  const expiresAtRaw = parseNonEmptyString(payload.expiresAt);
+  if (agentName.length === 0 || createdAt.length === 0) {
+    throw createCliError(
+      "CLI_PAIR_PENDING_TICKET_INVALID",
+      "Pending pairing state is invalid",
+    );
+  }
+  if (agentName !== expectedAgentName) {
+    throw createCliError(
+      "CLI_PAIR_PENDING_TICKET_INVALID",
+      "Pending pairing state does not match requested agent",
+    );
+  }
+
+  return {
+    agentName,
+    ticket,
+    proxyUrl,
+    createdAt,
+    expiresAt: expiresAtRaw.length > 0 ? expiresAtRaw : undefined,
+  };
+}
+
+export async function loadPendingPairingTicket(
+  agentName: string,
+  dependencies: Pick<
+    PairRequestOptions,
+    "getConfigDirImpl" | "readFileImpl"
+  > = {},
+): Promise<PendingPairingTicket | undefined> {
+  const getConfigDirImpl = dependencies.getConfigDirImpl ?? getConfigDir;
+  const readFileImpl = dependencies.readFileImpl ?? readFile;
+  const normalizedAgentName = assertValidAgentName(agentName);
+  const pendingPath = resolvePendingPairingTicketPath({
+    getConfigDirImpl,
+    agentName: normalizedAgentName,
+  });
+
+  let raw: string;
+  try {
+    raw = await readFileImpl(pendingPath, "utf8");
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw createCliError(
+      "CLI_PAIR_PENDING_TICKET_INVALID",
+      `Pending pairing file is invalid JSON: ${pendingPath}`,
+    );
+  }
+
+  return parsePendingPairingTicket(parsed, normalizedAgentName);
+}
+
+async function savePendingPairingTicket(input: {
+  record: PendingPairingTicket;
+  dependencies: Pick<
+    PairRequestOptions,
+    "getConfigDirImpl" | "mkdirImpl" | "writeFileImpl" | "chmodImpl"
+  >;
+}): Promise<void> {
+  const getConfigDirImpl = input.dependencies.getConfigDirImpl ?? getConfigDir;
+  const mkdirImpl = input.dependencies.mkdirImpl ?? mkdir;
+  const writeFileImpl = input.dependencies.writeFileImpl ?? writeFile;
+  const chmodImpl = input.dependencies.chmodImpl ?? chmod;
+  const pendingPath = resolvePendingPairingTicketPath({
+    getConfigDirImpl,
+    agentName: input.record.agentName,
+  });
+
+  await mkdirImpl(dirname(pendingPath), { recursive: true });
+  await writeFileImpl(
+    pendingPath,
+    `${JSON.stringify(input.record, null, 2)}\n`,
+    "utf8",
+  );
+  await chmodImpl(pendingPath, FILE_MODE);
+}
+
+async function clearPendingPairingTicket(input: {
+  agentName: string;
+  dependencies: Pick<PairRequestOptions, "getConfigDirImpl" | "unlinkImpl">;
+}): Promise<void> {
+  const getConfigDirImpl = input.dependencies.getConfigDirImpl ?? getConfigDir;
+  const unlinkImpl = input.dependencies.unlinkImpl ?? unlink;
+  const pendingPath = resolvePendingPairingTicketPath({
+    getConfigDirImpl,
+    agentName: input.agentName,
+  });
+  await unlinkImpl(pendingPath).catch((error) => {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError.code === "ENOENT") {
+      return;
+    }
+    throw error;
+  });
+}
+
 function parsePeerEntry(value: unknown): PeerEntry {
   if (!isRecord(value)) {
     throw createCliError(
@@ -695,6 +843,38 @@ function parseTtlSeconds(value: string | undefined): number | undefined {
   }
 
   return parsed;
+}
+
+function parseAllowResponderAgentDid(
+  value: string | undefined,
+): string | undefined {
+  const raw = parseNonEmptyString(value);
+  if (raw.length === 0) {
+    return undefined;
+  }
+
+  try {
+    const parsed = parseDid(raw);
+    if (parsed.kind !== "agent") {
+      throw new Error("invalid kind");
+    }
+  } catch {
+    throw createCliError(
+      "CLI_PAIR_START_INVALID_ALLOW_RESPONDER",
+      "allowResponder must be a valid agent DID",
+    );
+  }
+
+  return raw;
+}
+
+function parseCallbackUrl(value: string | undefined): string | undefined {
+  const raw = parseNonEmptyString(value);
+  if (raw.length === 0) {
+    return undefined;
+  }
+
+  return parseProxyUrl(raw);
 }
 
 function parsePositiveIntegerOption(input: {
@@ -953,6 +1133,16 @@ function mapConfirmPairError(status: number, payload: unknown): string {
   const code = extractErrorCode(payload);
   const message = extractErrorMessage(payload);
 
+  if (code === "PROXY_PAIR_TICKET_ALREADY_CONFIRMED" || status === 409) {
+    return "Pairing ticket has already been confirmed";
+  }
+
+  if (code === "PROXY_PAIR_RESPONDER_FORBIDDEN") {
+    return message
+      ? `Pair confirm is forbidden for this responder: ${message}`
+      : "Pair confirm is forbidden for this responder.";
+  }
+
   if (code === "PROXY_PAIR_TICKET_NOT_FOUND" || status === 404) {
     return "Pairing ticket is invalid or expired";
   }
@@ -969,7 +1159,8 @@ function mapConfirmPairError(status: number, payload: unknown): string {
 
   if (
     code === "PROXY_PAIR_TICKET_INVALID_FORMAT" ||
-    code === "PROXY_PAIR_TICKET_UNSUPPORTED_VERSION"
+    code === "PROXY_PAIR_TICKET_UNSUPPORTED_VERSION" ||
+    code === "PROXY_PAIR_TICKET_INVALID_SIGNATURE"
   ) {
     return message
       ? `Pair confirm request is invalid (400): ${message}. Re-copy the full ticket/QR without truncation.`
@@ -1503,6 +1694,10 @@ export async function startPairing(
     (() => randomBytes(NONCE_SIZE).toString("base64url"));
 
   const ttlSeconds = parseTtlSeconds(options.ttlSeconds);
+  const allowResponderAgentDid = parseAllowResponderAgentDid(
+    options.allowResponder,
+  );
+  const callbackUrl = parseCallbackUrl(options.callbackUrl);
   const config = await resolveConfigImpl();
   const proxyUrl = await resolveProxyUrl({
     config,
@@ -1524,6 +1719,8 @@ export async function startPairing(
   const requestBody = JSON.stringify({
     ttlSeconds,
     initiatorProfile,
+    allowResponderAgentDid,
+    callbackUrl,
   });
   const bodyBytes = new TextEncoder().encode(requestBody);
 
@@ -1720,37 +1917,125 @@ export async function confirmPairing(
   };
 }
 
-async function getPairingStatusOnce(
-  agentName: string,
-  options: { ticket: string },
-  dependencies: PairRequestOptions = {},
-): Promise<PairStatusResult> {
-  const fetchImpl = dependencies.fetchImpl ?? fetch;
-  const resolveConfigImpl = dependencies.resolveConfigImpl ?? resolveConfig;
-  const nowSecondsImpl = dependencies.nowSecondsImpl ?? nowUnixSeconds;
-  const nonceFactoryImpl =
-    dependencies.nonceFactoryImpl ??
-    (() => randomBytes(NONCE_SIZE).toString("base64url"));
-  const config = await resolveConfigImpl();
-  const proxyUrl = await resolveProxyUrl({
-    config,
-    fetchImpl,
-  });
+type PreparedPairingStatusContext = {
+  normalizedAgentName: string;
+  ticket: string;
+  proxyUrl: string;
+  ait: string;
+  secretKey: Uint8Array;
+  callerAgentDid: string;
+};
 
-  const ticket = parsePairingTicket(options.ticket);
+function resolveWriteStdoutLine(
+  dependencies: PairRequestOptions,
+): (message: string) => void {
+  return dependencies.writeStdoutLineImpl ?? writeStdoutLine;
+}
+
+function isTransientPollError(error: unknown): boolean {
+  if (!(error instanceof AppError)) {
+    return false;
+  }
+
+  return (
+    error.code === "CLI_PAIR_REQUEST_FAILED" ||
+    error.code === "CLI_PAIR_STATUS_TRANSIENT_FAILED"
+  );
+}
+
+function computePollIntervalSeconds(input: {
+  elapsedSeconds: number;
+  baseIntervalSeconds: number;
+}): number {
+  if (input.elapsedSeconds < 30) {
+    return Math.max(2, Math.min(3, input.baseIntervalSeconds));
+  }
+  if (input.elapsedSeconds < 60) {
+    return 5;
+  }
+  return 12;
+}
+
+function printPairingRecoveryHint(input: {
+  agentName: string;
+  ticket: string;
+  reason: "timeout" | "cancelled" | "poll-failed";
+  waitSeconds: number;
+  writeLine: (message: string) => void;
+}): void {
+  if (input.reason === "timeout") {
+    input.writeLine(`Pairing wait timed out (${input.waitSeconds}s).`);
+  } else if (input.reason === "cancelled") {
+    input.writeLine("Pairing wait cancelled.");
+  } else {
+    input.writeLine(
+      "Pairing wait failed after repeated transient poll errors.",
+    );
+  }
+  input.writeLine("The responder may still confirm.");
+  input.writeLine("To recover later:");
+  input.writeLine(
+    `  clawdentity pair status ${input.agentName} --ticket ${input.ticket}`,
+  );
+  input.writeLine(`  clawdentity pair recover ${input.agentName}`);
+}
+
+async function preparePairingStatusContext(input: {
+  agentName: string;
+  ticket: string;
+  dependencies: PairRequestOptions;
+  proxyUrl?: string;
+}): Promise<PreparedPairingStatusContext> {
+  const fetchImpl = input.dependencies.fetchImpl ?? fetch;
+  const resolveConfigImpl =
+    input.dependencies.resolveConfigImpl ?? resolveConfig;
+  const normalizedAgentName = assertValidAgentName(input.agentName);
+  const ticket = parsePairingTicket(input.ticket);
+  const proxyUrl =
+    input.proxyUrl ??
+    (await (async () => {
+      const config = await resolveConfigImpl();
+      return resolveProxyUrl({
+        config,
+        fetchImpl,
+      });
+    })());
   assertTicketIssuerMatchesProxy({
     ticket,
     proxyUrl,
     context: "status",
   });
   const { ait, secretKey } = await readAgentProofMaterial(
-    agentName,
-    dependencies,
+    normalizedAgentName,
+    input.dependencies,
   );
-  const callerAgentDid = parseAitAgentDid(ait);
 
-  const requestUrl = toProxyRequestUrl(proxyUrl, PAIR_STATUS_PATH);
-  const requestBody = JSON.stringify({ ticket });
+  return {
+    normalizedAgentName,
+    ticket,
+    proxyUrl,
+    ait,
+    secretKey,
+    callerAgentDid: parseAitAgentDid(ait),
+  };
+}
+
+async function getPairingStatusWithContext(input: {
+  context: PreparedPairingStatusContext;
+  dependencies: PairRequestOptions;
+  persistPeer: boolean;
+}): Promise<PairStatusResult> {
+  const fetchImpl = input.dependencies.fetchImpl ?? fetch;
+  const nowSecondsImpl = input.dependencies.nowSecondsImpl ?? nowUnixSeconds;
+  const nonceFactoryImpl =
+    input.dependencies.nonceFactoryImpl ??
+    (() => randomBytes(NONCE_SIZE).toString("base64url"));
+
+  const requestUrl = toProxyRequestUrl(
+    input.context.proxyUrl,
+    PAIR_STATUS_PATH,
+  );
+  const requestBody = JSON.stringify({ ticket: input.context.ticket });
   const bodyBytes = new TextEncoder().encode(requestBody);
   const timestampSeconds = nowSecondsImpl();
   const nonce = nonceFactoryImpl();
@@ -1758,7 +2043,7 @@ async function getPairingStatusOnce(
     method: "POST",
     requestUrl,
     bodyBytes,
-    secretKey,
+    secretKey: input.context.secretKey,
     timestampSeconds,
     nonce,
   });
@@ -1769,7 +2054,7 @@ async function getPairingStatusOnce(
     init: {
       method: "POST",
       headers: {
-        authorization: `Claw ${ait}`,
+        authorization: `Claw ${input.context.ait}`,
         "content-type": "application/json",
         ...signedHeaders,
       },
@@ -1778,15 +2063,19 @@ async function getPairingStatusOnce(
   });
   const responseBody = await parseJsonResponse(response);
   if (!response.ok) {
+    const errorCode =
+      response.status >= 500
+        ? "CLI_PAIR_STATUS_TRANSIENT_FAILED"
+        : "CLI_PAIR_STATUS_FAILED";
     throw createCliError(
-      "CLI_PAIR_STATUS_FAILED",
+      errorCode,
       mapStatusPairError(response.status, responseBody),
     );
   }
 
   const parsed = parsePairStatusResponse(responseBody);
   let peerAlias: string | undefined;
-  if (parsed.status === "confirmed") {
+  if (input.persistPeer && parsed.status === "confirmed") {
     const responderAgentDid = parsed.responderAgentDid;
     if (!responderAgentDid) {
       throw createCliError(
@@ -1796,15 +2085,15 @@ async function getPairingStatusOnce(
     }
 
     const peerDid =
-      callerAgentDid === parsed.initiatorAgentDid
+      input.context.callerAgentDid === parsed.initiatorAgentDid
         ? responderAgentDid
-        : callerAgentDid === responderAgentDid
+        : input.context.callerAgentDid === responderAgentDid
           ? parsed.initiatorAgentDid
           : undefined;
     const peerProfile =
-      callerAgentDid === parsed.initiatorAgentDid
+      input.context.callerAgentDid === parsed.initiatorAgentDid
         ? parsed.responderProfile
-        : callerAgentDid === responderAgentDid
+        : input.context.callerAgentDid === responderAgentDid
           ? parsed.initiatorProfile
           : undefined;
     if (!peerDid) {
@@ -1821,25 +2110,59 @@ async function getPairingStatusOnce(
     }
 
     peerAlias = await persistPairedPeer({
-      ticket,
+      ticket: input.context.ticket,
       peerDid,
       peerProfile,
       peerProxyOrigin: toPeerProxyOriginFromStatus({
-        callerAgentDid,
+        callerAgentDid: input.context.callerAgentDid,
         initiatorAgentDid: parsed.initiatorAgentDid,
         responderAgentDid,
         initiatorProfile: parsed.initiatorProfile,
         responderProfile: parsed.responderProfile,
       }),
-      dependencies,
+      dependencies: input.dependencies,
     });
   }
 
   return {
     ...parsed,
-    proxyUrl,
+    proxyUrl: input.context.proxyUrl,
     peerAlias,
   };
+}
+
+async function getPairingStatusOnce(
+  agentName: string,
+  options: { ticket: string; proxyUrl?: string; persistPeer?: boolean },
+  dependencies: PairRequestOptions = {},
+): Promise<PairStatusResult> {
+  const context = await preparePairingStatusContext({
+    agentName,
+    ticket: options.ticket,
+    proxyUrl: options.proxyUrl,
+    dependencies,
+  });
+  return getPairingStatusWithContext({
+    context,
+    dependencies,
+    persistPeer: options.persistPeer ?? true,
+  });
+}
+
+export async function getPairingStatusSnapshot(
+  agentName: string,
+  options: { ticket: string; proxyUrl?: string },
+  dependencies: PairRequestOptions = {},
+): Promise<PairStatusResult> {
+  return getPairingStatusOnce(
+    agentName,
+    {
+      ticket: options.ticket,
+      proxyUrl: options.proxyUrl,
+      persistPeer: false,
+    },
+    dependencies,
+  );
 }
 
 async function waitForPairingStatus(input: {
@@ -1848,6 +2171,7 @@ async function waitForPairingStatus(input: {
   waitSeconds: number;
   pollIntervalSeconds: number;
   dependencies: PairRequestOptions;
+  proxyUrl?: string;
 }): Promise<PairStatusResult> {
   const nowSecondsImpl = input.dependencies.nowSecondsImpl ?? nowUnixSeconds;
   const sleepImpl =
@@ -1857,30 +2181,156 @@ async function waitForPairingStatus(input: {
         setTimeout(resolve, ms);
       });
     });
+  const registerSigintHandlerImpl =
+    input.dependencies.registerSigintHandlerImpl ??
+    ((handler) => {
+      process.on("SIGINT", handler);
+    });
+  const unregisterSigintHandlerImpl =
+    input.dependencies.unregisterSigintHandlerImpl ??
+    ((handler) => {
+      process.off("SIGINT", handler);
+    });
+  const writeLine = resolveWriteStdoutLine(input.dependencies);
 
-  const deadlineSeconds = nowSecondsImpl() + input.waitSeconds;
-  while (true) {
-    const status = await getPairingStatusOnce(
-      input.agentName,
-      { ticket: input.ticket },
-      input.dependencies,
-    );
+  const context = await preparePairingStatusContext({
+    agentName: input.agentName,
+    ticket: input.ticket,
+    proxyUrl: input.proxyUrl,
+    dependencies: input.dependencies,
+  });
+  await savePendingPairingTicket({
+    record: {
+      agentName: context.normalizedAgentName,
+      ticket: context.ticket,
+      proxyUrl: context.proxyUrl,
+      createdAt: new Date(nowUtcMs()).toISOString(),
+    },
+    dependencies: input.dependencies,
+  });
 
-    if (status.status === "confirmed") {
-      return status;
-    }
+  const startedAtSeconds = nowSecondsImpl();
+  const deadlineSeconds = startedAtSeconds + input.waitSeconds;
+  let nextProgressAtSeconds =
+    startedAtSeconds + DEFAULT_PROGRESS_UPDATE_SECONDS;
+  let cancelled = false;
+  let consecutiveTransientFailures = 0;
+  const onSigint = () => {
+    cancelled = true;
+  };
+  registerSigintHandlerImpl(onSigint);
 
-    const nowSeconds = nowSecondsImpl();
-    if (nowSeconds >= deadlineSeconds) {
-      throw createCliError(
-        "CLI_PAIR_STATUS_WAIT_TIMEOUT",
-        `Pairing is still pending after ${input.waitSeconds} seconds`,
+  try {
+    while (true) {
+      if (cancelled) {
+        printPairingRecoveryHint({
+          agentName: context.normalizedAgentName,
+          ticket: context.ticket,
+          reason: "cancelled",
+          waitSeconds: input.waitSeconds,
+          writeLine,
+        });
+        throw createCliError(
+          "CLI_PAIR_STATUS_WAIT_CANCELLED",
+          "Pairing wait cancelled by user",
+        );
+      }
+
+      const nowSeconds = nowSecondsImpl();
+      if (nowSeconds >= deadlineSeconds) {
+        printPairingRecoveryHint({
+          agentName: context.normalizedAgentName,
+          ticket: context.ticket,
+          reason: "timeout",
+          waitSeconds: input.waitSeconds,
+          writeLine,
+        });
+        throw createCliError(
+          "CLI_PAIR_STATUS_WAIT_TIMEOUT",
+          `Pairing is still pending after ${input.waitSeconds} seconds`,
+        );
+      }
+
+      let status: PairStatusResult;
+      try {
+        status = await getPairingStatusWithContext({
+          context,
+          dependencies: input.dependencies,
+          persistPeer: true,
+        });
+        consecutiveTransientFailures = 0;
+      } catch (error) {
+        if (!isTransientPollError(error)) {
+          throw error;
+        }
+        consecutiveTransientFailures += 1;
+        logger.warn("cli.pair.poll_transient_error", {
+          agentName: context.normalizedAgentName,
+          attempt: consecutiveTransientFailures,
+          reason: error instanceof Error ? error.message : "unknown",
+        });
+        if (
+          consecutiveTransientFailures >=
+          MAX_CONSECUTIVE_TRANSIENT_POLL_FAILURES
+        ) {
+          printPairingRecoveryHint({
+            agentName: context.normalizedAgentName,
+            ticket: context.ticket,
+            reason: "poll-failed",
+            waitSeconds: input.waitSeconds,
+            writeLine,
+          });
+          throw createCliError(
+            "CLI_PAIR_STATUS_POLL_FAILED",
+            `Pairing status polling failed ${consecutiveTransientFailures} times consecutively`,
+          );
+        }
+        const retryNow = nowSecondsImpl();
+        const retryElapsedSeconds = Math.max(0, retryNow - startedAtSeconds);
+        const retrySleepSeconds = computePollIntervalSeconds({
+          elapsedSeconds: retryElapsedSeconds,
+          baseIntervalSeconds: input.pollIntervalSeconds,
+        });
+        await sleepImpl(retrySleepSeconds * 1000);
+        continue;
+      }
+
+      if (status.status === "confirmed") {
+        await clearPendingPairingTicket({
+          agentName: context.normalizedAgentName,
+          dependencies: input.dependencies,
+        });
+        return status;
+      }
+
+      const postPollNowSeconds = nowSecondsImpl();
+      if (postPollNowSeconds >= nextProgressAtSeconds) {
+        const elapsedSeconds = Math.max(
+          0,
+          postPollNowSeconds - startedAtSeconds,
+        );
+        const remainingSeconds = Math.max(
+          0,
+          deadlineSeconds - postPollNowSeconds,
+        );
+        writeLine(
+          `Still waiting... (${elapsedSeconds}s elapsed, ${remainingSeconds}s remaining)`,
+        );
+        nextProgressAtSeconds += DEFAULT_PROGRESS_UPDATE_SECONDS;
+      }
+
+      const elapsedSeconds = Math.max(0, postPollNowSeconds - startedAtSeconds);
+      const sleepSeconds = Math.min(
+        computePollIntervalSeconds({
+          elapsedSeconds,
+          baseIntervalSeconds: input.pollIntervalSeconds,
+        }),
+        Math.max(1, deadlineSeconds - postPollNowSeconds),
       );
+      await sleepImpl(sleepSeconds * 1000);
     }
-
-    const remainingSeconds = Math.max(0, deadlineSeconds - nowSeconds);
-    const sleepSeconds = Math.min(input.pollIntervalSeconds, remainingSeconds);
-    await sleepImpl(sleepSeconds * 1000);
+  } finally {
+    unregisterSigintHandlerImpl(onSigint);
   }
 }
 
@@ -1899,7 +2349,11 @@ export async function getPairingStatus(
   const ticket = parsePairingTicket(ticketRaw);
 
   if (options.wait !== true) {
-    return getPairingStatusOnce(agentName, { ticket }, dependencies);
+    return getPairingStatusOnce(
+      agentName,
+      { ticket, persistPeer: true },
+      dependencies,
+    );
   }
 
   const waitSeconds = parsePositiveIntegerOption({
@@ -1922,6 +2376,64 @@ export async function getPairingStatus(
   });
 }
 
+export async function recoverPairing(
+  agentName: string,
+  options: Omit<PairStatusOptions, "ticket">,
+  dependencies: PairRequestOptions = {},
+): Promise<PairStatusResult> {
+  const normalizedAgentName = assertValidAgentName(agentName);
+  const pending = await loadPendingPairingTicket(normalizedAgentName, {
+    getConfigDirImpl: dependencies.getConfigDirImpl,
+    readFileImpl: dependencies.readFileImpl,
+  });
+  if (!pending) {
+    throw createCliError(
+      "CLI_PAIR_RECOVER_NOT_FOUND",
+      `No pending pairing was found for agent "${normalizedAgentName}"`,
+    );
+  }
+
+  let result: PairStatusResult;
+  if (options.wait === true) {
+    const waitSeconds = parsePositiveIntegerOption({
+      value: options.waitSeconds,
+      optionName: "waitSeconds",
+      defaultValue: DEFAULT_STATUS_WAIT_SECONDS,
+    });
+    const pollIntervalSeconds = parsePositiveIntegerOption({
+      value: options.pollIntervalSeconds,
+      optionName: "pollIntervalSeconds",
+      defaultValue: DEFAULT_STATUS_POLL_INTERVAL_SECONDS,
+    });
+    result = await waitForPairingStatus({
+      agentName: normalizedAgentName,
+      ticket: pending.ticket,
+      waitSeconds,
+      pollIntervalSeconds,
+      proxyUrl: pending.proxyUrl,
+      dependencies,
+    });
+  } else {
+    result = await getPairingStatusOnce(
+      normalizedAgentName,
+      {
+        ticket: pending.ticket,
+        proxyUrl: pending.proxyUrl,
+        persistPeer: true,
+      },
+      dependencies,
+    );
+  }
+  if (result.status === "confirmed") {
+    await clearPendingPairingTicket({
+      agentName: normalizedAgentName,
+      dependencies,
+    });
+  }
+
+  return result;
+}
+
 export const createPairCommand = (
   dependencies: PairCommandDependencies = {},
 ): Command => {
@@ -1933,6 +2445,14 @@ export const createPairCommand = (
     .command("start <agentName>")
     .description("Start pairing and issue one-time pairing ticket")
     .option("--ttl-seconds <seconds>", "Pairing ticket expiry in seconds")
+    .option(
+      "--allow-responder <agentDid>",
+      "Optional responder agent DID allowed to confirm this ticket",
+    )
+    .option(
+      "--callback-url <url>",
+      "Optional callback URL notified when pairing is confirmed",
+    )
     .option("--qr", "Generate a local QR file for sharing")
     .option("--qr-output <path>", "Write QR PNG to a specific file path")
     .option(
@@ -1996,6 +2516,7 @@ export const createPairCommand = (
               waitSeconds,
               pollIntervalSeconds,
               dependencies,
+              proxyUrl: result.proxyUrl,
             });
 
             logger.info("cli.pair_status_confirmed_after_start", {
@@ -2027,6 +2548,69 @@ export const createPairCommand = (
             if (status.peerAlias) {
               writeStdoutLine(`Peer alias saved: ${status.peerAlias}`);
             }
+          }
+        },
+      ),
+    );
+
+  pairCommand
+    .command("recover <agentName>")
+    .description(
+      "Recover a pending pairing wait from local pending ticket state",
+    )
+    .option("--wait", "Poll until ticket is confirmed or timeout is reached")
+    .option(
+      "--wait-seconds <seconds>",
+      "Max seconds to poll for confirmation (default: 300)",
+    )
+    .option(
+      "--poll-interval-seconds <seconds>",
+      "Base polling interval in seconds while waiting (default: 3)",
+    )
+    .action(
+      withErrorHandling(
+        "pair recover",
+        async (agentName: string, options: PairStatusOptions) => {
+          const result = await recoverPairing(agentName, options, dependencies);
+
+          logger.info("cli.pair_recover", {
+            initiatorAgentDid: result.initiatorAgentDid,
+            responderAgentDid: result.responderAgentDid,
+            status: result.status,
+            proxyUrl: result.proxyUrl,
+            peerAlias: result.peerAlias,
+          });
+
+          if (result.status === "confirmed") {
+            writeStdoutLine("Pairing recovered and saved");
+          } else {
+            writeStdoutLine("Pairing is still pending");
+          }
+          writeStdoutLine(`Status: ${result.status}`);
+          writeStdoutLine(`Initiator Agent DID: ${result.initiatorAgentDid}`);
+          writeStdoutLine(
+            `Initiator Agent Name: ${result.initiatorProfile.agentName}`,
+          );
+          writeStdoutLine(
+            `Initiator Human Name: ${result.initiatorProfile.humanName}`,
+          );
+          if (result.responderAgentDid) {
+            writeStdoutLine(`Responder Agent DID: ${result.responderAgentDid}`);
+          }
+          if (result.responderProfile) {
+            writeStdoutLine(
+              `Responder Agent Name: ${result.responderProfile.agentName}`,
+            );
+            writeStdoutLine(
+              `Responder Human Name: ${result.responderProfile.humanName}`,
+            );
+          }
+          writeStdoutLine(`Expires At: ${result.expiresAt}`);
+          if (result.confirmedAt) {
+            writeStdoutLine(`Confirmed At: ${result.confirmedAt}`);
+          }
+          if (result.peerAlias) {
+            writeStdoutLine(`Peer alias saved: ${result.peerAlias}`);
           }
         },
       ),

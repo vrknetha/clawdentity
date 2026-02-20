@@ -1,3 +1,4 @@
+import { parseDid } from "@clawdentity/protocol";
 import {
   AppError,
   createRegistryIdentityClient,
@@ -48,6 +49,7 @@ type CreatePairStartHandlerOptions = PairStartRuntimeOptions & {
 };
 
 export type PairConfirmRuntimeOptions = {
+  fetchImpl?: typeof fetch;
   nowMs?: () => number;
 };
 
@@ -234,6 +236,79 @@ function parsePeerProfile(value: unknown, label: string): PeerProfile {
   return profile;
 }
 
+function parseOptionalResponderAgentDid(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "allowResponderAgentDid must be a non-empty string",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  const candidate = value.trim();
+  try {
+    const parsed = parseDid(candidate);
+    if (parsed.kind !== "agent") {
+      throw new Error("invalid kind");
+    }
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "allowResponderAgentDid must be a valid agent DID",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return candidate;
+}
+
+function parseOptionalCallbackUrl(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (typeof value !== "string") {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "callbackUrl must be a valid http(s) URL",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  let parsedCallbackUrl: URL;
+  try {
+    parsedCallbackUrl = new URL(value.trim());
+  } catch {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "callbackUrl must be a valid http(s) URL",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  if (
+    parsedCallbackUrl.protocol !== "https:" &&
+    parsedCallbackUrl.protocol !== "http:"
+  ) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: "callbackUrl must be a valid http(s) URL",
+      status: 400,
+      expose: true,
+    });
+  }
+
+  return parsedCallbackUrl.toString();
+}
+
 async function parseJsonBody(c: PairingRouteContext): Promise<unknown> {
   try {
     return await c.req.json();
@@ -320,6 +395,48 @@ function toPairingStoreAppError(error: unknown): AppError {
   });
 }
 
+async function postPairConfirmCallback(input: {
+  callbackUrl: string;
+  confirmedPairingTicket: {
+    initiatorAgentDid: string;
+    initiatorProfile: PeerProfile;
+    responderAgentDid: string;
+    responderProfile: PeerProfile;
+    issuerProxyUrl: string;
+  };
+  fetchImpl: typeof fetch;
+  logger: Logger;
+  requestId?: string;
+}): Promise<void> {
+  try {
+    const response = await input.fetchImpl(input.callbackUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        paired: true,
+        initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
+        initiatorProfile: input.confirmedPairingTicket.initiatorProfile,
+        responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
+        responderProfile: input.confirmedPairingTicket.responderProfile,
+        issuerProxyUrl: input.confirmedPairingTicket.issuerProxyUrl,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Callback returned status ${response.status}`);
+    }
+  } catch (error) {
+    input.logger.warn("proxy.pair.confirm.callback_failed", {
+      requestId: input.requestId,
+      callbackUrl: input.callbackUrl,
+      initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
+      responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export function createPairStartHandler(
   options: CreatePairStartHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
@@ -340,12 +457,18 @@ export function createPairStartHandler(
     const body = (await parseJsonBody(c)) as {
       ttlSeconds?: unknown;
       initiatorProfile?: unknown;
+      allowResponderAgentDid?: unknown;
+      callbackUrl?: unknown;
     };
     const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
     const initiatorProfile = parsePeerProfile(
       body.initiatorProfile,
       "initiatorProfile",
     );
+    const allowResponderAgentDid = parseOptionalResponderAgentDid(
+      body.allowResponderAgentDid,
+    );
+    const callbackUrl = parseOptionalCallbackUrl(body.callbackUrl);
     const internalServiceCredentials = parseInternalServiceCredentials({
       serviceId: options.registryInternalServiceId,
       serviceSecret: options.registryInternalServiceSecret,
@@ -398,6 +521,9 @@ export function createPairStartHandler(
         initiatorProfile,
         issuerProxyUrl,
         ticket: createdTicket.ticket,
+        publicKeyX: signingKey.publicKeyX,
+        allowResponderAgentDid,
+        callbackUrl,
         expiresAtMs,
         nowMs: issuedAtMs,
       })
@@ -411,6 +537,8 @@ export function createPairStartHandler(
       issuerProxyUrl: pairingTicketResult.issuerProxyUrl,
       expiresAt: toIso(pairingTicketResult.expiresAtMs),
       pkid: signingKey.pkid,
+      allowResponderAgentDid,
+      hasCallbackUrl: callbackUrl !== undefined,
     });
 
     return c.json({
@@ -425,6 +553,7 @@ export function createPairStartHandler(
 export function createPairConfirmHandler(
   options: CreatePairConfirmHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
+  const fetchImpl = options.fetchImpl ?? fetch;
   const nowMs = options.nowMs ?? nowUtcMs;
 
   return async (c) => {
@@ -491,7 +620,18 @@ export function createPairConfirmHandler(
       initiatorAgentDid: confirmedPairingTicket.initiatorAgentDid,
       responderAgentDid: confirmedPairingTicket.responderAgentDid,
       issuerProxyUrl: confirmedPairingTicket.issuerProxyUrl,
+      callbackUrl: confirmedPairingTicket.callbackUrl,
     });
+
+    if (confirmedPairingTicket.callbackUrl !== undefined) {
+      void postPairConfirmCallback({
+        callbackUrl: confirmedPairingTicket.callbackUrl,
+        confirmedPairingTicket,
+        fetchImpl,
+        logger: options.logger,
+        requestId: c.get("requestId"),
+      });
+    }
 
     return c.json(
       {

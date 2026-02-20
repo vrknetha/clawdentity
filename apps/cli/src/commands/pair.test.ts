@@ -9,6 +9,7 @@ import {
   confirmPairing,
   createPairCommand,
   getPairingStatus,
+  recoverPairing,
   startPairing,
 } from "./pair.js";
 
@@ -129,6 +130,8 @@ describe("pair command helpers", () => {
       "alpha",
       {
         ttlSeconds: "900",
+        allowResponder: "did:claw:agent:01HBBB22222222222222222222",
+        callbackUrl: "https://callbacks.example.com/pairing",
         qr: true,
       },
       {
@@ -176,6 +179,8 @@ describe("pair command helpers", () => {
     expect(headers.get("x-claw-nonce")).toBe("nonce-start");
     expect(String(init?.body ?? "")).toContain("ttlSeconds");
     expect(String(init?.body ?? "")).toContain("initiatorProfile");
+    expect(String(init?.body ?? "")).toContain("allowResponderAgentDid");
+    expect(String(init?.body ?? "")).toContain("callbackUrl");
   });
 
   it("uses CLAWDENTITY_PROXY_URL when no proxy override options are present", async () => {
@@ -756,10 +761,12 @@ describe("pair command helpers", () => {
     expect(result.status).toBe("confirmed");
     expect(result.peerAlias).toBe("peer-22222222");
     expect(sleepImpl).toHaveBeenCalledTimes(1);
-    expect(writeFileImpl).toHaveBeenCalledTimes(1);
-    expect(mkdirImpl).toHaveBeenCalledTimes(1);
-    expect(chmodImpl).toHaveBeenCalledTimes(1);
-    const peerWriteCall = writeFileImpl.mock.calls[0];
+    expect(writeFileImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(mkdirImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(chmodImpl.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const peerWriteCall = writeFileImpl.mock.calls.find(([filePath]) =>
+      String(filePath).endsWith("/peers.json"),
+    );
     const persistedPeers = JSON.parse(String(peerWriteCall?.[1] ?? "{}")) as {
       peers: {
         [key: string]: {
@@ -771,6 +778,360 @@ describe("pair command helpers", () => {
     expect(persistedPeers.peers["peer-22222222"]?.proxyUrl).toBe(
       "https://beta.proxy.example/hooks/agent",
     );
+  });
+
+  it("retries transient polling failures and resolves metadata only once", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+    const mkdirImpl = vi.fn(async () => undefined);
+    const writeFileImpl = vi.fn(async () => undefined);
+    const chmodImpl = vi.fn(async () => undefined);
+    const unlinkImpl = vi.fn(async () => undefined);
+    const sleepImpl = vi.fn(async () => undefined);
+    let statusAttempt = 0;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/v1/metadata")) {
+        return Response.json(
+          { status: "ok", proxyUrl: "https://alpha.proxy.example" },
+          { status: 200 },
+        );
+      }
+
+      statusAttempt += 1;
+      if (statusAttempt <= 2) {
+        return Response.json(
+          { error: { code: "PROXY_PAIR_STATE_UNAVAILABLE", message: "busy" } },
+          { status: 503 },
+        );
+      }
+      if (statusAttempt === 3) {
+        return Response.json(
+          {
+            status: "pending",
+            initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+            initiatorProfile: INITIATOR_PROFILE,
+            expiresAt: "2026-02-18T00:00:00.000Z",
+          },
+          { status: 200 },
+        );
+      }
+      return Response.json(
+        {
+          status: "confirmed",
+          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorProfile: INITIATOR_PROFILE,
+          responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+          responderProfile: RESPONDER_PROFILE,
+          expiresAt: "2026-02-18T00:00:00.000Z",
+          confirmedAt: "2026-02-18T00:00:05.000Z",
+        },
+        { status: 200 },
+      );
+    });
+
+    const result = await getPairingStatus(
+      "alpha",
+      {
+        ticket,
+        wait: true,
+        waitSeconds: "120",
+      },
+      {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        nowSecondsImpl: (() => {
+          let now = 1_700_000_000;
+          return () => now++;
+        })(),
+        nonceFactoryImpl: () => "nonce-status",
+        readFileImpl: createReadFileMock(
+          fixture,
+        ) as unknown as typeof import("node:fs/promises").readFile,
+        writeFileImpl:
+          writeFileImpl as unknown as typeof import("node:fs/promises").writeFile,
+        mkdirImpl:
+          mkdirImpl as unknown as typeof import("node:fs/promises").mkdir,
+        chmodImpl:
+          chmodImpl as unknown as typeof import("node:fs/promises").chmod,
+        unlinkImpl:
+          unlinkImpl as unknown as typeof import("node:fs/promises").unlink,
+        getConfigDirImpl: () => "/tmp/.clawdentity",
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://registry.clawdentity.com/",
+        }),
+        sleepImpl,
+      },
+    );
+
+    expect(result.status).toBe("confirmed");
+    expect(
+      fetchImpl.mock.calls.filter(([url]) =>
+        String(url).endsWith("/v1/metadata"),
+      ).length,
+    ).toBe(1);
+    expect(sleepImpl).toHaveBeenCalled();
+    expect(unlinkImpl).toHaveBeenCalledWith(
+      "/tmp/.clawdentity/pairing/pending/alpha.json",
+    );
+  });
+
+  it("persists pending ticket and prints recovery guidance on timeout", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+    const mkdirImpl = vi.fn(async () => undefined);
+    const writeFileImpl = vi.fn(async () => undefined);
+    const chmodImpl = vi.fn(async () => undefined);
+    const unlinkImpl = vi.fn(async () => undefined);
+    const sleepImpl = vi.fn(async () => undefined);
+    const writeStdoutLineImpl = vi.fn();
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/v1/metadata")) {
+        return Response.json(
+          { status: "ok", proxyUrl: "https://alpha.proxy.example" },
+          { status: 200 },
+        );
+      }
+
+      return Response.json(
+        {
+          status: "pending",
+          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorProfile: INITIATOR_PROFILE,
+          expiresAt: "2026-02-18T00:00:00.000Z",
+        },
+        { status: 200 },
+      );
+    });
+    const nowSequence = [1000, 1000, 1001, 1002];
+
+    await expect(
+      getPairingStatus(
+        "alpha",
+        {
+          ticket,
+          wait: true,
+          waitSeconds: "2",
+        },
+        {
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          nowSecondsImpl: () => nowSequence.shift() ?? 1002,
+          nonceFactoryImpl: () => "nonce-status",
+          readFileImpl: createReadFileMock(
+            fixture,
+          ) as unknown as typeof import("node:fs/promises").readFile,
+          writeFileImpl:
+            writeFileImpl as unknown as typeof import("node:fs/promises").writeFile,
+          mkdirImpl:
+            mkdirImpl as unknown as typeof import("node:fs/promises").mkdir,
+          chmodImpl:
+            chmodImpl as unknown as typeof import("node:fs/promises").chmod,
+          unlinkImpl:
+            unlinkImpl as unknown as typeof import("node:fs/promises").unlink,
+          getConfigDirImpl: () => "/tmp/.clawdentity",
+          resolveConfigImpl: async () => ({
+            registryUrl: "https://registry.clawdentity.com/",
+          }),
+          sleepImpl,
+          writeStdoutLineImpl,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLI_PAIR_STATUS_WAIT_TIMEOUT",
+    });
+
+    expect(writeFileImpl).toHaveBeenCalledWith(
+      "/tmp/.clawdentity/pairing/pending/alpha.json",
+      expect.any(String),
+      "utf8",
+    );
+    expect(unlinkImpl).not.toHaveBeenCalledWith(
+      "/tmp/.clawdentity/pairing/pending/alpha.json",
+    );
+    expect(
+      writeStdoutLineImpl.mock.calls.some(([message]) =>
+        String(message).includes("clawdentity pair recover alpha"),
+      ),
+    ).toBe(true);
+  });
+
+  it("handles SIGINT cancellation with recovery hint and keeps pending ticket", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+    const writeFileImpl = vi.fn(async () => undefined);
+    const unlinkImpl = vi.fn(async () => undefined);
+    const writeStdoutLineImpl = vi.fn();
+    let sigintHandler: (() => void) | undefined;
+    const registerSigintHandlerImpl = vi.fn((handler: () => void) => {
+      sigintHandler = handler;
+    });
+    const unregisterSigintHandlerImpl = vi.fn(() => undefined);
+    const sleepImpl = vi.fn(async () => {
+      sigintHandler?.();
+    });
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/v1/metadata")) {
+        return Response.json(
+          { status: "ok", proxyUrl: "https://alpha.proxy.example" },
+          { status: 200 },
+        );
+      }
+
+      return Response.json(
+        {
+          status: "pending",
+          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorProfile: INITIATOR_PROFILE,
+          expiresAt: "2026-02-18T00:00:00.000Z",
+        },
+        { status: 200 },
+      );
+    });
+
+    await expect(
+      getPairingStatus(
+        "alpha",
+        {
+          ticket,
+          wait: true,
+          waitSeconds: "30",
+        },
+        {
+          fetchImpl: fetchImpl as unknown as typeof fetch,
+          nowSecondsImpl: (() => {
+            let now = 1_700_000_000;
+            return () => now++;
+          })(),
+          nonceFactoryImpl: () => "nonce-status",
+          readFileImpl: createReadFileMock(
+            fixture,
+          ) as unknown as typeof import("node:fs/promises").readFile,
+          writeFileImpl:
+            writeFileImpl as unknown as typeof import("node:fs/promises").writeFile,
+          mkdirImpl: vi.fn(
+            async () => undefined,
+          ) as unknown as typeof import("node:fs/promises").mkdir,
+          chmodImpl: vi.fn(
+            async () => undefined,
+          ) as unknown as typeof import("node:fs/promises").chmod,
+          unlinkImpl:
+            unlinkImpl as unknown as typeof import("node:fs/promises").unlink,
+          getConfigDirImpl: () => "/tmp/.clawdentity",
+          resolveConfigImpl: async () => ({
+            registryUrl: "https://registry.clawdentity.com/",
+          }),
+          sleepImpl,
+          writeStdoutLineImpl,
+          registerSigintHandlerImpl,
+          unregisterSigintHandlerImpl,
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLI_PAIR_STATUS_WAIT_CANCELLED",
+    });
+
+    expect(registerSigintHandlerImpl).toHaveBeenCalledTimes(1);
+    expect(unregisterSigintHandlerImpl).toHaveBeenCalledTimes(1);
+    expect(unlinkImpl).not.toHaveBeenCalledWith(
+      "/tmp/.clawdentity/pairing/pending/alpha.json",
+    );
+    expect(
+      writeStdoutLineImpl.mock.calls.some(([message]) =>
+        String(message).includes("Pairing wait cancelled"),
+      ),
+    ).toBe(true);
+  });
+
+  it("recovers confirmed pending pairing and clears pending ticket state", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+    const readFileImpl = vi.fn(
+      async (filePath: string, _encoding?: BufferEncoding) => {
+        if (filePath.endsWith("/ait.jwt")) {
+          return fixture.ait;
+        }
+        if (filePath.endsWith("/secret.key")) {
+          return fixture.secretKeyBase64url;
+        }
+        if (filePath.endsWith("/pairing/pending/alpha.json")) {
+          return JSON.stringify({
+            agentName: "alpha",
+            ticket,
+            proxyUrl: "https://alpha.proxy.example/",
+            createdAt: "2026-02-18T00:00:00.000Z",
+          });
+        }
+        throw buildErrnoError("ENOENT");
+      },
+    );
+    const writeFileImpl = vi.fn(async () => undefined);
+    const mkdirImpl = vi.fn(async () => undefined);
+    const chmodImpl = vi.fn(async () => undefined);
+    const unlinkImpl = vi.fn(async () => undefined);
+    const fetchImpl = vi.fn(async () =>
+      Response.json(
+        {
+          status: "confirmed",
+          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorProfile: INITIATOR_PROFILE,
+          responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+          responderProfile: RESPONDER_PROFILE,
+          expiresAt: "2026-02-18T00:00:00.000Z",
+          confirmedAt: "2026-02-18T00:00:05.000Z",
+        },
+        { status: 200 },
+      ),
+    );
+
+    const result = await recoverPairing(
+      "alpha",
+      {},
+      {
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        nowSecondsImpl: () => 1_700_000_000,
+        nonceFactoryImpl: () => "nonce-status",
+        readFileImpl:
+          readFileImpl as unknown as typeof import("node:fs/promises").readFile,
+        writeFileImpl:
+          writeFileImpl as unknown as typeof import("node:fs/promises").writeFile,
+        mkdirImpl:
+          mkdirImpl as unknown as typeof import("node:fs/promises").mkdir,
+        chmodImpl:
+          chmodImpl as unknown as typeof import("node:fs/promises").chmod,
+        unlinkImpl:
+          unlinkImpl as unknown as typeof import("node:fs/promises").unlink,
+        getConfigDirImpl: () => "/tmp/.clawdentity",
+      },
+    );
+
+    expect(result.status).toBe("confirmed");
+    expect(unlinkImpl).toHaveBeenCalledWith(
+      "/tmp/.clawdentity/pairing/pending/alpha.json",
+    );
+  });
+
+  it("fails recover when no pending pairing exists", async () => {
+    const fixture = await createPairFixture();
+    await expect(
+      recoverPairing(
+        "alpha",
+        {},
+        {
+          readFileImpl: createReadFileMock(
+            fixture,
+          ) as unknown as typeof import("node:fs/promises").readFile,
+          getConfigDirImpl: () => "/tmp/.clawdentity",
+        },
+      ),
+    ).rejects.toMatchObject({
+      code: "CLI_PAIR_RECOVER_NOT_FOUND",
+    });
   });
 });
 
@@ -1001,5 +1362,70 @@ describe("pair command output", () => {
     expect(result.stdout).toContain(
       "Initiator Agent DID: did:claw:agent:01HAAA11111111111111111111",
     );
+  });
+
+  it("prints recovered output from pair recover", async () => {
+    const fixture = await createPairFixture();
+    const ticket = `clwpair1_${Buffer.from(
+      JSON.stringify({ iss: "https://alpha.proxy.example" }),
+    ).toString("base64url")}`;
+    const readFileImpl = vi.fn(
+      async (filePath: string, _encoding?: BufferEncoding) => {
+        if (filePath.endsWith("/ait.jwt")) {
+          return fixture.ait;
+        }
+        if (filePath.endsWith("/secret.key")) {
+          return fixture.secretKeyBase64url;
+        }
+        if (filePath.endsWith("/pairing/pending/alpha.json")) {
+          return JSON.stringify({
+            agentName: "alpha",
+            ticket,
+            proxyUrl: "https://alpha.proxy.example/",
+            createdAt: "2026-02-18T00:00:00.000Z",
+          });
+        }
+        throw buildErrnoError("ENOENT");
+      },
+    );
+
+    const command = createPairCommand({
+      fetchImpl: (async () =>
+        Response.json(
+          {
+            status: "confirmed",
+            initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+            initiatorProfile: INITIATOR_PROFILE,
+            responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+            responderProfile: RESPONDER_PROFILE,
+            expiresAt: "2026-02-18T00:00:00.000Z",
+            confirmedAt: "2026-02-18T00:00:05.000Z",
+          },
+          { status: 200 },
+        )) as unknown as typeof fetch,
+      nowSecondsImpl: () => 1_700_000_000,
+      nonceFactoryImpl: () => "nonce-status",
+      readFileImpl:
+        readFileImpl as unknown as typeof import("node:fs/promises").readFile,
+      writeFileImpl: vi.fn(
+        async () => undefined,
+      ) as unknown as typeof import("node:fs/promises").writeFile,
+      mkdirImpl: vi.fn(
+        async () => undefined,
+      ) as unknown as typeof import("node:fs/promises").mkdir,
+      chmodImpl: vi.fn(
+        async () => undefined,
+      ) as unknown as typeof import("node:fs/promises").chmod,
+      unlinkImpl: vi.fn(
+        async () => undefined,
+      ) as unknown as typeof import("node:fs/promises").unlink,
+      getConfigDirImpl: () => "/tmp/.clawdentity",
+    });
+
+    const result = await runPairCommand(["recover", "alpha"], command);
+
+    expect(result.exitCode).toBeUndefined();
+    expect(result.stdout).toContain("Pairing recovered and saved");
+    expect(result.stdout).toContain("Status: confirmed");
   });
 });

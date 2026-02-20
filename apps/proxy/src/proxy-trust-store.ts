@@ -1,9 +1,11 @@
+import { parseDid } from "@clawdentity/protocol";
 import { nowUtcMs } from "@clawdentity/sdk";
 import { PROXY_TRUST_DO_NAME } from "./pairing-constants.js";
 import {
   normalizePairingTicketText,
   PairingTicketParseError,
   parsePairingTicket,
+  verifyPairingTicketSignature,
 } from "./pairing-ticket.js";
 import { normalizeExpiryToWholeSecond, toPairKey } from "./proxy-trust-keys.js";
 
@@ -12,6 +14,9 @@ export type PairingTicketInput = {
   initiatorProfile: PeerProfile;
   issuerProxyUrl: string;
   ticket: string;
+  publicKeyX: string;
+  allowResponderAgentDid?: string;
+  callbackUrl?: string;
   expiresAtMs: number;
   nowMs?: number;
 };
@@ -37,6 +42,7 @@ export type PairingTicketConfirmResult = {
   responderAgentDid: string;
   responderProfile: PeerProfile;
   issuerProxyUrl: string;
+  callbackUrl?: string;
 };
 
 export type PairingTicketStatusInput = {
@@ -271,6 +277,9 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       initiatorAgentDid: string;
       initiatorProfile: PeerProfile;
       issuerProxyUrl: string;
+      publicKeyX: string;
+      allowResponderAgentDid?: string;
+      callbackUrl?: string;
     }
   >();
 
@@ -323,22 +332,50 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     return parsedTicket;
   }
 
-  function resolveConfirmablePairingTicket(input: PairingTicketConfirmInput): {
+  async function resolveConfirmablePairingTicket(
+    input: PairingTicketConfirmInput,
+  ): Promise<{
     pair: PairingTicketConfirmResult;
     ticketKid: string;
     expiresAtMs: number;
-  } {
+  }> {
     const nowMs = input.nowMs ?? nowUtcMs();
     const normalizedTicket = normalizePairingTicketText(input.ticket);
     const parsedTicket = parseStoredTicket(normalizedTicket);
     cleanup(nowMs, parsedTicket.kid);
 
+    const confirmed = confirmedPairingTickets.get(parsedTicket.kid);
+    if (confirmed && confirmed.ticket === normalizedTicket) {
+      throw new ProxyTrustStoreError({
+        code: "PROXY_PAIR_TICKET_ALREADY_CONFIRMED",
+        message: "Pairing ticket has already been confirmed",
+        status: 409,
+      });
+    }
+
     const stored = pairingTickets.get(parsedTicket.kid);
-    if (!stored || stored.ticket !== normalizedTicket) {
+    if (!stored) {
       throw new ProxyTrustStoreError({
         code: "PROXY_PAIR_TICKET_NOT_FOUND",
         message: "Pairing ticket not found",
         status: 404,
+      });
+    }
+
+    let signatureVerified = false;
+    try {
+      signatureVerified = await verifyPairingTicketSignature({
+        payload: parsedTicket,
+        publicKeyX: stored.publicKeyX,
+      });
+    } catch {
+      signatureVerified = false;
+    }
+    if (!signatureVerified) {
+      throw new ProxyTrustStoreError({
+        code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+        message: "Pairing ticket signature is invalid",
+        status: 400,
       });
     }
 
@@ -359,6 +396,17 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       });
     }
 
+    if (
+      stored.allowResponderAgentDid !== undefined &&
+      stored.allowResponderAgentDid !== input.responderAgentDid
+    ) {
+      throw new ProxyTrustStoreError({
+        code: "PROXY_PAIR_RESPONDER_FORBIDDEN",
+        message: "Responder agent DID is not allowed for this pairing ticket",
+        status: 403,
+      });
+    }
+
     return {
       pair: {
         initiatorAgentDid: stored.initiatorAgentDid,
@@ -366,6 +414,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         responderAgentDid: input.responderAgentDid,
         responderProfile: input.responderProfile,
         issuerProxyUrl: stored.issuerProxyUrl,
+        callbackUrl: stored.callbackUrl,
       },
       ticketKid: parsedTicket.kid,
       expiresAtMs: stored.expiresAtMs,
@@ -467,12 +516,92 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         });
       }
 
+      const publicKeyX =
+        typeof input.publicKeyX === "string" ? input.publicKeyX.trim() : "";
+      if (publicKeyX.length === 0) {
+        throw new ProxyTrustStoreError({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "Pairing ticket public key is invalid",
+          status: 400,
+        });
+      }
+
+      const normalizedAllowResponderAgentDid =
+        typeof input.allowResponderAgentDid === "string"
+          ? input.allowResponderAgentDid.trim()
+          : undefined;
+      const allowResponderAgentDid =
+        normalizedAllowResponderAgentDid &&
+        normalizedAllowResponderAgentDid.length > 0
+          ? normalizedAllowResponderAgentDid
+          : undefined;
+      if (
+        input.allowResponderAgentDid !== undefined &&
+        allowResponderAgentDid === undefined
+      ) {
+        throw new ProxyTrustStoreError({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "allowResponderAgentDid must be a non-empty string",
+          status: 400,
+        });
+      }
+      if (allowResponderAgentDid !== undefined) {
+        try {
+          const parsed = parseDid(allowResponderAgentDid);
+          if (parsed.kind !== "agent") {
+            throw new Error("invalid kind");
+          }
+        } catch {
+          throw new ProxyTrustStoreError({
+            code: "PROXY_PAIR_START_INVALID_BODY",
+            message: "allowResponderAgentDid must be a valid agent DID",
+            status: 400,
+          });
+        }
+      }
+
+      let callbackUrl: string | undefined;
+      if (input.callbackUrl !== undefined) {
+        if (typeof input.callbackUrl !== "string") {
+          throw new ProxyTrustStoreError({
+            code: "PROXY_PAIR_START_INVALID_BODY",
+            message: "callbackUrl must be a valid http(s) URL",
+            status: 400,
+          });
+        }
+        const normalizedCallbackUrl = input.callbackUrl.trim();
+        let parsedCallbackUrl: URL;
+        try {
+          parsedCallbackUrl = new URL(normalizedCallbackUrl);
+        } catch {
+          throw new ProxyTrustStoreError({
+            code: "PROXY_PAIR_START_INVALID_BODY",
+            message: "callbackUrl must be a valid http(s) URL",
+            status: 400,
+          });
+        }
+        if (
+          parsedCallbackUrl.protocol !== "https:" &&
+          parsedCallbackUrl.protocol !== "http:"
+        ) {
+          throw new ProxyTrustStoreError({
+            code: "PROXY_PAIR_START_INVALID_BODY",
+            message: "callbackUrl must be a valid http(s) URL",
+            status: 400,
+          });
+        }
+        callbackUrl = parsedCallbackUrl.toString();
+      }
+
       pairingTickets.set(parsedTicket.kid, {
         ticket,
         initiatorAgentDid: input.initiatorAgentDid,
         initiatorProfile: input.initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
         expiresAtMs: normalizedExpiresAtMs,
+        publicKeyX,
+        allowResponderAgentDid,
+        callbackUrl,
       });
       confirmedPairingTickets.delete(parsedTicket.kid);
 
@@ -489,7 +618,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         pair: confirmedPair,
         ticketKid,
         expiresAtMs,
-      } = resolveConfirmablePairingTicket(input);
+      } = await resolveConfirmablePairingTicket(input);
       const confirmedAtMs = normalizeExpiryToWholeSecond(
         input.nowMs ?? nowUtcMs(),
       );
