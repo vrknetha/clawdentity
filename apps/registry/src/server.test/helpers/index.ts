@@ -1,3 +1,10 @@
+export {
+  createDefaultRegistrySigning,
+  createProductionBindings,
+  createRegistrySigningEnv,
+  createTestBindings,
+  requestRegistrationChallenge,
+} from "./agent-registration.js";
 export { makeAitClaims } from "./claims.js";
 export {
   createSignedAgentRefreshRequest,

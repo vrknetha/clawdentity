@@ -1,67 +1,50 @@
-import {
-  DEFAULT_RELAY_DELIVER_TIMEOUT_MS,
-  parseFrame,
-  serializeFrame,
-} from "@clawdentity/connector";
 import { generateUlid, RELAY_CONNECT_PATH } from "@clawdentity/protocol";
 import { nowUtcMs, toIso } from "@clawdentity/sdk";
 import { parseProxyConfig } from "../config.js";
 import {
   CONNECTOR_AGENT_DID_HEADER,
   RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
-  RELAY_QUEUE_STORAGE_KEY,
   RELAY_RPC_DELIVER_PATH,
   RELAY_RPC_GET_RECEIPT_PATH,
   RELAY_RPC_RECORD_RECEIPT_PATH,
   RELAY_SOCKET_STALE_CLOSE_CODE,
   RELAY_SOCKET_SUPERSEDED_CLOSE_CODE,
 } from "./constants.js";
+import { RelayDeliveryTransport } from "./delivery.js";
 import { RelayQueueFullError } from "./errors.js";
-import {
-  getWebSocketMessageBytes,
-  toDeliverFrame,
-  toHeartbeatAckFrame,
-  toRelayDeliveryResult,
-} from "./frames.js";
+import { toRelayDeliveryResult } from "./frames.js";
 import {
   parseDeliveryInput,
   parseReceiptLookupInput,
   parseReceiptRecordInput,
 } from "./parsers.js";
-import { rejectPendingDeliveries } from "./pending-deliveries.js";
 import { computeRetryDelayMs } from "./policy.js";
-import {
-  deleteQueuedReceipt,
-  isQueuedDelivery,
-  normalizeReceipts,
-  pruneExpiredQueueState,
-  upsertReceipt,
-} from "./queue-state.js";
+import { RelayQueueManager } from "./queue-manager.js";
+import { upsertReceipt } from "./queue-state.js";
 import { toErrorResponse } from "./rpc.js";
-import { scheduleNextRelayAlarm } from "./scheduler.js";
 import { RelaySocketTracker } from "./socket-tracker.js";
 import type {
   DurableObjectStateLike,
-  PendingDelivery,
   QueuedRelayDelivery,
   RelayDeliveryInput,
   RelayDeliveryPolicy,
   RelayDeliveryResult,
-  RelayQueueState,
   RelayReceiptLookupInput,
   RelayReceiptLookupResult,
   RelayReceiptRecordInput,
 } from "./types.js";
+import {
+  handleRelayWebSocketClose,
+  handleRelayWebSocketError,
+  handleRelayWebSocketMessage,
+} from "./websocket.js";
 
 export class AgentRelaySession {
   private readonly deliveryPolicy: RelayDeliveryPolicy;
-  private readonly pendingDeliveries = new Map<string, PendingDelivery>();
   private readonly socketTracker: RelaySocketTracker;
+  private readonly deliveryTransport: RelayDeliveryTransport;
+  private readonly queueManager: RelayQueueManager;
   private readonly state: DurableObjectStateLike;
-  private inMemoryQueueState: RelayQueueState = {
-    deliveries: [],
-    receipts: {},
-  };
 
   constructor(state: DurableObjectStateLike, env?: unknown) {
     this.state = state;
@@ -79,6 +62,16 @@ export class AgentRelaySession {
     this.socketTracker = new RelaySocketTracker({
       heartbeatAckTimeoutMs: RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
       staleCloseCode: RELAY_SOCKET_STALE_CLOSE_CODE,
+    });
+
+    this.deliveryTransport = new RelayDeliveryTransport(this.deliveryPolicy);
+    this.queueManager = new RelayQueueManager({
+      state: this.state,
+      deliveryPolicy: this.deliveryPolicy,
+      getActiveSockets: (nowMs) => this.getActiveSockets(nowMs),
+      getPendingDeliveriesCount: () => this.deliveryTransport.getPendingCount(),
+      sendDeliverFrame: (socket, input) =>
+        this.deliveryTransport.sendDeliverFrame(socket, input),
     });
   }
 
@@ -158,20 +151,23 @@ export class AgentRelaySession {
       }
     }
 
-    const queueState = await this.loadQueueState(nowMs);
-    const queueMutated = await this.processQueueDeliveries(queueState, nowMs);
+    const queueState = await this.queueManager.loadQueueState(nowMs);
+    const queueMutated = await this.queueManager.processQueueDeliveries(
+      queueState,
+      nowMs,
+    );
     if (queueMutated) {
-      await this.saveQueueState(queueState);
+      await this.queueManager.saveQueueState(queueState);
     }
 
-    await this.scheduleNextAlarm(queueState, nowMs);
+    await this.queueManager.scheduleNextAlarm(queueState, nowMs);
   }
 
   async deliverToConnector(
     input: RelayDeliveryInput,
   ): Promise<RelayDeliveryResult> {
     const nowMs = nowUtcMs();
-    const queueState = await this.loadQueueState(nowMs);
+    const queueState = await this.queueManager.loadQueueState(nowMs);
     const existingReceipt = queueState.receipts[input.requestId];
 
     if (
@@ -195,11 +191,15 @@ export class AgentRelaySession {
 
     if (
       sockets.length > 0 &&
-      this.pendingDeliveries.size < this.deliveryPolicy.maxInFlightDeliveries
+      this.deliveryTransport.getPendingCount() <
+        this.deliveryPolicy.maxInFlightDeliveries
     ) {
       priorAttempts = 1;
       try {
-        const accepted = await this.sendDeliverFrame(sockets[0], input);
+        const accepted = await this.deliveryTransport.sendDeliverFrame(
+          sockets[0],
+          input,
+        );
         if (accepted) {
           upsertReceipt(queueState, {
             requestId: input.requestId,
@@ -210,8 +210,8 @@ export class AgentRelaySession {
             recipientAgentDid: input.recipientAgentDid,
             statusUpdatedAt: toIso(nowMs),
           });
-          await this.saveQueueState(queueState);
-          await this.scheduleNextAlarm(queueState, nowMs);
+          await this.queueManager.saveQueueState(queueState);
+          await this.queueManager.scheduleNextAlarm(queueState, nowMs);
 
           return toRelayDeliveryResult({
             deliveryId,
@@ -262,8 +262,8 @@ export class AgentRelaySession {
       statusUpdatedAt: toIso(nowMs),
     });
 
-    await this.saveQueueState(queueState);
-    await this.scheduleNextAlarm(queueState, nowMs);
+    await this.queueManager.saveQueueState(queueState);
+    await this.queueManager.scheduleNextAlarm(queueState, nowMs);
 
     return toRelayDeliveryResult({
       deliveryId,
@@ -275,7 +275,7 @@ export class AgentRelaySession {
 
   async recordDeliveryReceipt(input: RelayReceiptRecordInput): Promise<void> {
     const nowMs = nowUtcMs();
-    const queueState = await this.loadQueueState(nowMs);
+    const queueState = await this.queueManager.loadQueueState(nowMs);
     const existing = queueState.receipts[input.requestId];
     if (existing === undefined) {
       return;
@@ -292,15 +292,15 @@ export class AgentRelaySession {
     existing.reason = input.reason;
     existing.expiresAtMs = nowMs + this.deliveryPolicy.queueTtlMs;
     existing.statusUpdatedAt = toIso(nowMs);
-    await this.saveQueueState(queueState);
-    await this.scheduleNextAlarm(queueState, nowMs);
+    await this.queueManager.saveQueueState(queueState);
+    await this.queueManager.scheduleNextAlarm(queueState, nowMs);
   }
 
   async getDeliveryReceipt(
     input: RelayReceiptLookupInput,
   ): Promise<RelayReceiptLookupResult> {
     const nowMs = nowUtcMs();
-    const queueState = await this.loadQueueState(nowMs);
+    const queueState = await this.queueManager.loadQueueState(nowMs);
     const existing = queueState.receipts[input.requestId];
     if (
       existing === undefined ||
@@ -319,55 +319,22 @@ export class AgentRelaySession {
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
-    const frameBytes = getWebSocketMessageBytes(message);
-    if (frameBytes > this.deliveryPolicy.maxFrameBytes) {
-      this.closeSocket(ws, 1009, "frame_too_large");
-      await this.scheduleFromStorage();
-      return;
-    }
-
-    const nowMs = nowUtcMs();
-    const frameResult = (() => {
-      try {
-        return parseFrame(message);
-      } catch {
-        return null;
-      }
-    })();
-
-    if (frameResult === null) {
-      await this.scheduleFromStorage();
-      return;
-    }
-
-    const frame = frameResult;
-
-    if (frame.type === "heartbeat") {
-      this.socketTracker.touchSocketAck(ws, nowMs);
-      ws.send(toHeartbeatAckFrame(frame.id));
-      await this.scheduleFromStorage();
-      return;
-    }
-
-    if (frame.type === "deliver_ack") {
-      this.socketTracker.touchSocketAck(ws, nowMs);
-      const pending = this.pendingDeliveries.get(frame.ackId);
-      if (pending) {
-        clearTimeout(pending.timeoutHandle);
-        this.pendingDeliveries.delete(frame.ackId);
-        pending.resolve(frame.accepted);
-      }
-      await this.scheduleFromStorage();
-      return;
-    }
-
-    if (frame.type === "heartbeat_ack") {
-      this.socketTracker.handleHeartbeatAck(frame.ackId, ws, nowMs);
-      await this.scheduleFromStorage();
-      return;
-    }
-
-    await this.scheduleFromStorage();
+    await handleRelayWebSocketMessage({
+      ws,
+      message,
+      maxFrameBytes: this.deliveryPolicy.maxFrameBytes,
+      socketTracker: this.socketTracker,
+      closeSocket: (socket, code, reason) => {
+        this.closeSocket(socket, code, reason);
+      },
+      now: nowUtcMs,
+      onDeliverAck: (ackId, accepted) => {
+        this.deliveryTransport.resolveDeliverAck(ackId, accepted);
+      },
+      onSchedule: async () => {
+        await this.queueManager.scheduleFromStorage(nowUtcMs());
+      },
+    });
   }
 
   async webSocketClose(
@@ -376,23 +343,33 @@ export class AgentRelaySession {
     _reason?: string,
     wasClean?: boolean,
   ): Promise<void> {
-    if (ws !== undefined) {
-      this.socketTracker.onSocketClosed(ws);
-    }
-
-    const gracefulClose = code === 1000 && (wasClean ?? true);
-    if (!gracefulClose && this.state.getWebSockets().length === 0) {
-      rejectPendingDeliveries(
-        this.pendingDeliveries,
-        new Error("Connector socket closed"),
-      );
-    }
-
-    await this.scheduleFromStorage();
+    await handleRelayWebSocketClose({
+      ws,
+      code,
+      wasClean,
+      socketTracker: this.socketTracker,
+      getSocketCount: () => this.state.getWebSockets().length,
+      rejectPending: (error) => {
+        this.deliveryTransport.rejectPending(error);
+      },
+      onSchedule: async () => {
+        await this.queueManager.scheduleFromStorage(nowUtcMs());
+      },
+    });
   }
 
   async webSocketError(ws?: WebSocket): Promise<void> {
-    await this.webSocketClose(ws, 1011, "connector_socket_error", false);
+    await handleRelayWebSocketError({
+      ws,
+      socketTracker: this.socketTracker,
+      getSocketCount: () => this.state.getWebSockets().length,
+      rejectPending: (error) => {
+        this.deliveryTransport.rejectPending(error);
+      },
+      onSchedule: async () => {
+        await this.queueManager.scheduleFromStorage(nowUtcMs());
+      },
+    });
   }
 
   private async handleConnect(request: Request): Promise<Response> {
@@ -423,227 +400,11 @@ export class AgentRelaySession {
 
     this.state.acceptWebSocket(server, [connectorAgentDid]);
     this.socketTracker.touchSocketAck(server, nowMs);
-    void this.drainQueueOnReconnect();
+    void this.queueManager.drainQueueOnReconnect(nowMs);
 
     return new Response(null, {
       status: 101,
       webSocket: client,
-    });
-  }
-
-  private async loadQueueState(nowMs: number): Promise<RelayQueueState> {
-    const fromStorage = this.state.storage.get
-      ? await this.state.storage.get(RELAY_QUEUE_STORAGE_KEY)
-      : this.inMemoryQueueState;
-    const rawState =
-      typeof fromStorage === "object" && fromStorage !== null
-        ? (fromStorage as Partial<RelayQueueState>)
-        : undefined;
-
-    const queueState: RelayQueueState = {
-      deliveries: Array.isArray(rawState?.deliveries)
-        ? rawState.deliveries.filter((entry) => isQueuedDelivery(entry))
-        : [],
-      receipts: normalizeReceipts(rawState?.receipts),
-    };
-
-    const pruned = pruneExpiredQueueState(queueState, nowMs);
-    if (pruned) {
-      await this.saveQueueState(queueState);
-    }
-
-    return queueState;
-  }
-
-  private async saveQueueState(queueState: RelayQueueState): Promise<void> {
-    const serialized: RelayQueueState = {
-      deliveries: [...queueState.deliveries],
-      receipts: { ...queueState.receipts },
-    };
-
-    if (this.state.storage.put) {
-      await this.state.storage.put(RELAY_QUEUE_STORAGE_KEY, serialized);
-      return;
-    }
-
-    this.inMemoryQueueState = serialized;
-  }
-
-  private async processQueueDeliveries(
-    queueState: RelayQueueState,
-    nowMs: number,
-  ): Promise<boolean> {
-    if (queueState.deliveries.length === 0) {
-      return false;
-    }
-
-    const sockets = this.getActiveSockets(nowMs);
-    if (sockets.length === 0) {
-      let mutated = false;
-      for (const delivery of queueState.deliveries) {
-        if (delivery.nextAttemptAtMs <= nowMs) {
-          delivery.nextAttemptAtMs =
-            nowMs +
-            computeRetryDelayMs(this.deliveryPolicy, delivery.attemptCount);
-          mutated = true;
-        }
-      }
-
-      return mutated;
-    }
-
-    queueState.deliveries.sort((left, right) => {
-      if (left.nextAttemptAtMs !== right.nextAttemptAtMs) {
-        return left.nextAttemptAtMs - right.nextAttemptAtMs;
-      }
-
-      return left.createdAtMs - right.createdAtMs;
-    });
-
-    let mutated = false;
-    const socket = sockets[0];
-
-    for (let index = 0; index < queueState.deliveries.length; ) {
-      if (
-        this.pendingDeliveries.size >= this.deliveryPolicy.maxInFlightDeliveries
-      ) {
-        break;
-      }
-
-      const delivery = queueState.deliveries[index];
-
-      if (delivery.expiresAtMs <= nowMs) {
-        queueState.deliveries.splice(index, 1);
-        deleteQueuedReceipt(
-          queueState,
-          delivery.requestId,
-          delivery.deliveryId,
-        );
-        mutated = true;
-        continue;
-      }
-
-      if (delivery.attemptCount >= this.deliveryPolicy.retryMaxAttempts) {
-        queueState.deliveries.splice(index, 1);
-        deleteQueuedReceipt(
-          queueState,
-          delivery.requestId,
-          delivery.deliveryId,
-        );
-        mutated = true;
-        continue;
-      }
-
-      if (delivery.nextAttemptAtMs > nowMs) {
-        index += 1;
-        continue;
-      }
-
-      let accepted = false;
-      let deliveryError = false;
-      try {
-        accepted = await this.sendDeliverFrame(socket, {
-          requestId: delivery.requestId,
-          senderAgentDid: delivery.senderAgentDid,
-          recipientAgentDid: delivery.recipientAgentDid,
-          conversationId: delivery.conversationId,
-          replyTo: delivery.replyTo,
-          payload: delivery.payload,
-        });
-      } catch {
-        deliveryError = true;
-      }
-
-      if (accepted) {
-        queueState.deliveries.splice(index, 1);
-        upsertReceipt(queueState, {
-          requestId: delivery.requestId,
-          deliveryId: delivery.deliveryId,
-          state: "delivered",
-          expiresAtMs: nowMs + this.deliveryPolicy.queueTtlMs,
-          senderAgentDid: delivery.senderAgentDid,
-          recipientAgentDid: delivery.recipientAgentDid,
-          statusUpdatedAt: toIso(nowMs),
-        });
-        mutated = true;
-        continue;
-      }
-
-      const nextAttemptCount = delivery.attemptCount + 1;
-      if (nextAttemptCount >= this.deliveryPolicy.retryMaxAttempts) {
-        queueState.deliveries.splice(index, 1);
-        deleteQueuedReceipt(
-          queueState,
-          delivery.requestId,
-          delivery.deliveryId,
-        );
-        mutated = true;
-        continue;
-      }
-
-      delivery.attemptCount = nextAttemptCount;
-      delivery.nextAttemptAtMs =
-        nowMs + computeRetryDelayMs(this.deliveryPolicy, delivery.attemptCount);
-      mutated = true;
-      index += 1;
-
-      if (deliveryError) {
-        for (
-          let remaining = index;
-          remaining < queueState.deliveries.length;
-          remaining += 1
-        ) {
-          if (queueState.deliveries[remaining].nextAttemptAtMs <= nowMs) {
-            queueState.deliveries[remaining].nextAttemptAtMs =
-              nowMs +
-              computeRetryDelayMs(
-                this.deliveryPolicy,
-                queueState.deliveries[remaining].attemptCount,
-              );
-          }
-        }
-        break;
-      }
-    }
-
-    return mutated;
-  }
-  private async sendDeliverFrame(
-    socket: WebSocket,
-    input: RelayDeliveryInput,
-  ): Promise<boolean> {
-    if (
-      this.pendingDeliveries.size >= this.deliveryPolicy.maxInFlightDeliveries
-    ) {
-      throw new Error("Relay connector in-flight window is full");
-    }
-
-    const frame = toDeliverFrame(input);
-    const framePayload = serializeFrame(frame);
-    const frameBytes = new TextEncoder().encode(framePayload).byteLength;
-    if (frameBytes > this.deliveryPolicy.maxFrameBytes) {
-      throw new Error("Relay connector frame exceeds max allowed size");
-    }
-
-    return new Promise<boolean>((resolve, reject) => {
-      const timeoutHandle = setTimeout(() => {
-        this.pendingDeliveries.delete(frame.id);
-        reject(new Error("Relay connector acknowledgement timed out"));
-      }, DEFAULT_RELAY_DELIVER_TIMEOUT_MS);
-
-      this.pendingDeliveries.set(frame.id, {
-        resolve,
-        reject,
-        timeoutHandle,
-      });
-
-      try {
-        socket.send(framePayload);
-      } catch (error) {
-        clearTimeout(timeoutHandle);
-        this.pendingDeliveries.delete(frame.id);
-        reject(error);
-      }
     });
   }
 
@@ -660,46 +421,5 @@ export class AgentRelaySession {
 
   private closeSocket(socket: WebSocket, code: number, reason: string): void {
     this.socketTracker.closeSocket(socket, code, reason);
-  }
-
-  private async drainQueueOnReconnect(): Promise<void> {
-    const nowMs = nowUtcMs();
-    const queueState = await this.loadQueueState(nowMs);
-    let queueMutated = false;
-
-    for (const delivery of queueState.deliveries) {
-      if (delivery.nextAttemptAtMs > nowMs) {
-        delivery.nextAttemptAtMs = nowMs;
-        queueMutated = true;
-      }
-    }
-
-    if (await this.processQueueDeliveries(queueState, nowMs)) {
-      queueMutated = true;
-    }
-
-    if (queueMutated) {
-      await this.saveQueueState(queueState);
-    }
-
-    await this.scheduleNextAlarm(queueState, nowMs);
-  }
-
-  private async scheduleFromStorage(): Promise<void> {
-    const nowMs = nowUtcMs();
-    const queueState = await this.loadQueueState(nowMs);
-    await this.scheduleNextAlarm(queueState, nowMs);
-  }
-
-  private async scheduleNextAlarm(
-    queueState: RelayQueueState,
-    nowMs: number,
-  ): Promise<void> {
-    await scheduleNextRelayAlarm({
-      storage: this.state.storage,
-      queueState,
-      nowMs,
-      hasActiveSockets: this.getActiveSockets(nowMs).length > 0,
-    });
   }
 }

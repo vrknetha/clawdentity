@@ -20,7 +20,8 @@ import { handleIncomingConnectorMessage } from "./client/inbound.js";
 import { handleInboundDeliverFrame } from "./client/inbound-delivery.js";
 import { ConnectorClientMetricsTracker } from "./client/metrics.js";
 import { ConnectorOutboundQueueManager } from "./client/queue.js";
-import { computeJitteredBackoffDelayMs } from "./client/retry.js";
+import { ConnectorReconnectScheduler } from "./client/reconnect-scheduler.js";
+import { attachConnectorSocketEventListeners } from "./client/socket-events.js";
 import type {
   ConnectorClientHooks,
   ConnectorClientMetricsSnapshot,
@@ -97,11 +98,10 @@ export class ConnectorClient {
   private readonly outboundQueue: ConnectorOutboundQueueManager;
   private readonly localOpenclawDelivery: LocalOpenclawDeliveryClient;
   private readonly metricsTracker: ConnectorClientMetricsTracker;
+  private readonly reconnectScheduler: ConnectorReconnectScheduler;
 
   private socket: ConnectorWebSocket | undefined;
-  private reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
   private connectTimeout: ReturnType<typeof setTimeout> | undefined;
-  private reconnectAttempt = 0;
 
   private authUpgradeImmediateRetryUsed = false;
   private started = false;
@@ -196,6 +196,19 @@ export class ConnectorClient {
       logger: this.logger,
     });
     this.metricsTracker = new ConnectorClientMetricsTracker(this.now);
+    this.reconnectScheduler = new ConnectorReconnectScheduler({
+      minDelayMs: this.reconnectMinDelayMs,
+      maxDelayMs: this.reconnectMaxDelayMs,
+      backoffFactor: this.reconnectBackoffFactor,
+      jitterRatio: this.reconnectJitterRatio,
+      random: this.random,
+      onSchedule: () => {
+        this.metricsTracker.onReconnectScheduled();
+      },
+      onReconnect: () => {
+        void this.connectSocket();
+      },
+    });
 
     const openclawHookUrl = toOpenclawHookUrl(
       options.openclawBaseUrl,
@@ -231,7 +244,7 @@ export class ConnectorClient {
 
   disconnect(): void {
     this.started = false;
-    this.clearReconnectTimeout();
+    this.reconnectScheduler.clear();
     this.clearSocketState();
 
     if (this.socket !== undefined) {
@@ -275,7 +288,7 @@ export class ConnectorClient {
   }
 
   private async connectSocket(): Promise<void> {
-    this.clearReconnectTimeout();
+    this.reconnectScheduler.clear();
     this.metricsTracker.onConnectAttempt();
 
     if (this.outboundQueuePersistence !== undefined) {
@@ -314,97 +327,95 @@ export class ConnectorClient {
     const socket = this.socket;
     this.startConnectTimeout(socket);
 
-    socket.addEventListener("open", () => {
-      if (this.socket !== socket) {
-        return;
-      }
+    attachConnectorSocketEventListeners(socket, {
+      onOpen: () => {
+        if (this.socket !== socket) {
+          return;
+        }
 
-      this.clearConnectTimeout();
-      this.reconnectAttempt = 0;
-      this.authUpgradeImmediateRetryUsed = false;
-      this.metricsTracker.onSocketConnected(this.makeTimestamp());
-      this.logger.info("connector.websocket.connected", {
-        url: this.connectorUrl,
-      });
-      this.startHeartbeatInterval();
-      this.flushOutboundQueue();
-      this.hooks.onConnected?.();
-    });
+        this.clearConnectTimeout();
+        this.reconnectScheduler.resetAttempts();
+        this.authUpgradeImmediateRetryUsed = false;
+        this.metricsTracker.onSocketConnected(this.makeTimestamp());
+        this.logger.info("connector.websocket.connected", {
+          url: this.connectorUrl,
+        });
+        this.startHeartbeatInterval();
+        this.flushOutboundQueue();
+        this.hooks.onConnected?.();
+      },
+      onMessage: (event) => {
+        if (this.socket !== socket) {
+          return;
+        }
 
-    socket.addEventListener("message", (event) => {
-      if (this.socket !== socket) {
-        return;
-      }
+        void this.handleIncomingMessage(readMessageEventData(event));
+      },
+      onClose: (event) => {
+        if (!this.detachSocket(socket)) {
+          return;
+        }
 
-      void this.handleIncomingMessage(readMessageEventData(event));
-    });
+        const closeEvent = readCloseEvent(event);
 
-    socket.addEventListener("close", (event) => {
-      if (!this.detachSocket(socket)) {
-        return;
-      }
+        this.logger.warn("connector.websocket.closed", {
+          closeCode: closeEvent.code,
+          reason: closeEvent.reason,
+          wasClean: closeEvent.wasClean,
+        });
 
-      const closeEvent = readCloseEvent(event);
+        this.hooks.onDisconnected?.({
+          code: closeEvent.code,
+          reason: closeEvent.reason,
+          wasClean: closeEvent.wasClean,
+        });
 
-      this.logger.warn("connector.websocket.closed", {
-        closeCode: closeEvent.code,
-        reason: closeEvent.reason,
-        wasClean: closeEvent.wasClean,
-      });
+        if (this.started) {
+          this.scheduleReconnect();
+        }
+      },
+      onError: (event) => {
+        if (this.socket !== socket) {
+          return;
+        }
 
-      this.hooks.onDisconnected?.({
-        code: closeEvent.code,
-        reason: closeEvent.reason,
-        wasClean: closeEvent.wasClean,
-      });
+        const readyState = socket.readyState;
+        const shouldForceReconnect =
+          readyState !== WS_READY_STATE_OPEN &&
+          readyState !== WS_READY_STATE_CONNECTING;
+        if (!shouldForceReconnect) {
+          this.logger.warn("connector.websocket.error", {
+            url: this.connectorUrl,
+            reason: readErrorEventReason(event),
+            readyState,
+          });
+          return;
+        }
 
-      if (this.started) {
-        this.scheduleReconnect();
-      }
-    });
+        if (!this.detachSocket(socket)) {
+          return;
+        }
 
-    socket.addEventListener("error", (event) => {
-      if (this.socket !== socket) {
-        return;
-      }
-
-      const readyState = socket.readyState;
-      const shouldForceReconnect =
-        readyState !== WS_READY_STATE_OPEN &&
-        readyState !== WS_READY_STATE_CONNECTING;
-      if (!shouldForceReconnect) {
+        const reason = readErrorEventReason(event);
         this.logger.warn("connector.websocket.error", {
           url: this.connectorUrl,
-          reason: readErrorEventReason(event),
-          readyState,
+          reason,
         });
-        return;
-      }
+        this.closeSocketQuietly(socket, 1011, "websocket error");
 
-      if (!this.detachSocket(socket)) {
-        return;
-      }
+        this.hooks.onDisconnected?.({
+          code: 1006,
+          reason,
+          wasClean: false,
+        });
 
-      const reason = readErrorEventReason(event);
-      this.logger.warn("connector.websocket.error", {
-        url: this.connectorUrl,
-        reason,
-      });
-      this.closeSocketQuietly(socket, 1011, "websocket error");
-
-      this.hooks.onDisconnected?.({
-        code: 1006,
-        reason,
-        wasClean: false,
-      });
-
-      if (this.started) {
-        this.scheduleReconnect();
-      }
-    });
-
-    socket.addEventListener("unexpected-response", (event) => {
-      void this.handleUnexpectedResponse(socket, event);
+        if (this.started) {
+          this.scheduleReconnect();
+        }
+      },
+      onUnexpectedResponse: (event) => {
+        void this.handleUnexpectedResponse(socket, event);
+      },
     });
   }
 
@@ -416,37 +427,7 @@ export class ConnectorClient {
       return;
     }
 
-    this.clearReconnectTimeout();
-
-    let delayMs: number;
-    if (options?.delayMs !== undefined) {
-      delayMs = Math.max(0, Math.floor(options.delayMs));
-    } else {
-      delayMs = computeJitteredBackoffDelayMs({
-        minDelayMs: this.reconnectMinDelayMs,
-        maxDelayMs: this.reconnectMaxDelayMs,
-        backoffFactor: this.reconnectBackoffFactor,
-        attempt: this.reconnectAttempt,
-        jitterRatio: this.reconnectJitterRatio,
-        random: this.random,
-      });
-    }
-
-    if (options?.incrementAttempt ?? true) {
-      this.reconnectAttempt += 1;
-    }
-    this.metricsTracker.onReconnectScheduled();
-
-    this.reconnectTimeout = setTimeout(() => {
-      void this.connectSocket();
-    }, delayMs);
-  }
-
-  private clearReconnectTimeout(): void {
-    if (this.reconnectTimeout !== undefined) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = undefined;
-    }
+    this.reconnectScheduler.schedule(options);
   }
 
   private startConnectTimeout(socket: ConnectorWebSocket): void {

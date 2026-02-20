@@ -6,7 +6,7 @@
 ## Structure Rules
 - Keep `../helpers.ts` as a stable export-only shim for tests.
 - Group helper implementations by concern:
-  - `claims.ts`, `crypto.ts`, `pat.ts` for top-level helper APIs.
+  - `claims.ts`, `crypto.ts`, `pat.ts`, `agent-registration.ts` for top-level helper APIs.
   - `db/types.ts`, `db/parse.ts`, `db/resolvers.ts`, `db/mock.ts`, `db/run-handlers*.ts` for fake D1 behavior.
 - Keep each helper file under 800 lines; split further when a file approaches the limit.
 

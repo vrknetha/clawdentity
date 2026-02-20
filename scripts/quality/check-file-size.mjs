@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const MAX_LINES = 800;
 const EXCLUDED_DIR_SEGMENTS = new Set([
@@ -85,6 +85,10 @@ function countLines(filePath) {
 }
 
 const sourceFiles = trackedFiles.filter((filePath) => {
+  if (!existsSync(filePath)) {
+    return false;
+  }
+
   if (isExcluded(filePath)) {
     return false;
   }
