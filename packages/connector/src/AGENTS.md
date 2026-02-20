@@ -70,7 +70,8 @@
 
 ## Testing Rules
 - `inbound-inbox.test.ts` must cover persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, and dead-letter purge transitions.
-- `client.test.ts` must cover both delivery modes:
+- `client.test/*.test.ts` must stay split by concern (for example delivery/heartbeat, reconnect lifecycle, outbound queue) to keep each test file focused and easy to maintain.
+- `client.test/*.test.ts` must cover both delivery modes:
   - direct local OpenClaw delivery fallback
   - injected inbound persistence handler ack path
-- `client.test.ts` must keep websocket lifecycle expectations compatible with non-persistent and persistent queue modes.
+- `client.test/*.test.ts` must keep websocket lifecycle expectations compatible with non-persistent and persistent queue modes.
