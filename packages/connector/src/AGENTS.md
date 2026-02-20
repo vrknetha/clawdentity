@@ -10,9 +10,13 @@
   - `client/queue.ts` for outbound queue + persistence orchestration.
   - `client/delivery.ts` for local OpenClaw delivery + retry behavior.
 - Keep `runtime.ts` as the runtime entrypoint and wire internal concerns through `runtime/` modules:
+  - `runtime/auth-lifecycle.ts` for in-memory auth state + refresh/sync orchestration.
   - `runtime/auth-storage.ts` for registry auth disk sync + atomic persistence.
+  - `runtime/openclaw-hook-token.ts` for explicit-vs-runtime hook token precedence and sync.
+  - `runtime/openclaw-probe.ts` for OpenClaw gateway liveness probing state transitions.
   - `runtime/openclaw.ts` for hook token discovery and abort-aware local hook delivery.
   - `runtime/policy.ts` for replay/probe configuration loading and retry-delay calculation.
+  - `runtime/replay.ts` for inbound replay orchestration, lane scheduling, retry/dead-letter transitions, and delivery receipts.
   - `runtime/relay-service.ts` for outbound relay and signed delivery-receipt callbacks.
   - `runtime/server.ts` for HTTP route handling (`/v1/status`, dead-letter ops, `/v1/outbound`).
   - `runtime/trusted-receipts.ts`, `runtime/url.ts`, `runtime/ws.ts`, and `runtime/parse.ts` for focused helper concerns.
