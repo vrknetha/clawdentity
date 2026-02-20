@@ -625,6 +625,66 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     expect(callbackFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("does not block confirm response while callback delivery is pending", async () => {
+    let resolveCallback:
+      | ((value: Response | PromiseLike<Response>) => void)
+      | undefined;
+    const callbackFetchMock = vi.fn(
+      async () =>
+        await new Promise<Response>((resolve) => {
+          resolveCallback = resolve;
+        }),
+    );
+    const { app, trustStore } = createPairingApp({
+      confirmFetchImpl: callbackFetchMock as unknown as typeof fetch,
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      callbackUrl: "https://callbacks.example.com/pending",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const confirmPromise = Promise.resolve(
+      app.request(PAIR_CONFIRM_PATH, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-agent-did": RESPONDER_AGENT_DID,
+        },
+        body: JSON.stringify({
+          ticket: ticket.ticket,
+          responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+        }),
+      }),
+    );
+
+    let settled = false;
+    void confirmPromise.then(() => {
+      settled = true;
+    });
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50);
+    });
+
+    expect(settled).toBe(true);
+    const response = await confirmPromise;
+    expect(response.status).toBe(201);
+    expect(callbackFetchMock).toHaveBeenCalledTimes(1);
+
+    resolveCallback?.(new Response(null, { status: 202 }));
+  });
+
   it("rejects confirm when signature does not match persisted publicKeyX", async () => {
     const { app, trustStore } = createPairingApp({
       nowMs: () => 1_700_000_000_000,

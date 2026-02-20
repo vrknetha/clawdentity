@@ -624,7 +624,7 @@ export function createPairConfirmHandler(
     });
 
     if (confirmedPairingTicket.callbackUrl !== undefined) {
-      await postPairConfirmCallback({
+      void postPairConfirmCallback({
         callbackUrl: confirmedPairingTicket.callbackUrl,
         confirmedPairingTicket,
         fetchImpl,

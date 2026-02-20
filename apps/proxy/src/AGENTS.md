@@ -58,9 +58,11 @@
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
 - Keep `/pair/confirm` ticket checks strict and deterministic:
   - verify ticket signature using stored `publicKeyX` before confirming,
+  - preserve rollout compatibility for legacy pending tickets created before `publicKeyX` persistence (missing key must not make ticket unreadable),
   - reject replayed confirmed tickets with `409 PROXY_PAIR_TICKET_ALREADY_CONFIRMED`,
   - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
 - Keep `/pair/confirm` callbacks best-effort: if `callbackUrl` is present, POST completion payload and log a warning on callback failure without failing the confirm response.
+- Keep `/pair/confirm` callback delivery non-blocking: once trust state commit succeeds, return `201` without waiting on callback network latency.
 - Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.

@@ -21,7 +21,7 @@ type StoredPairingTicket = {
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
   issuerProxyUrl: string;
-  publicKeyX: string;
+  publicKeyX?: string;
   allowResponderAgentDid?: string;
   callbackUrl?: string;
 };
@@ -419,21 +419,25 @@ export class ProxyTrustState {
       });
     }
 
-    let signatureVerified = false;
-    try {
-      signatureVerified = await verifyPairingTicketSignature({
-        payload: parsedTicket,
-        publicKeyX: stored.publicKeyX,
-      });
-    } catch {
-      signatureVerified = false;
-    }
-    if (!signatureVerified) {
-      return toErrorResponse({
-        code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
-        message: "Pairing ticket signature is invalid",
-        status: 400,
-      });
+    // Compatibility: tickets created before publicKeyX persistence must continue
+    // to confirm during rollout; signature verification applies when key exists.
+    if (stored.publicKeyX !== undefined) {
+      let signatureVerified = false;
+      try {
+        signatureVerified = await verifyPairingTicketSignature({
+          payload: parsedTicket,
+          publicKeyX: stored.publicKeyX,
+        });
+      } catch {
+        signatureVerified = false;
+      }
+      if (!signatureVerified) {
+        return toErrorResponse({
+          code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+          message: "Pairing ticket signature is invalid",
+          status: 400,
+        });
+      }
     }
 
     if (stored.issuerProxyUrl !== parsedTicket.iss) {
@@ -805,11 +809,17 @@ export class ProxyTrustState {
         entry.allowResponderAgentDid,
       );
       const callbackUrl = parseOptionalCallbackUrl(entry.callbackUrl);
+      const publicKeyX =
+        entry.publicKeyX === undefined
+          ? undefined
+          : isNonEmptyString(entry.publicKeyX)
+            ? entry.publicKeyX.trim()
+            : undefined;
       if (
         !isNonEmptyString(entry.initiatorAgentDid) ||
         !initiatorProfile ||
         !isNonEmptyString(entry.issuerProxyUrl) ||
-        !isNonEmptyString(entry.publicKeyX) ||
+        (entry.publicKeyX !== undefined && publicKeyX === undefined) ||
         typeof entry.expiresAtMs !== "number" ||
         !Number.isInteger(entry.expiresAtMs) ||
         (entry.allowResponderAgentDid !== undefined &&
@@ -835,7 +845,7 @@ export class ProxyTrustState {
         initiatorAgentDid: entry.initiatorAgentDid,
         initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
-        publicKeyX: entry.publicKeyX.trim(),
+        publicKeyX,
         allowResponderAgentDid,
         callbackUrl,
       };

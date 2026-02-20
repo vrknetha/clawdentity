@@ -323,6 +323,45 @@ describe("ProxyTrustState", () => {
     });
   });
 
+  it("confirms legacy stored pairing ticket without publicKeyX", async () => {
+    const createdTicket = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
+    const { proxyTrustState } = createProxyTrustState({
+      "trust:pairing-tickets": {
+        [createdTicket.ticket]: {
+          ticket: createdTicket.ticket,
+          expiresAtMs: 1_700_000_060_000,
+          initiatorAgentDid: "did:claw:agent:alice",
+          initiatorProfile: INITIATOR_PROFILE,
+          issuerProxyUrl: "https://proxy-a.example.com",
+        },
+      },
+    });
+
+    const confirmResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
+        ticket: createdTicket.ticket,
+        responderAgentDid: "did:claw:agent:bob",
+        responderProfile: RESPONDER_PROFILE,
+        nowMs: 1_700_000_000_100,
+      }),
+    );
+
+    expect(confirmResponse.status).toBe(200);
+    expect(
+      (await confirmResponse.json()) as {
+        initiatorAgentDid: string;
+        responderAgentDid: string;
+      },
+    ).toMatchObject({
+      initiatorAgentDid: "did:claw:agent:alice",
+      responderAgentDid: "did:claw:agent:bob",
+    });
+  });
+
   it("rejects replayed pairing ticket confirms with 409", async () => {
     const { proxyTrustState } = createProxyTrustState();
     const createdTicket = await createSignedTicket({
