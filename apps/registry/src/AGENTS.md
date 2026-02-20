@@ -140,6 +140,12 @@
   - `challengeId`: ULID from `/v1/agents/challenge`.
   - `challengeSignature`: base64url Ed25519 signature over the canonical proof message.
 - Keep request parsing and validation in a reusable helper module (`agent-registration.ts`) so future routes can share the same constraints without duplicating schema logic.
+- Keep `agent-registration.ts` as the stable facade import path and keep implementation split under `agent-registration/` by concern:
+  - `constants.ts` for defaults/limits/issuer resolution
+  - `parsing.ts` for payload validation
+  - `challenge.ts` for challenge construction
+  - `proof.ts` for ownership-proof verification
+  - `creation.ts` for registration/reissue claim builders
 - Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `development`/`test` for debugging.
 - Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
 - Verify challenge ownership before signing AIT: challenge must exist for the caller, be unexpired, remain `pending`, and match the request public key + signature.
@@ -149,6 +155,12 @@
 - Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
 - Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.
 - Response shape is `{ agent, ait, agentAuth }` where `agentAuth` returns short-lived access credentials and rotating refresh credentials.
+
+## Agent Registration Helpers
+- Keep `agent-registration.ts` responsibilities grouped by validation/parsing, challenge lifecycle, proof verification, and agent/token builders so each module can be split without changing behavior.
+- Share the parsing helpers with any other routes that must reuse the same error exposure (name, framework, key, TTL, challenge fields) and keep environment-aware detail toggles centralized near `shouldExposeVerboseErrors`.
+- Any refactor that splits this file should still surface `buildAgentRegistrationChallenge`, `verifyAgentRegistrationOwnershipProof`, `buildAgentRegistrationFromParsed`, `buildAgentReissue`, and `resolveRegistryIssuer` from a single barrel so callers need not change.
+- Tests `apps/registry/src/server.test/agent-registration-challenge.test.ts` (challenge creation + persistence) and `apps/registry/src/server.test/agent-registration-create.test.ts` (payload validation, proof verification, error exposure, and issue response) are the canonical guards for this module—keep them green when moving logic into discrete modules.
 
 ## POST /v1/agents/auth/refresh Contract
 - Public endpoint (no PAT): auth is agent-scoped via `Authorization: Claw <AIT>` + PoP headers + refresh token payload.
