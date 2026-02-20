@@ -39,6 +39,7 @@
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep relay websocket connect handling isolated in `relay-connect-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
+- Keep relay delivery-receipt HTTP handlers isolated in `relay-delivery-receipt-route.ts`; `server.ts` should only compose `POST/GET /v1/relay/delivery-receipts`.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
@@ -70,12 +71,23 @@
 - Keep relay retries inside `agent-relay-session.ts` with bounded backoff (`RELAY_RETRY_*`) and per-agent queue caps/TTL (`RELAY_QUEUE_*`); do not add ad-hoc retry loops in route handlers.
 - Keep relay-session timestamps UTC and standardized via shared SDK datetime helpers (`nowUtcMs`, `toIso`) rather than ad-hoc datetime formatting.
 - Keep relay websocket heartbeat liveness explicit in `agent-relay-session.ts`: track per-socket heartbeat ack time and enforce a 60s ack timeout before socket eviction.
+- Keep relay frame-size enforcement explicit:
+  - reject oversized inbound websocket frames with close code `1009`
+  - reject oversized outbound deliver frames before socket send
+  - keep limits environment-driven via `RELAY_MAX_FRAME_BYTES`
+- Keep connector backpressure explicit with a bounded in-flight window (`RELAY_MAX_IN_FLIGHT_DELIVERIES`); do not bypass this with ad-hoc parallel sends.
 - Keep stale connector cleanup proactive: evict stale sockets during alarm sweeps and before accepting a new reconnect socket.
 - Keep connector session ownership deterministic: new reconnect sockets supersede older live sockets with a clean `1000` close code so delivery always targets one active socket.
 - Keep reconnect recovery eager but handshake-safe: trigger durable queue drain immediately after reconnect, but do not block websocket `101` upgrade responses on `deliver_ack` waits.
 - Keep superseded socket state sticky until close cleanup: late frames from sockets marked in `socketsPendingClose` must not reactivate those sockets.
 - Keep close semantics strict for pending delivery promises: clean `1000` closes do not reject pending deliveries, but unclean closes reject when no sockets remain.
 - Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
+- Keep relay delivery receipt persistence in `agent-relay-session.ts` with explicit RPC routes:
+  - `/rpc/record-delivery-receipt`
+  - `/rpc/get-delivery-receipt`
+- Receipt states must remain constrained to `processed_by_openclaw` and `dead_lettered`.
+- Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.
+- Keep `conversationId` and `replyTo` metadata flowing from `/hooks/agent` into relay queue/deliver frames for downstream ordering and callback semantics.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   createConnectorInboundInbox,
   resolveConnectorInboundInboxDir,
@@ -17,21 +17,23 @@ function createSandbox(): { cleanup: () => void; rootDir: string } {
   };
 }
 
-afterEach(() => {
-  // no-op hook for symmetry and future timer cleanup
-});
+function createInbox(rootDir: string, agentName = "alpha") {
+  return createConnectorInboundInbox({
+    configDir: rootDir,
+    agentName,
+    maxPendingMessages: 100,
+    maxPendingBytes: 1024 * 1024,
+    eventsMaxBytes: 1024 * 1024,
+    eventsMaxFiles: 5,
+  });
+}
 
 describe("ConnectorInboundInbox", () => {
   it("persists and deduplicates inbound frames", async () => {
     const sandbox = createSandbox();
 
     try {
-      const inbox = createConnectorInboundInbox({
-        configDir: sandbox.rootDir,
-        agentName: "alpha",
-        maxPendingMessages: 100,
-        maxPendingBytes: 1024 * 1024,
-      });
+      const inbox = createInbox(sandbox.rootDir);
 
       const first = await inbox.enqueue({
         v: 1,
@@ -59,8 +61,9 @@ describe("ConnectorInboundInbox", () => {
       expect(second.pendingCount).toBe(1);
 
       const snapshot = await inbox.getSnapshot();
-      expect(snapshot.pendingCount).toBe(1);
-      expect(snapshot.pendingBytes).toBeGreaterThan(0);
+      expect(snapshot.pending.pendingCount).toBe(1);
+      expect(snapshot.pending.pendingBytes).toBeGreaterThan(0);
+      expect(snapshot.deadLetter.deadLetterCount).toBe(0);
 
       const inboxDir = resolveConnectorInboundInboxDir({
         configDir: sandbox.rootDir,
@@ -70,7 +73,10 @@ describe("ConnectorInboundInbox", () => {
       const eventsPath = join(inboxDir, "events.jsonl");
 
       const indexRaw = readFileSync(indexPath, "utf8");
+      expect(indexRaw).toContain('"version": 2');
       expect(indexRaw).toContain("pendingByRequestId");
+      expect(indexRaw).toContain("deadLetterByRequestId");
+
       const eventsRaw = readFileSync(eventsPath, "utf8");
       expect(eventsRaw).toContain("inbound_persisted");
       expect(eventsRaw).toContain("inbound_duplicate");
@@ -88,6 +94,8 @@ describe("ConnectorInboundInbox", () => {
         agentName: "alpha",
         maxPendingMessages: 1,
         maxPendingBytes: 64,
+        eventsMaxBytes: 1024 * 1024,
+        eventsMaxFiles: 5,
       });
 
       const accepted = await inbox.enqueue({
@@ -120,7 +128,10 @@ describe("ConnectorInboundInbox", () => {
           agentName: "beta",
           maxPendingMessages: 100,
           maxPendingBytes: 8,
+          eventsMaxBytes: 1024 * 1024,
+          eventsMaxFiles: 5,
         });
+
         const rejectedByBytes = await byteCapped.enqueue({
           v: 1,
           type: "deliver",
@@ -140,16 +151,11 @@ describe("ConnectorInboundInbox", () => {
     }
   });
 
-  it("replays bookkeeping updates pending entries", async () => {
+  it("moves non-retryable replay failures to dead-letter after threshold", async () => {
     const sandbox = createSandbox();
 
     try {
-      const inbox = createConnectorInboundInbox({
-        configDir: sandbox.rootDir,
-        agentName: "alpha",
-        maxPendingMessages: 100,
-        maxPendingBytes: 1024 * 1024,
-      });
+      const inbox = createInbox(sandbox.rootDir);
 
       await inbox.enqueue({
         v: 1,
@@ -161,28 +167,98 @@ describe("ConnectorInboundInbox", () => {
         payload: { message: "hello" },
       });
 
+      const firstFailure = await inbox.markReplayFailure({
+        requestId: "01HXYZTESTDELIVER000000000004",
+        errorMessage: "validation failed",
+        nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+        retryable: false,
+        maxNonRetryableAttempts: 2,
+      });
+      expect(firstFailure.movedToDeadLetter).toBe(false);
+
+      const secondFailure = await inbox.markReplayFailure({
+        requestId: "01HXYZTESTDELIVER000000000004",
+        errorMessage: "validation failed",
+        nextAttemptAt: new Date(Date.now() + 120_000).toISOString(),
+        retryable: false,
+        maxNonRetryableAttempts: 2,
+      });
+      expect(secondFailure.movedToDeadLetter).toBe(true);
+
+      const snapshot = await inbox.getSnapshot();
+      expect(snapshot.pending.pendingCount).toBe(0);
+      expect(snapshot.deadLetter.deadLetterCount).toBe(1);
+
+      const deadLetter = await inbox.listDeadLetter();
+      expect(deadLetter).toHaveLength(1);
+      expect(deadLetter[0]?.requestId).toBe("01HXYZTESTDELIVER000000000004");
+      expect(deadLetter[0]?.deadLetterReason).toContain("validation failed");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("supports dead-letter replay and purge", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const inbox = createInbox(sandbox.rootDir);
+      const firstId = "01HXYZTESTDELIVER000000000005";
+      const secondId = "01HXYZTESTDELIVER000000000006";
+
+      await inbox.enqueue({
+        v: 1,
+        type: "deliver",
+        id: firstId,
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid: "did:claw:agent:sender",
+        toAgentDid: "did:claw:agent:receiver",
+        payload: { message: "first" },
+      });
+      await inbox.enqueue({
+        v: 1,
+        type: "deliver",
+        id: secondId,
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid: "did:claw:agent:sender",
+        toAgentDid: "did:claw:agent:receiver",
+        payload: { message: "second" },
+      });
+
+      await inbox.markReplayFailure({
+        requestId: firstId,
+        errorMessage: "hard failure",
+        nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+        retryable: false,
+        maxNonRetryableAttempts: 1,
+      });
+      await inbox.markReplayFailure({
+        requestId: secondId,
+        errorMessage: "hard failure",
+        nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+        retryable: false,
+        maxNonRetryableAttempts: 1,
+      });
+
+      const replayResult = await inbox.replayDeadLetter({
+        requestIds: [firstId],
+      });
+      expect(replayResult.replayedCount).toBe(1);
+
+      const purgeResult = await inbox.purgeDeadLetter({
+        requestIds: [secondId],
+      });
+      expect(purgeResult.purgedCount).toBe(1);
+
+      const snapshot = await inbox.getSnapshot();
+      expect(snapshot.pending.pendingCount).toBe(1);
+      expect(snapshot.deadLetter.deadLetterCount).toBe(0);
+
       const dueNow = await inbox.listDuePending({
         nowMs: Date.now(),
         limit: 10,
       });
-      expect(dueNow).toHaveLength(1);
-      expect(dueNow[0]?.requestId).toBe("01HXYZTESTDELIVER000000000004");
-
-      await inbox.markReplayFailure({
-        requestId: "01HXYZTESTDELIVER000000000004",
-        errorMessage: "hook unavailable",
-        nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
-      });
-
-      const dueLater = await inbox.listDuePending({
-        nowMs: Date.now(),
-        limit: 10,
-      });
-      expect(dueLater).toHaveLength(0);
-
-      await inbox.markDelivered("01HXYZTESTDELIVER000000000004");
-      const snapshot = await inbox.getSnapshot();
-      expect(snapshot.pendingCount).toBe(0);
+      expect(dueNow.map((item) => item.requestId)).toContain(firstId);
     } finally {
       sandbox.cleanup();
     }
@@ -198,16 +274,12 @@ describe("ConnectorInboundInbox", () => {
       });
       mkdirSync(inboxDir, { recursive: true });
 
-      const inbox = createConnectorInboundInbox({
-        configDir: sandbox.rootDir,
-        agentName: "alpha",
-        maxPendingMessages: 100,
-        maxPendingBytes: 1024 * 1024,
-      });
-
+      const inbox = createInbox(sandbox.rootDir);
       const snapshot = await inbox.getSnapshot();
-      expect(snapshot.pendingCount).toBe(0);
-      expect(snapshot.pendingBytes).toBe(0);
+      expect(snapshot.pending.pendingCount).toBe(0);
+      expect(snapshot.pending.pendingBytes).toBe(0);
+      expect(snapshot.deadLetter.deadLetterCount).toBe(0);
+      expect(snapshot.deadLetter.deadLetterBytes).toBe(0);
     } finally {
       sandbox.cleanup();
     }

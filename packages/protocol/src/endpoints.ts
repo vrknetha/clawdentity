@@ -10,4 +10,7 @@ export const REGISTRY_METADATA_PATH = "/v1/metadata";
 export const INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH =
   "/internal/v1/identity/agent-ownership";
 export const RELAY_CONNECT_PATH = "/v1/relay/connect";
+export const RELAY_DELIVERY_RECEIPTS_PATH = "/v1/relay/delivery-receipts";
+export const RELAY_CONVERSATION_ID_HEADER = "x-claw-conversation-id";
+export const RELAY_DELIVERY_RECEIPT_URL_HEADER = "x-claw-delivery-receipt-url";
 export const RELAY_RECIPIENT_AGENT_DID_HEADER = "x-claw-recipient-agent-did";

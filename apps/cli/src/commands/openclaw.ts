@@ -1190,6 +1190,9 @@ function resolveConnectorStatusUrl(connectorBaseUrl: string): string {
 type ConnectorHealthStatus = {
   connected: boolean;
   inboundInbox?: {
+    deadLetterBytes?: number;
+    deadLetterCount?: number;
+    oldestDeadLetterAt?: string;
     lastReplayAt?: string;
     lastReplayError?: string;
     nextAttemptAt?: string;
@@ -1210,6 +1213,9 @@ type ConnectorHealthStatus = {
 
 function parseConnectorStatusPayload(payload: unknown): {
   inboundInbox?: {
+    deadLetterBytes?: number;
+    deadLetterCount?: number;
+    oldestDeadLetterAt?: string;
     lastReplayAt?: string;
     lastReplayError?: string;
     nextAttemptAt?: string;
@@ -1225,61 +1231,93 @@ function parseConnectorStatusPayload(payload: unknown): {
   };
   websocketConnected: boolean;
 } {
-  if (!isRecord(payload) || typeof payload.websocketConnected !== "boolean") {
+  if (
+    !isRecord(payload) ||
+    !isRecord(payload.websocket) ||
+    typeof payload.websocket.connected !== "boolean"
+  ) {
     throw createCliError(
       "CLI_OPENCLAW_SETUP_CONNECTOR_STATUS_INVALID",
       "Connector status response is invalid",
     );
   }
 
+  const inboundRoot = isRecord(payload.inbound) ? payload.inbound : undefined;
+  const pending =
+    inboundRoot && isRecord(inboundRoot.pending)
+      ? inboundRoot.pending
+      : undefined;
+  const deadLetter =
+    inboundRoot && isRecord(inboundRoot.deadLetter)
+      ? inboundRoot.deadLetter
+      : undefined;
+  const replay =
+    inboundRoot && isRecord(inboundRoot.replay)
+      ? inboundRoot.replay
+      : undefined;
+  const hook =
+    inboundRoot && isRecord(inboundRoot.openclawHook)
+      ? inboundRoot.openclawHook
+      : undefined;
+
   return {
-    websocketConnected: payload.websocketConnected,
-    inboundInbox: isRecord(payload.inboundInbox)
+    websocketConnected: payload.websocket.connected,
+    inboundInbox:
+      pending || deadLetter || replay
+        ? {
+            pendingCount:
+              pending && typeof pending.pendingCount === "number"
+                ? pending.pendingCount
+                : undefined,
+            pendingBytes:
+              pending && typeof pending.pendingBytes === "number"
+                ? pending.pendingBytes
+                : undefined,
+            oldestPendingAt:
+              pending && typeof pending.oldestPendingAt === "string"
+                ? pending.oldestPendingAt
+                : undefined,
+            nextAttemptAt:
+              pending && typeof pending.nextAttemptAt === "string"
+                ? pending.nextAttemptAt
+                : undefined,
+            lastReplayAt:
+              replay && typeof replay.lastReplayAt === "string"
+                ? replay.lastReplayAt
+                : undefined,
+            lastReplayError:
+              replay && typeof replay.lastReplayError === "string"
+                ? replay.lastReplayError
+                : undefined,
+            replayerActive:
+              replay && typeof replay.replayerActive === "boolean"
+                ? replay.replayerActive
+                : undefined,
+            deadLetterCount:
+              deadLetter && typeof deadLetter.deadLetterCount === "number"
+                ? deadLetter.deadLetterCount
+                : undefined,
+            deadLetterBytes:
+              deadLetter && typeof deadLetter.deadLetterBytes === "number"
+                ? deadLetter.deadLetterBytes
+                : undefined,
+            oldestDeadLetterAt:
+              deadLetter && typeof deadLetter.oldestDeadLetterAt === "string"
+                ? deadLetter.oldestDeadLetterAt
+                : undefined,
+          }
+        : undefined,
+    openclawHook: hook
       ? {
-          pendingCount:
-            typeof payload.inboundInbox.pendingCount === "number"
-              ? payload.inboundInbox.pendingCount
-              : undefined,
-          pendingBytes:
-            typeof payload.inboundInbox.pendingBytes === "number"
-              ? payload.inboundInbox.pendingBytes
-              : undefined,
-          oldestPendingAt:
-            typeof payload.inboundInbox.oldestPendingAt === "string"
-              ? payload.inboundInbox.oldestPendingAt
-              : undefined,
-          nextAttemptAt:
-            typeof payload.inboundInbox.nextAttemptAt === "string"
-              ? payload.inboundInbox.nextAttemptAt
-              : undefined,
-          lastReplayAt:
-            typeof payload.inboundInbox.lastReplayAt === "string"
-              ? payload.inboundInbox.lastReplayAt
-              : undefined,
-          lastReplayError:
-            typeof payload.inboundInbox.lastReplayError === "string"
-              ? payload.inboundInbox.lastReplayError
-              : undefined,
-          replayerActive:
-            typeof payload.inboundInbox.replayerActive === "boolean"
-              ? payload.inboundInbox.replayerActive
-              : undefined,
-        }
-      : undefined,
-    openclawHook: isRecord(payload.openclawHook)
-      ? {
-          url:
-            typeof payload.openclawHook.url === "string"
-              ? payload.openclawHook.url
-              : undefined,
+          url: typeof hook.url === "string" ? hook.url : undefined,
           lastAttemptAt:
-            typeof payload.openclawHook.lastAttemptAt === "string"
-              ? payload.openclawHook.lastAttemptAt
+            typeof hook.lastAttemptAt === "string"
+              ? hook.lastAttemptAt
               : undefined,
           lastAttemptStatus:
-            payload.openclawHook.lastAttemptStatus === "ok" ||
-            payload.openclawHook.lastAttemptStatus === "failed"
-              ? payload.openclawHook.lastAttemptStatus
+            hook.lastAttemptStatus === "ok" ||
+            hook.lastAttemptStatus === "failed"
+              ? hook.lastAttemptStatus
               : undefined,
         }
       : undefined,

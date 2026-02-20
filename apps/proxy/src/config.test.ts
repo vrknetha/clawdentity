@@ -12,6 +12,8 @@ import {
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
   DEFAULT_REGISTRY_URL,
+  DEFAULT_RELAY_MAX_FRAME_BYTES,
+  DEFAULT_RELAY_MAX_IN_FLIGHT_DELIVERIES,
   DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
   DEFAULT_RELAY_QUEUE_TTL_SECONDS,
   DEFAULT_RELAY_RETRY_INITIAL_MS,
@@ -45,6 +47,8 @@ describe("proxy config", () => {
       relayRetryMaxMs: DEFAULT_RELAY_RETRY_MAX_MS,
       relayRetryMaxAttempts: DEFAULT_RELAY_RETRY_MAX_ATTEMPTS,
       relayRetryJitterRatio: DEFAULT_RELAY_RETRY_JITTER_RATIO,
+      relayMaxInFlightDeliveries: DEFAULT_RELAY_MAX_IN_FLIGHT_DELIVERIES,
+      relayMaxFrameBytes: DEFAULT_RELAY_MAX_FRAME_BYTES,
     });
   });
 
@@ -66,6 +70,8 @@ describe("proxy config", () => {
       RELAY_RETRY_MAX_MS: "15000",
       RELAY_RETRY_MAX_ATTEMPTS: "7",
       RELAY_RETRY_JITTER_RATIO: "0.4",
+      RELAY_MAX_IN_FLIGHT_DELIVERIES: "8",
+      RELAY_MAX_FRAME_BYTES: "2048",
     });
 
     expect(config.listenPort).toBe(4100);
@@ -85,6 +91,8 @@ describe("proxy config", () => {
     expect(config.relayRetryMaxMs).toBe(15000);
     expect(config.relayRetryMaxAttempts).toBe(7);
     expect(config.relayRetryJitterRatio).toBe(0.4);
+    expect(config.relayMaxInFlightDeliveries).toBe(8);
+    expect(config.relayMaxFrameBytes).toBe(2048);
   });
 
   it("allows disabling identity injection via env override", () => {
@@ -147,6 +155,16 @@ describe("proxy config", () => {
     expect(() =>
       parseProxyConfig({
         RELAY_RETRY_JITTER_RATIO: "1.1",
+      }),
+    ).toThrow(ProxyConfigError);
+    expect(() =>
+      parseProxyConfig({
+        RELAY_MAX_IN_FLIGHT_DELIVERIES: "0",
+      }),
+    ).toThrow(ProxyConfigError);
+    expect(() =>
+      parseProxyConfig({
+        RELAY_MAX_FRAME_BYTES: "0",
       }),
     ).toThrow(ProxyConfigError);
   });

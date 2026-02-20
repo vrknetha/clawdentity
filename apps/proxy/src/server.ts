@@ -47,6 +47,11 @@ import {
   createRelayConnectHandler,
   type RelayConnectRuntimeOptions,
 } from "./relay-connect-route.js";
+import {
+  createRelayDeliveryReceiptGetHandler,
+  createRelayDeliveryReceiptPostHandler,
+  RELAY_DELIVERY_RECEIPTS_PATH,
+} from "./relay-delivery-receipt-route.js";
 
 type ProxyAuthRuntimeOptions = {
   fetchImpl?: typeof fetch;
@@ -183,6 +188,20 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     createRelayConnectHandler({
       logger,
       ...options.relay,
+    }),
+  );
+  app.post(
+    RELAY_DELIVERY_RECEIPTS_PATH,
+    createRelayDeliveryReceiptPostHandler({
+      logger,
+      trustStore,
+    }),
+  );
+  app.get(
+    RELAY_DELIVERY_RECEIPTS_PATH,
+    createRelayDeliveryReceiptGetHandler({
+      logger,
+      trustStore,
     }),
   );
   options.registerRoutes?.(app);

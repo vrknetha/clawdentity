@@ -12,7 +12,7 @@
 - Validate risky identity fields (`name`, `description`) with explicit allowlists/length caps; never pass through raw control characters.
 - Enforce `cnf.jwk.x` semantics for AIT parsing: value must be base64url and decode to exactly 32 bytes for Ed25519 (`kty=OKP`, `crv=Ed25519`).
 - Reuse existing protocol validators/parsers (`parseDid`, `parseUlid`, base64url helpers) instead of duplicating claim validation logic.
-- Keep HTTP signing canonical strings deterministic: canonicalize method, normalized path (path + query), timestamp, nonce, and body hash exactly as `README.md`, `PRD.md`, and the policy docs describe (see `CLAW-PROOF-V1\n<METHOD>\n<PATH>\n<TS>\n<NONCE>\n<BODY-SHA256>`).
+- Keep HTTP signing canonical strings deterministic: canonicalize method, normalized path (path + query), timestamp, nonce, and body hash exactly as `README.md`, `ARCHITECTURE.md`, and the policy docs describe (see `CLAW-PROOF-V1\n<METHOD>\n<PATH>\n<TS>\n<NONCE>\n<BODY-SHA256>`).
 - Mirror the AIT guardrails for CRL payloads: `crl.ts` keeps `.strict()` definitions, requires at least one revocation entry, enforces `agentDid` is a `did:claw:agent`, `revocation.jti` is a ULID, `exp > iat`, and surfaces `INVALID_CRL_CLAIMS` via `ProtocolParseError`.
 - Reuse cross-module helpers (e.g., `text.ts`’s `hasControlChars`) so control-character checks stay consistent across AIT and CRL validation.
 - Share header names/values via protocol exports so SDK/Proxy layers import a single source of truth (e.g., `X-Claw-Timestamp`, `X-Claw-Nonce`, `X-Claw-Body-SHA256`, and `X-Claw-Proof`).
