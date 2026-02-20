@@ -62,6 +62,7 @@
 - Treat bootstrap API key token and internal service secret as write-once secrets: print once and never log secret contents.
 - Normalize registry URL through URL parsing before requests; reject invalid URLs before network calls.
 - Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
+- Bootstrap command output should explicitly remind operators to set `REGISTRY_INTERNAL_SERVICE_ID` and `REGISTRY_INTERNAL_SERVICE_SECRET` on proxy environment before deploy.
 - Bootstrap response parsing must require `{ human, apiKey, internalService }` to prevent partially-valid onboarding state.
 - Config persistence failures after successful bootstrap must not hide the returned PAT token; print secrets first, then surface recovery instructions.
 

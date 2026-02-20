@@ -195,6 +195,20 @@ type FakeAgentSelectRow = {
   updated_at: string;
 };
 
+type FakeInternalServiceRow = {
+  id: string;
+  name: string;
+  secretHash: string;
+  secretPrefix: string;
+  scopesJson: string;
+  status: "active" | "revoked";
+  createdBy: string;
+  rotatedAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type FakeDbOptions = {
   beforeFirstAgentUpdate?: (agentRows: FakeAgentRow[]) => void;
   beforeFirstAgentAuthSessionUpdate?: (
@@ -282,6 +296,10 @@ function hasFilter(
 
 function isDefined<T>(value: T | undefined): value is T {
   return value !== undefined;
+}
+
+function cloneRows<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((row) => ({ ...row }));
 }
 
 function parseWhereEqualityParams(options: {
@@ -1057,11 +1075,62 @@ function createFakeDb(
     createdAt: "2026-01-01T00:00:00.000Z",
     lastUsedAt: null,
   }));
+  const internalServiceRows: FakeInternalServiceRow[] = [];
   let beforeFirstAgentUpdateApplied = false;
   let beforeFirstAgentAuthSessionUpdateApplied = false;
   let remainingApiKeyInsertFailures = options.failApiKeyInsertCount ?? 0;
   let remainingInternalServiceInsertFailures =
     options.failInternalServiceInsertCount ?? 0;
+  let transactionSnapshot: {
+    humanRows: FakeHumanRow[];
+    apiKeyRows: FakeApiKeyRow[];
+    internalServiceRows: FakeInternalServiceRow[];
+    agentRows: FakeAgentRow[];
+    revocationRows: FakeRevocationRow[];
+    registrationChallengeRows: FakeAgentRegistrationChallengeRow[];
+    agentAuthSessionRows: FakeAgentAuthSessionRow[];
+    inviteRows: FakeInviteRow[];
+  } | null = null;
+
+  const createTransactionSnapshot = () => ({
+    humanRows: cloneRows(humanRows),
+    apiKeyRows: cloneRows(apiKeyRows),
+    internalServiceRows: cloneRows(internalServiceRows),
+    agentRows: cloneRows(agentRows),
+    revocationRows: cloneRows(revocationRows),
+    registrationChallengeRows: cloneRows(registrationChallengeRows),
+    agentAuthSessionRows: cloneRows(agentAuthSessionRows),
+    inviteRows: cloneRows(inviteRows),
+  });
+
+  const restoreTransactionSnapshot = (
+    snapshot: NonNullable<typeof transactionSnapshot>,
+  ) => {
+    humanRows.splice(0, humanRows.length, ...cloneRows(snapshot.humanRows));
+    apiKeyRows.splice(0, apiKeyRows.length, ...cloneRows(snapshot.apiKeyRows));
+    internalServiceRows.splice(
+      0,
+      internalServiceRows.length,
+      ...cloneRows(snapshot.internalServiceRows),
+    );
+    agentRows.splice(0, agentRows.length, ...cloneRows(snapshot.agentRows));
+    revocationRows.splice(
+      0,
+      revocationRows.length,
+      ...cloneRows(snapshot.revocationRows),
+    );
+    registrationChallengeRows.splice(
+      0,
+      registrationChallengeRows.length,
+      ...cloneRows(snapshot.registrationChallengeRows),
+    );
+    agentAuthSessionRows.splice(
+      0,
+      agentAuthSessionRows.length,
+      ...cloneRows(snapshot.agentAuthSessionRows),
+    );
+    inviteRows.splice(0, inviteRows.length, ...cloneRows(snapshot.inviteRows));
+  };
 
   const database: D1Database = {
     prepare(query: string) {
@@ -1461,6 +1530,24 @@ function createFakeDb(
             throw new Error("Failed query: begin");
           }
 
+          if (normalizedQuery.trim() === "begin") {
+            transactionSnapshot = createTransactionSnapshot();
+            return { success: true, meta: { changes: 0 } } as D1Result;
+          }
+
+          if (normalizedQuery.trim() === "commit") {
+            transactionSnapshot = null;
+            return { success: true, meta: { changes: 0 } } as D1Result;
+          }
+
+          if (normalizedQuery.trim() === "rollback") {
+            if (transactionSnapshot) {
+              restoreTransactionSnapshot(transactionSnapshot);
+              transactionSnapshot = null;
+            }
+            return { success: true, meta: { changes: 0 } } as D1Result;
+          }
+
           let changes = 0;
 
           if (
@@ -1637,6 +1724,36 @@ function createFakeDb(
               {},
             );
             internalServiceInserts.push(row);
+
+            if (
+              typeof row.id === "string" &&
+              typeof row.name === "string" &&
+              typeof row.secret_hash === "string" &&
+              typeof row.secret_prefix === "string" &&
+              typeof row.scopes_json === "string" &&
+              (row.status === "active" || row.status === "revoked") &&
+              typeof row.created_by === "string" &&
+              typeof row.created_at === "string" &&
+              typeof row.updated_at === "string"
+            ) {
+              internalServiceRows.push({
+                id: row.id,
+                name: row.name,
+                secretHash: row.secret_hash,
+                secretPrefix: row.secret_prefix,
+                scopesJson: row.scopes_json,
+                status: row.status,
+                createdBy: row.created_by,
+                rotatedAt:
+                  typeof row.rotated_at === "string" ? row.rotated_at : null,
+                lastUsedAt:
+                  typeof row.last_used_at === "string"
+                    ? row.last_used_at
+                    : null,
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+              });
+            }
             changes = 1;
           }
           if (
@@ -2041,7 +2158,45 @@ function createFakeDb(
             normalizedQuery.includes('delete from "internal_services"') ||
             normalizedQuery.includes("delete from internal_services")
           ) {
-            changes = 1;
+            const whereClause = extractWhereClause(query);
+            const equalityParams = parseWhereEqualityParams({
+              whereClause,
+              params,
+            });
+            const createdByFilter =
+              typeof equalityParams.values.created_by?.[0] === "string"
+                ? String(equalityParams.values.created_by[0])
+                : undefined;
+            const nameFilter =
+              typeof equalityParams.values.name?.[0] === "string"
+                ? String(equalityParams.values.name[0])
+                : undefined;
+            const idFilter =
+              typeof equalityParams.values.id?.[0] === "string"
+                ? String(equalityParams.values.id[0])
+                : undefined;
+
+            for (
+              let index = internalServiceRows.length - 1;
+              index >= 0;
+              index -= 1
+            ) {
+              const row = internalServiceRows[index];
+              if (!row) {
+                continue;
+              }
+              if (createdByFilter && row.createdBy !== createdByFilter) {
+                continue;
+              }
+              if (nameFilter && row.name !== nameFilter) {
+                continue;
+              }
+              if (idFilter && row.id !== idFilter) {
+                continue;
+              }
+              internalServiceRows.splice(index, 1);
+              changes += 1;
+            }
           }
           if (
             normalizedQuery.includes('insert into "agents"') ||
@@ -2904,6 +3059,58 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   it("rolls back admin insert when fallback internal service insert fails", async () => {
     const { database, humanRows } = createFakeDb([], [], {
       failBeginTransaction: true,
+      failInternalServiceInsertCount: 1,
+    });
+
+    const firstResponse = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(firstResponse.status).toBe(500);
+    expect(humanRows).toHaveLength(0);
+
+    const secondResponse = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "test",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(secondResponse.status).toBe(201);
+    expect(humanRows).toHaveLength(1);
+  });
+
+  it("rolls back transaction when internal service insert fails", async () => {
+    const { database, humanRows } = createFakeDb([], [], {
       failInternalServiceInsertCount: 1,
     });
 

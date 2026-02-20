@@ -299,6 +299,9 @@ export const createAdminCommand = (): Command => {
           );
           writeStdoutLine("Internal service secret (shown once):");
           writeStdoutLine(result.internalService.secret);
+          writeStdoutLine(
+            "Set proxy secrets REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET with the values above before proxy deploy.",
+          );
 
           await persistBootstrapConfig(result.registryUrl, result.apiKey.token);
           writeStdoutLine("API key saved to local config");
