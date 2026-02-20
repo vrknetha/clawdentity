@@ -51,7 +51,16 @@
   - `/pair/confirm` requires `responderProfile.{agentName,humanName}`
   - `/pair/start` and `/pair/confirm` may include optional `*.proxyOrigin` values; when present they must be valid `http(s)` URL origins and must be preserved in `/pair/status` responses.
   - `/pair/status` returns stored profile fields for initiator and responder
+- Keep `/pair/start` optional responder/callback contract strict:
+  - `allowResponderAgentDid` is optional but when provided must be a non-empty string.
+  - `callbackUrl` is optional but when provided must be a valid `http(s)` URL.
+  - Persist `allowResponderAgentDid`, `callbackUrl`, and ticket signing `publicKeyX` with pending pairing ticket state.
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
+- Keep `/pair/confirm` ticket checks strict and deterministic:
+  - verify ticket signature using stored `publicKeyX` before confirming,
+  - reject replayed confirmed tickets with `409 PROXY_PAIR_TICKET_ALREADY_CONFIRMED`,
+  - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
+- Keep `/pair/confirm` callbacks best-effort: if `callbackUrl` is present, POST completion payload and log a warning on callback failure without failing the confirm response.
 - Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.

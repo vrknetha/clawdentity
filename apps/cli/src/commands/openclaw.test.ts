@@ -75,8 +75,22 @@ function resolveCliStateDir(homeDir: string): string {
 function seedLocalAgentCredentials(homeDir: string, agentName: string): void {
   const agentDir = join(resolveCliStateDir(homeDir), "agents", agentName);
   mkdirSync(agentDir, { recursive: true });
-  writeFileSync(join(agentDir, "secret.key"), "secret-key-value", "utf8");
-  writeFileSync(join(agentDir, "ait.jwt"), "mock.ait.jwt", "utf8");
+  writeFileSync(
+    join(agentDir, "secret.key"),
+    Buffer.alloc(32, 7).toString("base64url"),
+    "utf8",
+  );
+  const header = Buffer.from(JSON.stringify({ alg: "EdDSA", typ: "JWT" }))
+    .toString("base64url")
+    .trim();
+  const payload = Buffer.from(
+    JSON.stringify({
+      sub: "did:claw:agent:01HAAA11111111111111111111",
+    }),
+  )
+    .toString("base64url")
+    .trim();
+  writeFileSync(join(agentDir, "ait.jwt"), `${header}.${payload}.sig`, "utf8");
 }
 
 function seedPeersConfig(
@@ -1140,6 +1154,153 @@ describe("openclaw command helpers", () => {
             check.status === "pass" &&
             check.message ===
               "no peers are configured yet (optional until pairing)",
+        ),
+      ).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("flags half-paired state when proxy confirms but local peer is missing", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+      const ticket = `clwpair1_${Buffer.from(
+        JSON.stringify({ iss: "https://alpha.proxy.example" }),
+      ).toString("base64url")}`;
+      const pendingPath = join(
+        resolveCliStateDir(sandbox.homeDir),
+        "pairing",
+        "pending",
+        "alpha.json",
+      );
+      mkdirSync(dirname(pendingPath), { recursive: true });
+      writeFileSync(
+        pendingPath,
+        JSON.stringify(
+          {
+            agentName: "alpha",
+            ticket,
+            proxyUrl: "https://alpha.proxy.example/",
+            createdAt: "2026-02-18T00:00:00.000Z",
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        includeConnectorRuntimeCheck: false,
+        fetchImpl: (async (requestUrl: string) => {
+          if (requestUrl.endsWith("/pair/status")) {
+            return Response.json(
+              {
+                status: "confirmed",
+                initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+                initiatorProfile: { agentName: "alpha", humanName: "Ravi" },
+                responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+                responderProfile: { agentName: "beta", humanName: "Ira" },
+                expiresAt: "2026-02-18T00:00:00.000Z",
+                confirmedAt: "2026-02-18T00:00:05.000Z",
+              },
+              { status: 200 },
+            );
+          }
+          return Response.json({ status: "ok" }, { status: 200 });
+        }) as unknown as typeof fetch,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          proxyUrl: "https://proxy.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(
+        result.checks.some(
+          (check) =>
+            check.id === "state.pairingConsistency" &&
+            check.status === "fail" &&
+            check.message.includes("proxy pairing is confirmed"),
+        ),
+      ).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("keeps pairing consistency check passing when pending ticket is still pending", async () => {
+    const sandbox = createSandbox();
+    seedLocalAgentCredentials(sandbox.homeDir, "alpha");
+
+    try {
+      await setupOpenclawRelay("alpha", {
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        transformSource: sandbox.transformSourcePath,
+      });
+      const ticket = `clwpair1_${Buffer.from(
+        JSON.stringify({ iss: "https://alpha.proxy.example" }),
+      ).toString("base64url")}`;
+      const pendingPath = join(
+        resolveCliStateDir(sandbox.homeDir),
+        "pairing",
+        "pending",
+        "alpha.json",
+      );
+      mkdirSync(dirname(pendingPath), { recursive: true });
+      writeFileSync(
+        pendingPath,
+        JSON.stringify(
+          {
+            agentName: "alpha",
+            ticket,
+            proxyUrl: "https://alpha.proxy.example/",
+            createdAt: "2026-02-18T00:00:00.000Z",
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      const result = await runOpenclawDoctor({
+        homeDir: sandbox.homeDir,
+        openclawDir: sandbox.openclawDir,
+        includeConnectorRuntimeCheck: false,
+        fetchImpl: (async (requestUrl: string) => {
+          if (requestUrl.endsWith("/pair/status")) {
+            return Response.json(
+              {
+                status: "pending",
+                initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+                initiatorProfile: { agentName: "alpha", humanName: "Ravi" },
+                expiresAt: "2026-02-18T00:00:00.000Z",
+              },
+              { status: 200 },
+            );
+          }
+          return Response.json({ status: "ok" }, { status: 200 });
+        }) as unknown as typeof fetch,
+        resolveConfigImpl: async () => ({
+          registryUrl: "https://api.example.com",
+          proxyUrl: "https://proxy.example.com",
+          apiKey: "test-api-key",
+        }),
+      });
+
+      expect(
+        result.checks.some(
+          (check) =>
+            check.id === "state.pairingConsistency" && check.status === "pass",
         ),
       ).toBe(true);
     } finally {

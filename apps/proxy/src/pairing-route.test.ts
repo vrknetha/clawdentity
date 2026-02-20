@@ -76,7 +76,8 @@ async function createSignedTicketFixture(input: {
 
 function createPairingApp(input?: {
   environment?: "local" | "development" | "production" | "test";
-  fetchImpl?: typeof fetch;
+  startFetchImpl?: typeof fetch;
+  confirmFetchImpl?: typeof fetch;
   nowMs?: () => number;
 }) {
   const trustStore = createInMemoryProxyTrustStore();
@@ -90,10 +91,11 @@ function createPairingApp(input?: {
     }),
     pairing: {
       start: {
-        fetchImpl: input?.fetchImpl,
+        fetchImpl: input?.startFetchImpl,
         nowMs: input?.nowMs,
       },
       confirm: {
+        fetchImpl: input?.confirmFetchImpl,
         nowMs: input?.nowMs,
       },
       status: {
@@ -127,10 +129,10 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         throw new Error(`Unexpected URL: ${url}`);
       },
     );
-    const fetchImpl = fetchMock as unknown as typeof fetch;
+    const startFetchImpl = fetchMock as unknown as typeof fetch;
 
     const { app } = createPairingApp({
-      fetchImpl,
+      startFetchImpl,
       nowMs: () => 1_700_000_000_000,
     });
 
@@ -159,7 +161,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     expect(body.initiatorAgentDid).toBe(INITIATOR_AGENT_DID);
     expect(body.initiatorProfile).toEqual(INITIATOR_PROFILE);
     expect(body.expiresAt).toBe("2023-11-14T22:18:20.000Z");
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(startFetchImpl).toHaveBeenCalledTimes(1);
     const ownershipCallUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(ownershipCallUrl).toContain("/internal/v1/identity/agent-ownership");
     const ownershipCallInit = fetchMock.mock.calls[0]?.[1] as
@@ -188,10 +190,10 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         throw new Error(`Unexpected URL: ${url}`);
       },
     );
-    const fetchImpl = fetchMock as unknown as typeof fetch;
+    const startFetchImpl = fetchMock as unknown as typeof fetch;
 
     const { app } = createPairingApp({
-      fetchImpl,
+      startFetchImpl,
       nowMs: () => 1_700_000_000_123,
     });
 
@@ -215,7 +217,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
   });
 
   it("returns 403 when ownership check reports caller is not owner", async () => {
-    const fetchImpl = vi.fn(async (_requestInput: unknown) =>
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
       Response.json(
         {
           ownsAgent: false,
@@ -224,7 +226,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         { status: 200 },
       ),
     ) as unknown as typeof fetch;
-    const { app } = createPairingApp({ fetchImpl });
+    const { app } = createPairingApp({ startFetchImpl });
 
     const response = await app.request(PAIR_START_PATH, {
       method: "POST",
@@ -242,12 +244,12 @@ describe(`POST ${PAIR_START_PATH}`, () => {
   });
 
   it("keeps strict dependency failures when ownership lookup is unavailable", async () => {
-    const fetchImpl = vi.fn(async () => {
+    const startFetchImpl = vi.fn(async () => {
       throw new Error("registry unavailable");
     }) as unknown as typeof fetch;
     const { app } = createPairingApp({
       environment: "development",
-      fetchImpl,
+      startFetchImpl,
       nowMs: () => 1_700_000_000_123,
     });
 
@@ -264,6 +266,104 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     expect(response.status).toBe(503);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_PAIR_OWNERSHIP_UNAVAILABLE");
+  });
+
+  it("accepts optional allowResponderAgentDid and callbackUrl", async () => {
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+          agentStatus: "active",
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({
+      startFetchImpl,
+      nowMs: () => 1_700_000_000_000,
+    });
+
+    const response = await app.request(PAIR_START_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        initiatorProfile: INITIATOR_PROFILE,
+        allowResponderAgentDid: RESPONDER_AGENT_DID,
+        callbackUrl: "https://callbacks.example.com/pair/complete",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("rejects invalid callbackUrl", async () => {
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+          agentStatus: "active",
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({ startFetchImpl });
+
+    const response = await app.request(PAIR_START_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        initiatorProfile: INITIATOR_PROFILE,
+        callbackUrl: "ftp://callbacks.example.com/pair/complete",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(
+      (await response.json()) as { error: { code: string; message: string } },
+    ).toMatchObject({
+      error: {
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: "callbackUrl must be a valid http(s) URL",
+      },
+    });
+  });
+
+  it("rejects empty allowResponderAgentDid", async () => {
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+          agentStatus: "active",
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({ startFetchImpl });
+
+    const response = await app.request(PAIR_START_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        initiatorProfile: INITIATOR_PROFILE,
+        allowResponderAgentDid: "   ",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(
+      (await response.json()) as { error: { code: string; message: string } },
+    ).toMatchObject({
+      error: {
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: "allowResponderAgentDid must be a non-empty string",
+      },
+    });
   });
 });
 
@@ -283,6 +383,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
       expiresAtMs: 1_700_000_900_000,
       nowMs: 1_700_000_000_000,
     });
@@ -335,6 +436,239 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       }),
     ).toBe(true);
   });
+
+  it("rejects confirm replay with 409", async () => {
+    const { app, trustStore } = createPairingApp({
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+    const confirmRequest = {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": RESPONDER_AGENT_DID,
+      },
+      body: JSON.stringify({
+        ticket: ticket.ticket,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+      }),
+    };
+
+    const firstResponse = await app.request(PAIR_CONFIRM_PATH, confirmRequest);
+    expect(firstResponse.status).toBe(201);
+
+    const replayResponse = await app.request(PAIR_CONFIRM_PATH, confirmRequest);
+    expect(replayResponse.status).toBe(409);
+    expect(
+      (await replayResponse.json()) as {
+        error: { code: string; message: string };
+      },
+    ).toMatchObject({
+      error: {
+        code: "PROXY_PAIR_TICKET_ALREADY_CONFIRMED",
+        message: "Pairing ticket has already been confirmed",
+      },
+    });
+  });
+
+  it("rejects responder DID mismatch when allowResponderAgentDid is set", async () => {
+    const { app, trustStore } = createPairingApp({
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const allowedResponderAgentDid = makeAgentDid(
+      generateUlid(1_700_000_000_200),
+    );
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      allowResponderAgentDid: allowedResponderAgentDid,
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const response = await app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": RESPONDER_AGENT_DID,
+      },
+      body: JSON.stringify({
+        ticket: ticket.ticket,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+      }),
+    });
+
+    expect(response.status).toBe(403);
+    expect(
+      (await response.json()) as { error: { code: string; message: string } },
+    ).toMatchObject({
+      error: {
+        code: "PROXY_PAIR_RESPONDER_FORBIDDEN",
+        message: "Responder agent DID is not allowed for this pairing ticket",
+      },
+    });
+  });
+
+  it("posts callback on confirm and does not fail on callback errors", async () => {
+    const callbackFetchMock = vi.fn(
+      async (requestInput: unknown, _requestInit?: RequestInit) => {
+        if (String(requestInput).includes("/success")) {
+          return new Response(null, { status: 202 });
+        }
+        throw new Error("callback unavailable");
+      },
+    );
+    const callbackFetch = callbackFetchMock as unknown as typeof fetch;
+    const { app, trustStore } = createPairingApp({
+      confirmFetchImpl: callbackFetch,
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+
+    const successTicket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      callbackUrl: "https://callbacks.example.com/success",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const successResponse = await app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": RESPONDER_AGENT_DID,
+      },
+      body: JSON.stringify({
+        ticket: successTicket.ticket,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+      }),
+    });
+
+    expect(successResponse.status).toBe(201);
+    expect(callbackFetchMock).toHaveBeenCalledTimes(1);
+    const successCallbackRequestInit = callbackFetchMock.mock.calls[0]?.[1] as
+      | RequestInit
+      | undefined;
+    expect(successCallbackRequestInit?.method).toBe("POST");
+    expect(
+      JSON.parse(String(successCallbackRequestInit?.body ?? "{}")) as {
+        paired?: boolean;
+        initiatorAgentDid?: string;
+        responderAgentDid?: string;
+      },
+    ).toMatchObject({
+      paired: true,
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      responderAgentDid: RESPONDER_AGENT_DID,
+    });
+
+    const failureTicketFixture = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_010,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const failureTicket = await trustStore.createPairingTicket({
+      initiatorAgentDid: makeAgentDid(generateUlid(1_700_000_000_010)),
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: failureTicketFixture.ticket,
+      publicKeyX: failureTicketFixture.publicKeyX,
+      callbackUrl: "https://callbacks.example.com/failure",
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_010,
+    });
+    const failureResponderAgentDid = makeAgentDid(
+      generateUlid(1_700_000_000_020),
+    );
+    const failureResponse = await app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": failureResponderAgentDid,
+      },
+      body: JSON.stringify({
+        ticket: failureTicket.ticket,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+      }),
+    });
+
+    expect(failureResponse.status).toBe(201);
+    expect(callbackFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects confirm when signature does not match persisted publicKeyX", async () => {
+    const { app, trustStore } = createPairingApp({
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const mismatchedSigningKey = await createPairingTicketSigningKey({
+      nowMs: 1_700_000_000_001,
+    });
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: mismatchedSigningKey.publicKeyX,
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const response = await app.request(PAIR_CONFIRM_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-test-agent-did": RESPONDER_AGENT_DID,
+      },
+      body: JSON.stringify({
+        ticket: ticket.ticket,
+        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(
+      (await response.json()) as { error: { code: string; message: string } },
+    ).toMatchObject({
+      error: {
+        code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+        message: "Pairing ticket signature is invalid",
+      },
+    });
+  });
 });
 
 describe(`POST ${PAIR_STATUS_PATH}`, () => {
@@ -352,6 +686,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
       expiresAtMs: 1_700_000_900_000,
       nowMs: 1_700_000_000_000,
     });
@@ -399,6 +734,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
       expiresAtMs: 1_700_000_900_000,
       nowMs: 1_700_000_000_000,
     });
@@ -460,6 +796,7 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
       expiresAtMs: 1_700_000_900_000,
       nowMs: 1_700_000_000_000,
     });

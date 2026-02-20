@@ -19,7 +19,11 @@
 - Agent auth refresh state is stored per-agent at `~/.clawdentity/agents/<name>/registry-auth.json` and must be written with secure file permissions.
 - `agent auth refresh` must use `Authorization: Claw <AIT>` + PoP headers from local agent keys and must not require PAT config.
 - `pair` command logic should stay in `commands/pair.ts`; keep proxy pairing bootstrap (`/pair/start`, `/pair/confirm`) CLI-driven with local AIT + PoP proof headers and one-time ticket QR support (`--qr`, `--qr-file`).
+- Pair wait flows (`pair start --wait`, `pair status --wait`) must be resilient: retry transient proxy/network errors, use adaptive poll intervals, and emit periodic progress updates instead of silent waits.
+- Pair wait flows must persist per-agent pending ticket state under CLI state config paths so timeout/cancel recovery does not depend on manually copied ticket strings.
+- `pair recover <agentName>` must use persisted pending ticket state and clear it only after confirmed peer persistence succeeds.
 - `pair start`/`pair confirm` must send profile metadata (`initiatorProfile`/`responderProfile`) with both `agentName` and `humanName`.
+- `pair start` may optionally constrain confirms to a single responder DID (`--allow-responder`) and register optional completion callbacks (`--callback-url`) without changing default open pairing behavior.
 - Pairing must fail fast with `CLI_PAIR_HUMAN_NAME_MISSING` when local config does not include `humanName`.
 - Pairing ticket parsing must normalize pasted input (trim, remove markdown backticks, collapse whitespace) before confirm/status requests so wrapped terminal/UI copies do not fail at proxy.
 - `pair confirm`/`pair status` must fail fast on local issuer mismatch: ticket `iss` must match configured proxy origin, with explicit remediation in the CLI error.

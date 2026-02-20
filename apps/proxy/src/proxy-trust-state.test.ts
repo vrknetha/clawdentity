@@ -86,7 +86,7 @@ async function createSignedTicket(input: {
   const signingKey = await createPairingTicketSigningKey({
     nowMs: input.nowMs,
   });
-  return createPairingTicket({
+  const created = await createPairingTicket({
     issuerProxyUrl: input.issuerProxyUrl,
     expiresAtMs: input.expiresAtMs,
     nowMs: input.nowMs,
@@ -95,6 +95,10 @@ async function createSignedTicket(input: {
       privateKey: signingKey.privateKey,
     },
   });
+  return {
+    ticket: created.ticket,
+    publicKeyX: signingKey.publicKeyX,
+  };
 }
 
 describe("ProxyTrustState", () => {
@@ -137,6 +141,8 @@ describe("ProxyTrustState", () => {
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
+        callbackUrl: "https://callbacks.example.com/pairing/complete",
         expiresAtMs: 1_700_000_060_000,
         nowMs: 1_700_000_000_000,
       }),
@@ -158,6 +164,7 @@ describe("ProxyTrustState", () => {
         initiatorAgentDid: string;
         responderAgentDid: string;
         issuerProxyUrl: string;
+        callbackUrl?: string;
       },
     ).toEqual({
       initiatorAgentDid: "did:claw:agent:alice",
@@ -165,6 +172,7 @@ describe("ProxyTrustState", () => {
       responderAgentDid: "did:claw:agent:bob",
       responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       issuerProxyUrl: "https://proxy-a.example.com",
+      callbackUrl: "https://callbacks.example.com/pairing/complete",
     });
 
     const pairCheckResponse = await proxyTrustState.fetch(
@@ -216,6 +224,7 @@ describe("ProxyTrustState", () => {
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
         expiresAtMs: 1_700_000_060_000,
         nowMs: 1_700_000_000_000,
       }),
@@ -257,6 +266,7 @@ describe("ProxyTrustState", () => {
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
         expiresAtMs: 1_700_000_060_123,
         nowMs: 1_700_000_000_123,
       }),
@@ -286,6 +296,7 @@ describe("ProxyTrustState", () => {
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
         expiresAtMs: 1_700_000_060_000,
         nowMs: 1_700_000_000_000,
       }),
@@ -301,13 +312,103 @@ describe("ProxyTrustState", () => {
       }),
     );
 
-    expect(confirmResponse.status).toBe(404);
+    expect(confirmResponse.status).toBe(400);
     expect(
       (await confirmResponse.json()) as { error: { code: string } },
     ).toEqual({
       error: {
-        code: "PROXY_PAIR_TICKET_NOT_FOUND",
-        message: "Pairing ticket not found",
+        code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+        message: "Pairing ticket signature is invalid",
+      },
+    });
+  });
+
+  it("rejects replayed pairing ticket confirms with 409", async () => {
+    const { proxyTrustState } = createProxyTrustState();
+    const createdTicket = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
+
+    const ticketResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
+        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorProfile: INITIATOR_PROFILE,
+        issuerProxyUrl: "https://proxy-a.example.com",
+        ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
+        expiresAtMs: 1_700_000_060_000,
+        nowMs: 1_700_000_000_000,
+      }),
+    );
+    const ticketBody = (await ticketResponse.json()) as { ticket: string };
+    const confirmBody = {
+      ticket: ticketBody.ticket,
+      responderAgentDid: "did:claw:agent:bob",
+      responderProfile: RESPONDER_PROFILE,
+      nowMs: 1_700_000_000_100,
+    };
+
+    const firstConfirmResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, confirmBody),
+    );
+    expect(firstConfirmResponse.status).toBe(200);
+
+    const replayConfirmResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, confirmBody),
+    );
+    expect(replayConfirmResponse.status).toBe(409);
+    expect(
+      (await replayConfirmResponse.json()) as { error: { code: string } },
+    ).toEqual({
+      error: {
+        code: "PROXY_PAIR_TICKET_ALREADY_CONFIRMED",
+        message: "Pairing ticket has already been confirmed",
+      },
+    });
+  });
+
+  it("rejects non-allowed responders with 403", async () => {
+    const { proxyTrustState } = createProxyTrustState();
+    const createdTicket = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
+    const allowedResponderAgentDid =
+      "did:claw:agent:01HF7YAT00S80QZY8QB7FSRVFF";
+
+    const ticketResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
+        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorProfile: INITIATOR_PROFILE,
+        issuerProxyUrl: "https://proxy-a.example.com",
+        ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
+        allowResponderAgentDid: allowedResponderAgentDid,
+        expiresAtMs: 1_700_000_060_000,
+        nowMs: 1_700_000_000_000,
+      }),
+    );
+    const ticketBody = (await ticketResponse.json()) as { ticket: string };
+
+    const confirmResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
+        ticket: ticketBody.ticket,
+        responderAgentDid: "did:claw:agent:not-allowed",
+        responderProfile: RESPONDER_PROFILE,
+        nowMs: 1_700_000_000_100,
+      }),
+    );
+
+    expect(confirmResponse.status).toBe(403);
+    expect(
+      (await confirmResponse.json()) as { error: { code: string } },
+    ).toEqual({
+      error: {
+        code: "PROXY_PAIR_RESPONDER_FORBIDDEN",
+        message: "Responder agent DID is not allowed for this pairing ticket",
       },
     });
   });
