@@ -8,6 +8,7 @@
   },
   "scripts": {
     "prepare": "husky",
+    "check:file-size": "node ./scripts/quality/check-file-size.mjs",
     "format": "biome format .",
     "lint": "biome check .",
     "lint:staged": "lint-staged --concurrent false",

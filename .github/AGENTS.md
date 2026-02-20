@@ -12,8 +12,9 @@
 - Avoid duplicate CI runs for PR updates by limiting `push` triggers to long-lived branches (`main`, `develop`) and using `pull_request` for feature branches.
 
 ## Quality Gates
-- CI command order: install -> base/head setup -> lint -> affected checks.
+- CI command order: install -> base/head setup -> file-size guard (`pnpm check:file-size`) -> lint -> affected checks.
 - Affected checks in CI must include `lint`, `format`, `typecheck`, `test`, and `build`.
+- File-size guard scope: tracked source files under `apps/**` and `packages/**`, hard limit `800` lines, excluding `dist`, `.wrangler`, `worker-configuration.d.ts`, `drizzle/meta`, and `node_modules`.
 
 ## Deployment Rules (Develop)
 - `deploy-develop.yml` runs on pushes to `develop`.

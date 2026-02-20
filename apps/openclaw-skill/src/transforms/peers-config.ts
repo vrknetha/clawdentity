@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { isRecord } from "@clawdentity/common";
 
 const CLAWDENTITY_DIR = ".clawdentity";
 const PEERS_FILENAME = "peers.json";
@@ -23,10 +24,6 @@ export type PeersConfigPathOptions = {
   configPath?: string;
   homeDir?: string;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function getErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) {

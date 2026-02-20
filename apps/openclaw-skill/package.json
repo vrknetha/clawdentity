@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@clawdentity/common": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
     "@clawdentity/sdk": "workspace:*"
   },

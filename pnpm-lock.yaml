@@ -75,6 +75,9 @@ importers:
 
   apps/openclaw-skill:
     dependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../../packages/common
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

@@ -41,5 +41,6 @@ jobs:
             echo "NX_BASE=$BASE_SHA" >> "$GITHUB_ENV"
             echo "NX_HEAD=${{ github.sha }}" >> "$GITHUB_ENV"
           fi
+      - run: pnpm check:file-size
       - run: pnpm lint
       - run: pnpm affected:ci

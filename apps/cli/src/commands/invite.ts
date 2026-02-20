@@ -1,4 +1,7 @@
-import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
+import {
+  isRecord,
+  parseJsonResponseSafe as parseJsonResponse,
+} from "@clawdentity/common";
 import { INVITES_PATH, INVITES_REDEEM_PATH } from "@clawdentity/protocol";
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
@@ -72,10 +75,6 @@ type InviteRuntime = {
   fetchImpl: typeof fetch;
   registryUrl: string;
   config: CliConfig;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null;
 };
 
 function parseNonEmptyString(value: unknown): string {

@@ -9,6 +9,7 @@
 - Use `withErrorHandling` for command actions unless a command has a documented reason not to.
 - Route all user-facing messages through `writeStdoutLine`/`writeStderrLine`.
 - For new command-domain errors, use SDK `AppError` with stable `code` values.
+- Reuse `@clawdentity/common` guards (for example `isRecord`) instead of redefining local record/type guard helpers in command modules.
 - Keep command timestamps UTC and standardized through SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`) instead of direct `Date` calls.
 - Normalize Commander option keys at the command boundary when helper/runtime option names differ (for example `--peer` -> `peerAlias`) so flags are never silently ignored.
 
