@@ -1,0 +1,30 @@
+export type {
+  ProxyConfigLoadOptions,
+  ProxyCrlStaleBehavior,
+  ProxyEnvironment,
+} from "./defaults.js";
+export {
+  DEFAULT_AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+  DEFAULT_AGENT_RATE_LIMIT_WINDOW_MS,
+  DEFAULT_CRL_MAX_AGE_MS,
+  DEFAULT_CRL_REFRESH_INTERVAL_MS,
+  DEFAULT_CRL_STALE_BEHAVIOR,
+  DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
+  DEFAULT_OPENCLAW_BASE_URL,
+  DEFAULT_PROXY_ENVIRONMENT,
+  DEFAULT_PROXY_LISTEN_PORT,
+  DEFAULT_REGISTRY_URL,
+  DEFAULT_RELAY_MAX_FRAME_BYTES,
+  DEFAULT_RELAY_MAX_IN_FLIGHT_DELIVERIES,
+  DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
+  DEFAULT_RELAY_QUEUE_TTL_SECONDS,
+  DEFAULT_RELAY_RETRY_INITIAL_MS,
+  DEFAULT_RELAY_RETRY_JITTER_RATIO,
+  DEFAULT_RELAY_RETRY_MAX_ATTEMPTS,
+  DEFAULT_RELAY_RETRY_MAX_MS,
+  proxyEnvironmentValues,
+} from "./defaults.js";
+export { ProxyConfigError } from "./errors.js";
+export type { ProxyConfig } from "./schema.js";
+export { proxyConfigSchema } from "./schema.js";
+export { loadProxyConfig, parseProxyConfig } from "./validation.js";

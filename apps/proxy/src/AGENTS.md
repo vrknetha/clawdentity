@@ -4,6 +4,13 @@
 - Keep `index.ts` as runtime bootstrap surface and version export.
 - Keep version resolution in `index.ts` deterministic: prefer `APP_VERSION`, then `PROXY_VERSION`, then fallback constant for local/dev defaults.
 - Keep runtime env parsing and defaults in `config.ts`; do not scatter `process.env` reads across handlers.
+- Keep `config.ts` as a facade export only; place implementation in `config/` modules:
+  - `config/defaults.ts` for exported defaults and env/value types.
+  - `config/schema.ts` for zod runtime/env schemas.
+  - `config/env-normalization.ts` for env aliasing/required-key/deprecation checks.
+  - `config/paths.ts` for home/state/config path resolution and relay JSON base-url fallback parsing.
+  - `config/files.ts` for dotenv merge + fallback loading.
+  - `config/validation.ts` for `parseProxyConfig` and `loadProxyConfig` orchestration.
 - Keep startup fail-fast env validation in `config.ts` and enforce it from runtime boot (`startProxyServer` + worker runtime build) so missing registry/service credentials fail immediately.
 - Keep agent DID rate-limit env parsing in `config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE`, `AGENT_RATE_LIMIT_WINDOW_MS`) and validate as positive integers.
 - Keep HTTP app composition in `server.ts`.
