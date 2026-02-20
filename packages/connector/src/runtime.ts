@@ -18,8 +18,11 @@ import {
   createLogger,
   executeWithAgentAuthRefreshRetry,
   type Logger,
+  nowIso,
+  nowUtcMs,
   refreshAgentAuthWithClawProof,
   signHttpRequest,
+  toIso,
 } from "@clawdentity/sdk";
 import { WebSocket as NodeWebSocket } from "ws";
 import { ConnectorClient, type ConnectorWebSocket } from "./client.js";
@@ -498,7 +501,7 @@ async function writeRegistryAuthAtomic(input: {
     input.agentName,
     REGISTRY_AUTH_FILENAME,
   );
-  const tmpPath = `${targetPath}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tmpPath = `${targetPath}.tmp-${nowUtcMs()}-${Math.random().toString(16).slice(2)}`;
 
   await mkdir(dirname(targetPath), { recursive: true });
   await writeFile(tmpPath, `${JSON.stringify(input.auth, null, 2)}\n`, "utf8");
@@ -647,7 +650,7 @@ async function buildUpgradeHeaders(input: {
   wsUrl: URL;
   secretKey: Uint8Array;
 }): Promise<Record<string, string>> {
-  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const timestamp = Math.floor(nowUtcMs() / 1000).toString();
   const nonce = encodeBase64url(randomBytes(NONCE_SIZE));
   const signed = await signHttpRequest({
     method: "GET",
@@ -704,7 +707,7 @@ export async function startConnectorRuntime(
 
   const refreshCurrentAuthIfNeeded = async (): Promise<void> => {
     await syncAuthFromDisk();
-    if (!shouldRefreshAccessToken(currentAuth, Date.now())) {
+    if (!shouldRefreshAccessToken(currentAuth, nowUtcMs())) {
       return;
     }
 
@@ -768,11 +771,11 @@ export async function startConnectorRuntime(
 
     try {
       const dueItems = await inboundInbox.listDuePending({
-        nowMs: Date.now(),
+        nowMs: nowUtcMs(),
         limit: inboundReplayPolicy.batchSize,
       });
       for (const pending of dueItems) {
-        inboundReplayStatus.lastAttemptAt = new Date().toISOString();
+        inboundReplayStatus.lastAttemptAt = nowIso();
         try {
           await deliverToOpenclawHook({
             fetchImpl,
@@ -782,7 +785,7 @@ export async function startConnectorRuntime(
             payload: pending.payload,
           });
           await inboundInbox.markDelivered(pending.requestId);
-          inboundReplayStatus.lastReplayAt = new Date().toISOString();
+          inboundReplayStatus.lastReplayAt = nowIso();
           inboundReplayStatus.lastReplayError = undefined;
           inboundReplayStatus.lastAttemptStatus = "ok";
           logger.info("connector.inbound.replay_succeeded", {
@@ -795,14 +798,14 @@ export async function startConnectorRuntime(
             error instanceof LocalOpenclawDeliveryError
               ? error.retryable
               : true;
-          const nextAttemptAt = new Date(
-            Date.now() +
+          const nextAttemptAt = toIso(
+            nowUtcMs() +
               computeReplayDelayMs({
                 attemptCount: pending.attemptCount + 1,
                 policy: inboundReplayPolicy,
               }) *
                 (retryable ? 1 : 10),
-          ).toISOString();
+          );
           await inboundInbox.markReplayFailure({
             requestId: pending.requestId,
             errorMessage: reason,
@@ -904,7 +907,7 @@ export async function startConnectorRuntime(
     const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}`;
 
     const performRelay = async (auth: AgentAuthBundle): Promise<void> => {
-      const unixSeconds = Math.floor(Date.now() / 1000).toString();
+      const unixSeconds = Math.floor(nowUtcMs() / 1000).toString();
       const nonce = encodeBase64url(randomBytes(NONCE_SIZE));
       const signed = await signHttpRequest({
         method: "POST",

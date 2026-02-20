@@ -3,6 +3,7 @@ import {
   AppError,
   type RegistryConfig,
   shouldExposeVerboseErrors,
+  toIso,
 } from "@clawdentity/sdk";
 
 const DEFAULT_INVITE_REDEEM_DISPLAY_NAME = "User";
@@ -87,7 +88,7 @@ function inviteRedeemInvalidError(options: {
 export function parseInviteCreatePayload(input: {
   payload: unknown;
   environment: RegistryConfig["ENVIRONMENT"];
-  now: Date;
+  nowMs: number;
 }): InviteCreatePayload {
   if (
     typeof input.payload !== "object" ||
@@ -125,10 +126,10 @@ export function parseInviteCreatePayload(input: {
       const expiresAtMillis = Date.parse(expiresAtInput);
       if (!Number.isFinite(expiresAtMillis)) {
         fieldErrors.expiresAt = ["expiresAt must be a valid ISO-8601 datetime"];
-      } else if (expiresAtMillis <= input.now.getTime()) {
+      } else if (expiresAtMillis <= input.nowMs) {
         fieldErrors.expiresAt = ["expiresAt must be in the future"];
       } else {
-        expiresAt = new Date(expiresAtMillis).toISOString();
+        expiresAt = toIso(expiresAtMillis);
       }
     }
   }

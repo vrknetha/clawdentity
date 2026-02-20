@@ -3,6 +3,7 @@ import {
   AppError,
   INTERNAL_SERVICE_ID_HEADER,
   INTERNAL_SERVICE_SECRET_HEADER,
+  nowIso,
 } from "@clawdentity/sdk";
 import { and, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
@@ -167,7 +168,7 @@ export function createServiceAuth(options?: {
     await db
       .update(internal_services)
       .set({
-        last_used_at: new Date().toISOString(),
+        last_used_at: nowIso(),
       })
       .where(eq(internal_services.id, row.id));
 

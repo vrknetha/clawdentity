@@ -4,6 +4,7 @@ import {
   makeAgentDid,
   makeHumanDid,
 } from "@clawdentity/protocol";
+import { nowUtcMs } from "../datetime.js";
 
 export type BuildTestAitClaimsInput = {
   publicKeyX: string;
@@ -27,7 +28,7 @@ const DEFAULT_TTL_SECONDS = 600;
 export function buildTestAitClaims(input: BuildTestAitClaimsInput): AitClaims {
   const seedMs = input.seedMs ?? DEFAULT_SEED_MS;
   const nowSeconds =
-    input.nowSeconds ?? Math.floor((input.seedMs ?? Date.now()) / 1000);
+    input.nowSeconds ?? Math.floor((input.seedMs ?? nowUtcMs()) / 1000);
   const ttlSeconds = input.ttlSeconds ?? DEFAULT_TTL_SECONDS;
   const nbfSkewSeconds = input.nbfSkewSeconds ?? 5;
 

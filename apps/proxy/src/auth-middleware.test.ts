@@ -214,7 +214,7 @@ async function createAuthHarness(
     },
     hooks: {
       resolveSessionNamespace: () => relayNamespace,
-      now: () => new Date(NOW_MS),
+      now: () => new Date(NOW_MS).toISOString(),
     },
     relay: {
       resolveSessionNamespace: () => relayNamespace,

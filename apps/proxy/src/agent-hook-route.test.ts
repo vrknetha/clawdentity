@@ -119,7 +119,7 @@ function createRelayHarness(input?: {
 function createHookRouteApp(input: {
   relayNamespace?: AgentRelaySessionNamespace;
   injectIdentityIntoMessage?: boolean;
-  now?: () => Date;
+  now?: () => string;
 }) {
   const trustStore: ProxyTrustStore = {
     createPairingTicket: vi.fn(),
@@ -148,7 +148,7 @@ function createHookRouteApp(input: {
 describe("POST /hooks/agent", () => {
   it("delivers hook payload to recipient relay session", async () => {
     const relayHarness = createRelayHarness();
-    const now = new Date("2026-02-16T20:00:00.000Z");
+    const now = "2026-02-16T20:00:00.000Z";
     const app = createHookRouteApp({
       relayNamespace: relayHarness.namespace,
       now: () => now,

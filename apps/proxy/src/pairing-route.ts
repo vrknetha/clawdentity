@@ -2,6 +2,8 @@ import {
   AppError,
   createRegistryIdentityClient,
   type Logger,
+  nowUtcMs,
+  toIso,
 } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
@@ -322,7 +324,7 @@ export function createPairStartHandler(
   options: CreatePairStartHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const nowMs = options.nowMs ?? Date.now;
+  const nowMs = options.nowMs ?? nowUtcMs;
   const registryUrl = normalizeRegistryUrl(options.registryUrl);
 
   return async (c) => {
@@ -407,7 +409,7 @@ export function createPairStartHandler(
       requestId: c.get("requestId"),
       initiatorAgentDid: auth.agentDid,
       issuerProxyUrl: pairingTicketResult.issuerProxyUrl,
-      expiresAt: new Date(pairingTicketResult.expiresAtMs).toISOString(),
+      expiresAt: toIso(pairingTicketResult.expiresAtMs),
       pkid: signingKey.pkid,
     });
 
@@ -415,7 +417,7 @@ export function createPairStartHandler(
       initiatorAgentDid: pairingTicketResult.initiatorAgentDid,
       initiatorProfile: pairingTicketResult.initiatorProfile,
       ticket: pairingTicketResult.ticket,
-      expiresAt: new Date(pairingTicketResult.expiresAtMs).toISOString(),
+      expiresAt: toIso(pairingTicketResult.expiresAtMs),
     });
   };
 }
@@ -423,7 +425,7 @@ export function createPairStartHandler(
 export function createPairConfirmHandler(
   options: CreatePairConfirmHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
-  const nowMs = options.nowMs ?? Date.now;
+  const nowMs = options.nowMs ?? nowUtcMs;
 
   return async (c) => {
     const auth = c.get("auth");
@@ -507,7 +509,7 @@ export function createPairConfirmHandler(
 export function createPairStatusHandler(
   options: CreatePairStatusHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
-  const nowMs = options.nowMs ?? Date.now;
+  const nowMs = options.nowMs ?? nowUtcMs;
 
   return async (c) => {
     const auth = c.get("auth");
@@ -568,11 +570,9 @@ export function createPairStatusHandler(
         status.status === "confirmed"
           ? status.responderProfile.humanName
           : undefined,
-      expiresAt: new Date(status.expiresAtMs).toISOString(),
+      expiresAt: toIso(status.expiresAtMs),
       confirmedAt:
-        status.status === "confirmed"
-          ? new Date(status.confirmedAtMs).toISOString()
-          : undefined,
+        status.status === "confirmed" ? toIso(status.confirmedAtMs) : undefined,
     });
 
     return c.json({
@@ -583,11 +583,9 @@ export function createPairStatusHandler(
         status.status === "confirmed" ? status.responderAgentDid : undefined,
       responderProfile:
         status.status === "confirmed" ? status.responderProfile : undefined,
-      expiresAt: new Date(status.expiresAtMs).toISOString(),
+      expiresAt: toIso(status.expiresAtMs),
       confirmedAt:
-        status.status === "confirmed"
-          ? new Date(status.confirmedAtMs).toISOString()
-          : undefined,
+        status.status === "confirmed" ? toIso(status.confirmedAtMs) : undefined,
     });
   };
 }

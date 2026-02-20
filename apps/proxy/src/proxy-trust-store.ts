@@ -1,3 +1,4 @@
+import { nowUtcMs } from "@clawdentity/sdk";
 import { PROXY_TRUST_DO_NAME } from "./pairing-constants.js";
 import {
   normalizePairingTicketText,
@@ -327,7 +328,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     ticketKid: string;
     expiresAtMs: number;
   } {
-    const nowMs = input.nowMs ?? Date.now();
+    const nowMs = input.nowMs ?? nowUtcMs();
     const normalizedTicket = normalizePairingTicketText(input.ticket);
     const parsedTicket = parseStoredTicket(normalizedTicket);
     cleanup(nowMs, parsedTicket.kid);
@@ -374,7 +375,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
   function resolveTicketStatus(
     input: PairingTicketStatusInput,
   ): PairingTicketStatusResult {
-    const nowMs = input.nowMs ?? Date.now();
+    const nowMs = input.nowMs ?? nowUtcMs();
     const normalizedTicket = normalizePairingTicketText(input.ticket);
     const parsedTicket = parseStoredTicket(normalizedTicket);
     cleanup(nowMs, parsedTicket.kid);
@@ -441,7 +442,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
 
   return {
     async createPairingTicket(input) {
-      const nowMs = input.nowMs ?? Date.now();
+      const nowMs = input.nowMs ?? nowUtcMs();
       cleanup(nowMs);
 
       const ticket = normalizePairingTicketText(input.ticket);
@@ -490,7 +491,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         expiresAtMs,
       } = resolveConfirmablePairingTicket(input);
       const confirmedAtMs = normalizeExpiryToWholeSecond(
-        input.nowMs ?? Date.now(),
+        input.nowMs ?? nowUtcMs(),
       );
       pairKeys.add(
         toPairKey(

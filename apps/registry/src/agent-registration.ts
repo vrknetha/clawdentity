@@ -13,8 +13,10 @@ import {
   AppError,
   addSeconds,
   nowIso,
+  nowUtcMs,
   type RegistryConfig,
   shouldExposeVerboseErrors,
+  toIso,
   verifyEd25519,
 } from "@clawdentity/sdk";
 
@@ -532,7 +534,7 @@ export async function verifyAgentRegistrationOwnershipProof(input: {
   }
 
   const expiresAtMs = Date.parse(input.challenge.expiresAt);
-  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowUtcMs()) {
     throw registrationProofError({
       environment: input.environment,
       code: "AGENT_REGISTRATION_CHALLENGE_EXPIRED",
@@ -703,7 +705,7 @@ function resolveReissueExpiry(input: {
   );
 
   return {
-    expiresAt: new Date(previousExpiryMs).toISOString(),
+    expiresAt: toIso(previousExpiryMs),
     exp: previousExpirySeconds,
     ttlDays,
   };

@@ -1,6 +1,7 @@
 import { type AitClaims, decodeBase64url } from "@clawdentity/protocol";
 import {
   AppError,
+  nowUtcMs,
   type RegistryAitVerificationKey,
   type RegistryConfig,
   verifyAIT,
@@ -87,7 +88,7 @@ export async function verifyAgentClawRequest(input: {
   nowMs?: number;
   maxTimestampSkewSeconds?: number;
 }): Promise<AitClaims> {
-  const nowMs = input.nowMs ?? Date.now();
+  const nowMs = input.nowMs ?? nowUtcMs();
   const maxTimestampSkewSeconds =
     input.maxTimestampSkewSeconds ?? DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS;
   const token = parseClawAuthorizationHeader(

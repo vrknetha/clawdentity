@@ -68,6 +68,7 @@
 - Keep relay delivery semantics asynchronous and durable: `/hooks/agent` accepts queued deliveries with `202` (`state=queued`) when recipient connector is offline.
 - Keep relay queue saturation explicit: reject new deliveries with `507 PROXY_RELAY_QUEUE_FULL`; do not evict queued messages implicitly.
 - Keep relay retries inside `agent-relay-session.ts` with bounded backoff (`RELAY_RETRY_*`) and per-agent queue caps/TTL (`RELAY_QUEUE_*`); do not add ad-hoc retry loops in route handlers.
+- Keep relay-session timestamps UTC and standardized via shared SDK datetime helpers (`nowUtcMs`, `toIso`) rather than ad-hoc datetime formatting.
 - Keep relay websocket heartbeat liveness explicit in `agent-relay-session.ts`: track per-socket heartbeat ack time and enforce a 60s ack timeout before socket eviction.
 - Keep stale connector cleanup proactive: evict stale sockets during alarm sweeps and before accepting a new reconnect socket.
 - Keep connector session ownership deterministic: new reconnect sockets supersede older live sockets with a clean `1000` close code so delivery always targets one active socket.

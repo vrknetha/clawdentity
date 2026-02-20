@@ -7,16 +7,24 @@ function toDate(value: Date | string | number): Date {
   return parsed;
 }
 
+export function nowUtcMs(): number {
+  return Date.now();
+}
+
+export function toIso(value: Date | string | number): string {
+  return toDate(value).toISOString();
+}
+
 export function nowIso(): string {
-  return new Date().toISOString();
+  return toIso(nowUtcMs());
 }
 
 export function addSeconds(
   value: Date | string | number,
   seconds: number,
 ): string {
-  const next = new Date(toDate(value).getTime() + seconds * 1000);
-  return next.toISOString();
+  const next = toDate(value).getTime() + seconds * 1000;
+  return toIso(next);
 }
 
 export function isExpired(

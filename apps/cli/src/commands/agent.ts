@@ -21,8 +21,10 @@ import {
   encodeEd25519KeypairBase64url,
   encodeEd25519SignatureBase64url,
   generateEd25519Keypair,
+  nowUtcMs,
   refreshAgentAuthWithClawProof,
   signEd25519,
+  toIso,
 } from "@clawdentity/sdk";
 import { Command } from "commander";
 import { getConfigDir, resolveConfig } from "../config/manager.js";
@@ -272,7 +274,7 @@ const parseAgentIdFromDid = (agentName: string, did: string): string => {
 };
 
 const formatExpiresAt = (expires: number): string => {
-  return new Date(expires * 1000).toISOString();
+  return toIso(expires * 1000);
 };
 
 const resolveFramework = (
@@ -510,7 +512,7 @@ const writeSecureFileAtomically = async (
   path: string,
   content: string,
 ): Promise<void> => {
-  const tempPath = `${path}.tmp-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tempPath = `${path}.tmp-${nowUtcMs()}-${Math.random().toString(16).slice(2)}`;
 
   await writeFile(tempPath, content, "utf-8");
   await chmod(tempPath, FILE_MODE);

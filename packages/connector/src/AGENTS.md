@@ -17,6 +17,7 @@
 - Keep replay configuration environment-driven via `CONNECTOR_INBOUND_*` vars with safe defaults from `constants.ts`.
 - `/v1/status` must include websocket state and inbound replay health (`pendingCount`, `oldestPendingAt`, replay activity/error, hook status).
 - On inbox/status read failures, return explicit structured errors instead of crashing runtime.
+- Keep connector runtime/inbox timestamps standardized via shared SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`) instead of ad-hoc datetime formatting.
 
 ## WebSocket Resilience Rules
 - Keep websocket reconnect behavior centralized in `client.ts` (single cleanup path for close/error/unexpected-response/timeout).

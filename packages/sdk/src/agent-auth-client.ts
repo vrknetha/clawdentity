@@ -2,6 +2,7 @@ import {
   AGENT_AUTH_REFRESH_PATH,
   encodeBase64url,
 } from "@clawdentity/protocol";
+import { nowUtcMs } from "./datetime.js";
 import { AppError } from "./exceptions.js";
 import { signHttpRequest } from "./http/sign.js";
 
@@ -239,7 +240,7 @@ export async function refreshAgentAuthWithClawProof(input: {
   const refreshBody = JSON.stringify({
     refreshToken: input.refreshToken,
   });
-  const nowMs = input.nowMs?.() ?? Date.now();
+  const nowMs = input.nowMs?.() ?? nowUtcMs();
   const timestamp = String(Math.floor(nowMs / 1000));
   const nonce = encodeBase64url(crypto.getRandomValues(new Uint8Array(16)));
   const signed = await signHttpRequest({

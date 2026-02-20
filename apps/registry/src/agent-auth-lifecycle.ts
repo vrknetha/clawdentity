@@ -3,6 +3,7 @@ import {
   AppError,
   addSeconds,
   nowIso,
+  nowUtcMs,
   type RegistryConfig,
   shouldExposeVerboseErrors,
 } from "@clawdentity/sdk";
@@ -119,7 +120,7 @@ export async function issueAgentAuth(options?: {
   accessTtlSeconds?: number;
   refreshTtlSeconds?: number;
 }): Promise<AgentAuthIssue> {
-  const nowMs = options?.nowMs ?? Date.now();
+  const nowMs = options?.nowMs ?? nowUtcMs();
   const accessTtlSeconds =
     options?.accessTtlSeconds ?? DEFAULT_AGENT_ACCESS_TOKEN_TTL_SECONDS;
   const refreshTtlSeconds =
@@ -134,8 +135,8 @@ export async function issueAgentAuth(options?: {
 
   const accessIssuedAt = nowIso();
   const refreshIssuedAt = accessIssuedAt;
-  const accessExpiresAt = addSeconds(new Date(nowMs), accessTtlSeconds);
-  const refreshExpiresAt = addSeconds(new Date(nowMs), refreshTtlSeconds);
+  const accessExpiresAt = addSeconds(nowMs, accessTtlSeconds);
+  const refreshExpiresAt = addSeconds(nowMs, refreshTtlSeconds);
   const createdAt = accessIssuedAt;
   const updatedAt = accessIssuedAt;
 

@@ -144,7 +144,7 @@
 - Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
 - Verify challenge ownership before signing AIT: challenge must exist for the caller, be unexpired, remain `pending`, and match the request public key + signature.
 - Consume challenge with guarded state transition (`pending` -> `used`) in the same mutation unit as agent insert; reject zero-row updates as replayed challenge.
-- Use shared SDK datetime helpers (`nowIso`, `addSeconds`) for issuance/expiry math instead of ad-hoc `Date.now()` arithmetic in route logic.
+- Use shared SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`, `addSeconds`) for issuance/expiry math and timestamp serialization in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
 - Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
 - Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.

@@ -6,6 +6,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { nowIso, nowUtcMs } from "@clawdentity/sdk";
 import type { DeliverFrame } from "./frames.js";
 
 const INBOUND_INBOX_DIR_NAME = "inbound-inbox";
@@ -65,10 +66,6 @@ export type ConnectorInboundInboxOptions = {
   maxPendingBytes: number;
   maxPendingMessages: number;
 };
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -480,7 +477,7 @@ export class ConnectorInboundInbox {
       updatedAt: nowIso(),
     } satisfies InboundInboxIndexFile;
 
-    const tmpPath = `${this.indexPath}.tmp-${Date.now()}`;
+    const tmpPath = `${this.indexPath}.tmp-${nowUtcMs()}`;
     await writeFile(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
     await rename(tmpPath, this.indexPath);
   }

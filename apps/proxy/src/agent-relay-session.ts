@@ -7,6 +7,7 @@ import {
   serializeFrame,
 } from "@clawdentity/connector";
 import { generateUlid, RELAY_CONNECT_PATH } from "@clawdentity/protocol";
+import { nowUtcMs, toIso } from "@clawdentity/sdk";
 import { parseProxyConfig } from "./config.js";
 
 const CONNECTOR_AGENT_DID_HEADER = "x-claw-connector-agent-did";
@@ -129,18 +130,18 @@ function toHeartbeatFrame(nowMs: number): { id: string; payload: string } {
       v: CONNECTOR_FRAME_VERSION,
       type: "heartbeat",
       id,
-      ts: new Date(nowMs).toISOString(),
+      ts: toIso(nowMs),
     }),
   };
 }
 
 function toHeartbeatAckFrame(ackId: string): string {
-  const nowMs = Date.now();
+  const nowMs = nowUtcMs();
   const ackFrame: HeartbeatAckFrame = {
     v: CONNECTOR_FRAME_VERSION,
     type: "heartbeat_ack",
     id: generateUlid(nowMs),
-    ts: new Date(nowMs).toISOString(),
+    ts: toIso(nowMs),
     ackId,
   };
 
@@ -148,11 +149,12 @@ function toHeartbeatAckFrame(ackId: string): string {
 }
 
 function toDeliverFrame(input: RelayDeliveryInput): DeliverFrame {
+  const nowMs = nowUtcMs();
   return {
     v: CONNECTOR_FRAME_VERSION,
     type: "deliver",
-    id: generateUlid(Date.now()),
-    ts: new Date().toISOString(),
+    id: generateUlid(nowMs),
+    ts: toIso(nowMs),
     fromAgentDid: input.senderAgentDid,
     toAgentDid: input.recipientAgentDid,
     payload: input.payload,
@@ -314,7 +316,7 @@ export class AgentRelaySession {
   }
 
   async alarm(): Promise<void> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const sockets = this.getActiveSockets(nowMs);
 
     if (sockets.length > 0) {
@@ -335,7 +337,7 @@ export class AgentRelaySession {
   async deliverToConnector(
     input: RelayDeliveryInput,
   ): Promise<RelayDeliveryResult> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const queueState = await this.loadQueueState(nowMs);
     const existingReceipt = queueState.receipts[input.requestId];
 
@@ -425,7 +427,7 @@ export class AgentRelaySession {
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const frameResult = (() => {
       try {
         return parseFrame(message);
@@ -506,7 +508,7 @@ export class AgentRelaySession {
       return new Response("Missing connector agent DID", { status: 400 });
     }
 
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const activeSockets = this.getActiveSockets(nowMs);
     for (const socket of activeSockets) {
       this.closeSocket(
@@ -977,7 +979,7 @@ export class AgentRelaySession {
   }
 
   private async drainQueueOnReconnect(): Promise<void> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const queueState = await this.loadQueueState(nowMs);
     let queueMutated = false;
 
@@ -1000,7 +1002,7 @@ export class AgentRelaySession {
   }
 
   private async scheduleFromStorage(): Promise<void> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const queueState = await this.loadQueueState(nowMs);
     await this.scheduleNextAlarm(queueState, nowMs);
   }

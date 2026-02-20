@@ -20,12 +20,18 @@ vi.mock("@clawdentity/sdk", () => ({
     warn: vi.fn(),
     error: vi.fn(),
   })),
+  nowUtcMs: vi.fn(() => 1_700_000_000_000),
   parseRegistryConfig: vi.fn(),
   verifyAIT: vi.fn(),
   verifyCRL: vi.fn(),
 }));
 
-import { parseRegistryConfig, verifyAIT, verifyCRL } from "@clawdentity/sdk";
+import {
+  nowUtcMs,
+  parseRegistryConfig,
+  verifyAIT,
+  verifyCRL,
+} from "@clawdentity/sdk";
 import {
   readCacheFile,
   resolveConfig,
@@ -37,6 +43,7 @@ const mockedTokenReadFile = vi.mocked(readFile);
 const mockedResolveConfig = vi.mocked(resolveConfig);
 const mockedReadCacheFile = vi.mocked(readCacheFile);
 const mockedWriteCacheFile = vi.mocked(writeCacheFile);
+const mockedNowUtcMs = vi.mocked(nowUtcMs);
 const mockedParseRegistryConfig = vi.mocked(parseRegistryConfig);
 const mockedVerifyAit = vi.mocked(verifyAIT);
 const mockedVerifyCrl = vi.mocked(verifyCRL);
@@ -157,6 +164,7 @@ describe("verify command", () => {
     });
     mockedReadCacheFile.mockResolvedValue(undefined);
     mockedWriteCacheFile.mockResolvedValue(undefined);
+    mockedNowUtcMs.mockImplementation(() => Date.now());
 
     mockedParseRegistryConfig.mockReturnValue({
       ENVIRONMENT: "test",

@@ -7,7 +7,7 @@
 - Keep each command implementation in `commands/<name>.ts` with one exported factory (`create<Name>Command`).
 - Reuse shared command wrappers (`withErrorHandling`) and IO helpers (`writeStdoutLine`, `writeStderrLine`) instead of inline process writes.
 - Prefer explicit error-to-reason mapping for operator-facing failures rather than generic stack traces.
-- Prefer SDK shared primitives (`AppError`, `nowIso`) for new command error/date logic instead of ad-hoc equivalents.
+- Prefer SDK shared primitives (`AppError`) for new command error logic instead of ad-hoc equivalents.
 - Admin bootstrap command logic should stay in `commands/admin.ts` and remain side-effect-safe: only mutate config after a validated successful registry response.
 - Admin bootstrap must print the one-time PAT before attempting to persist it and depend on `persistBootstrapConfig` so config write failures are surfaced via CLI errors while the operator still sees the PAT.
 - API-key lifecycle command logic should stay in `commands/api-key.ts`; keep create/list/revoke request mapping explicit and keep token exposure limited to create output only.

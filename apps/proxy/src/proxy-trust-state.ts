@@ -1,3 +1,4 @@
+import { nowUtcMs } from "@clawdentity/sdk";
 import {
   normalizePairingTicketText,
   PairingTicketParseError,
@@ -168,7 +169,7 @@ export class ProxyTrustState {
   }
 
   async alarm(): Promise<void> {
-    const nowMs = Date.now();
+    const nowMs = nowUtcMs();
     const expirableState = await this.loadExpirableState();
     const mutated = this.removeExpiredEntries(expirableState, nowMs);
     if (mutated) {
@@ -205,7 +206,7 @@ export class ProxyTrustState {
       });
     }
 
-    const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
+    const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
     const normalizedExpiresAtMs = normalizeExpiryToWholeSecond(
       body.expiresAtMs,
     );
@@ -309,7 +310,7 @@ export class ProxyTrustState {
       throw error;
     }
 
-    const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
+    const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
     const expirableState = await this.loadExpirableState();
     const stored = expirableState.pairingTickets[parsedTicket.kid];
 
@@ -392,7 +393,7 @@ export class ProxyTrustState {
       });
     }
 
-    const nowMs = typeof body.nowMs === "number" ? body.nowMs : Date.now();
+    const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
     const ticket = normalizePairingTicketText(body.ticket);
     let parsedTicket: ReturnType<typeof parsePairingTicket>;
     try {

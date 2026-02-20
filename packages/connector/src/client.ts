@@ -1,5 +1,5 @@
 import { generateUlid } from "@clawdentity/protocol";
-import { createLogger, type Logger } from "@clawdentity/sdk";
+import { createLogger, type Logger, toIso } from "@clawdentity/sdk";
 import {
   CONNECTOR_FRAME_VERSION,
   DEFAULT_CONNECT_TIMEOUT_MS,
@@ -1092,6 +1092,6 @@ export class ConnectorClient {
   }
 
   private makeTimestamp(): string {
-    return new Date(this.now()).toISOString();
+    return toIso(this.now());
   }
 }

@@ -2,7 +2,7 @@ import {
   parseDid,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
-import { AppError, type Logger } from "@clawdentity/sdk";
+import { AppError, type Logger, nowIso } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import {
   type AgentRelaySessionNamespace,
@@ -23,7 +23,7 @@ export { RELAY_RECIPIENT_AGENT_DID_HEADER } from "@clawdentity/protocol";
 
 export type AgentHookRuntimeOptions = {
   injectIdentityIntoMessage?: boolean;
-  now?: () => Date;
+  now?: () => string;
   resolveSessionNamespace?: (
     c: ProxyContext,
   ) => AgentRelaySessionNamespace | undefined;
@@ -157,7 +157,7 @@ export function createAgentHookHandler(
   options: CreateAgentHookHandlerOptions,
 ): (c: ProxyContext) => Promise<Response> {
   const injectIdentityIntoMessage = options.injectIdentityIntoMessage ?? false;
-  const now = options.now ?? (() => new Date());
+  const now = options.now ?? nowIso;
   const resolveSessionNamespace =
     options.resolveSessionNamespace ?? resolveDefaultSessionNamespace;
 
@@ -277,7 +277,7 @@ export function createAgentHookHandler(
       queued,
       queueDepth,
       connectedSockets,
-      sentAt: now().toISOString(),
+      sentAt: now(),
     });
 
     return c.json(
