@@ -59,7 +59,8 @@
 ## Admin Command Rules
 - `admin bootstrap` must call registry `/v1/admin/bootstrap` with `x-bootstrap-secret` and fail with stable CLI error codes/messages.
 - `admin bootstrap` must import `ADMIN_BOOTSTRAP_PATH` from `@clawdentity/protocol` instead of duplicating endpoint literals in command code/tests.
-- Treat bootstrap API key token and internal service secret as write-once secrets: print once and never log secret contents.
+- Treat bootstrap API key token as a write-once secret (print once) and never log secret contents.
+- Keep internal service secret hidden by default; only print when operator explicitly passes `--print-internal-service-secret` in a secure terminal.
 - Normalize registry URL through URL parsing before requests; reject invalid URLs before network calls.
 - Persist bootstrap output in deterministic order: `registryUrl` then `apiKey`, so CLI state is predictable after onboarding.
 - Bootstrap command output should explicitly remind operators to set `REGISTRY_INTERNAL_SERVICE_ID` and `REGISTRY_INTERNAL_SERVICE_SECRET` on proxy environment before deploy.

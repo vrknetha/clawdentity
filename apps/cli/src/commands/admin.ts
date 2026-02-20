@@ -16,6 +16,7 @@ type AdminBootstrapOptions = {
   displayName?: string;
   apiKeyName?: string;
   registryUrl?: string;
+  printInternalServiceSecret?: boolean;
 };
 
 type AdminBootstrapResponse = {
@@ -283,6 +284,10 @@ export const createAdminCommand = (): Command => {
     .option("--display-name <name>", "Admin display name")
     .option("--api-key-name <name>", "Admin API key label")
     .option("--registry-url <url>", "Override registry URL")
+    .option(
+      "--print-internal-service-secret",
+      "Print internal service secret in stdout (not recommended)",
+    )
     .action(
       withErrorHandling(
         "admin bootstrap",
@@ -297,8 +302,10 @@ export const createAdminCommand = (): Command => {
           writeStdoutLine(
             `Internal service name: ${result.internalService.name}`,
           );
-          writeStdoutLine("Internal service secret (shown once):");
-          writeStdoutLine(result.internalService.secret);
+          if (options.printInternalServiceSecret) {
+            writeStdoutLine("Internal service secret (shown once):");
+            writeStdoutLine(result.internalService.secret);
+          }
           writeStdoutLine(
             "Set proxy secrets REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET with the values above before proxy deploy.",
           );
