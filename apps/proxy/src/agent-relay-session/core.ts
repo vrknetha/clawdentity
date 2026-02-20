@@ -21,7 +21,6 @@ import {
   getWebSocketMessageBytes,
   toDeliverFrame,
   toHeartbeatAckFrame,
-  toHeartbeatFrame,
   toRelayDeliveryResult,
 } from "./frames.js";
 import {
@@ -40,6 +39,7 @@ import {
 } from "./queue-state.js";
 import { toErrorResponse } from "./rpc.js";
 import { scheduleNextRelayAlarm } from "./scheduler.js";
+import { RelaySocketTracker } from "./socket-tracker.js";
 import type {
   DurableObjectStateLike,
   PendingDelivery,
@@ -55,10 +55,8 @@ import type {
 
 export class AgentRelaySession {
   private readonly deliveryPolicy: RelayDeliveryPolicy;
-  private readonly heartbeatAckSockets = new Map<string, WebSocket>();
   private readonly pendingDeliveries = new Map<string, PendingDelivery>();
-  private readonly socketLastAckAtMs = new Map<WebSocket, number>();
-  private readonly socketsPendingClose = new Set<WebSocket>();
+  private readonly socketTracker: RelaySocketTracker;
   private readonly state: DurableObjectStateLike;
   private inMemoryQueueState: RelayQueueState = {
     deliveries: [],
@@ -78,6 +76,10 @@ export class AgentRelaySession {
       retryMaxAttempts: config.relayRetryMaxAttempts,
       retryMaxMs: config.relayRetryMaxMs,
     };
+    this.socketTracker = new RelaySocketTracker({
+      heartbeatAckTimeoutMs: RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
+      staleCloseCode: RELAY_SOCKET_STALE_CLOSE_CODE,
+    });
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -341,14 +343,14 @@ export class AgentRelaySession {
     const frame = frameResult;
 
     if (frame.type === "heartbeat") {
-      this.touchSocketAck(ws, nowMs);
+      this.socketTracker.touchSocketAck(ws, nowMs);
       ws.send(toHeartbeatAckFrame(frame.id));
       await this.scheduleFromStorage();
       return;
     }
 
     if (frame.type === "deliver_ack") {
-      this.touchSocketAck(ws, nowMs);
+      this.socketTracker.touchSocketAck(ws, nowMs);
       const pending = this.pendingDeliveries.get(frame.ackId);
       if (pending) {
         clearTimeout(pending.timeoutHandle);
@@ -360,9 +362,7 @@ export class AgentRelaySession {
     }
 
     if (frame.type === "heartbeat_ack") {
-      const ackedSocket = this.heartbeatAckSockets.get(frame.ackId);
-      this.heartbeatAckSockets.delete(frame.ackId);
-      this.touchSocketAck(ackedSocket ?? ws, nowMs);
+      this.socketTracker.handleHeartbeatAck(frame.ackId, ws, nowMs);
       await this.scheduleFromStorage();
       return;
     }
@@ -377,8 +377,7 @@ export class AgentRelaySession {
     wasClean?: boolean,
   ): Promise<void> {
     if (ws !== undefined) {
-      this.removeSocketTracking(ws);
-      this.socketsPendingClose.delete(ws);
+      this.socketTracker.onSocketClosed(ws);
     }
 
     const gracefulClose = code === 1000 && (wasClean ?? true);
@@ -423,7 +422,7 @@ export class AgentRelaySession {
     const server = pair[1];
 
     this.state.acceptWebSocket(server, [connectorAgentDid]);
-    this.touchSocketAck(server, nowMs);
+    this.socketTracker.touchSocketAck(server, nowMs);
     void this.drainQueueOnReconnect();
 
     return new Response(null, {
@@ -649,108 +648,18 @@ export class AgentRelaySession {
   }
 
   private getActiveSockets(nowMs: number): WebSocket[] {
-    const sockets = this.state.getWebSockets();
-    this.pruneSocketTracking(sockets);
-    const activeSockets: WebSocket[] = [];
-
-    for (const socket of sockets) {
-      if (this.socketsPendingClose.has(socket)) {
-        continue;
-      }
-
-      const lastAckAtMs = this.resolveSocketLastAckAtMs(socket, nowMs);
-      if (nowMs - lastAckAtMs > RELAY_HEARTBEAT_ACK_TIMEOUT_MS) {
-        this.closeSocket(
-          socket,
-          RELAY_SOCKET_STALE_CLOSE_CODE,
-          "heartbeat_ack_timeout",
-        );
-        continue;
-      }
-
-      activeSockets.push(socket);
-    }
-
-    return activeSockets;
-  }
-
-  private resolveSocketLastAckAtMs(socket: WebSocket, nowMs: number): number {
-    const existing = this.socketLastAckAtMs.get(socket);
-    if (existing !== undefined) {
-      return existing;
-    }
-
-    this.socketLastAckAtMs.set(socket, nowMs);
-    return nowMs;
-  }
-
-  private touchSocketAck(socket: WebSocket, nowMs: number): void {
-    if (this.socketsPendingClose.has(socket)) {
-      return;
-    }
-    this.socketLastAckAtMs.set(socket, nowMs);
+    return this.socketTracker.getActiveSockets(
+      this.state.getWebSockets(),
+      nowMs,
+    );
   }
 
   private sendHeartbeatFrame(socket: WebSocket, nowMs: number): void {
-    const heartbeatFrame = toHeartbeatFrame(nowMs);
-    this.clearSocketHeartbeatAcks(socket);
-    this.heartbeatAckSockets.set(heartbeatFrame.id, socket);
-
-    try {
-      socket.send(heartbeatFrame.payload);
-    } catch {
-      this.heartbeatAckSockets.delete(heartbeatFrame.id);
-      this.closeSocket(
-        socket,
-        RELAY_SOCKET_STALE_CLOSE_CODE,
-        "heartbeat_send_failed",
-      );
-    }
-  }
-
-  private clearSocketHeartbeatAcks(socket: WebSocket): void {
-    for (const [ackId, ackSocket] of this.heartbeatAckSockets) {
-      if (ackSocket === socket) {
-        this.heartbeatAckSockets.delete(ackId);
-      }
-    }
+    this.socketTracker.sendHeartbeatFrame(socket, nowMs);
   }
 
   private closeSocket(socket: WebSocket, code: number, reason: string): void {
-    this.socketsPendingClose.add(socket);
-    this.removeSocketTracking(socket);
-    try {
-      socket.close(code, reason);
-    } catch {
-      // Ignore close errors for already-closed sockets.
-    }
-  }
-
-  private removeSocketTracking(socket: WebSocket): void {
-    this.socketLastAckAtMs.delete(socket);
-    this.clearSocketHeartbeatAcks(socket);
-  }
-
-  private pruneSocketTracking(activeSockets: WebSocket[]): void {
-    const activeSocketSet = new Set(activeSockets);
-
-    for (const socket of this.socketLastAckAtMs.keys()) {
-      if (!activeSocketSet.has(socket)) {
-        this.socketLastAckAtMs.delete(socket);
-      }
-    }
-
-    for (const socket of this.socketsPendingClose) {
-      if (!activeSocketSet.has(socket)) {
-        this.socketsPendingClose.delete(socket);
-      }
-    }
-
-    for (const [ackId, socket] of this.heartbeatAckSockets.entries()) {
-      if (!activeSocketSet.has(socket)) {
-        this.heartbeatAckSockets.delete(ackId);
-      }
-    }
+    this.socketTracker.closeSocket(socket, code, reason);
   }
 
   private async drainQueueOnReconnect(): Promise<void> {

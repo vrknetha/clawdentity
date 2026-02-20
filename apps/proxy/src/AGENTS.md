@@ -97,6 +97,6 @@
 
 ## Agent Relay Session Modularization
 - Keep `agent-relay-session.ts` focused on Durable Object state machine orchestration; move helpers, parsers, and queue helpers into `apps/proxy/src/agent-relay-session/` so the entry file stays below 800 lines.
-- Name helper modules by concern (`types`, `errors`, `frames`, `parsers`, `queue`, `policy`, `rpc`) and avoid importing back from `agent-relay-session.ts` to prevent cycles.
+- Name helper modules by concern (`types`, `errors`, `frames`, `parsers`, `queue`, `policy`, `rpc`, `socket-tracker`) and avoid importing back from `agent-relay-session.ts` to prevent cycles.
 - Re-export the public API (`Relay*` types, `AgentRelaySession`, and RPC helpers) from `agent-relay-session.ts` so existing imports in routes/tests stay untouched.
 - When introducing a new helper, document it here so future splits keep the Durable Object surface lean and test coverage aware.
