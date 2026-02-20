@@ -94,6 +94,7 @@ import {
   deriveInternalServiceSecretPrefix,
   generateInternalServiceSecret,
   hashInternalServiceSecret,
+  INTERNAL_SERVICE_SECRET_MARKER,
 } from "./auth/service-auth.js";
 import { createDb } from "./db/client.js";
 import {
@@ -138,6 +139,8 @@ type Bindings = {
   EVENT_BUS_BACKEND?: "memory" | "queue";
   EVENT_BUS_QUEUE?: QueuePublisher;
   BOOTSTRAP_SECRET?: string;
+  BOOTSTRAP_INTERNAL_SERVICE_ID?: string;
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_KEYS?: string;
 };
@@ -155,7 +158,7 @@ const PROXY_URL_BY_ENVIRONMENT: Record<RegistryConfig["ENVIRONMENT"], string> =
   {
     development: "https://dev.proxy.clawdentity.com",
     production: "https://proxy.clawdentity.com",
-    test: "https://dev.proxy.clawdentity.com",
+    local: "https://dev.proxy.clawdentity.com",
   };
 // Deterministic bootstrap identity guarantees one-time admin creation under races.
 const BOOTSTRAP_ADMIN_HUMAN_ID = "00000000000000000000000000";
@@ -924,6 +927,67 @@ function requireBootstrapSecret(bootstrapSecret: string | undefined): string {
   });
 }
 
+function requireBootstrapInternalServiceCredentials(config: RegistryConfig): {
+  id: string;
+  secret: string;
+} {
+  const serviceId =
+    typeof config.BOOTSTRAP_INTERNAL_SERVICE_ID === "string"
+      ? config.BOOTSTRAP_INTERNAL_SERVICE_ID.trim()
+      : "";
+  const serviceSecret =
+    typeof config.BOOTSTRAP_INTERNAL_SERVICE_SECRET === "string"
+      ? config.BOOTSTRAP_INTERNAL_SERVICE_SECRET.trim()
+      : "";
+
+  const fieldErrors: Record<string, string[]> = {};
+
+  if (serviceId.length === 0) {
+    fieldErrors.BOOTSTRAP_INTERNAL_SERVICE_ID = [
+      "BOOTSTRAP_INTERNAL_SERVICE_ID is required",
+    ];
+  } else {
+    try {
+      parseUlid(serviceId);
+    } catch {
+      fieldErrors.BOOTSTRAP_INTERNAL_SERVICE_ID = [
+        "BOOTSTRAP_INTERNAL_SERVICE_ID must be a valid ULID",
+      ];
+    }
+  }
+
+  if (serviceSecret.length === 0) {
+    fieldErrors.BOOTSTRAP_INTERNAL_SERVICE_SECRET = [
+      "BOOTSTRAP_INTERNAL_SERVICE_SECRET is required",
+    ];
+  } else if (
+    !serviceSecret.startsWith(INTERNAL_SERVICE_SECRET_MARKER) ||
+    serviceSecret.length <= INTERNAL_SERVICE_SECRET_MARKER.length
+  ) {
+    fieldErrors.BOOTSTRAP_INTERNAL_SERVICE_SECRET = [
+      `BOOTSTRAP_INTERNAL_SERVICE_SECRET must start with ${INTERNAL_SERVICE_SECRET_MARKER}`,
+    ];
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    throw new AppError({
+      code: "CONFIG_VALIDATION_FAILED",
+      message: "Registry configuration is invalid",
+      status: 500,
+      expose: true,
+      details: {
+        fieldErrors,
+        formErrors: [],
+      },
+    });
+  }
+
+  return {
+    id: serviceId,
+    secret: serviceSecret,
+  };
+}
+
 function parseBootstrapSecretHeader(headerValue: string | undefined): string {
   if (typeof headerValue !== "string" || headerValue.trim().length === 0) {
     throw new AppError({
@@ -1077,6 +1141,8 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const expectedBootstrapSecret = requireBootstrapSecret(
       config.BOOTSTRAP_SECRET,
     );
+    const bootstrapInternalService =
+      requireBootstrapInternalServiceCredentials(config);
     const providedBootstrapSecret = parseBootstrapSecretHeader(
       c.req.header("x-bootstrap-secret"),
     );
@@ -1118,14 +1184,13 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     const apiKeyHash = await hashApiKeyToken(apiKeyToken);
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);
     const apiKeyId = generateUlid(nowUtcMs() + 1);
-    const internalServiceSecret = generateInternalServiceSecret();
     const internalServiceSecretHash = await hashInternalServiceSecret(
-      internalServiceSecret,
+      bootstrapInternalService.secret,
     );
     const internalServiceSecretPrefix = deriveInternalServiceSecretPrefix(
-      internalServiceSecret,
+      bootstrapInternalService.secret,
     );
-    const internalServiceId = generateUlid(nowUtcMs() + 2);
+    const internalServiceId = bootstrapInternalService.id;
     const createdAt = nowIso();
 
     const rollbackBootstrapMutation = async (
@@ -1241,7 +1306,6 @@ function createRegistryApp(options: CreateRegistryAppOptions = {}) {
         internalService: {
           id: internalServiceId,
           name: BOOTSTRAP_INTERNAL_SERVICE_NAME,
-          secret: internalServiceSecret,
         },
       },
       201,

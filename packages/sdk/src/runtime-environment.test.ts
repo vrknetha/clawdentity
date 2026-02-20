@@ -7,15 +7,15 @@ import {
 describe("runtime environment helpers", () => {
   it("declares the supported runtime environments", () => {
     expect(runtimeEnvironmentValues).toEqual([
+      "local",
       "development",
       "production",
-      "test",
     ]);
   });
 
   it("exposes verbose errors for non-production environments", () => {
     expect(shouldExposeVerboseErrors("development")).toBe(true);
-    expect(shouldExposeVerboseErrors("test")).toBe(true);
+    expect(shouldExposeVerboseErrors("local")).toBe(true);
   });
 
   it("hides verbose errors in production", () => {

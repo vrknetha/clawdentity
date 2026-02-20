@@ -1,7 +1,7 @@
 export const runtimeEnvironmentValues = [
+  "local",
   "development",
   "production",
-  "test",
 ] as const;
 
 export type RuntimeEnvironment = (typeof runtimeEnvironmentValues)[number];

@@ -56,8 +56,8 @@ describe("proxy config", () => {
     const config = parseProxyConfig({
       PORT: "4100",
       CLAWDENTITY_REGISTRY_URL: "https://registry.example.com",
-      REGISTRY_INTERNAL_SERVICE_ID: "01KHSVCABCDEFGHJKMNOPQRST",
-      REGISTRY_INTERNAL_SERVICE_SECRET:
+      BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+      BOOTSTRAP_INTERNAL_SERVICE_SECRET:
         "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
       ENVIRONMENT: "local",
       CRL_STALE_BEHAVIOR: "fail-closed",
@@ -76,7 +76,7 @@ describe("proxy config", () => {
 
     expect(config.listenPort).toBe(4100);
     expect(config.registryUrl).toBe("https://registry.example.com");
-    expect(config.registryInternalServiceId).toBe("01KHSVCABCDEFGHJKMNOPQRST");
+    expect(config.registryInternalServiceId).toBe("01HF7YAT00W6W7CM7N3W5FDXT4");
     expect(config.registryInternalServiceSecret).toBe(
       "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
     );
@@ -172,12 +172,12 @@ describe("proxy config", () => {
   it("throws when only one internal service credential is provided", () => {
     expect(() =>
       parseProxyConfig({
-        REGISTRY_INTERNAL_SERVICE_ID: "svc-id-only",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-id-only",
       }),
     ).toThrow(ProxyConfigError);
     expect(() =>
       parseProxyConfig({
-        REGISTRY_INTERNAL_SERVICE_SECRET: "clw_srv_secret-only",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_secret-only",
       }),
     ).toThrow(ProxyConfigError);
   });
@@ -200,8 +200,8 @@ describe("proxy config", () => {
       {
         ENVIRONMENT: "local",
         REGISTRY_URL: "https://registry.example.test",
-        REGISTRY_INTERNAL_SERVICE_ID: "svc-proxy-registry",
-        REGISTRY_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
       },
       {
         requireRuntimeKeys: true,

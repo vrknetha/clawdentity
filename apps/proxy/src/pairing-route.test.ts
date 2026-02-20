@@ -75,7 +75,7 @@ async function createSignedTicketFixture(input: {
 }
 
 function createPairingApp(input?: {
-  environment?: "local" | "development" | "production" | "test";
+  environment?: "local" | "development" | "production";
   startFetchImpl?: typeof fetch;
   confirmFetchImpl?: typeof fetch;
   nowMs?: () => number;
@@ -84,8 +84,8 @@ function createPairingApp(input?: {
   const app = createProxyApp({
     config: parseProxyConfig({
       REGISTRY_URL: "https://registry.example.com",
-      REGISTRY_INTERNAL_SERVICE_ID: "01KHSVCABCDEFGHJKMNOPQRST",
-      REGISTRY_INTERNAL_SERVICE_SECRET:
+      BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+      BOOTSTRAP_INTERNAL_SERVICE_SECRET:
         "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
       ENVIRONMENT: input?.environment,
     }),
@@ -169,7 +169,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       | undefined;
     const ownershipHeaders = new Headers(ownershipCallInit?.headers);
     expect(ownershipHeaders.get("x-claw-service-id")).toBe(
-      "01KHSVCABCDEFGHJKMNOPQRST",
+      "01HF7YAT00W6W7CM7N3W5FDXT4",
     );
     expect(ownershipHeaders.get("x-claw-service-secret")).toBe(
       "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",

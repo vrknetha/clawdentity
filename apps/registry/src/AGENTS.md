@@ -11,6 +11,7 @@
 - `/health` must return HTTP 200 with `{ status, version, environment }` on valid config.
 - Invalid runtime config must fail through the shared error handler and return `CONFIG_VALIDATION_FAILED`.
 - Runtime startup config must fail fast for non-test environments when required keys are missing (`PROXY_URL`, `REGISTRY_ISSUER_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- `BOOTSTRAP_INTERNAL_SERVICE_ID` and `BOOTSTRAP_INTERNAL_SERVICE_SECRET` are required bootstrap credentials in every environment and must be set together.
 
 ## Admin Bootstrap Contract
 - `POST /v1/admin/bootstrap` is a one-time bootstrap endpoint gated by `BOOTSTRAP_SECRET`.
@@ -18,8 +19,9 @@
 - Require `x-bootstrap-secret` header and compare with constant-time semantics; invalid/missing secret must return `401 ADMIN_BOOTSTRAP_UNAUTHORIZED`.
 - If `BOOTSTRAP_SECRET` is not configured, return `503 ADMIN_BOOTSTRAP_DISABLED`.
 - If any admin human already exists, return `409 ADMIN_BOOTSTRAP_ALREADY_COMPLETED`.
-- Success response must include `{ human, apiKey, internalService }`; return plaintext PAT and internal service secret only in bootstrap response.
+- Success response must include `{ human, apiKey, internalService }` with internal service metadata only (`id`, `name`); never return plaintext internal service secret from bootstrap.
 - Bootstrap must create a default internal service named `proxy-pairing` with scope `identity.read` in the same mutation unit as admin + PAT creation.
+- Bootstrap must seed `proxy-pairing` service credentials from `BOOTSTRAP_INTERNAL_SERVICE_ID` and `BOOTSTRAP_INTERNAL_SERVICE_SECRET` so fresh-DB recovery is deterministic.
 - Persist admin bootstrap atomically where supported (transaction). When falling back because transactions are unavailable, run manual compensation rollback so no partial bootstrap state survives.
 - Fallback path must be compensation-safe: if API key/internal-service insert fails after admin insert, delete inserted `internal_services` + `api_keys` rows before deleting the admin human so retry remains possible under FK constraints.
 
