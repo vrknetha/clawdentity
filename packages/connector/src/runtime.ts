@@ -472,6 +472,15 @@ function createWebSocketFactory(): (
           return;
         }
 
+        if (type === "unexpected-response") {
+          socket.on("unexpected-response", (_request, response) => {
+            listener({
+              status: response.statusCode,
+            });
+          });
+          return;
+        }
+
         socket.on("error", (error) => listener({ error }));
       },
     };
@@ -699,6 +708,10 @@ export async function startConnectorRuntime(
       return;
     }
 
+    await refreshCurrentAuth();
+  };
+
+  const refreshCurrentAuth = async (): Promise<void> => {
     currentAuth = await refreshAgentAuthWithClawProof({
       registryUrl: input.registryUrl,
       ait: input.credentials.ait,
@@ -835,6 +848,25 @@ export async function startConnectorRuntime(
     openclawHookToken,
     fetchImpl,
     logger,
+    hooks: {
+      onAuthUpgradeRejected: async ({ status, immediateRetry }) => {
+        logger.warn("connector.websocket.auth_upgrade_rejected", {
+          status,
+          immediateRetry,
+        });
+        await syncAuthFromDisk();
+        try {
+          await refreshCurrentAuth();
+        } catch (error) {
+          logger.warn(
+            "connector.runtime.registry_auth_refresh_on_ws_upgrade_reject_failed",
+            {
+              reason: sanitizeErrorReason(error),
+            },
+          );
+        }
+      },
+    },
     inboundDeliverHandler: async (frame) => {
       const persisted = await inboundInbox.enqueue(frame);
       if (!persisted.accepted) {
