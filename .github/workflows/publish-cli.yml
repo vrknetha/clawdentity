@@ -2,10 +2,15 @@ name: Publish CLI
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Release version for clawdentity (semver)"
+      release_type:
+        description: "Semantic version bump type"
         required: true
-        type: string
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
       dist_tag:
         description: "npm dist-tag"
         required: true
@@ -13,7 +18,7 @@ on:
         type: string
 
 concurrency:
-  group: publish-cli-${{ github.ref }}
+  group: publish-cli-release
   cancel-in-progress: false
 
 permissions:
@@ -49,15 +54,72 @@ jobs:
         run: |
           test -n "${NODE_AUTH_TOKEN}"
 
-      - name: Validate release version format
+      - name: Resolve current and next CLI version
+        id: version
         run: |
-          python3 - <<'PY'
-          import os, re, sys
-          version = "${{ inputs.version }}"
-          if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$", version):
-              raise SystemExit(f"invalid semver version: {version}")
-          print("version accepted:", version)
-          PY
+          set +e
+          NPM_VIEW_OUTPUT="$(npm view clawdentity version --registry https://registry.npmjs.org 2>&1)"
+          NPM_VIEW_STATUS=$?
+          set -e
+          if [ "${NPM_VIEW_STATUS}" -eq 0 ]; then
+            CURRENT_VERSION="$(printf "%s" "${NPM_VIEW_OUTPUT}" | tr -d '\r' | tail -n 1)"
+          elif printf "%s" "${NPM_VIEW_OUTPUT}" | grep -q "E404"; then
+            CURRENT_VERSION="0.0.0"
+            echo "No published clawdentity package found; starting from ${CURRENT_VERSION}"
+          else
+            echo "Unable to resolve published clawdentity version from npm:"
+            echo "${NPM_VIEW_OUTPUT}"
+            exit 1
+          fi
+          RELEASE_TYPE="${{ inputs.release_type }}"
+          NEXT_VERSION="$(CURRENT_VERSION="${CURRENT_VERSION}" RELEASE_TYPE="${RELEASE_TYPE}" node <<'NODE'
+          const currentRaw = process.env.CURRENT_VERSION ?? "";
+          const releaseType = process.env.RELEASE_TYPE ?? "";
+          const normalized = currentRaw.trim();
+          const core = normalized.split("-")[0];
+          const match = core.match(/^(\d+)\.(\d+)\.(\d+)$/);
+          if (!match) {
+            throw new Error(`Unable to parse published semver: ${normalized}`);
+          }
+          let major = Number(match[1]);
+          let minor = Number(match[2]);
+          let patch = Number(match[3]);
+
+          if (releaseType === "major") {
+            major += 1;
+            minor = 0;
+            patch = 0;
+          } else if (releaseType === "minor") {
+            minor += 1;
+            patch = 0;
+          } else if (releaseType === "patch") {
+            patch += 1;
+          } else {
+            throw new Error(`Unsupported release type: ${releaseType}`);
+          }
+          process.stdout.write(`${major}.${minor}.${patch}`);
+          NODE
+          )"
+          echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "next_version=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release: ${CURRENT_VERSION} -> ${NEXT_VERSION} (${RELEASE_TYPE})"
+
+      - name: Assert target version is unpublished
+        run: |
+          set +e
+          NPM_VIEW_OUTPUT="$(npm view "clawdentity@${{ steps.version.outputs.next_version }}" version --registry https://registry.npmjs.org 2>&1)"
+          NPM_VIEW_STATUS=$?
+          set -e
+          if [ "${NPM_VIEW_STATUS}" -eq 0 ]; then
+            echo "Version already published: ${{ steps.version.outputs.next_version }}"
+            exit 1
+          elif printf "%s" "${NPM_VIEW_OUTPUT}" | grep -q "E404"; then
+            echo "Target version is available: ${{ steps.version.outputs.next_version }}"
+          else
+            echo "Unable to verify target version availability on npm:"
+            echo "${NPM_VIEW_OUTPUT}"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -78,7 +140,7 @@ jobs:
         run: pnpm -F clawdentity verify:skill-bundle
 
       - name: Set package version for release
-        run: npm --prefix apps/cli pkg set version=${{ inputs.version }}
+        run: npm --prefix apps/cli pkg set version=${{ steps.version.outputs.next_version }}
 
       - name: Validate publish manifest
         run: |
