@@ -16,7 +16,9 @@ import {
   toOpenclawHookUrl,
   WS_READY_STATE_CONNECTING,
 } from "./client/helpers.js";
+import { handleIncomingConnectorMessage } from "./client/inbound.js";
 import { handleInboundDeliverFrame } from "./client/inbound-delivery.js";
+import { ConnectorClientMetricsTracker } from "./client/metrics.js";
 import { ConnectorOutboundQueueManager } from "./client/queue.js";
 import { computeJitteredBackoffDelayMs } from "./client/retry.js";
 import type {
@@ -52,7 +54,6 @@ import {
   enqueueFrameSchema,
   type HeartbeatAckFrame,
   type HeartbeatFrame,
-  parseFrame,
   serializeFrame,
 } from "./frames.js";
 
@@ -95,21 +96,12 @@ export class ConnectorClient {
   private readonly heartbeatManager: ConnectorHeartbeatManager;
   private readonly outboundQueue: ConnectorOutboundQueueManager;
   private readonly localOpenclawDelivery: LocalOpenclawDeliveryClient;
+  private readonly metricsTracker: ConnectorClientMetricsTracker;
 
   private socket: ConnectorWebSocket | undefined;
   private reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
   private connectTimeout: ReturnType<typeof setTimeout> | undefined;
   private reconnectAttempt = 0;
-  private reconnectCount = 0;
-  private connectAttempts = 0;
-  private connectedSinceMs: number | undefined;
-  private accumulatedConnectedMs = 0;
-  private lastConnectedAtIso: string | undefined;
-
-  private inboundAckLatencySampleCount = 0;
-  private inboundAckLatencyTotalMs = 0;
-  private inboundAckLatencyMaxMs = 0;
-  private inboundAckLatencyLastMs: number | undefined;
 
   private authUpgradeImmediateRetryUsed = false;
   private started = false;
@@ -203,6 +195,7 @@ export class ConnectorClient {
       persistence: this.outboundQueuePersistence,
       logger: this.logger,
     });
+    this.metricsTracker = new ConnectorClientMetricsTracker(this.now);
 
     const openclawHookUrl = toOpenclawHookUrl(
       options.openclawBaseUrl,
@@ -257,37 +250,11 @@ export class ConnectorClient {
   }
 
   getMetricsSnapshot(): ConnectorClientMetricsSnapshot {
-    const nowMs = this.now();
-    const uptimeMs =
-      this.accumulatedConnectedMs +
-      (this.connectedSinceMs === undefined ? 0 : nowMs - this.connectedSinceMs);
-
-    return {
-      connection: {
-        connectAttempts: this.connectAttempts,
-        connected: this.isConnected(),
-        reconnectCount: this.reconnectCount,
-        uptimeMs: Math.max(0, uptimeMs),
-        lastConnectedAt: this.lastConnectedAtIso,
-      },
+    return this.metricsTracker.getSnapshot({
+      connected: this.isConnected(),
       heartbeat: this.heartbeatManager.getMetricsSnapshot(),
-      inboundDelivery: {
-        sampleCount: this.inboundAckLatencySampleCount,
-        lastAckLatencyMs: this.inboundAckLatencyLastMs,
-        maxAckLatencyMs:
-          this.inboundAckLatencySampleCount > 0
-            ? this.inboundAckLatencyMaxMs
-            : undefined,
-        avgAckLatencyMs:
-          this.inboundAckLatencySampleCount > 0
-            ? Math.floor(
-                this.inboundAckLatencyTotalMs /
-                  this.inboundAckLatencySampleCount,
-              )
-            : undefined,
-      },
       outboundQueue: this.outboundQueue.getMetricsSnapshot(),
-    };
+    });
   }
 
   enqueueOutbound(input: ConnectorOutboundEnqueueInput): EnqueueFrame {
@@ -309,7 +276,7 @@ export class ConnectorClient {
 
   private async connectSocket(): Promise<void> {
     this.clearReconnectTimeout();
-    this.connectAttempts += 1;
+    this.metricsTracker.onConnectAttempt();
 
     if (this.outboundQueuePersistence !== undefined) {
       await this.ensureOutboundQueueLoaded();
@@ -355,8 +322,7 @@ export class ConnectorClient {
       this.clearConnectTimeout();
       this.reconnectAttempt = 0;
       this.authUpgradeImmediateRetryUsed = false;
-      this.connectedSinceMs = this.now();
-      this.lastConnectedAtIso = this.makeTimestamp();
+      this.metricsTracker.onSocketConnected(this.makeTimestamp());
       this.logger.info("connector.websocket.connected", {
         url: this.connectorUrl,
       });
@@ -469,7 +435,7 @@ export class ConnectorClient {
     if (options?.incrementAttempt ?? true) {
       this.reconnectAttempt += 1;
     }
-    this.reconnectCount += 1;
+    this.metricsTracker.onReconnectScheduled();
 
     this.reconnectTimeout = setTimeout(() => {
       void this.connectSocket();
@@ -530,13 +496,7 @@ export class ConnectorClient {
     }
 
     this.socket = undefined;
-    if (this.connectedSinceMs !== undefined) {
-      this.accumulatedConnectedMs += Math.max(
-        0,
-        this.now() - this.connectedSinceMs,
-      );
-      this.connectedSinceMs = undefined;
-    }
+    this.metricsTracker.onSocketDetached();
     this.clearSocketState();
     return true;
   }
@@ -688,33 +648,22 @@ export class ConnectorClient {
   }
 
   private async handleIncomingMessage(rawFrame: unknown): Promise<void> {
-    let frame: ConnectorFrame;
-
-    try {
-      frame = parseFrame(rawFrame);
-    } catch (error) {
-      this.logger.warn("connector.frame.parse_failed", {
-        reason: sanitizeErrorReason(error),
-      });
-      return;
-    }
-
-    this.hooks.onFrame?.(frame);
-
-    if (frame.type === "heartbeat") {
-      this.handleHeartbeatFrame(frame);
-      return;
-    }
-
-    if (frame.type === "heartbeat_ack") {
-      this.heartbeatManager.handleHeartbeatAck(frame);
-      return;
-    }
-
-    if (frame.type === "deliver") {
-      await this.handleDeliverFrame(frame);
-      return;
-    }
+    await handleIncomingConnectorMessage({
+      rawFrame,
+      logger: this.logger,
+      handlers: {
+        onFrame: this.hooks.onFrame,
+        onHeartbeatFrame: (frame) => {
+          this.handleHeartbeatFrame(frame);
+        },
+        onHeartbeatAckFrame: (frame) => {
+          this.heartbeatManager.handleHeartbeatAck(frame);
+        },
+        onDeliverFrame: async (frame) => {
+          await this.handleDeliverFrame(frame);
+        },
+      },
+    });
   }
 
   private handleHeartbeatFrame(frame: HeartbeatFrame): void {
@@ -743,20 +692,9 @@ export class ConnectorClient {
         this.sendFrame(ackFrame);
       },
       recordAckLatency: (durationMs) => {
-        this.recordInboundDeliveryAckLatency(durationMs);
+        this.metricsTracker.recordInboundDeliveryAckLatency(durationMs);
       },
     });
-  }
-
-  private recordInboundDeliveryAckLatency(durationMs: number): void {
-    const latencyMs = Math.max(0, Math.floor(durationMs));
-    this.inboundAckLatencySampleCount += 1;
-    this.inboundAckLatencyTotalMs += latencyMs;
-    this.inboundAckLatencyMaxMs = Math.max(
-      this.inboundAckLatencyMaxMs,
-      latencyMs,
-    );
-    this.inboundAckLatencyLastMs = latencyMs;
   }
 
   private makeFrameId(): string {

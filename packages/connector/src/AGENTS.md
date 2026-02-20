@@ -5,6 +5,8 @@
 - Keep `client.ts` as the stable public surface (`ConnectorClient` + exported client types) and route internal concerns through `client/` modules:
   - `client/types.ts` for externally consumed client types.
   - `client/helpers.ts` for shared pure helpers (event parsing, sanitization, normalization).
+  - `client/inbound.ts` for parsed frame dispatch orchestration (`heartbeat`, `heartbeat_ack`, `deliver`).
+  - `client/metrics.ts` for websocket uptime/reconnect and inbound ack-latency tracking.
   - `client/retry.ts` for reusable backoff math.
   - `client/heartbeat.ts` for heartbeat scheduling, ack tracking, and RTT metrics.
   - `client/queue.ts` for outbound queue + persistence orchestration.
