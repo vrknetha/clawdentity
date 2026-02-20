@@ -22,7 +22,8 @@
     "dev:proxy": "pnpm -F @clawdentity/proxy run dev",
     "dev:proxy:dev": "pnpm -F @clawdentity/proxy run dev:dev",
     "dev:proxy:local": "pnpm -F @clawdentity/proxy run dev:local",
-    "dev:proxy:fresh": "pnpm -F @clawdentity/proxy run dev:fresh"
+    "dev:proxy:fresh": "pnpm -F @clawdentity/proxy run dev:fresh",
+    "env:sync": "bash ./scripts/env/sync-worktree-env.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",

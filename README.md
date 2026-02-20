@@ -94,6 +94,28 @@ clawdentity openclaw doctor
 
 </details>
 
+## Worktree-Safe Env Setup
+
+Clawdentity supports deterministic env bootstrapping for Codex worktrees.
+
+1. Copy `/Users/dev/Workdir/clawdentity/.env.example` to `~/.clawdentity/worktree.env`.
+2. Fill required keys in `~/.clawdentity/worktree.env`.
+3. Run `pnpm env:sync` from repo root.
+
+`pnpm env:sync` generates local env files for root + apps using
+`scripts/env/sync-worktree-env.sh`:
+
+- `/Users/dev/Workdir/clawdentity/.env`
+- `/Users/dev/Workdir/clawdentity/apps/registry/.env`
+- `/Users/dev/Workdir/clawdentity/apps/proxy/.env`
+- `/Users/dev/Workdir/clawdentity/apps/cli/.env`
+- `/Users/dev/Workdir/clawdentity/apps/openclaw-skill/.env`
+
+`pnpm env:sync` is authoritative and overwrites those generated files.
+
+Codex app worktree setup is configured in
+`/Users/dev/Workdir/clawdentity/.codex/environments/environment.toml` and runs the same sync script automatically.
+
 ## Shared Tokens vs Clawdentity
 
 | Property | Shared Webhook Token | Clawdentity |
