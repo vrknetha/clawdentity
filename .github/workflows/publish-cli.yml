@@ -152,6 +152,7 @@ jobs:
       - name: Validate publish manifest
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.next_version }}
+          EXPECTED_REPOSITORY_URL: https://github.com/${{ github.repository }}
         run: |
           node <<'NODE'
           const fs = require("node:fs");
@@ -165,6 +166,13 @@ jobs:
           if (pkg.version !== process.env.EXPECTED_VERSION) {
             throw new Error(
               `Package version mismatch: expected ${process.env.EXPECTED_VERSION}, got ${pkg.version}`,
+            );
+          }
+          const repositoryUrl =
+            typeof pkg.repository === "string" ? pkg.repository : pkg.repository?.url;
+          if (repositoryUrl !== process.env.EXPECTED_REPOSITORY_URL) {
+            throw new Error(
+              `Package repository URL mismatch: expected ${process.env.EXPECTED_REPOSITORY_URL}, got ${repositoryUrl ?? "undefined"}`,
             );
           }
           if (pkg.private === true) {
