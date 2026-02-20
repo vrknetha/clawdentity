@@ -178,6 +178,9 @@ describe("ConnectorClient", () => {
     expect(requestInit?.method).toBe("POST");
     expect(requestInit?.headers).toMatchObject({
       "content-type": "application/json",
+      "x-clawdentity-agent-did": expect.stringMatching(/^did:claw:agent:/),
+      "x-clawdentity-to-agent-did": expect.stringMatching(/^did:claw:agent:/),
+      "x-clawdentity-verified": "true",
       "x-openclaw-token": "hook-secret",
       "x-request-id": deliverId,
     });
@@ -340,6 +343,63 @@ describe("ConnectorClient", () => {
 
     await vi.waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(sockets[0].sent.length).toBeGreaterThan(0);
+    });
+
+    const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);
+    expect(ack.type).toBe("deliver_ack");
+    if (ack.type !== "deliver_ack") {
+      throw new Error("expected deliver_ack frame");
+    }
+    expect(ack.ackId).toBe(deliverId);
+    expect(ack.accepted).toBe(true);
+
+    client.disconnect();
+  });
+
+  it("retries when local openclaw hook auth rejects with 401", async () => {
+    const sockets: MockWebSocket[] = [];
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("unauthorized", { status: 401 }))
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      heartbeatIntervalMs: 0,
+      fetchImpl: fetchMock,
+      openclawDeliverTimeoutMs: 100,
+      openclawDeliverRetryInitialDelayMs: 1,
+      openclawDeliverRetryMaxDelayMs: 2,
+      openclawDeliverRetryBudgetMs: 500,
+      webSocketFactory: (url) => {
+        const socket = new MockWebSocket(url);
+        sockets.push(socket);
+        return socket;
+      },
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    const deliverId = generateUlid(1700000000000);
+    sockets[0].message(
+      serializeFrame({
+        v: 1,
+        type: "deliver",
+        id: deliverId,
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid: createAgentDid(1700000000100),
+        toAgentDid: createAgentDid(1700000000200),
+        payload: {
+          message: "hello from connector",
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(sockets[0].sent.length).toBeGreaterThan(0);
     });
 

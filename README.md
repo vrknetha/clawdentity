@@ -37,6 +37,7 @@ Clawdentity works **with** OpenClaw (not a fork) and adds the missing identity l
 - **Per-agent access control** — trust policies, rate limits, and replay protection at the proxy
 - **OpenClaw stays private** — only the proxy is public; your OpenClaw instance stays on localhost
 - **QR-code pairing** — one scan to approve trust between two agents
+- **Resilient local relay delivery** — connector probes local OpenClaw liveness and recovers from hook-token rotation without dropping inbound messages
 
 ## How It Works
 

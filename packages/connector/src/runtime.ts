@@ -46,7 +46,13 @@ import {
   DEFAULT_CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR,
   DEFAULT_CONNECTOR_INBOUND_RETRY_INITIAL_DELAY_MS,
   DEFAULT_CONNECTOR_INBOUND_RETRY_MAX_DELAY_MS,
+  DEFAULT_CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS,
+  DEFAULT_CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS,
   DEFAULT_CONNECTOR_OUTBOUND_PATH,
+  DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_MAX_ATTEMPTS,
+  DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_RETRY_BACKOFF_FACTOR,
+  DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_RETRY_INITIAL_DELAY_MS,
+  DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_RETRY_MAX_DELAY_MS,
   DEFAULT_CONNECTOR_STATUS_PATH,
   DEFAULT_OPENCLAW_BASE_URL,
   DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
@@ -276,11 +282,17 @@ function sanitizeErrorReason(error: unknown): string {
 }
 
 class LocalOpenclawDeliveryError extends Error {
+  readonly code?: "HOOK_AUTH_REJECTED" | "RUNTIME_STOPPING";
   readonly retryable: boolean;
 
-  constructor(input: { message: string; retryable: boolean }) {
+  constructor(input: {
+    code?: "HOOK_AUTH_REJECTED" | "RUNTIME_STOPPING";
+    message: string;
+    retryable: boolean;
+  }) {
     super(input.message);
     this.name = "LocalOpenclawDeliveryError";
+    this.code = input.code;
     this.retryable = input.retryable;
   }
 }
@@ -296,6 +308,15 @@ type InboundReplayPolicy = {
   retryBackoffFactor: number;
   retryInitialDelayMs: number;
   retryMaxDelayMs: number;
+  runtimeReplayMaxAttempts: number;
+  runtimeReplayRetryBackoffFactor: number;
+  runtimeReplayRetryInitialDelayMs: number;
+  runtimeReplayRetryMaxDelayMs: number;
+};
+
+type OpenclawProbePolicy = {
+  intervalMs: number;
+  timeoutMs: number;
 };
 
 type InboundReplayStatus = {
@@ -311,6 +332,13 @@ type InboundReplayView = {
   lastReplayError?: string;
   snapshot: ConnectorInboundInboxSnapshot;
   replayerActive: boolean;
+  openclawGateway: {
+    lastCheckedAt?: string;
+    lastFailureReason?: string;
+    lastSuccessAt?: string;
+    reachable: boolean;
+    url: string;
+  };
   openclawHook: {
     lastAttemptAt?: string;
     lastAttemptStatus?: "ok" | "failed";
@@ -318,9 +346,19 @@ type InboundReplayView = {
   };
 };
 
+type OpenclawGatewayProbeStatus = {
+  lastCheckedAt?: string;
+  lastFailureReason?: string;
+  lastSuccessAt?: string;
+  reachable: boolean;
+};
+
 function loadInboundReplayPolicy(): InboundReplayPolicy {
   const retryBackoffFactor = Number.parseFloat(
     process.env.CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR ?? "",
+  );
+  const runtimeReplayRetryBackoffFactor = Number.parseFloat(
+    process.env.CONNECTOR_RUNTIME_REPLAY_RETRY_BACKOFF_FACTOR ?? "",
   );
 
   return {
@@ -364,6 +402,36 @@ function loadInboundReplayPolicy(): InboundReplayPolicy {
       Number.isFinite(retryBackoffFactor) && retryBackoffFactor >= 1
         ? retryBackoffFactor
         : DEFAULT_CONNECTOR_INBOUND_RETRY_BACKOFF_FACTOR,
+    runtimeReplayMaxAttempts: parsePositiveIntEnv(
+      "CONNECTOR_RUNTIME_REPLAY_MAX_ATTEMPTS",
+      DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_MAX_ATTEMPTS,
+    ),
+    runtimeReplayRetryInitialDelayMs: parsePositiveIntEnv(
+      "CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS",
+      DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_RETRY_INITIAL_DELAY_MS,
+    ),
+    runtimeReplayRetryMaxDelayMs: parsePositiveIntEnv(
+      "CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS",
+      DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_RETRY_MAX_DELAY_MS,
+    ),
+    runtimeReplayRetryBackoffFactor:
+      Number.isFinite(runtimeReplayRetryBackoffFactor) &&
+      runtimeReplayRetryBackoffFactor >= 1
+        ? runtimeReplayRetryBackoffFactor
+        : DEFAULT_CONNECTOR_RUNTIME_REPLAY_DELIVER_RETRY_BACKOFF_FACTOR,
+  };
+}
+
+function loadOpenclawProbePolicy(): OpenclawProbePolicy {
+  return {
+    intervalMs: parsePositiveIntEnv(
+      "CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS",
+      DEFAULT_CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS,
+    ),
+    timeoutMs: parsePositiveIntEnv(
+      "CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS",
+      DEFAULT_CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS,
+    ),
   };
 }
 
@@ -382,20 +450,126 @@ function computeReplayDelayMs(input: {
   return Math.max(1, delay);
 }
 
+function computeRuntimeReplayRetryDelayMs(input: {
+  attemptCount: number;
+  policy: InboundReplayPolicy;
+}): number {
+  const exponent = Math.max(0, input.attemptCount - 1);
+  const delay = Math.min(
+    input.policy.runtimeReplayRetryMaxDelayMs,
+    Math.floor(
+      input.policy.runtimeReplayRetryInitialDelayMs *
+        input.policy.runtimeReplayRetryBackoffFactor ** exponent,
+    ),
+  );
+  return Math.max(1, delay);
+}
+
+async function waitWithAbort(input: {
+  delayMs: number;
+  signal: AbortSignal;
+}): Promise<void> {
+  if (input.signal.aborted) {
+    throw new LocalOpenclawDeliveryError({
+      code: "RUNTIME_STOPPING",
+      message: "Connector runtime is stopping",
+      retryable: false,
+    });
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => {
+      input.signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, input.delayMs);
+
+    const onAbort = () => {
+      clearTimeout(timeoutHandle);
+      input.signal.removeEventListener("abort", onAbort);
+      reject(
+        new LocalOpenclawDeliveryError({
+          code: "RUNTIME_STOPPING",
+          message: "Connector runtime is stopping",
+          retryable: false,
+        }),
+      );
+    };
+
+    input.signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function readOpenclawHookTokenFromRelayRuntimeConfig(input: {
+  configDir: string;
+  logger: Logger;
+}): Promise<string | undefined> {
+  const runtimeConfigPath = join(
+    input.configDir,
+    OPENCLAW_RELAY_RUNTIME_FILE_NAME,
+  );
+  let raw: string;
+  try {
+    raw = await readFile(runtimeConfigPath, "utf8");
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "ENOENT"
+    ) {
+      return undefined;
+    }
+
+    input.logger.warn("connector.runtime.openclaw_relay_config_read_failed", {
+      runtimeConfigPath,
+      reason: sanitizeErrorReason(error),
+    });
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    input.logger.warn("connector.runtime.openclaw_relay_config_invalid_json", {
+      runtimeConfigPath,
+    });
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+
+  const tokenValue = parsed.openclawHookToken;
+  if (typeof tokenValue !== "string") {
+    return undefined;
+  }
+
+  const trimmed = tokenValue.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 async function deliverToOpenclawHook(input: {
   fetchImpl: typeof fetch;
+  fromAgentDid: string;
   openclawHookToken?: string;
   openclawHookUrl: string;
   payload: unknown;
   requestId: string;
+  shutdownSignal: AbortSignal;
+  toAgentDid: string;
 }): Promise<void> {
-  const controller = new AbortController();
-  const timeoutHandle = setTimeout(() => {
-    controller.abort();
-  }, DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(
+    DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
+  );
+  const signal = AbortSignal.any([input.shutdownSignal, timeoutSignal]);
 
   const headers: Record<string, string> = {
     "content-type": "application/json",
+    "x-clawdentity-agent-did": input.fromAgentDid,
+    "x-clawdentity-to-agent-did": input.toAgentDid,
+    "x-clawdentity-verified": "true",
     "x-request-id": input.requestId,
   };
   if (input.openclawHookToken !== undefined) {
@@ -407,19 +581,32 @@ async function deliverToOpenclawHook(input: {
       method: "POST",
       headers,
       body: JSON.stringify(input.payload),
-      signal: controller.signal,
+      signal,
     });
     if (!response.ok) {
       throw new LocalOpenclawDeliveryError({
         message: `Local OpenClaw hook rejected payload with status ${response.status}`,
         retryable:
+          response.status === 401 ||
+          response.status === 403 ||
           response.status >= 500 ||
           response.status === 404 ||
           response.status === 429,
+        code:
+          response.status === 401 || response.status === 403
+            ? "HOOK_AUTH_REJECTED"
+            : undefined,
       });
     }
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
+      if (input.shutdownSignal.aborted) {
+        throw new LocalOpenclawDeliveryError({
+          code: "RUNTIME_STOPPING",
+          message: "Connector runtime is stopping",
+          retryable: false,
+        });
+      }
       throw new LocalOpenclawDeliveryError({
         message: "Local OpenClaw hook request timed out",
         retryable: true,
@@ -432,8 +619,6 @@ async function deliverToOpenclawHook(input: {
       message: sanitizeErrorReason(error),
       retryable: true,
     });
-  } finally {
-    clearTimeout(timeoutHandle);
   }
 }
 
@@ -1046,10 +1231,16 @@ export async function startConnectorRuntime(
   const defaultReceiptCallbackOrigin = new URL(defaultReceiptCallbackUrl)
     .origin;
   const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
+  const openclawProbeUrl = openclawBaseUrl;
   const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
-  const openclawHookToken = resolveOpenclawHookToken(input.openclawHookToken);
+  const explicitOpenclawHookToken = resolveOpenclawHookToken(
+    input.openclawHookToken,
+  );
+  const hasExplicitOpenclawHookToken = explicitOpenclawHookToken !== undefined;
+  let currentOpenclawHookToken = explicitOpenclawHookToken;
   const openclawHookUrl = toOpenclawHookUrl(openclawBaseUrl, openclawHookPath);
   const inboundReplayPolicy = loadInboundReplayPolicy();
+  const openclawProbePolicy = loadOpenclawProbePolicy();
   const trustedReceiptTargets = await loadTrustedReceiptTargets({
     configDir: input.configDir,
     logger,
@@ -1066,9 +1257,15 @@ export async function startConnectorRuntime(
   const inboundReplayStatus: InboundReplayStatus = {
     replayerActive: false,
   };
+  const openclawGatewayProbeStatus: OpenclawGatewayProbeStatus = {
+    reachable: true,
+  };
+  let openclawProbeInFlight = false;
   let runtimeStopping = false;
   let replayInFlight = false;
   let replayIntervalHandle: ReturnType<typeof setInterval> | undefined;
+  let openclawProbeIntervalHandle: ReturnType<typeof setInterval> | undefined;
+  const runtimeShutdownController = new AbortController();
 
   const resolveUpgradeHeaders = async (): Promise<Record<string, string>> => {
     await refreshCurrentAuthIfNeeded();
@@ -1078,6 +1275,140 @@ export async function startConnectorRuntime(
       accessToken: currentAuth.accessToken,
       secretKey,
     });
+  };
+
+  const syncOpenclawHookToken = async (reason: "auth_rejected" | "batch") => {
+    if (hasExplicitOpenclawHookToken) {
+      return;
+    }
+
+    const diskToken = await readOpenclawHookTokenFromRelayRuntimeConfig({
+      configDir: input.configDir,
+      logger,
+    });
+    const nextToken = diskToken;
+    if (nextToken === currentOpenclawHookToken) {
+      return;
+    }
+
+    currentOpenclawHookToken = nextToken;
+    logger.info("connector.runtime.openclaw_hook_token_synced", {
+      reason,
+      source: diskToken !== undefined ? "openclaw-relay.json" : "unset",
+      hasToken: currentOpenclawHookToken !== undefined,
+    });
+  };
+
+  const probeOpenclawGateway = async (): Promise<void> => {
+    if (runtimeStopping || openclawProbeInFlight) {
+      return;
+    }
+    openclawProbeInFlight = true;
+
+    const checkedAt = nowIso();
+    try {
+      const timeoutSignal = AbortSignal.timeout(openclawProbePolicy.timeoutMs);
+      const signal = AbortSignal.any([
+        runtimeShutdownController.signal,
+        timeoutSignal,
+      ]);
+      await fetchImpl(openclawProbeUrl, {
+        method: "GET",
+        signal,
+      });
+      openclawGatewayProbeStatus.reachable = true;
+      openclawGatewayProbeStatus.lastCheckedAt = checkedAt;
+      openclawGatewayProbeStatus.lastSuccessAt = checkedAt;
+      openclawGatewayProbeStatus.lastFailureReason = undefined;
+    } catch (error) {
+      if (runtimeShutdownController.signal.aborted) {
+        return;
+      }
+      openclawGatewayProbeStatus.reachable = false;
+      openclawGatewayProbeStatus.lastCheckedAt = checkedAt;
+      openclawGatewayProbeStatus.lastFailureReason = sanitizeErrorReason(error);
+    } finally {
+      openclawProbeInFlight = false;
+    }
+  };
+
+  const deliverToOpenclawHookWithRetry = async (inputReplay: {
+    fromAgentDid: string;
+    payload: unknown;
+    requestId: string;
+    toAgentDid: string;
+  }): Promise<void> => {
+    let attempt = 1;
+
+    while (true) {
+      try {
+        await deliverToOpenclawHook({
+          fetchImpl,
+          fromAgentDid: inputReplay.fromAgentDid,
+          openclawHookUrl,
+          openclawHookToken: currentOpenclawHookToken,
+          payload: inputReplay.payload,
+          requestId: inputReplay.requestId,
+          shutdownSignal: runtimeShutdownController.signal,
+          toAgentDid: inputReplay.toAgentDid,
+        });
+        return;
+      } catch (error) {
+        if (
+          error instanceof LocalOpenclawDeliveryError &&
+          error.code === "RUNTIME_STOPPING"
+        ) {
+          throw error;
+        }
+
+        const retryable =
+          error instanceof LocalOpenclawDeliveryError ? error.retryable : true;
+        const authRejected =
+          error instanceof LocalOpenclawDeliveryError &&
+          error.code === "HOOK_AUTH_REJECTED";
+
+        if (authRejected) {
+          const previousToken = currentOpenclawHookToken;
+          await syncOpenclawHookToken("auth_rejected");
+          const tokenChanged = currentOpenclawHookToken !== previousToken;
+          const attemptsRemaining =
+            attempt < inboundReplayPolicy.runtimeReplayMaxAttempts;
+          if (tokenChanged && !runtimeStopping && attemptsRemaining) {
+            logger.warn(
+              "connector.inbound.replay_hook_auth_rejected_retrying",
+              {
+                requestId: inputReplay.requestId,
+                attempt,
+              },
+            );
+            attempt += 1;
+            continue;
+          }
+        }
+
+        const attemptsRemaining =
+          attempt < inboundReplayPolicy.runtimeReplayMaxAttempts;
+        if (!retryable || !attemptsRemaining || runtimeStopping) {
+          throw error;
+        }
+
+        const retryDelayMs = computeRuntimeReplayRetryDelayMs({
+          attemptCount: attempt,
+          policy: inboundReplayPolicy,
+        });
+        logger.warn("connector.inbound.replay_retry_scheduled", {
+          requestId: inputReplay.requestId,
+          attempt,
+          retryDelayMs,
+          reason: sanitizeErrorReason(error),
+        });
+        await waitWithAbort({
+          delayMs: retryDelayMs,
+          signal: runtimeShutdownController.signal,
+        });
+        attempt += 1;
+      }
+    }
   };
 
   const replayPendingInboundMessages = async (): Promise<void> => {
@@ -1094,6 +1425,15 @@ export async function startConnectorRuntime(
         limit: inboundReplayPolicy.batchSize,
       });
       if (dueItems.length === 0) {
+        return;
+      }
+      await syncOpenclawHookToken("batch");
+      if (!openclawGatewayProbeStatus.reachable) {
+        logger.info("connector.inbound.replay_skipped_gateway_unreachable", {
+          pendingCount: dueItems.length,
+          openclawBaseUrl: openclawProbeUrl,
+          lastFailureReason: openclawGatewayProbeStatus.lastFailureReason,
+        });
         return;
       }
 
@@ -1116,12 +1456,11 @@ export async function startConnectorRuntime(
           for (const pending of laneItems) {
             inboundReplayStatus.lastAttemptAt = nowIso();
             try {
-              await deliverToOpenclawHook({
-                fetchImpl,
-                openclawHookUrl,
-                openclawHookToken,
+              await deliverToOpenclawHookWithRetry({
+                fromAgentDid: pending.fromAgentDid,
                 requestId: pending.requestId,
                 payload: pending.payload,
+                toAgentDid: pending.toAgentDid,
               });
               await inboundInbox.markDelivered(pending.requestId);
               inboundReplayStatus.lastReplayAt = nowIso();
@@ -1151,6 +1490,15 @@ export async function startConnectorRuntime(
                 }
               }
             } catch (error) {
+              if (
+                error instanceof LocalOpenclawDeliveryError &&
+                error.code === "RUNTIME_STOPPING"
+              ) {
+                logger.info("connector.inbound.replay_stopped", {
+                  requestId: pending.requestId,
+                });
+                return;
+              }
               const reason = sanitizeErrorReason(error);
               const retryable =
                 error instanceof LocalOpenclawDeliveryError
@@ -1218,6 +1566,13 @@ export async function startConnectorRuntime(
       replayerActive: inboundReplayStatus.replayerActive || replayInFlight,
       lastReplayAt: inboundReplayStatus.lastReplayAt,
       lastReplayError: inboundReplayStatus.lastReplayError,
+      openclawGateway: {
+        url: openclawProbeUrl,
+        reachable: openclawGatewayProbeStatus.reachable,
+        lastCheckedAt: openclawGatewayProbeStatus.lastCheckedAt,
+        lastSuccessAt: openclawGatewayProbeStatus.lastSuccessAt,
+        lastFailureReason: openclawGatewayProbeStatus.lastFailureReason,
+      },
       openclawHook: {
         url: openclawHookUrl,
         lastAttemptAt: inboundReplayStatus.lastAttemptAt,
@@ -1237,7 +1592,7 @@ export async function startConnectorRuntime(
     connectionHeadersProvider: resolveUpgradeHeaders,
     openclawBaseUrl,
     openclawHookPath,
-    openclawHookToken,
+    openclawHookToken: currentOpenclawHookToken,
     fetchImpl,
     logger,
     hooks: {
@@ -1544,6 +1899,7 @@ export async function startConnectorRuntime(
             lastReplayAt: inboundReplayView.lastReplayAt,
             lastReplayError: inboundReplayView.lastReplayError,
           },
+          openclawGateway: inboundReplayView.openclawGateway,
           openclawHook: inboundReplayView.openclawHook,
         },
         outbound: {
@@ -1670,9 +2026,14 @@ export async function startConnectorRuntime(
 
   const stop = async (): Promise<void> => {
     runtimeStopping = true;
+    runtimeShutdownController.abort();
     if (replayIntervalHandle !== undefined) {
       clearInterval(replayIntervalHandle);
       replayIntervalHandle = undefined;
+    }
+    if (openclawProbeIntervalHandle !== undefined) {
+      clearInterval(openclawProbeIntervalHandle);
+      openclawProbeIntervalHandle = undefined;
     }
     connectorClient.disconnect();
     await new Promise<void>((resolve, reject) => {
@@ -1699,12 +2060,17 @@ export async function startConnectorRuntime(
     );
   });
 
+  await syncOpenclawHookToken("batch");
+  await probeOpenclawGateway();
   connectorClient.connect();
   await inboundInbox.pruneDelivered();
   void replayPendingInboundMessages();
   replayIntervalHandle = setInterval(() => {
     void replayPendingInboundMessages();
   }, inboundReplayPolicy.replayIntervalMs);
+  openclawProbeIntervalHandle = setInterval(() => {
+    void probeOpenclawGateway();
+  }, openclawProbePolicy.intervalMs);
 
   logger.info("connector.runtime.started", {
     outboundUrl,
