@@ -134,6 +134,16 @@
   - Update this section with the new snapshot folder names.
 - Env-enabled baseline restore (for prompt-only runs needing provider auth):
   - `rsync -a --delete ~/.openclaw-baselines/alpha-kimi-env-enabled-latest/ ~/.openclaw-alpha/ && rsync -a --delete ~/.openclaw-baselines/beta-kimi-env-enabled-latest/ ~/.openclaw-beta/`
+- Mandatory post-restore env bootstrap (after either paired-stable or env-enabled restore):
+  - Baselines can omit gateway/Clawdentity env keys. Before starting containers, ensure both `~/.openclaw-alpha/.env` and `~/.openclaw-beta/.env` include:
+    - `OPENCLAW_GATEWAY_TOKEN=<token>` (generate if missing: `openssl rand -hex 24`)
+    - For develop testing:
+      - `# CLAWDENTITY_REGISTRY_URL=http://host.docker.internal:8788`
+      - `# CLAWDENTITY_PROXY_URL=http://host.docker.internal:8787`
+      - `CLAWDENTITY_REGISTRY_URL=https://dev.registry.clawdentity.com`
+      - `CLAWDENTITY_PROXY_URL=https://dev.proxy.clawdentity.com`
+  - If `OPENCLAW_GATEWAY_TOKEN` is missing, gateway exits with: `Refusing to bind gateway to lan without auth`.
+  - After edits, recreate containers (not just restart): `docker compose -f ~/Workdir/openclaw/docker-compose.dual.yml down --remove-orphans && docker compose -f ~/Workdir/openclaw/docker-compose.dual.yml up -d --force-recreate`.
 - Pairing issue runbook (`Disconnected (1008): pairing required` in UI):
   - Cause: OpenClaw device approval is pending; this is gateway pairing, not Clawdentity peer trust pairing.
   - Scope clarification:
@@ -148,6 +158,21 @@
     - `docker exec clawdbot-agent-beta-1 sh -lc 'node openclaw.mjs devices approve <requestId>'`
   - Re-open UI:
     - `http://localhost:18789/` and `http://localhost:19001/`
+- Auth mismatch runbook (`Disconnected (1008): unauthorized: device token mismatch`):
+  - Cause: browser has stale Control UI token/device-auth state after gateway token rotation, baseline restore, or device token revocation.
+  - Open UI with explicit token (query or fragment accepted; prefer fragment to reduce URL leakage):
+    - `http://localhost:18789/#token=<alpha OPENCLAW_GATEWAY_TOKEN>`
+    - `http://localhost:19001/#token=<beta OPENCLAW_GATEWAY_TOKEN>`
+  - If mismatch persists, clear browser localStorage keys for each origin and reload tokenized URL:
+    - `openclaw.control.settings.v1`
+    - `openclaw.device.auth.v1`
+    - `openclaw-device-identity-v1`
+  - Server-side cleanup fallback (if browser still loops):
+    - `docker exec clawdbot-agent-alpha-1 sh -lc 'node openclaw.mjs devices list --json'`
+    - `docker exec clawdbot-agent-beta-1 sh -lc 'node openclaw.mjs devices list --json'`
+    - Revoke stale `openclaw-control-ui` operator token:
+      - `docker exec clawdbot-agent-alpha-1 sh -lc 'node openclaw.mjs devices revoke --device <deviceId> --role operator --token "$OPENCLAW_GATEWAY_TOKEN"'`
+      - `docker exec clawdbot-agent-beta-1 sh -lc 'node openclaw.mjs devices revoke --device <deviceId> --role operator --token "$OPENCLAW_GATEWAY_TOKEN"'`
 
 ## Scaffold Best Practices
 - Start by reviewing README, ARCHITECTURE.md, and the active execution tracker issue so documentation mirrors the execution model.
