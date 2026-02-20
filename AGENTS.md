@@ -50,6 +50,8 @@
   - `--env dev` for development (Worker: `clawdentity-registry-dev`, D1: `clawdentity-db-dev`)
   - `--env production` for production (Worker: `clawdentity-registry`, D1: `clawdentity-db`)
 - **Local dev** uses `wrangler dev --env dev` with local SQLite. Override vars via per-worker `.env` files (for example `apps/registry/.env`).
+- Worktree-safe local env bootstrap must use `scripts/env/sync-worktree-env.sh` with shared source `~/.clawdentity/worktree.env` (override with `CLAWDENTITY_SHARED_ENV_FILE`).
+- Run `pnpm env:sync` after cloning or creating a worktree to generate root/app `.env` files deterministically.
 - Use `pnpm -F @clawdentity/registry run dev:local` (or root alias `pnpm dev:registry:local`) to apply local D1 migrations before starting dev server.
 - **One-touch deploy** scripts in `apps/registry/package.json`:
   - `deploy:dev` — migrates remote dev D1 + deploys dev Worker

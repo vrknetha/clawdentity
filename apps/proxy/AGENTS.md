@@ -23,6 +23,7 @@
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
 - Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw base URL, and policy/rate-limit vars).
+- Generate local `apps/proxy/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`)
