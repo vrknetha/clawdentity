@@ -21,11 +21,14 @@
 
 ## Replay/Health Rules
 - Keep replay configuration environment-driven via `CONNECTOR_INBOUND_*` vars with safe defaults from `constants.ts`.
+- Keep OpenClaw liveness probing environment-driven via `CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS` and `CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS`; replay should skip direct hook delivery while probe state is down.
+- Keep runtime replay retry bounds environment-driven via `CONNECTOR_RUNTIME_REPLAY_*`; only retry retryable OpenClaw hook failures.
 - `/v1/status` must use the nested contract:
   - `websocket.{connected,connectAttempts,reconnectCount,uptimeMs,lastConnectedAt}`
   - `inbound.pending`
   - `inbound.deadLetter`
   - `inbound.replay`
+  - `inbound.openclawGateway`
   - `inbound.openclawHook`
   - `metrics.{heartbeat,inboundDelivery,outboundQueue}`
 - On inbox/status read failures, return explicit structured errors instead of crashing runtime.
@@ -45,6 +48,9 @@
 - Handle `unexpected-response` status codes from ws upgrade failures; for `401`, trigger `onAuthUpgradeRejected` and allow one immediate reconnect before normal backoff.
 - Keep outbound enqueue buffering durable when configured via `outboundQueuePersistence`; load once before replaying queued frames and persist on enqueue/dequeue transitions.
 - Keep websocket/client metrics in `ConnectorClient` (`getMetricsSnapshot`) so runtime health does not recompute transport stats ad hoc.
+- Keep local OpenClaw hook auth rejection (`401/403`) retryable in connector delivery paths so token rotation windows do not permanently fail deliveries.
+- Keep structured identity headers on connector hook delivery requests (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`) in both runtime replay and direct client-delivery modes.
+- Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules
 - `inbound-inbox.test.ts` must cover persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, and dead-letter purge transitions.

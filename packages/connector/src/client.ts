@@ -1222,6 +1222,9 @@ export class ConnectorClient {
 
     const headers: Record<string, string> = {
       "content-type": "application/json",
+      "x-clawdentity-agent-did": frame.fromAgentDid,
+      "x-clawdentity-to-agent-did": frame.toAgentDid,
+      "x-clawdentity-verified": "true",
       "x-request-id": frame.id,
     };
 
@@ -1241,6 +1244,8 @@ export class ConnectorClient {
         throw new LocalOpenclawDeliveryError({
           message: `Local OpenClaw hook rejected payload with status ${response.status}`,
           retryable:
+            response.status === 401 ||
+            response.status === 403 ||
             response.status >= 500 ||
             response.status === 404 ||
             response.status === 429,

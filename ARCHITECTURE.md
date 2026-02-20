@@ -382,6 +382,24 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 - `clawdentity connector service uninstall <agentName>` to remove connector autostart service.
 - `clawdentity skill install` to install/update OpenClaw relay skill artifacts under `~/.openclaw`.
 
+#### Connector Local OpenClaw Resilience
+
+- Runtime probes local OpenClaw base URL reachability on an interval:
+  - `CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS` (default `10000`)
+  - `CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS` (default `3000`)
+- While probe state is down, inbound replay skips direct hook delivery attempts and keeps messages pending in the connector inbox.
+- Runtime replay retries OpenClaw hook delivery with bounded backoff:
+  - `CONNECTOR_RUNTIME_REPLAY_MAX_ATTEMPTS` (default `3`)
+  - `CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS` (default `2000`)
+  - `CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS` (default `8000`)
+  - `CONNECTOR_RUNTIME_REPLAY_RETRY_BACKOFF_FACTOR` (default `2`)
+- Hook `401/403` responses are treated as auth-rotation signals: connector re-reads `~/.clawdentity/openclaw-relay.json` and retries.
+- Connector forwards structured identity headers to local OpenClaw hooks:
+  - `x-clawdentity-agent-did`
+  - `x-clawdentity-to-agent-did`
+  - `x-clawdentity-verified`
+- Connector `/v1/status` now surfaces `inbound.openclawGateway` alongside `inbound.openclawHook`.
+
 ### 5) Onboarding and Control Model
 
 - Handled by: `apps/registry`, `apps/cli`
