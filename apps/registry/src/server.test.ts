@@ -2577,14 +2577,19 @@ describe("GET /health", () => {
     const res = await app.request(
       "/health",
       {},
-      { DB: {}, ENVIRONMENT: "test" },
+      {
+        DB: {},
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
       status: "ok",
       version: "0.0.0",
-      environment: "test",
+      environment: "local",
     });
     expect(res.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
   });
@@ -2593,7 +2598,13 @@ describe("GET /health", () => {
     const res = await createRegistryApp().request(
       "/health",
       {},
-      { DB: {}, ENVIRONMENT: "test", APP_VERSION: "sha-1234567890" },
+      {
+        DB: {},
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+        APP_VERSION: "sha-1234567890",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -2601,7 +2612,7 @@ describe("GET /health", () => {
     expect(body).toEqual({
       status: "ok",
       version: "sha-1234567890",
-      environment: "test",
+      environment: "local",
     });
   });
 
@@ -2629,6 +2640,8 @@ describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
       {
         DB: {} as D1Database,
         ENVIRONMENT: "development",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         APP_VERSION: "sha-meta-123",
         PROXY_URL: "https://dev.proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
@@ -2680,7 +2693,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -2708,7 +2723,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2732,7 +2749,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2756,7 +2775,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2782,7 +2803,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2807,7 +2830,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2836,7 +2861,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2859,7 +2886,6 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       internalService: {
         id: string;
         name: string;
-        secret: string;
       };
     };
 
@@ -2870,8 +2896,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(body.human.status).toBe("active");
     expect(body.apiKey.name).toBe("prod-admin-key");
     expect(body.apiKey.token.startsWith("clw_pat_")).toBe(true);
+    expect(body.internalService.id).toBe("01HF7YAT00W6W7CM7N3W5FDXT4");
     expect(body.internalService.name).toBe("proxy-pairing");
-    expect(body.internalService.secret.startsWith("clw_srv_")).toBe(true);
 
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
@@ -2887,10 +2913,10 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       JSON.stringify(["identity.read"]),
     );
     expect(internalServiceInserts[0]?.secret_prefix).toBe(
-      deriveInternalServiceSecretPrefix(body.internalService.secret),
+      deriveInternalServiceSecretPrefix("clw_srv_bootstrapsecret"),
     );
     expect(internalServiceInserts[0]?.secret_hash).toBe(
-      await hashInternalServiceSecret(body.internalService.secret),
+      await hashInternalServiceSecret("clw_srv_bootstrapsecret"),
     );
   });
 
@@ -2913,7 +2939,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -2942,7 +2970,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -2992,7 +3022,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3024,7 +3056,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3047,7 +3081,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3077,7 +3113,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3100,7 +3138,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3129,7 +3169,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3152,7 +3194,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -3169,7 +3213,9 @@ describe("GET /.well-known/claw-keys.json", () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
             kid: "reg-key-1",
@@ -3221,7 +3267,9 @@ describe("GET /.well-known/claw-keys.json", () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
             kid: "reg-key-1",
@@ -3276,7 +3324,9 @@ describe("GET /.well-known/claw-keys.json", () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
             kid: "reg-key-1",
@@ -3382,7 +3432,9 @@ describe("GET /v1/crl", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -3400,7 +3452,9 @@ describe("GET /v1/crl", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -3455,7 +3509,12 @@ describe("GET /v1/crl", () => {
     const response = await createRegistryApp().request(
       "/v1/crl",
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(404);
@@ -3486,7 +3545,12 @@ describe("GET /v1/crl", () => {
             "CF-Connecting-IP": "203.0.113.77",
           },
         },
-        { DB: database, ENVIRONMENT: "test" },
+        {
+          DB: database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+        },
       );
 
       expect(response.status).toBe(404);
@@ -3499,7 +3563,12 @@ describe("GET /v1/crl", () => {
           "CF-Connecting-IP": "203.0.113.77",
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -3538,7 +3607,12 @@ describe("GET /v1/crl", () => {
     const response = await createRegistryApp().request(
       "/v1/crl",
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(500);
@@ -3579,7 +3653,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       `/v1/resolve/${agentId}`,
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -3624,7 +3703,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       `/v1/resolve/${agentId}`,
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -3636,7 +3720,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       "/v1/resolve/not-a-ulid",
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -3660,7 +3749,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       `/v1/resolve/${missingAgentId}`,
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -3695,7 +3789,12 @@ describe("GET /v1/resolve/:id", () => {
             "CF-Connecting-IP": "203.0.113.10",
           },
         },
-        { DB: database, ENVIRONMENT: "test" },
+        {
+          DB: database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+        },
       );
 
       expect(response.status).toBe(200);
@@ -3708,7 +3807,12 @@ describe("GET /v1/resolve/:id", () => {
           "CF-Connecting-IP": "203.0.113.10",
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -3722,7 +3826,12 @@ describe("GET /v1/me", () => {
     const res = await createRegistryApp().request(
       "/v1/me",
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -3741,7 +3850,12 @@ describe("GET /v1/me", () => {
       {
         headers: { Authorization: "Bearer clw_pat_invalid-token-value" },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -3757,7 +3871,12 @@ describe("GET /v1/me", () => {
       {
         headers: { Authorization: "Bearer clw_pat_" },
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -3776,7 +3895,12 @@ describe("GET /v1/me", () => {
       {
         headers: { Authorization: `Bearer ${validToken}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -3815,7 +3939,12 @@ describe(`POST ${INVITES_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(401);
@@ -3842,7 +3971,12 @@ describe(`POST ${INVITES_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(403);
@@ -3866,7 +4000,12 @@ describe(`POST ${INVITES_PATH}`, () => {
           expiresAt: "not-an-iso-date",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -3899,7 +4038,12 @@ describe(`POST ${INVITES_PATH}`, () => {
           expiresAt,
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(201);
@@ -3936,7 +4080,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -3964,7 +4113,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           code: "clw_inv_missing",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -3999,7 +4153,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           code: "clw_inv_expired",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -4034,7 +4193,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           code: "clw_inv_redeemed",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(409);
@@ -4074,7 +4238,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           apiKeyName: "primary-invite-key",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(redeemResponse.status).toBe(201);
@@ -4112,7 +4281,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           Authorization: `Bearer ${redeemBody.apiKey.token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(meResponse.status).toBe(200);
@@ -4160,7 +4334,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           displayName: "Fallback Invitee",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(firstResponse.status).toBe(500);
@@ -4179,7 +4358,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           displayName: "Fallback Invitee",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(secondResponse.status).toBe(201);
@@ -4199,7 +4383,12 @@ describe(`POST ${ME_API_KEYS_PATH}`, () => {
         },
         body: JSON.stringify({ name: "workstation" }),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(401);
@@ -4223,7 +4412,12 @@ describe(`POST ${ME_API_KEYS_PATH}`, () => {
           name: "workstation",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(201);
@@ -4262,7 +4456,12 @@ describe(`POST ${ME_API_KEYS_PATH}`, () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(201);
@@ -4333,7 +4532,12 @@ describe(`GET ${ME_API_KEYS_PATH}`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(200);
@@ -4386,7 +4590,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -4406,7 +4615,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(404);
@@ -4456,7 +4670,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(revokeResponse.status).toBe(204);
 
@@ -4467,7 +4686,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${rotateToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(revokedAuth.status).toBe(401);
     const revokedBody = (await revokedAuth.json()) as {
@@ -4482,7 +4706,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(activeAuth.status).toBe(200);
   });
@@ -4528,7 +4757,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(response.status).toBe(204);
@@ -4540,7 +4774,12 @@ describe("GET /v1/agents", () => {
     const res = await createRegistryApp().request(
       "/v1/agents",
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -4593,7 +4832,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -4668,7 +4912,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(statusRes.status).toBe(200);
     const statusBody = (await statusRes.json()) as {
@@ -4695,7 +4944,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(frameworkRes.status).toBe(200);
     const frameworkBody = (await frameworkRes.json()) as {
@@ -4761,7 +5015,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(firstPage.status).toBe(200);
@@ -4794,7 +5053,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(secondPage.status).toBe(200);
@@ -4832,7 +5096,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -4862,6 +5131,8 @@ describe("GET /v1/agents", () => {
       {
         DB: database,
         ENVIRONMENT: "production",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         PROXY_URL: "https://proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
         EVENT_BUS_BACKEND: "memory",
@@ -4899,7 +5170,12 @@ describe("GET /v1/agents/:id/ownership", () => {
     const res = await createRegistryApp().request(
       `/v1/agents/${agentId}/ownership`,
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -4932,7 +5208,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -4964,7 +5245,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(foreignRes.status).toBe(200);
     expect((await foreignRes.json()) as { ownsAgent: boolean }).toEqual({
@@ -4976,7 +5262,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(missingRes.status).toBe(200);
     expect((await missingRes.json()) as { ownsAgent: boolean }).toEqual({
@@ -4993,7 +5284,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -5023,7 +5319,12 @@ describe("internal service-auth routes", () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -5041,7 +5342,12 @@ describe("internal service-auth routes", () => {
       {
         method: "GET",
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(res.status).toBe(401);
   });
@@ -5055,7 +5361,12 @@ describe("DELETE /v1/agents/:id", () => {
       {
         method: "DELETE",
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -5078,7 +5389,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -5115,7 +5431,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -5153,7 +5474,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(204);
@@ -5198,7 +5524,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     const second = await createRegistryApp().request(
       `/v1/agents/${agentId}`,
@@ -5206,7 +5537,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(first.status).toBe(204);
@@ -5239,7 +5575,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(409);
@@ -5266,7 +5607,12 @@ describe("POST /v1/agents/:id/reissue", () => {
       {
         method: "POST",
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -5289,7 +5635,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -5327,7 +5678,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -5365,7 +5721,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(409);
@@ -5409,7 +5770,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(409);
@@ -5468,7 +5834,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -5524,7 +5892,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -5610,7 +5980,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -5681,7 +6053,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -5732,7 +6106,12 @@ describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
           publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
         }),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -5758,7 +6137,12 @@ describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
           publicKey: "not-base64url",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -5793,7 +6177,12 @@ describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
           publicKey: encodeBase64url(agentKeypair.publicKey),
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(201);
@@ -5836,7 +6225,12 @@ describe("POST /v1/agents", () => {
           publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
         }),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -5868,7 +6262,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -5918,7 +6314,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -5952,6 +6350,8 @@ describe("POST /v1/agents", () => {
       {
         DB: database,
         ENVIRONMENT: "production",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         PROXY_URL: "https://proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
         EVENT_BUS_BACKEND: "memory",
@@ -6003,6 +6403,8 @@ describe("POST /v1/agents", () => {
       {
         DB: database,
         ENVIRONMENT: "production",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         PROXY_URL: "https://proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
         EVENT_BUS_BACKEND: "memory",
@@ -6059,7 +6461,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6127,7 +6531,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6195,7 +6601,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6240,7 +6648,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6285,7 +6695,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6391,7 +6803,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -6432,7 +6846,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -6456,7 +6872,9 @@ describe("POST /v1/agents", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -6517,7 +6935,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
     expect(challengeResponse.status).toBe(201);
@@ -6552,7 +6972,9 @@ describe("POST /v1/agents", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6692,7 +7114,9 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6789,7 +7213,9 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6871,7 +7297,9 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
         REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -6916,7 +7344,12 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
           },
           body: JSON.stringify({}),
         },
-        { DB: {} as D1Database, ENVIRONMENT: "test" },
+        {
+          DB: {} as D1Database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+        },
       );
 
       expect(response.status).toBe(400);
@@ -6932,7 +7365,12 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -7004,7 +7442,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -7028,7 +7468,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: {},
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -7099,7 +7541,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -7175,7 +7619,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       },
     );
 
@@ -7206,7 +7652,12 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
           },
           body: JSON.stringify({}),
         },
-        { DB: {} as D1Database, ENVIRONMENT: "test" },
+        {
+          DB: {} as D1Database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+        },
       );
 
       expect(response.status).toBe(400);
@@ -7222,7 +7673,12 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -7285,7 +7741,12 @@ describe("DELETE /v1/agents/:id/auth/revoke", () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(firstResponse.status).toBe(204);
     expect(agentAuthSessionRows[0]?.status).toBe("revoked");
@@ -7306,7 +7767,12 @@ describe("DELETE /v1/agents/:id/auth/revoke", () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      },
     );
     expect(secondResponse.status).toBe(204);
   });

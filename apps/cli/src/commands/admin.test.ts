@@ -29,7 +29,6 @@ describe("admin bootstrap helper", () => {
           internalService: {
             id: "01KHH000000000000000000002",
             name: "proxy-pairing",
-            secret: "clw_srv_testsecret",
           },
         }),
         { status: 201, headers: { "content-type": "application/json" } },
@@ -53,7 +52,6 @@ describe("admin bootstrap helper", () => {
     expect(result.human.did).toBe("did:claw:human:00000000000000000000000000");
     expect(result.apiKey.token).toBe("clw_pat_testtoken");
     expect(result.internalService.id).toBe("01KHH000000000000000000002");
-    expect(result.internalService.secret).toBe("clw_srv_testsecret");
     expect(result.registryUrl).toBe("https://api.example.com/");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [calledInput, calledInit] = fetchMock.mock.calls[0] as [

@@ -9,7 +9,6 @@ export const proxyEnvironmentValues = [
   "local",
   "development",
   "production",
-  "test",
 ] as const;
 export type ProxyEnvironment = (typeof proxyEnvironmentValues)[number];
 
@@ -87,8 +86,8 @@ const proxyRuntimeEnvSchema = z.object({
     .default(DEFAULT_PROXY_LISTEN_PORT),
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
   REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
-  REGISTRY_INTERNAL_SERVICE_ID: z.string().trim().min(1).optional(),
-  REGISTRY_INTERNAL_SERVICE_SECRET: z.string().trim().min(1).optional(),
+  BOOTSTRAP_INTERNAL_SERVICE_ID: z.string().trim().min(1).optional(),
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET: z.string().trim().min(1).optional(),
   ENVIRONMENT: z
     .enum(proxyEnvironmentValues)
     .default(DEFAULT_PROXY_ENVIRONMENT),
@@ -194,8 +193,8 @@ type RuntimeEnvInput = {
   OPENCLAW_BASE_URL?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
-  REGISTRY_INTERNAL_SERVICE_ID?: unknown;
-  REGISTRY_INTERNAL_SERVICE_SECRET?: unknown;
+  BOOTSTRAP_INTERNAL_SERVICE_ID?: unknown;
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET?: unknown;
   ENVIRONMENT?: unknown;
   ALLOW_ALL_VERIFIED?: unknown;
   CRL_REFRESH_INTERVAL_MS?: unknown;
@@ -485,11 +484,11 @@ function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",
     ]),
-    REGISTRY_INTERNAL_SERVICE_ID: firstNonEmpty(env, [
-      "REGISTRY_INTERNAL_SERVICE_ID",
+    BOOTSTRAP_INTERNAL_SERVICE_ID: firstNonEmpty(env, [
+      "BOOTSTRAP_INTERNAL_SERVICE_ID",
     ]),
-    REGISTRY_INTERNAL_SERVICE_SECRET: firstNonEmpty(env, [
-      "REGISTRY_INTERNAL_SERVICE_SECRET",
+    BOOTSTRAP_INTERNAL_SERVICE_SECRET: firstNonEmpty(env, [
+      "BOOTSTRAP_INTERNAL_SERVICE_SECRET",
     ]),
     ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
@@ -569,12 +568,12 @@ const REQUIRED_PROXY_RUNTIME_ENV_KEYS: readonly {
     aliases: ["REGISTRY_URL", "CLAWDENTITY_REGISTRY_URL"],
   },
   {
-    key: "REGISTRY_INTERNAL_SERVICE_ID",
-    aliases: ["REGISTRY_INTERNAL_SERVICE_ID"],
+    key: "BOOTSTRAP_INTERNAL_SERVICE_ID",
+    aliases: ["BOOTSTRAP_INTERNAL_SERVICE_ID"],
   },
   {
-    key: "REGISTRY_INTERNAL_SERVICE_SECRET",
-    aliases: ["REGISTRY_INTERNAL_SERVICE_SECRET"],
+    key: "BOOTSTRAP_INTERNAL_SERVICE_SECRET",
+    aliases: ["BOOTSTRAP_INTERNAL_SERVICE_SECRET"],
   },
 ];
 
@@ -641,13 +640,13 @@ export function parseProxyConfig(
       parsedRuntimeEnv.data.RELAY_MAX_IN_FLIGHT_DELIVERIES,
     relayMaxFrameBytes: parsedRuntimeEnv.data.RELAY_MAX_FRAME_BYTES,
   };
-  if (parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_ID !== undefined) {
+  if (parsedRuntimeEnv.data.BOOTSTRAP_INTERNAL_SERVICE_ID !== undefined) {
     candidateConfig.registryInternalServiceId =
-      parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_ID;
+      parsedRuntimeEnv.data.BOOTSTRAP_INTERNAL_SERVICE_ID;
   }
-  if (parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_SECRET !== undefined) {
+  if (parsedRuntimeEnv.data.BOOTSTRAP_INTERNAL_SERVICE_SECRET !== undefined) {
     candidateConfig.registryInternalServiceSecret =
-      parsedRuntimeEnv.data.REGISTRY_INTERNAL_SERVICE_SECRET;
+      parsedRuntimeEnv.data.BOOTSTRAP_INTERNAL_SERVICE_SECRET;
   }
 
   const parsedConfig = proxyConfigSchema.safeParse(candidateConfig);
@@ -659,11 +658,11 @@ export function parseProxyConfig(
     if (hasServiceId !== hasServiceSecret) {
       throw toConfigValidationError({
         fieldErrors: {
-          REGISTRY_INTERNAL_SERVICE_ID: [
-            "REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET must be set together.",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: [
+            "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
           ],
-          REGISTRY_INTERNAL_SERVICE_SECRET: [
-            "REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET must be set together.",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: [
+            "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
           ],
         },
         formErrors: [],

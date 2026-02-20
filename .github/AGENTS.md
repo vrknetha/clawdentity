@@ -24,8 +24,8 @@
 - Install dependencies before any `pnpm exec wrangler ...` command so Wrangler is available on clean runners.
 - Regenerate Worker type bindings in CI with dotenv overlays disabled (`pnpm -F @clawdentity/registry run types:dev` and `pnpm -F @clawdentity/proxy run types:dev`) and fail on git diff drift for `worker-configuration.d.ts` to prevent stale runtime binding types from shipping.
 - Sync proxy internal-service credentials from GitHub secrets on every deploy:
-  - `REGISTRY_INTERNAL_SERVICE_ID`
-  - `REGISTRY_INTERNAL_SERVICE_SECRET`
+  - `BOOTSTRAP_INTERNAL_SERVICE_ID`
+  - `BOOTSTRAP_INTERNAL_SERVICE_SECRET`
   - Push both values into proxy Worker secrets before proxy deploy.
 - Add a Wrangler preflight dry-run for both workers before mutating remote state (migrations/deploy):
   - `wrangler deploy --env dev --dry-run --var APP_VERSION:<sha>`
@@ -55,8 +55,8 @@
 - Required deploy secrets:
   - `CLOUDFLARE_API_TOKEN`
   - `CLOUDFLARE_ACCOUNT_ID`
-  - `REGISTRY_INTERNAL_SERVICE_ID`
-  - `REGISTRY_INTERNAL_SERVICE_SECRET`
+  - `BOOTSTRAP_INTERNAL_SERVICE_ID`
+  - `BOOTSTRAP_INTERNAL_SERVICE_SECRET`
 - Mirror to `CF_API_TOKEN` and `CF_ACCOUNT_ID` for tooling compatibility.
 - Optional deploy secrets:
   - `REGISTRY_HEALTH_URL` (only needed when dev registry health endpoint is not `https://dev.registry.clawdentity.com`; CI falls back to that URL by default).

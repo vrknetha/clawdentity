@@ -406,7 +406,7 @@ Do not suggest switching endpoints unless user explicitly asks for endpoint chan
 - `CLI_PAIR_STATUS_WAIT_CANCELLED`: wait interrupted (SIGINT). Run `pair recover`.
 - `CLI_PAIR_CONFIRM_INPUT_CONFLICT`: cannot provide both `--ticket` and `--qr-file`. Use one path only.
 - `CLI_PAIR_PROXY_URL_MISMATCH`: local `proxyUrl` does not match registry metadata. Rerun `clawdentity invite redeem <clw_inv_...>`.
-- `PROXY_PAIR_OWNERSHIP_UNAVAILABLE`: proxy cannot authenticate to registry ownership endpoint. Bootstrap should create `proxy-pairing` internal service automatically on fresh environments. For already-bootstrapped environments, create or rotate the internal service via admin API and update proxy secrets (`REGISTRY_INTERNAL_SERVICE_ID`, `REGISTRY_INTERNAL_SERVICE_SECRET`).
+- `PROXY_PAIR_OWNERSHIP_UNAVAILABLE`: proxy cannot authenticate to registry ownership endpoint. Ensure registry deterministic bootstrap credentials are configured (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`) and proxy secrets match (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`). On already-bootstrapped environments, rotate internal service via admin API and update proxy secrets together.
 - Responder shows peer but initiator does not:
   - Cause: initiator started pairing without `--wait`.
   - Fix: run `clawdentity pair status <initiator-agent> --ticket <clwpair1_...> --wait` on initiator.

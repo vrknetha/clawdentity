@@ -36,7 +36,7 @@ const REGISTRY_ISSUER_BY_ENVIRONMENT: Record<
 > = {
   development: "https://dev.registry.clawdentity.com",
   production: "https://registry.clawdentity.com",
-  test: "https://dev.registry.clawdentity.com",
+  local: "https://dev.registry.clawdentity.com",
 };
 
 type AgentRegistrationBody = {

@@ -2,10 +2,21 @@ import { describe, expect, it } from "vitest";
 import { parseRegistryConfig } from "./config.js";
 import { AppError } from "./exceptions.js";
 
+const bootstrapInternalServiceConfig = {
+  BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+} as const;
+
 describe("config helpers", () => {
   it("parses a valid registry config", () => {
-    expect(parseRegistryConfig({ ENVIRONMENT: "development" })).toEqual({
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        ...bootstrapInternalServiceConfig,
+      }),
+    ).toEqual({
       ENVIRONMENT: "development",
+      ...bootstrapInternalServiceConfig,
     });
   });
 
@@ -14,16 +25,19 @@ describe("config helpers", () => {
       parseRegistryConfig({
         ENVIRONMENT: "development",
         EVENT_BUS_BACKEND: "queue",
+        ...bootstrapInternalServiceConfig,
       }),
     ).toEqual({
       ENVIRONMENT: "development",
       EVENT_BUS_BACKEND: "queue",
+      ...bootstrapInternalServiceConfig,
     });
   });
 
   it("parses REGISTRY_SIGNING_KEYS into validated key entries", () => {
     const config = parseRegistryConfig({
       ENVIRONMENT: "development",
+      ...bootstrapInternalServiceConfig,
       REGISTRY_SIGNING_KEYS: JSON.stringify([
         {
           kid: "reg-key-1",
@@ -51,10 +65,12 @@ describe("config helpers", () => {
       parseRegistryConfig({
         ENVIRONMENT: "development",
         APP_VERSION: "sha-abcdef123456",
+        ...bootstrapInternalServiceConfig,
       }),
     ).toEqual({
       ENVIRONMENT: "development",
       APP_VERSION: "sha-abcdef123456",
+      ...bootstrapInternalServiceConfig,
     });
   });
 
@@ -63,10 +79,12 @@ describe("config helpers", () => {
       parseRegistryConfig({
         ENVIRONMENT: "development",
         PROXY_URL: "https://dev.proxy.clawdentity.com",
+        ...bootstrapInternalServiceConfig,
       }),
     ).toEqual({
       ENVIRONMENT: "development",
       PROXY_URL: "https://dev.proxy.clawdentity.com",
+      ...bootstrapInternalServiceConfig,
     });
   });
 
@@ -75,10 +93,12 @@ describe("config helpers", () => {
       parseRegistryConfig({
         ENVIRONMENT: "development",
         REGISTRY_ISSUER_URL: "http://host.docker.internal:8788",
+        ...bootstrapInternalServiceConfig,
       }),
     ).toEqual({
       ENVIRONMENT: "development",
       REGISTRY_ISSUER_URL: "http://host.docker.internal:8788",
+      ...bootstrapInternalServiceConfig,
     });
   });
 
@@ -254,6 +274,7 @@ describe("config helpers", () => {
         REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
         EVENT_BUS_BACKEND: "memory",
         BOOTSTRAP_SECRET: "bootstrap-secret",
+        ...bootstrapInternalServiceConfig,
         REGISTRY_SIGNING_KEY:
           "VGVzdFNpZ25pbmdLZXlGb3JEZXZlbG9wbWVudF9PcGVyYXRpb25zMTIz",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
@@ -273,14 +294,31 @@ describe("config helpers", () => {
     expect(config.PROXY_URL).toBe("https://dev.proxy.clawdentity.com");
   });
 
-  it("skips requireRuntimeKeys validation in test environment", () => {
+  it("skips non-bootstrap runtime key validation in local environment", () => {
     const config = parseRegistryConfig(
       {
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        ...bootstrapInternalServiceConfig,
       },
       { requireRuntimeKeys: true },
     );
 
-    expect(config.ENVIRONMENT).toBe("test");
+    expect(config.ENVIRONMENT).toBe("local");
+  });
+
+  it("throws when only one bootstrap internal service key is provided", () => {
+    expect(() =>
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+      }),
+    ).toThrow(AppError);
+
+    expect(() =>
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      }),
+    ).toThrow(AppError);
   });
 });
