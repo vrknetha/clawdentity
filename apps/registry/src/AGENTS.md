@@ -10,7 +10,7 @@
 ## Health Contract
 - `/health` must return HTTP 200 with `{ status, version, environment }` on valid config.
 - Invalid runtime config must fail through the shared error handler and return `CONFIG_VALIDATION_FAILED`.
-- Runtime startup config must fail fast for non-test environments when required keys are missing (`PROXY_URL`, `REGISTRY_ISSUER_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Runtime startup config must fail fast for non-local environments when required keys are missing (`PROXY_URL`, `REGISTRY_ISSUER_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 - `BOOTSTRAP_INTERNAL_SERVICE_ID` and `BOOTSTRAP_INTERNAL_SERVICE_SECRET` are required bootstrap credentials in every environment and must be set together.
 
 ## Admin Bootstrap Contract
@@ -75,7 +75,7 @@
   - `cursor`: ULID (opaque page token)
 - Return minimal agent fields only: `{ id, did, name, status, expires }` plus pagination `{ limit, nextCursor }`.
 - Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
-- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
+- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `local`/`development`.
 
 ## GET /v1/agents/:id/ownership Contract
 - Require PAT auth via `createApiKeyAuth`.
@@ -149,13 +149,13 @@
   - `challenge.ts` for challenge construction
   - `proof.ts` for ownership-proof verification
   - `creation.ts` for registration/reissue claim builders
-- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `development`/`test` for debugging.
+- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `local`/`development` for debugging.
 - Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
 - Verify challenge ownership before signing AIT: challenge must exist for the caller, be unexpired, remain `pending`, and match the request public key + signature.
 - Consume challenge with guarded state transition (`pending` -> `used`) in the same mutation unit as agent insert; reject zero-row updates as replayed challenge.
 - Use shared SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`, `addSeconds`) for issuance/expiry math and timestamp serialization in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
-- Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
+- Keep AIT `iss` deterministic from environment mapping (`local`/`development` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
 - Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.
 - Response shape is `{ agent, ait, agentAuth }` where `agentAuth` returns short-lived access credentials and rotating refresh credentials.
 
