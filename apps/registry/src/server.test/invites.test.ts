@@ -18,7 +18,12 @@ describe(`POST ${INVITES_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(401);
@@ -45,7 +50,12 @@ describe(`POST ${INVITES_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(403);
@@ -69,7 +79,12 @@ describe(`POST ${INVITES_PATH}`, () => {
           expiresAt: "not-an-iso-date",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -102,7 +117,12 @@ describe(`POST ${INVITES_PATH}`, () => {
           expiresAt,
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(201);
@@ -139,7 +159,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -167,7 +192,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           code: "clw_inv_missing",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -202,7 +232,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           code: "clw_inv_expired",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -237,7 +272,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           code: "clw_inv_redeemed",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(409);
@@ -277,7 +317,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           apiKeyName: "primary-invite-key",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(redeemResponse.status).toBe(201);
@@ -315,7 +360,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           Authorization: `Bearer ${redeemBody.apiKey.token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(meResponse.status).toBe(200);
@@ -363,7 +413,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           displayName: "Fallback Invitee",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(firstResponse.status).toBe(500);
@@ -382,7 +437,12 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
           displayName: "Fallback Invitee",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(secondResponse.status).toBe(201);

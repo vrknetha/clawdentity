@@ -75,7 +75,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
 
@@ -99,7 +101,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: {},
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
 
@@ -170,7 +174,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
 
@@ -246,7 +252,9 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
 
@@ -277,7 +285,12 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
           },
           body: JSON.stringify({}),
         },
-        { DB: {} as D1Database, ENVIRONMENT: "test" },
+        {
+          DB: {} as D1Database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        },
       );
 
       expect(response.status).toBe(400);
@@ -293,7 +306,12 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -356,7 +374,12 @@ describe("DELETE /v1/agents/:id/auth/revoke", () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(firstResponse.status).toBe(204);
     expect(agentAuthSessionRows[0]?.status).toBe("revoked");
@@ -377,7 +400,12 @@ describe("DELETE /v1/agents/:id/auth/revoke", () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(secondResponse.status).toBe(204);
   });

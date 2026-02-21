@@ -31,6 +31,9 @@ Human DID: did:claw:human:01H...
 API key name: <name>
 API key token (shown once):
 <token>
+Internal service ID: <id>
+Internal service name: proxy-pairing
+Set proxy secrets BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET manually in Cloudflare before proxy deploy.
 API key saved to local config
 ```
 
@@ -52,6 +55,11 @@ API key saved to local config
 - One-time operation: succeeds only on first call per registry.
 - Automatically persists `registryUrl` and `apiKey` to local config.
 - Registry must have `BOOTSTRAP_SECRET` environment variable set.
+- Registry must also have deterministic service credentials configured:
+  - `BOOTSTRAP_INTERNAL_SERVICE_ID`
+  - `BOOTSTRAP_INTERNAL_SERVICE_SECRET`
+- `BOOTSTRAP_INTERNAL_SERVICE_ID` must match proxy `BOOTSTRAP_INTERNAL_SERVICE_ID`.
+- `BOOTSTRAP_INTERNAL_SERVICE_SECRET` must match proxy `BOOTSTRAP_INTERNAL_SERVICE_SECRET`.
 - After bootstrap, admin can create invites with `clawdentity invite create`.
 
 ## API Key Lifecycle

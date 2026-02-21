@@ -16,14 +16,19 @@ describe("GET /health", () => {
     const res = await app.request(
       "/health",
       {},
-      { DB: {}, ENVIRONMENT: "test" },
+      {
+        DB: {},
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
       status: "ok",
       version: "0.0.0",
-      environment: "test",
+      environment: "local",
     });
     expect(res.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
   });
@@ -32,7 +37,13 @@ describe("GET /health", () => {
     const res = await createRegistryApp().request(
       "/health",
       {},
-      { DB: {}, ENVIRONMENT: "test", APP_VERSION: "sha-1234567890" },
+      {
+        DB: {},
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        APP_VERSION: "sha-1234567890",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -40,7 +51,7 @@ describe("GET /health", () => {
     expect(body).toEqual({
       status: "ok",
       version: "sha-1234567890",
-      environment: "test",
+      environment: "local",
     });
   });
 
@@ -48,7 +59,12 @@ describe("GET /health", () => {
     const res = await createRegistryApp().request(
       "/health",
       {},
-      { DB: {}, ENVIRONMENT: "local" },
+      {
+        DB: {},
+        ENVIRONMENT: "invalid",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(res.status).toBe(500);
     expect(res.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
@@ -67,7 +83,9 @@ describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "development",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         APP_VERSION: "sha-meta-123",
         PROXY_URL: "https://dev.proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
@@ -96,7 +114,7 @@ describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
     };
     expect(body).toEqual({
       status: "ok",
-      environment: "development",
+      environment: "local",
       version: "sha-meta-123",
       registryUrl: "https://registry.example.test",
       proxyUrl: "https://dev.proxy.clawdentity.com",
@@ -119,7 +137,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
 
@@ -147,7 +167,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -171,7 +193,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -195,7 +219,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -221,7 +247,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -246,7 +274,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -274,7 +304,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -333,7 +365,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -362,7 +396,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
 
@@ -411,7 +447,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -442,7 +480,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -465,7 +505,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );

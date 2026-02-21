@@ -1,4 +1,6 @@
+import { parseDid } from "@clawdentity/protocol";
 import { nowUtcMs } from "@clawdentity/sdk";
+import { verifyPairingTicketSignature } from "../pairing-ticket.js";
 import {
   normalizeExpiryToWholeSecond,
   toPairKey,
@@ -36,6 +38,7 @@ export class ProxyTrustStateHandlers {
       !initiatorProfile ||
       !isNonEmptyString(body.issuerProxyUrl) ||
       !isNonEmptyString(body.ticket) ||
+      !isNonEmptyString(body.publicKeyX) ||
       typeof body.expiresAtMs !== "number" ||
       !Number.isInteger(body.expiresAtMs) ||
       body.expiresAtMs <= 0
@@ -45,6 +48,63 @@ export class ProxyTrustStateHandlers {
         message: "Pairing ticket create input is invalid",
         status: 400,
       });
+    }
+
+    const publicKeyX = body.publicKeyX.trim();
+    let allowResponderAgentDid: string | undefined;
+    if (body.allowResponderAgentDid !== undefined) {
+      if (!isNonEmptyString(body.allowResponderAgentDid)) {
+        return toErrorResponse({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "allowResponderAgentDid must be a non-empty string",
+          status: 400,
+        });
+      }
+      try {
+        const parsedResponderDid = parseDid(body.allowResponderAgentDid.trim());
+        if (parsedResponderDid.kind !== "agent") {
+          throw new Error("invalid kind");
+        }
+      } catch {
+        return toErrorResponse({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "allowResponderAgentDid must be a valid agent DID",
+          status: 400,
+        });
+      }
+      allowResponderAgentDid = body.allowResponderAgentDid.trim();
+    }
+
+    let callbackUrl: string | undefined;
+    if (body.callbackUrl !== undefined) {
+      if (!isNonEmptyString(body.callbackUrl)) {
+        return toErrorResponse({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "callbackUrl must be a valid http(s) URL",
+          status: 400,
+        });
+      }
+      let parsedCallbackUrl: URL;
+      try {
+        parsedCallbackUrl = new URL(body.callbackUrl.trim());
+      } catch {
+        return toErrorResponse({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "callbackUrl must be a valid http(s) URL",
+          status: 400,
+        });
+      }
+      if (
+        parsedCallbackUrl.protocol !== "https:" &&
+        parsedCallbackUrl.protocol !== "http:"
+      ) {
+        return toErrorResponse({
+          code: "PROXY_PAIR_START_INVALID_BODY",
+          message: "callbackUrl must be a valid http(s) URL",
+          status: 400,
+        });
+      }
+      callbackUrl = parsedCallbackUrl.toString();
     }
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
@@ -88,6 +148,9 @@ export class ProxyTrustStateHandlers {
       initiatorProfile,
       issuerProxyUrl: parsedTicket.iss,
       expiresAtMs: normalizedExpiresAtMs,
+      publicKeyX,
+      allowResponderAgentDid,
+      callbackUrl,
     };
     delete expirableState.confirmedPairingTickets[parsedTicket.kid];
 
@@ -131,14 +194,41 @@ export class ProxyTrustStateHandlers {
     const { parsedTicket, ticket } = parsedTicketResult;
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
     const expirableState = await this.storage.loadExpirableState();
-    const stored = expirableState.pairingTickets[parsedTicket.kid];
+    const confirmed = expirableState.confirmedPairingTickets[parsedTicket.kid];
+    if (confirmed && confirmed.ticket === ticket) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_TICKET_ALREADY_CONFIRMED",
+        message: "Pairing ticket has already been confirmed",
+        status: 409,
+      });
+    }
 
-    if (!stored || stored.ticket !== ticket) {
+    const stored = expirableState.pairingTickets[parsedTicket.kid];
+    if (!stored) {
       return toErrorResponse({
         code: "PROXY_PAIR_TICKET_NOT_FOUND",
         message: "Pairing ticket not found",
         status: 404,
       });
+    }
+
+    if (stored.publicKeyX !== undefined) {
+      let signatureVerified = false;
+      try {
+        signatureVerified = await verifyPairingTicketSignature({
+          payload: parsedTicket,
+          publicKeyX: stored.publicKeyX,
+        });
+      } catch {
+        signatureVerified = false;
+      }
+      if (!signatureVerified) {
+        return toErrorResponse({
+          code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+          message: "Pairing ticket signature is invalid",
+          status: 400,
+        });
+      }
     }
 
     if (stored.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
@@ -163,6 +253,17 @@ export class ProxyTrustStateHandlers {
       });
     }
 
+    if (
+      stored.allowResponderAgentDid !== undefined &&
+      stored.allowResponderAgentDid !== body.responderAgentDid
+    ) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_RESPONDER_FORBIDDEN",
+        message: "Responder agent DID is not allowed for this pairing ticket",
+        status: 403,
+      });
+    }
+
     const pairs = await this.storage.loadPairs();
     pairs.add(toPairKey(stored.initiatorAgentDid, body.responderAgentDid));
 
@@ -183,6 +284,7 @@ export class ProxyTrustStateHandlers {
       responderProfile,
       issuerProxyUrl: stored.issuerProxyUrl,
       confirmedAtMs: normalizeExpiryToWholeSecond(nowMs),
+      callbackUrl: stored.callbackUrl,
     };
     await this.storage.saveExpirableStateAndSchedule(expirableState, {
       pairingTickets: true,
@@ -195,6 +297,7 @@ export class ProxyTrustStateHandlers {
       responderAgentDid: body.responderAgentDid,
       responderProfile,
       issuerProxyUrl: stored.issuerProxyUrl,
+      callbackUrl: stored.callbackUrl,
     });
   }
 

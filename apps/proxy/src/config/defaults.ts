@@ -3,7 +3,6 @@ export const proxyEnvironmentValues = [
   "local",
   "development",
   "production",
-  "test",
 ] as const;
 export type ProxyEnvironment = (typeof proxyEnvironmentValues)[number];
 

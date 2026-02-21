@@ -11,7 +11,12 @@ describe("DELETE /v1/agents/:id", () => {
       {
         method: "DELETE",
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -34,7 +39,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -71,7 +81,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -109,7 +124,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(204);
@@ -154,7 +174,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     const second = await createRegistryApp().request(
       `/v1/agents/${agentId}`,
@@ -162,7 +187,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(first.status).toBe(204);
@@ -195,7 +225,12 @@ describe("DELETE /v1/agents/:id", () => {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(409);

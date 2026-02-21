@@ -22,6 +22,8 @@ export type ProxyWorkerBindings = {
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
+  BOOTSTRAP_INTERNAL_SERVICE_ID?: string;
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET?: string;
   REGISTRY_INTERNAL_SERVICE_ID?: string;
   REGISTRY_INTERNAL_SERVICE_SECRET?: string;
   ENVIRONMENT?: string;
@@ -60,6 +62,8 @@ function toCacheKey(env: ProxyWorkerBindings): string {
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,
+    env.BOOTSTRAP_INTERNAL_SERVICE_ID,
+    env.BOOTSTRAP_INTERNAL_SERVICE_SECRET,
     env.REGISTRY_INTERNAL_SERVICE_ID,
     env.REGISTRY_INTERNAL_SERVICE_SECRET,
     env.ENVIRONMENT,

@@ -18,7 +18,9 @@ export function parseRegistrySigningKeys(
   const parsed = (() => {
     try {
       return parseRegistryConfig({
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "development",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEYS: JSON.stringify(payload.keys),
       });
     } catch (error) {

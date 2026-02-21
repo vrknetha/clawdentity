@@ -18,7 +18,12 @@ describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
           publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
         }),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -44,7 +49,12 @@ describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
           publicKey: "not-base64url",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -79,7 +89,12 @@ describe(`POST ${AGENT_REGISTRATION_CHALLENGE_PATH}`, () => {
           publicKey: encodeBase64url(agentKeypair.publicKey),
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(201);

@@ -30,8 +30,8 @@ function createRequiredBindings(
   return {
     ENVIRONMENT: "local",
     REGISTRY_URL: "https://registry.example.test",
-    REGISTRY_INTERNAL_SERVICE_ID: "svc-proxy-registry",
-    REGISTRY_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
+    BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
+    BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
     ...overrides,
   };
 }
@@ -188,10 +188,10 @@ describe("proxy worker", () => {
       "REGISTRY_URL is required",
     );
     expect(
-      payload.error.details.fieldErrors?.REGISTRY_INTERNAL_SERVICE_ID?.[0],
-    ).toBe("REGISTRY_INTERNAL_SERVICE_ID is required");
+      payload.error.details.fieldErrors?.BOOTSTRAP_INTERNAL_SERVICE_ID?.[0],
+    ).toBe("BOOTSTRAP_INTERNAL_SERVICE_ID is required");
     expect(
-      payload.error.details.fieldErrors?.REGISTRY_INTERNAL_SERVICE_SECRET?.[0],
-    ).toBe("REGISTRY_INTERNAL_SERVICE_SECRET is required");
+      payload.error.details.fieldErrors?.BOOTSTRAP_INTERNAL_SERVICE_SECRET?.[0],
+    ).toBe("BOOTSTRAP_INTERNAL_SERVICE_SECRET is required");
   });
 });

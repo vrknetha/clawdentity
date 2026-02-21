@@ -124,7 +124,9 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -221,7 +223,9 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -303,7 +307,9 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(fixture.signer.secretKey),
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -348,7 +354,12 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
           },
           body: JSON.stringify({}),
         },
-        { DB: {} as D1Database, ENVIRONMENT: "test" },
+        {
+          DB: {} as D1Database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        },
       );
 
       expect(response.status).toBe(400);
@@ -364,7 +375,12 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);

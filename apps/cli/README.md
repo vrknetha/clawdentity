@@ -68,6 +68,7 @@ clawdentity openclaw doctor
 | `pair start <name>` | Initiate QR pairing |
 | `pair confirm <name>` | Confirm peer pairing |
 | `pair status <name>` | Poll pairing status |
+| `pair recover <name>` | Recover pending pairing without re-entering ticket |
 | `skill install` | Install skill artifacts |
 | `connector start <name>` | Start connector runtime |
 | `connector service install <name>` | Auto-start service at login |
@@ -87,6 +88,16 @@ Config files are stored in `~/.clawdentity/`.
 | `humanName` | `CLAWDENTITY_HUMAN_NAME` | Display name for invites |
 
 Environment variables override values in the config file.
+
+## Pairing Recovery
+
+When using `pair start --wait` or `pair status --wait`, the CLI stores pending
+pairing tickets per agent under the local state directory. If wait times out or
+is cancelled, recover later with:
+
+```bash
+clawdentity pair recover <agentName>
+```
 
 ## Requirements
 

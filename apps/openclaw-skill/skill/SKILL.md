@@ -163,10 +163,13 @@ Use `--no-runtime-start` when the connector runs as a separate container or proc
 - `clawdentity pair start <agent-name> --qr --ttl-seconds <seconds>`
 - `clawdentity pair start <agent-name> --qr --wait`
 - `clawdentity pair start <agent-name> --qr --wait --wait-seconds <seconds> --poll-interval-seconds <seconds>`
+- `clawdentity pair start <agent-name> --qr --allow-responder <did:claw:agent:...>`
+- `clawdentity pair start <agent-name> --qr --callback-url <https://...>`
 - `clawdentity pair confirm <agent-name> --qr-file <path>`
 - `clawdentity pair confirm <agent-name> --ticket <clwpair1_...>`
 - `clawdentity pair status <agent-name> --ticket <clwpair1_...>`
 - `clawdentity pair status <agent-name> --ticket <clwpair1_...> --wait`
+- `clawdentity pair recover <agent-name>`
 
 ### Token verification
 - `clawdentity verify <tokenOrFile>`
@@ -281,7 +284,11 @@ Use `--no-runtime-start` when the connector runs as a separate container or proc
   - `clawdentity pair status <agent-name> --ticket <clwpair1_...> --wait`
   - This persists the peer on initiator after responder confirmation.
 - Default wait timeout is 300 seconds with 3-second polling.
-- If `CLI_PAIR_STATUS_WAIT_TIMEOUT` is thrown: the responder did not confirm in time. Recovery: re-run `clawdentity pair start <agent-name> --qr --wait` to generate a new ticket.
+- Wait flow is resilient (adaptive polling + transient retries) and persists pending ticket state per agent.
+- If wait times out/cancels/fails due repeated transients, preferred recovery is:
+  - `clawdentity pair recover <agent-name>`
+- Manual fallback remains:
+  - `clawdentity pair status <agent-name> --ticket <clwpair1_...> --wait`
 - Confirm pairing success, then run `clawdentity openclaw relay test`.
 - **Validate:** `~/.clawdentity/peers.json` contains the new peer alias entry.
 
@@ -393,9 +400,13 @@ Do not suggest switching endpoints unless user explicitly asks for endpoint chan
 ### Pairing errors
 - `PROXY_PAIR_TICKET_NOT_FOUND`: ticket invalid or expired. Request a new ticket from initiator.
 - `PROXY_PAIR_TICKET_EXPIRED`: ticket has expired. Request a new ticket.
-- `CLI_PAIR_STATUS_WAIT_TIMEOUT`: responder did not confirm in time. Re-run `pair start`.
+- `PROXY_PAIR_TICKET_ALREADY_CONFIRMED`: ticket replayed; pairing already completed earlier.
+- `CLI_PAIR_STATUS_WAIT_TIMEOUT`: responder did not confirm before deadline. Run `pair recover` (preferred) or `pair status --ticket ... --wait`.
+- `CLI_PAIR_STATUS_POLL_FAILED`: transient polling failures exceeded retry budget. Run `pair recover`.
+- `CLI_PAIR_STATUS_WAIT_CANCELLED`: wait interrupted (SIGINT). Run `pair recover`.
 - `CLI_PAIR_CONFIRM_INPUT_CONFLICT`: cannot provide both `--ticket` and `--qr-file`. Use one path only.
 - `CLI_PAIR_PROXY_URL_MISMATCH`: local `proxyUrl` does not match registry metadata. Rerun `clawdentity invite redeem <clw_inv_...>`.
+- `PROXY_PAIR_OWNERSHIP_UNAVAILABLE`: proxy cannot authenticate to registry ownership endpoint. Ensure registry deterministic bootstrap credentials are configured (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`) and proxy secrets match (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`). On already-bootstrapped environments, rotate internal service via admin API and update proxy secrets together.
 - Responder shows peer but initiator does not:
   - Cause: initiator started pairing without `--wait`.
   - Fix: run `clawdentity pair status <initiator-agent> --ticket <clwpair1_...> --wait` on initiator.

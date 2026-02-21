@@ -4,7 +4,7 @@ import {
   createPairingTicket,
   createPairingTicketSigningKey,
   parsePairingTicket,
-} from "./pairing-ticket.js";
+} from "../pairing-ticket.js";
 
 const INITIATOR_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_000));
 const RESPONDER_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_100));
@@ -17,12 +17,12 @@ const RESPONDER_PROFILE = {
   agentName: "beta",
   humanName: "Ira",
 };
-const RESPONDER_PROFILE_WITH_PROXY_ORIGIN = {
+const _RESPONDER_PROFILE_WITH_PROXY_ORIGIN = {
   ...RESPONDER_PROFILE,
   proxyOrigin: "https://beta.proxy.example",
 };
 
-vi.mock("./auth-middleware.js", async () => {
+vi.mock("../auth-middleware.js", async () => {
   const { createMiddleware } = await import("hono/factory");
 
   return {
@@ -40,16 +40,12 @@ vi.mock("./auth-middleware.js", async () => {
   };
 });
 
-import { parseProxyConfig } from "./config.js";
-import {
-  PAIR_CONFIRM_PATH,
-  PAIR_START_PATH,
-  PAIR_STATUS_PATH,
-} from "./pairing-constants.js";
-import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
-import { createProxyApp } from "./server.js";
+import { parseProxyConfig } from "../config.js";
+import { PAIR_START_PATH } from "../pairing-constants.js";
+import { createInMemoryProxyTrustStore } from "../proxy-trust-store.js";
+import { createProxyApp } from "../server.js";
 
-async function createSignedTicketFixture(input: {
+async function _createSignedTicketFixture(input: {
   issuerProxyUrl: string;
   nowMs: number;
   expiresAtMs: number;
@@ -75,25 +71,27 @@ async function createSignedTicketFixture(input: {
 }
 
 function createPairingApp(input?: {
-  environment?: "local" | "development" | "production" | "test";
-  fetchImpl?: typeof fetch;
+  environment?: "local" | "development" | "production";
+  startFetchImpl?: typeof fetch;
+  confirmFetchImpl?: typeof fetch;
   nowMs?: () => number;
 }) {
   const trustStore = createInMemoryProxyTrustStore();
   const app = createProxyApp({
     config: parseProxyConfig({
       REGISTRY_URL: "https://registry.example.com",
-      REGISTRY_INTERNAL_SERVICE_ID: "01KHSVCABCDEFGHJKMNOPQRST",
-      REGISTRY_INTERNAL_SERVICE_SECRET:
+      BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+      BOOTSTRAP_INTERNAL_SERVICE_SECRET:
         "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
       ENVIRONMENT: input?.environment,
     }),
     pairing: {
       start: {
-        fetchImpl: input?.fetchImpl,
+        fetchImpl: input?.startFetchImpl,
         nowMs: input?.nowMs,
       },
       confirm: {
+        fetchImpl: input?.confirmFetchImpl,
         nowMs: input?.nowMs,
       },
       status: {
@@ -127,10 +125,10 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         throw new Error(`Unexpected URL: ${url}`);
       },
     );
-    const fetchImpl = fetchMock as unknown as typeof fetch;
+    const startFetchImpl = fetchMock as unknown as typeof fetch;
 
     const { app } = createPairingApp({
-      fetchImpl,
+      startFetchImpl,
       nowMs: () => 1_700_000_000_000,
     });
 
@@ -159,7 +157,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     expect(body.initiatorAgentDid).toBe(INITIATOR_AGENT_DID);
     expect(body.initiatorProfile).toEqual(INITIATOR_PROFILE);
     expect(body.expiresAt).toBe("2023-11-14T22:18:20.000Z");
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(startFetchImpl).toHaveBeenCalledTimes(1);
     const ownershipCallUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
     expect(ownershipCallUrl).toContain("/internal/v1/identity/agent-ownership");
     const ownershipCallInit = fetchMock.mock.calls[0]?.[1] as
@@ -167,7 +165,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       | undefined;
     const ownershipHeaders = new Headers(ownershipCallInit?.headers);
     expect(ownershipHeaders.get("x-claw-service-id")).toBe(
-      "01KHSVCABCDEFGHJKMNOPQRST",
+      "01HF7YAT00W6W7CM7N3W5FDXT4",
     );
     expect(ownershipHeaders.get("x-claw-service-secret")).toBe(
       "clw_srv_kx2qkQhJ9j9d2l2fF6uH3m6l9Hj7sVfW8Q2r3L4",
@@ -188,10 +186,10 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         throw new Error(`Unexpected URL: ${url}`);
       },
     );
-    const fetchImpl = fetchMock as unknown as typeof fetch;
+    const startFetchImpl = fetchMock as unknown as typeof fetch;
 
     const { app } = createPairingApp({
-      fetchImpl,
+      startFetchImpl,
       nowMs: () => 1_700_000_000_123,
     });
 
@@ -215,7 +213,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
   });
 
   it("returns 403 when ownership check reports caller is not owner", async () => {
-    const fetchImpl = vi.fn(async (_requestInput: unknown) =>
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
       Response.json(
         {
           ownsAgent: false,
@@ -224,7 +222,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
         { status: 200 },
       ),
     ) as unknown as typeof fetch;
-    const { app } = createPairingApp({ fetchImpl });
+    const { app } = createPairingApp({ startFetchImpl });
 
     const response = await app.request(PAIR_START_PATH, {
       method: "POST",
@@ -242,12 +240,12 @@ describe(`POST ${PAIR_START_PATH}`, () => {
   });
 
   it("keeps strict dependency failures when ownership lookup is unavailable", async () => {
-    const fetchImpl = vi.fn(async () => {
+    const startFetchImpl = vi.fn(async () => {
       throw new Error("registry unavailable");
     }) as unknown as typeof fetch;
     const { app } = createPairingApp({
       environment: "development",
-      fetchImpl,
+      startFetchImpl,
       nowMs: () => 1_700_000_000_123,
     });
 
@@ -265,223 +263,101 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_PAIR_OWNERSHIP_UNAVAILABLE");
   });
-});
 
-describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
-  it("confirms local issuer tickets and enables mutual trust", async () => {
-    const { app, trustStore } = createPairingApp({
+  it("accepts optional allowResponderAgentDid and callbackUrl", async () => {
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+          agentStatus: "active",
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({
+      startFetchImpl,
       nowMs: () => 1_700_000_000_000,
     });
 
-    const createdTicket = await createSignedTicketFixture({
-      issuerProxyUrl: "http://localhost",
-      nowMs: 1_700_000_000_000,
-      expiresAtMs: 1_700_000_900_000,
-    });
-    const ticket = await trustStore.createPairingTicket({
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      issuerProxyUrl: "http://localhost",
-      ticket: createdTicket.ticket,
-      expiresAtMs: 1_700_000_900_000,
-      nowMs: 1_700_000_000_000,
-    });
-
-    const response = await app.request(PAIR_CONFIRM_PATH, {
+    const response = await app.request(PAIR_START_PATH, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-agent-did": RESPONDER_AGENT_DID,
       },
       body: JSON.stringify({
-        ticket: ticket.ticket,
-        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
-      }),
-    });
-
-    expect(response.status).toBe(201);
-    const body = (await response.json()) as {
-      initiatorAgentDid: string;
-      initiatorProfile: {
-        agentName: string;
-        humanName: string;
-      };
-      paired: boolean;
-      responderAgentDid: string;
-      responderProfile: {
-        agentName: string;
-        humanName: string;
-      };
-    };
-
-    expect(body).toEqual({
-      paired: true,
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      responderAgentDid: RESPONDER_AGENT_DID,
-      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
-    });
-
-    expect(
-      await trustStore.isPairAllowed({
-        initiatorAgentDid: INITIATOR_AGENT_DID,
-        responderAgentDid: RESPONDER_AGENT_DID,
-      }),
-    ).toBe(true);
-    expect(
-      await trustStore.isPairAllowed({
-        initiatorAgentDid: RESPONDER_AGENT_DID,
-        responderAgentDid: INITIATOR_AGENT_DID,
-      }),
-    ).toBe(true);
-  });
-});
-
-describe(`POST ${PAIR_STATUS_PATH}`, () => {
-  it("returns pending status to initiator before ticket is confirmed", async () => {
-    const { app, trustStore } = createPairingApp({
-      nowMs: () => 1_700_000_000_000,
-    });
-    const createdTicket = await createSignedTicketFixture({
-      issuerProxyUrl: "http://localhost",
-      nowMs: 1_700_000_000_000,
-      expiresAtMs: 1_700_000_900_000,
-    });
-    const ticket = await trustStore.createPairingTicket({
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      issuerProxyUrl: "http://localhost",
-      ticket: createdTicket.ticket,
-      expiresAtMs: 1_700_000_900_000,
-      nowMs: 1_700_000_000_000,
-    });
-
-    const response = await app.request(PAIR_STATUS_PATH, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-test-agent-did": INITIATOR_AGENT_DID,
-      },
-      body: JSON.stringify({
-        ticket: ticket.ticket,
+        initiatorProfile: INITIATOR_PROFILE,
+        allowResponderAgentDid: RESPONDER_AGENT_DID,
+        callbackUrl: "https://callbacks.example.com/pair/complete",
       }),
     });
 
     expect(response.status).toBe(200);
-    expect(
-      (await response.json()) as {
-        status: string;
-        initiatorAgentDid: string;
-        initiatorProfile: {
-          agentName: string;
-          humanName: string;
-        };
-      },
-    ).toMatchObject({
-      status: "pending",
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      expiresAt: "2023-11-14T22:28:20.000Z",
-    });
   });
 
-  it("returns confirmed status to initiator after responder confirms ticket", async () => {
-    const { app, trustStore } = createPairingApp({
-      nowMs: () => 1_700_000_000_000,
-    });
-    const createdTicket = await createSignedTicketFixture({
-      issuerProxyUrl: "http://localhost",
-      nowMs: 1_700_000_000_000,
-      expiresAtMs: 1_700_000_900_000,
-    });
-    const ticket = await trustStore.createPairingTicket({
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      issuerProxyUrl: "http://localhost",
-      ticket: createdTicket.ticket,
-      expiresAtMs: 1_700_000_900_000,
-      nowMs: 1_700_000_000_000,
-    });
-    await trustStore.confirmPairingTicket({
-      ticket: ticket.ticket,
-      responderAgentDid: RESPONDER_AGENT_DID,
-      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
-      nowMs: 1_700_000_000_200,
-    });
+  it("rejects invalid callbackUrl", async () => {
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+          agentStatus: "active",
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({ startFetchImpl });
 
-    const response = await app.request(PAIR_STATUS_PATH, {
+    const response = await app.request(PAIR_START_PATH, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-agent-did": INITIATOR_AGENT_DID,
       },
       body: JSON.stringify({
-        ticket: ticket.ticket,
+        initiatorProfile: INITIATOR_PROFILE,
+        callbackUrl: "ftp://callbacks.example.com/pair/complete",
       }),
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(400);
     expect(
-      (await response.json()) as {
-        status: string;
-        initiatorAgentDid: string;
-        initiatorProfile: {
-          agentName: string;
-          humanName: string;
-        };
-        responderAgentDid: string;
-        responderProfile: {
-          agentName: string;
-          humanName: string;
-        };
-      },
-    ).toMatchObject({
-      status: "confirmed",
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      responderAgentDid: RESPONDER_AGENT_DID,
-      responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
-      expiresAt: "2023-11-14T22:28:20.000Z",
-      confirmedAt: "2023-11-14T22:13:20.000Z",
-    });
-  });
-
-  it("rejects status lookups from non-participant agents", async () => {
-    const { app, trustStore } = createPairingApp({
-      nowMs: () => 1_700_000_000_000,
-    });
-    const createdTicket = await createSignedTicketFixture({
-      issuerProxyUrl: "http://localhost",
-      nowMs: 1_700_000_000_000,
-      expiresAtMs: 1_700_000_900_000,
-    });
-    const ticket = await trustStore.createPairingTicket({
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      issuerProxyUrl: "http://localhost",
-      ticket: createdTicket.ticket,
-      expiresAtMs: 1_700_000_900_000,
-      nowMs: 1_700_000_000_000,
-    });
-
-    const response = await app.request(PAIR_STATUS_PATH, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-test-agent-did": makeAgentDid(generateUlid(1_700_000_000_300)),
-      },
-      body: JSON.stringify({
-        ticket: ticket.ticket,
-      }),
-    });
-
-    expect(response.status).toBe(403);
-    expect(
-      (await response.json()) as { error: { code: string } },
+      (await response.json()) as { error: { code: string; message: string } },
     ).toMatchObject({
       error: {
-        code: "PROXY_PAIR_STATUS_FORBIDDEN",
-        message: "Caller is not a participant for this pairing ticket",
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: "callbackUrl must be a valid http(s) URL",
+      },
+    });
+  });
+
+  it("rejects empty allowResponderAgentDid", async () => {
+    const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
+      Response.json(
+        {
+          ownsAgent: true,
+          agentStatus: "active",
+        },
+        { status: 200 },
+      ),
+    ) as unknown as typeof fetch;
+    const { app } = createPairingApp({ startFetchImpl });
+
+    const response = await app.request(PAIR_START_PATH, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        initiatorProfile: INITIATOR_PROFILE,
+        allowResponderAgentDid: "   ",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(
+      (await response.json()) as { error: { code: string; message: string } },
+    ).toMatchObject({
+      error: {
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: "allowResponderAgentDid must be a non-empty string",
       },
     });
   });

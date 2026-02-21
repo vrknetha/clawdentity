@@ -26,7 +26,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       `/v1/resolve/${agentId}`,
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -71,7 +76,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       `/v1/resolve/${agentId}`,
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -83,7 +93,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       "/v1/resolve/not-a-ulid",
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -107,7 +122,12 @@ describe("GET /v1/resolve/:id", () => {
     const res = await createRegistryApp().request(
       `/v1/resolve/${missingAgentId}`,
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -142,7 +162,12 @@ describe("GET /v1/resolve/:id", () => {
             "CF-Connecting-IP": "203.0.113.10",
           },
         },
-        { DB: database, ENVIRONMENT: "test" },
+        {
+          DB: database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        },
       );
 
       expect(response.status).toBe(200);
@@ -155,7 +180,12 @@ describe("GET /v1/resolve/:id", () => {
           "CF-Connecting-IP": "203.0.113.10",
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -169,7 +199,12 @@ describe("GET /v1/me", () => {
     const res = await createRegistryApp().request(
       "/v1/me",
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -188,7 +223,12 @@ describe("GET /v1/me", () => {
       {
         headers: { Authorization: "Bearer clw_pat_invalid-token-value" },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -204,7 +244,12 @@ describe("GET /v1/me", () => {
       {
         headers: { Authorization: "Bearer clw_pat_" },
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -223,7 +268,12 @@ describe("GET /v1/me", () => {
       {
         headers: { Authorization: `Bearer ${validToken}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(200);

@@ -16,7 +16,12 @@ describe("POST /v1/agents/:id/reissue", () => {
       {
         method: "POST",
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -39,7 +44,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -77,7 +87,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(404);
@@ -115,7 +130,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(409);
@@ -159,7 +179,12 @@ describe("POST /v1/agents/:id/reissue", () => {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(409);
@@ -218,7 +243,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -274,7 +301,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -360,7 +389,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -431,7 +462,9 @@ describe("POST /v1/agents/:id/reissue", () => {
       },
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },

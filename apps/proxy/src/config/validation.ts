@@ -84,11 +84,11 @@ export function parseProxyConfig(
     if (hasServiceId !== hasServiceSecret) {
       throw toConfigValidationError({
         fieldErrors: {
-          REGISTRY_INTERNAL_SERVICE_ID: [
-            "REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET must be set together.",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: [
+            "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
           ],
-          REGISTRY_INTERNAL_SERVICE_SECRET: [
-            "REGISTRY_INTERNAL_SERVICE_ID and REGISTRY_INTERNAL_SERVICE_SECRET must be set together.",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: [
+            "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
           ],
         },
         formErrors: [],

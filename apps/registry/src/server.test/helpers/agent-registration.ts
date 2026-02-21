@@ -17,6 +17,16 @@ export type RegistrySigningEnv = {
 
 export type Ed25519Keypair = Awaited<ReturnType<typeof generateEd25519Keypair>>;
 
+const TEST_BOOTSTRAP_INTERNAL_SERVICE_ID = "proxy-pairing";
+const TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET = "bootstrap-test-secret";
+
+type TestRegistryBindings = {
+  DB: D1Database;
+  ENVIRONMENT: "local";
+  BOOTSTRAP_INTERNAL_SERVICE_ID: string;
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET: string;
+} & Record<string, unknown>;
+
 export function createRegistrySigningEnv(input: {
   publicKey: Uint8Array;
   secretKey: Uint8Array;
@@ -56,10 +66,12 @@ export async function createDefaultRegistrySigning(input?: {
 export function createTestBindings(
   database: D1Database,
   extra: Record<string, unknown> = {},
-): { DB: D1Database; ENVIRONMENT: "test" } & Record<string, unknown> {
+): TestRegistryBindings {
   return {
     DB: database,
-    ENVIRONMENT: "test",
+    ENVIRONMENT: "local",
+    BOOTSTRAP_INTERNAL_SERVICE_ID: TEST_BOOTSTRAP_INTERNAL_SERVICE_ID,
+    BOOTSTRAP_INTERNAL_SERVICE_SECRET: TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
     ...extra,
   };
 }
@@ -74,6 +86,8 @@ export function createProductionBindings(
   REGISTRY_ISSUER_URL: string;
   EVENT_BUS_BACKEND: "memory";
   BOOTSTRAP_SECRET: string;
+  BOOTSTRAP_INTERNAL_SERVICE_ID: string;
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET: string;
 } & Record<string, unknown> {
   return {
     DB: database,
@@ -82,6 +96,8 @@ export function createProductionBindings(
     REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
     EVENT_BUS_BACKEND: "memory",
     BOOTSTRAP_SECRET: "bootstrap-secret",
+    BOOTSTRAP_INTERNAL_SERVICE_ID: TEST_BOOTSTRAP_INTERNAL_SERVICE_ID,
+    BOOTSTRAP_INTERNAL_SERVICE_SECRET: TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
     ...extra,
   };
 }

@@ -6,6 +6,8 @@ export type RuntimeEnvInput = {
   OPENCLAW_BASE_URL?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
+  BOOTSTRAP_INTERNAL_SERVICE_ID?: unknown;
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET?: unknown;
   REGISTRY_INTERNAL_SERVICE_ID?: unknown;
   REGISTRY_INTERNAL_SERVICE_SECRET?: unknown;
   ENVIRONMENT?: unknown;
@@ -100,9 +102,11 @@ export function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
     ]),
     REGISTRY_INTERNAL_SERVICE_ID: firstNonEmpty(env, [
       "REGISTRY_INTERNAL_SERVICE_ID",
+      "BOOTSTRAP_INTERNAL_SERVICE_ID",
     ]),
     REGISTRY_INTERNAL_SERVICE_SECRET: firstNonEmpty(env, [
       "REGISTRY_INTERNAL_SERVICE_SECRET",
+      "BOOTSTRAP_INTERNAL_SERVICE_SECRET",
     ]),
     ENVIRONMENT: firstNonEmpty(env, ["ENVIRONMENT"]),
     CRL_REFRESH_INTERVAL_MS: firstNonEmpty(env, ["CRL_REFRESH_INTERVAL_MS"]),
@@ -163,12 +167,15 @@ const REQUIRED_PROXY_RUNTIME_ENV_KEYS: readonly {
     aliases: ["REGISTRY_URL", "CLAWDENTITY_REGISTRY_URL"],
   },
   {
-    key: "REGISTRY_INTERNAL_SERVICE_ID",
-    aliases: ["REGISTRY_INTERNAL_SERVICE_ID"],
+    key: "BOOTSTRAP_INTERNAL_SERVICE_ID",
+    aliases: ["BOOTSTRAP_INTERNAL_SERVICE_ID", "REGISTRY_INTERNAL_SERVICE_ID"],
   },
   {
-    key: "REGISTRY_INTERNAL_SERVICE_SECRET",
-    aliases: ["REGISTRY_INTERNAL_SERVICE_SECRET"],
+    key: "BOOTSTRAP_INTERNAL_SERVICE_SECRET",
+    aliases: [
+      "BOOTSTRAP_INTERNAL_SERVICE_SECRET",
+      "REGISTRY_INTERNAL_SERVICE_SECRET",
+    ],
   },
 ];
 

@@ -46,10 +46,14 @@ describe("sdk", () => {
       "2026-01-01T00:00:10.000Z",
     );
     expect(resolveRequestId("valid-id-123")).toBe("valid-id-123");
-    expect(parseRegistryConfig({ ENVIRONMENT: "test" }).ENVIRONMENT).toBe(
-      "test",
-    );
-    expect(shouldExposeVerboseErrors("test")).toBe(true);
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
+      }).ENVIRONMENT,
+    ).toBe("local");
+    expect(shouldExposeVerboseErrors("local")).toBe(true);
     expect(REQUEST_ID_HEADER).toBe("x-request-id");
     expect(AppError).toBeTypeOf("function");
     const eventBus = createInMemoryEventBus();

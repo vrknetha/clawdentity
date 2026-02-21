@@ -20,7 +20,9 @@ describe("GET /.well-known/claw-keys.json", () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
             kid: "reg-key-1",
@@ -72,7 +74,9 @@ describe("GET /.well-known/claw-keys.json", () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
             kid: "reg-key-1",
@@ -127,7 +131,9 @@ describe("GET /.well-known/claw-keys.json", () => {
       {},
       {
         DB: {} as D1Database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
             kid: "reg-key-1",
@@ -233,7 +239,9 @@ describe("GET /v1/crl", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -251,7 +259,9 @@ describe("GET /v1/crl", () => {
       {},
       {
         DB: database,
-        ENVIRONMENT: "test",
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
         REGISTRY_SIGNING_KEYS: signingKeyset,
       },
@@ -306,7 +316,12 @@ describe("GET /v1/crl", () => {
     const response = await createRegistryApp().request(
       "/v1/crl",
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(404);
@@ -337,7 +352,12 @@ describe("GET /v1/crl", () => {
             "CF-Connecting-IP": "203.0.113.77",
           },
         },
-        { DB: database, ENVIRONMENT: "test" },
+        {
+          DB: database,
+          ENVIRONMENT: "local",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        },
       );
 
       expect(response.status).toBe(404);
@@ -350,7 +370,12 @@ describe("GET /v1/crl", () => {
           "CF-Connecting-IP": "203.0.113.77",
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(rateLimited.status).toBe(429);
@@ -389,7 +414,12 @@ describe("GET /v1/crl", () => {
     const response = await createRegistryApp().request(
       "/v1/crl",
       {},
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(500);

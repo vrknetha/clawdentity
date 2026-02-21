@@ -22,7 +22,12 @@ describe(`POST ${ME_API_KEYS_PATH}`, () => {
         },
         body: JSON.stringify({ name: "workstation" }),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(401);
@@ -46,7 +51,12 @@ describe(`POST ${ME_API_KEYS_PATH}`, () => {
           name: "workstation",
         }),
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(201);
@@ -85,7 +95,12 @@ describe(`POST ${ME_API_KEYS_PATH}`, () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(201);
@@ -156,7 +171,12 @@ describe(`GET ${ME_API_KEYS_PATH}`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(200);
@@ -209,7 +229,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(400);
@@ -229,7 +254,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${token}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(404);
@@ -279,7 +309,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(revokeResponse.status).toBe(204);
 
@@ -290,7 +325,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${rotateToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(revokedAuth.status).toBe(401);
     const revokedBody = (await revokedAuth.json()) as {
@@ -305,7 +345,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(activeAuth.status).toBe(200);
   });
@@ -351,7 +396,12 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
           Authorization: `Bearer ${authToken}`,
         },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(response.status).toBe(204);

@@ -15,9 +15,9 @@ const REGISTRY_ISSUER_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
 > = {
+  local: "https://dev.registry.clawdentity.com",
   development: "https://dev.registry.clawdentity.com",
   production: "https://registry.clawdentity.com",
-  test: "https://dev.registry.clawdentity.com",
 };
 
 export function resolveRegistryIssuer(

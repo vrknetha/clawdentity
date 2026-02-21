@@ -126,9 +126,9 @@ export const PROXY_URL_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
 > = {
+  local: "https://dev.proxy.clawdentity.com",
   development: "https://dev.proxy.clawdentity.com",
   production: "https://proxy.clawdentity.com",
-  test: "https://dev.proxy.clawdentity.com",
 };
 
 // Deterministic bootstrap identity guarantees one-time admin creation under races.

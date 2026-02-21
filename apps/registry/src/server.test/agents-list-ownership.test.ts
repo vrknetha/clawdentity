@@ -14,7 +14,12 @@ describe("GET /v1/agents", () => {
     const res = await createRegistryApp().request(
       "/v1/agents",
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -67,7 +72,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -142,7 +152,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(statusRes.status).toBe(200);
     const statusBody = (await statusRes.json()) as {
@@ -169,7 +184,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(frameworkRes.status).toBe(200);
     const frameworkBody = (await frameworkRes.json()) as {
@@ -235,7 +255,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(firstPage.status).toBe(200);
@@ -268,7 +293,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(secondPage.status).toBe(200);
@@ -306,7 +336,12 @@ describe("GET /v1/agents", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -340,6 +375,8 @@ describe("GET /v1/agents", () => {
         REGISTRY_ISSUER_URL: "https://registry.clawdentity.com",
         EVENT_BUS_BACKEND: "memory",
         BOOTSTRAP_SECRET: "bootstrap-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
         REGISTRY_SIGNING_KEY: "test-signing-key",
         REGISTRY_SIGNING_KEYS: JSON.stringify([
           {
@@ -373,7 +410,12 @@ describe("GET /v1/agents/:id/ownership", () => {
     const res = await createRegistryApp().request(
       `/v1/agents/${agentId}/ownership`,
       {},
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -406,7 +448,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(200);
@@ -438,7 +485,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(foreignRes.status).toBe(200);
     expect((await foreignRes.json()) as { ownsAgent: boolean }).toEqual({
@@ -450,7 +502,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(missingRes.status).toBe(200);
     expect((await missingRes.json()) as { ownsAgent: boolean }).toEqual({
@@ -467,7 +524,12 @@ describe("GET /v1/agents/:id/ownership", () => {
       {
         headers: { Authorization: `Bearer ${token}` },
       },
-      { DB: database, ENVIRONMENT: "test" },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(400);
@@ -497,7 +559,12 @@ describe("internal service-auth routes", () => {
         },
         body: JSON.stringify({}),
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
 
     expect(res.status).toBe(401);
@@ -515,7 +582,12 @@ describe("internal service-auth routes", () => {
       {
         method: "GET",
       },
-      { DB: {} as D1Database, ENVIRONMENT: "test" },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
     );
     expect(res.status).toBe(401);
   });

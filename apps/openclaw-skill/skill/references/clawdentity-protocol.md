@@ -226,7 +226,7 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | HTTP Status | Error Code | Meaning | Recovery |
 |---|---|---|---|
 | 403 | `PROXY_PAIR_OWNERSHIP_FORBIDDEN` | Initiator ownership check failed | Recreate/refresh the local agent identity |
-| 503 | `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` | Registry ownership lookup unavailable | Check proxy/registry service auth configuration |
+| 503 | `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` | Registry ownership lookup unavailable | Ensure registry deterministic bootstrap credentials are configured (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`) and proxy credentials match (`BOOTSTRAP_INTERNAL_SERVICE_ID`, `BOOTSTRAP_INTERNAL_SERVICE_SECRET`); for existing envs rotate credentials together |
 | — | `CLI_PAIR_AGENT_NOT_FOUND` | Agent ait.jwt or secret.key missing/empty | Run `agent create` or `agent auth refresh` |
 | — | `CLI_PAIR_HUMAN_NAME_MISSING` | Local config is missing `humanName` | Set via `invite redeem` or config |
 | — | `CLI_PAIR_PROXY_URL_REQUIRED` | Proxy URL could not be resolved | Run `invite redeem` or set `CLAWDENTITY_PROXY_URL` |

@@ -94,6 +94,8 @@ export const registryConfigSchema = z.object({
   REGISTRY_ISSUER_URL: z.string().url().optional(),
   EVENT_BUS_BACKEND: registryEventBusBackendSchema.optional(),
   BOOTSTRAP_SECRET: z.string().min(1).optional(),
+  BOOTSTRAP_INTERNAL_SERVICE_ID: z.string().min(1),
+  BOOTSTRAP_INTERNAL_SERVICE_SECRET: z.string().min(1),
   REGISTRY_SIGNING_KEY: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEYS: registrySigningKeysEnvSchema.optional(),
 });
@@ -109,6 +111,8 @@ const REQUIRED_REGISTRY_RUNTIME_KEYS = [
   "REGISTRY_ISSUER_URL",
   "EVENT_BUS_BACKEND",
   "BOOTSTRAP_SECRET",
+  "BOOTSTRAP_INTERNAL_SERVICE_ID",
+  "BOOTSTRAP_INTERNAL_SERVICE_SECRET",
   "REGISTRY_SIGNING_KEY",
   "REGISTRY_SIGNING_KEYS",
 ] as const;
@@ -127,7 +131,7 @@ function throwRegistryConfigValidationError(details: {
 }
 
 function assertRequiredRegistryRuntimeKeys(input: RegistryConfig): void {
-  if (input.ENVIRONMENT === "test") {
+  if (input.ENVIRONMENT === "local") {
     return;
   }
 
@@ -157,12 +161,37 @@ function assertRequiredRegistryRuntimeKeys(input: RegistryConfig): void {
   }
 }
 
+function assertBootstrapInternalServicePair(input: RegistryConfig): void {
+  const hasServiceId =
+    typeof input.BOOTSTRAP_INTERNAL_SERVICE_ID === "string" &&
+    input.BOOTSTRAP_INTERNAL_SERVICE_ID.trim().length > 0;
+  const hasServiceSecret =
+    typeof input.BOOTSTRAP_INTERNAL_SERVICE_SECRET === "string" &&
+    input.BOOTSTRAP_INTERNAL_SERVICE_SECRET.trim().length > 0;
+  if (hasServiceId === hasServiceSecret) {
+    return;
+  }
+
+  throwRegistryConfigValidationError({
+    fieldErrors: {
+      BOOTSTRAP_INTERNAL_SERVICE_ID: [
+        "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
+      ],
+      BOOTSTRAP_INTERNAL_SERVICE_SECRET: [
+        "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
+      ],
+    },
+    formErrors: [],
+  });
+}
+
 export function parseRegistryConfig(
   env: unknown,
   options: ParseRegistryConfigOptions = {},
 ): RegistryConfig {
   const parsed = registryConfigSchema.safeParse(env);
   if (parsed.success) {
+    assertBootstrapInternalServicePair(parsed.data);
     if (options.requireRuntimeKeys === true) {
       assertRequiredRegistryRuntimeKeys(parsed.data);
     }

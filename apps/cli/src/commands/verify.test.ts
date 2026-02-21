@@ -167,7 +167,9 @@ describe("verify command", () => {
     mockedNowUtcMs.mockImplementation(() => Date.now());
 
     mockedParseRegistryConfig.mockReturnValue({
-      ENVIRONMENT: "test",
+      ENVIRONMENT: "local",
+      BOOTSTRAP_INTERNAL_SERVICE_ID: "01HF7YAT00W6W7CM7N3W5FDXT4",
+      BOOTSTRAP_INTERNAL_SERVICE_SECRET: "clw_srv_bootstrapsecret",
       REGISTRY_SIGNING_KEYS: [activeSigningKey],
     });
 
