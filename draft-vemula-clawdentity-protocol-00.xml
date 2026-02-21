@@ -1,0 +1,1494 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-model href="rfc7991bis.rnc"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp "&#160;">
+  <!ENTITY zwsp "&#8203;">
+  <!ENTITY nbhy "&#8209;">
+  <!ENTITY wj "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     ipr="trust200902"
+     docName="draft-vemula-clawdentity-protocol-00"
+     category="info"
+     submissionType="independent"
+     xml:lang="en"
+     version="3">
+
+  <front>
+    <title abbrev="Clawdentity">Clawdentity: Cryptographic Identity and Trust Protocol for AI Agent Communication</title>
+
+    <seriesInfo name="Internet-Draft" value="draft-vemula-clawdentity-protocol-00"/>
+
+    <author fullname="Ravi Kiran Vemula" initials="R.K." surname="Vemula">
+      <organization>KnackLabs</organization>
+      <address>
+        <postal>
+          <city>Hyderabad</city>
+          <country>India</country>
+        </postal>
+        <email>ravi@knacklabs.ai</email>
+        <uri>https://ravi.sh</uri>
+      </address>
+    </author>
+
+    <date year="2026" month="February" day="21"/>
+
+    <area>Security</area>
+    <workgroup>Independent Submission</workgroup>
+
+    <keyword>AI agents</keyword>
+    <keyword>identity</keyword>
+    <keyword>cryptographic trust</keyword>
+    <keyword>Ed25519</keyword>
+    <keyword>proof of possession</keyword>
+    <keyword>agent-to-agent</keyword>
+
+    <abstract>
+      <t>
+        This document specifies the Clawdentity protocol, a cryptographic identity
+        and trust layer for AI agent-to-agent communication. Clawdentity provides
+        per-agent Ed25519 identity, registry-issued credentials (Agent Identity Tokens),
+        proof-of-possession request signing, bilateral trust establishment via pairing
+        ceremonies, authenticated relay transport over WebSocket, and certificate
+        revocation. The protocol enables AI agents to prove their identity, verify
+        peers, and exchange messages without exposing private keys, shared tokens,
+        or backend infrastructure.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+
+    <!-- ====================================================================== -->
+    <section anchor="introduction">
+      <name>Introduction</name>
+
+      <section anchor="problem">
+        <name>Problem Statement</name>
+        <t>
+          Current AI agent frameworks rely on shared bearer tokens for inter-agent
+          communication. A single token leak compromises all agents in the system.
+          There is no mechanism to distinguish which agent sent a request, revoke
+          a single agent without rotating the shared token, enforce per-agent access
+          control, or keep backend services private. These limitations become critical
+          as multi-agent systems scale.
+        </t>
+      </section>
+
+      <section anchor="design-goals">
+        <name>Design Goals</name>
+        <t>Clawdentity addresses these problems with six design goals:</t>
+        <ol>
+          <li><strong>Individual identity:</strong> Each agent has a unique cryptographic keypair and DID.</li>
+          <li><strong>Proof of possession:</strong> Every request proves the sender holds the private key via Ed25519 signatures.</li>
+          <li><strong>Selective revocation:</strong> One agent can be revoked without affecting others.</li>
+          <li><strong>Zero-trust relay:</strong> Agents communicate through authenticated proxies; backend services remain unexposed.</li>
+          <li><strong>Human-anchored trust:</strong> Trust originates from human approval, not agent self-certification.</li>
+          <li><strong>Framework agnostic:</strong> Works with any AI agent framework.</li>
+        </ol>
+      </section>
+
+      <section anchor="architecture">
+        <name>Architecture Overview</name>
+        <t>
+          The protocol defines four component roles:
+        </t>
+        <dl>
+          <dt>Registry</dt>
+          <dd>Central identity authority. Issues Agent Identity Tokens (AITs), manages signing keys, publishes the Certificate Revocation List (CRL).</dd>
+          <dt>Proxy</dt>
+          <dd>Per-owner edge service. Verifies identity, enforces trust policy, rate-limits requests, and relays messages between agents.</dd>
+          <dt>Connector</dt>
+          <dd>Local bridge process between the proxy and the agent framework. Maintains a persistent WebSocket connection to the proxy. Never exposed publicly.</dd>
+          <dt>Agent</dt>
+          <dd>The AI agent itself. Has no direct knowledge of the protocol; the connector handles all cryptographic operations.</dd>
+        </dl>
+        <figure anchor="fig-arch">
+          <name>Component Architecture</name>
+          <artwork type="ascii-art"><![CDATA[
+  +-------------+         +-------------+         +--------------+
+  |   Agent A   |         |  Registry   |         |   Agent B    |
+  |  (private)  |         |  (central)  |         |  (private)   |
+  +------+------+         +------+------+         +------+-------+
+         |                       |                       |
+  +------+------+                |                +------+-------+
+  | Connector A |                |                | Connector B  |
+  |  (local)    |                |                |  (local)     |
+  +------+------+                |                +------+-------+
+         |  WebSocket            |                       | WebSocket
+  +------+------+                |                +------+-------+
+  |   Proxy A   |<---------------+--------------->|   Proxy B    |
+  |  (edge)     |                |                |  (edge)      |
+  +-------------+                |                +--------------+
+                                 |
+                    +------------+------------+
+                    | .well-known/claw-keys   |
+                    | /v1/crl                 |
+                    | /v1/agents              |
+                    +-------------------------+
+]]></artwork>
+        </figure>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="conventions">
+      <name>Conventions and Terminology</name>
+      <t>
+        The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+        "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+        "OPTIONAL" in this document are to be interpreted as described in
+        BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> when,
+        and only when, they appear in all capitals, as shown here.
+      </t>
+      <t>This document uses the following terms:</t>
+      <dl>
+        <dt>AIT</dt>
+        <dd>Agent Identity Token. A signed JWT credential (Section <xref target="ait" format="counter"/>) binding an agent DID to a public key.</dd>
+        <dt>CRL</dt>
+        <dd>Certificate Revocation List. A signed JWT (Section <xref target="revocation" format="counter"/>) containing a list of revoked AITs.</dd>
+        <dt>DID</dt>
+        <dd>Decentralized Identifier as defined in <xref target="W3C.DID"/>, using the "claw" method.</dd>
+        <dt>PoP</dt>
+        <dd>Proof of Possession. An Ed25519 signature proving the sender controls the private key corresponding to a public key.</dd>
+        <dt>Pairing</dt>
+        <dd>Mutual trust establishment between two agents via a ticket-based ceremony.</dd>
+        <dt>Trust Store</dt>
+        <dd>Per-proxy persistent storage of known agents and approved trust pairs.</dd>
+        <dt>ULID</dt>
+        <dd>Universally Unique Lexicographically Sortable Identifier <xref target="ULID"/>.</dd>
+      </dl>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="identity">
+      <name>Identity Model</name>
+
+      <section anchor="did-format">
+        <name>DID Format</name>
+        <t>
+          Clawdentity uses a custom DID method with the scheme "did:claw".
+          The method-specific identifier consists of a kind and a ULID,
+          separated by a colon:
+        </t>
+        <artwork type="abnf"><![CDATA[
+claw-did    = "did:claw:" kind ":" ulid
+kind        = "human" / "agent"
+ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
+]]></artwork>
+        <t>Two kinds are defined:</t>
+        <table>
+          <thead>
+            <tr><th>Kind</th><th>Description</th><th>Example</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>human</td><td>A human owner/operator</td><td>did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT4</td></tr>
+            <tr><td>agent</td><td>An AI agent</td><td>did:claw:agent:01HG8ZBU11X7X8DN8O4X6GEYU5</td></tr>
+          </tbody>
+        </table>
+        <t>
+          Implementations MUST reject DIDs where the kind is not "human" or "agent",
+          or where the ULID component does not conform to the ULID specification <xref target="ULID"/>.
+        </t>
+      </section>
+
+      <section anchor="crypto-primitives">
+        <name>Cryptographic Primitives</name>
+        <t>
+          The protocol uses Ed25519 <xref target="RFC8032"/> as the sole signing algorithm.
+          Implementations MUST NOT support other signature algorithms.
+        </t>
+        <table>
+          <thead>
+            <tr><th>Primitive</th><th>Algorithm</th><th>Reference</th><th>Usage</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Signing</td><td>Ed25519</td><td><xref target="RFC8032"/></td><td>Identity, request signing</td></tr>
+            <tr><td>Body hash</td><td>SHA-256</td><td><xref target="RFC6234"/></td><td>Request body integrity</td></tr>
+            <tr><td>Token format</td><td>JWS Compact</td><td><xref target="RFC7515"/></td><td>AIT and CRL tokens</td></tr>
+            <tr><td>Key encoding</td><td>Base64url (no pad)</td><td><xref target="RFC4648"/> Section 5</td><td>Keys, signatures, hashes</td></tr>
+            <tr><td>Key representation</td><td>JWK (OKP/Ed25519)</td><td><xref target="RFC8037"/></td><td>Public keys in AITs</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="key-generation">
+        <name>Key Generation</name>
+        <t>
+          Each agent locally generates an Ed25519 keypair consisting of a
+          32-byte public key and a 64-byte secret key. The secret key MUST
+          be stored exclusively on the agent's local machine and MUST NOT be
+          transmitted over any network. Only the public key is registered
+          with the registry, encoded as base64url within the AIT's confirmation
+          claim (Section <xref target="ait-cnf" format="counter"/>).
+        </t>
+      </section>
+
+      <section anchor="ownership">
+        <name>Ownership Model</name>
+        <t>
+          Every agent DID is bound to exactly one human DID (the "ownerDid").
+          This binding is recorded in the AIT claims and enforced by the
+          registry during registration and refresh operations. A human MAY
+          own multiple agents. An agent MUST have exactly one owner.
+        </t>
+        <artwork type="ascii-art"><![CDATA[
+  Human (did:claw:human:...)
+    +-- Agent A (did:claw:agent:...)
+    +-- Agent B (did:claw:agent:...)
+    +-- Agent C (did:claw:agent:...)
+]]></artwork>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="ait">
+      <name>Agent Identity Token (AIT)</name>
+
+      <section anchor="ait-overview">
+        <name>Overview</name>
+        <t>
+          The Agent Identity Token (AIT) is a JSON Web Token <xref target="RFC7519"/>
+          that serves as an agent's credential. It is issued by the registry,
+          signed with a registry Ed25519 key, and binds the agent's DID to the
+          agent's public key via a confirmation claim ("cnf"), following the
+          pattern established by DPoP <xref target="RFC9449"/>.
+        </t>
+      </section>
+
+      <section anchor="ait-header">
+        <name>JOSE Header</name>
+        <t>The AIT's JOSE protected header MUST contain:</t>
+        <dl>
+          <dt>alg</dt>
+          <dd>REQUIRED. MUST be "EdDSA" per <xref target="RFC8037"/>.</dd>
+          <dt>typ</dt>
+          <dd>REQUIRED. MUST be "AIT".</dd>
+          <dt>kid</dt>
+          <dd>REQUIRED. The key identifier of the registry signing key used to sign this AIT. This allows the verifier to locate the correct registry public key.</dd>
+        </dl>
+        <figure>
+          <name>AIT JOSE Header Example</name>
+          <sourcecode type="json"><![CDATA[
+{
+  "alg": "EdDSA",
+  "typ": "AIT",
+  "kid": "reg-key-2026-01"
+}
+]]></sourcecode>
+        </figure>
+      </section>
+
+      <section anchor="ait-claims">
+        <name>Claims</name>
+        <t>
+          The AIT payload MUST contain the following claims. No additional
+          claims are permitted (strict validation).
+        </t>
+        <table>
+          <thead>
+            <tr><th>Claim</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>iss</td><td>string</td><td>REQUIRED</td><td>Registry issuer URL (e.g., "https://registry.clawdentity.com")</td></tr>
+            <tr><td>sub</td><td>string</td><td>REQUIRED</td><td>Agent DID. MUST be "did:claw:agent:&lt;ulid&gt;"</td></tr>
+            <tr><td>ownerDid</td><td>string</td><td>REQUIRED</td><td>Owner human DID. MUST be "did:claw:human:&lt;ulid&gt;"</td></tr>
+            <tr><td>name</td><td>string</td><td>REQUIRED</td><td>Agent name. 1-64 characters matching [A-Za-z0-9._ -]</td></tr>
+            <tr><td>framework</td><td>string</td><td>REQUIRED</td><td>Agent framework identifier. 1-32 characters, no control characters.</td></tr>
+            <tr><td>description</td><td>string</td><td>OPTIONAL</td><td>Human-readable description. Maximum 280 characters.</td></tr>
+            <tr><td>cnf</td><td>object</td><td>REQUIRED</td><td>Confirmation claim. See Section <xref target="ait-cnf" format="counter"/>.</td></tr>
+            <tr><td>iat</td><td>number</td><td>REQUIRED</td><td>Issued-at time (NumericDate per <xref target="RFC7519"/>).</td></tr>
+            <tr><td>nbf</td><td>number</td><td>REQUIRED</td><td>Not-before time (NumericDate).</td></tr>
+            <tr><td>exp</td><td>number</td><td>REQUIRED</td><td>Expiration time (NumericDate). MUST be greater than both nbf and iat.</td></tr>
+            <tr><td>jti</td><td>string</td><td>REQUIRED</td><td>Unique token identifier. MUST be a valid ULID.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="ait-cnf">
+        <name>Confirmation Claim</name>
+        <t>
+          The "cnf" (confirmation) claim binds the AIT to the agent's Ed25519
+          public key, following the confirmation method pattern described in
+          <xref target="RFC7800"/>. It contains a single "jwk" member:
+        </t>
+        <sourcecode type="json"><![CDATA[
+"cnf": {
+  "jwk": {
+    "kty": "OKP",
+    "crv": "Ed25519",
+    "x": "<base64url-encoded-32-byte-public-key>"
+  }
+}
+]]></sourcecode>
+        <t>
+          The "kty" MUST be "OKP". The "crv" MUST be "Ed25519".
+          The "x" parameter MUST decode (base64url) to exactly 32 bytes.
+          The JWK MUST NOT contain a "d" (private key) parameter.
+        </t>
+      </section>
+
+      <section anchor="ait-validation">
+        <name>Validation Rules</name>
+        <t>An AIT MUST be rejected if any of the following conditions are true:</t>
+        <ol>
+          <li>"alg" is not "EdDSA".</li>
+          <li>"typ" is not "AIT".</li>
+          <li>"kid" does not match any active registry signing key.</li>
+          <li>JWS signature verification fails against the registry key identified by "kid".</li>
+          <li>"sub" is not a valid DID with kind "agent".</li>
+          <li>"ownerDid" is not a valid DID with kind "human".</li>
+          <li>"cnf.jwk.x" does not decode to exactly 32 bytes.</li>
+          <li>"exp" is less than or equal to "nbf" or "iat".</li>
+          <li>"jti" is not a valid ULID.</li>
+          <li>Current time is before "nbf" or after "exp" (accounting for clock skew).</li>
+          <li>"jti" appears in the current CRL (Section <xref target="revocation" format="counter"/>).</li>
+        </ol>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="signing">
+      <name>HTTP Request Signing</name>
+
+      <section anchor="signing-purpose">
+        <name>Purpose</name>
+        <t>
+          Every authenticated request includes a Proof of Possession (PoP)
+          signature that proves the sender controls the private key
+          corresponding to the public key in their AIT's "cnf" claim.
+          This mechanism is inspired by DPoP <xref target="RFC9449"/> but
+          uses a canonical request signing approach optimized for
+          agent-to-agent communication.
+        </t>
+      </section>
+
+      <section anchor="canonical-request">
+        <name>Canonical Request Format</name>
+        <t>
+          The canonical request string is constructed by joining the following
+          fields with newline (0x0A) separators, in the order shown:
+        </t>
+        <artwork type="abnf"><![CDATA[
+canonical-request = version LF method LF path-with-query LF
+                    timestamp LF nonce LF body-hash
+version           = "CLAW-PROOF-V1"
+method            = token          ; HTTP method, uppercased
+path-with-query   = absolute-path [ "?" query ]
+timestamp         = 1*DIGIT        ; Unix epoch seconds
+nonce             = 1*unreserved   ; unique per-request value
+body-hash         = base64url      ; SHA-256 of request body
+LF                = %x0A
+]]></artwork>
+        <figure>
+          <name>Canonical Request Example</name>
+          <sourcecode type="text"><![CDATA[
+CLAW-PROOF-V1
+POST
+/hooks/agent
+1708531200
+01HG8ZBU11X7X8DN8O4X6GEYU5
+47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU
+]]></sourcecode>
+        </figure>
+      </section>
+
+      <section anchor="signature-computation">
+        <name>Signature Computation</name>
+        <t>
+          The PoP signature is computed by signing the UTF-8 encoding of the
+          canonical request string with the agent's Ed25519 private key:
+        </t>
+        <sourcecode type="pseudocode"><![CDATA[
+canonical = canonicalize(method, path, timestamp, nonce, body_hash)
+signature = Ed25519_Sign(UTF8_Encode(canonical), secret_key)
+proof     = Base64url_Encode(signature)
+]]></sourcecode>
+        <t>
+          The resulting "proof" is a base64url-encoded 64-byte Ed25519 signature.
+        </t>
+      </section>
+
+      <section anchor="request-headers">
+        <name>Request Headers</name>
+        <t>
+          An authenticated request MUST include the following headers:
+        </t>
+        <table>
+          <thead>
+            <tr><th>Header</th><th>Status</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Authorization</td><td>REQUIRED</td><td>"Claw" SP &lt;AIT-JWT&gt;. See Section <xref target="auth-scheme" format="counter"/>.</td></tr>
+            <tr><td>X-Claw-Timestamp</td><td>REQUIRED</td><td>Unix epoch seconds (integer string).</td></tr>
+            <tr><td>X-Claw-Nonce</td><td>REQUIRED</td><td>Unique per-request value. ULID RECOMMENDED.</td></tr>
+            <tr><td>X-Claw-Body-SHA256</td><td>REQUIRED</td><td>SHA-256 hash of the request body, base64url-encoded.</td></tr>
+            <tr><td>X-Claw-Proof</td><td>REQUIRED</td><td>Ed25519 PoP signature (base64url, 64 bytes).</td></tr>
+            <tr><td>X-Claw-Agent-Access</td><td>CONDITIONAL</td><td>Session access token. Required for relay and hook routes.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="verification-procedure">
+        <name>Verification Procedure</name>
+        <t>The verifier (proxy) MUST perform the following steps in order:</t>
+        <ol>
+          <li>Extract the AIT from the "Authorization: Claw &lt;token&gt;" header.</li>
+          <li>Verify the AIT's JWS signature against the registry's signing keys (Section <xref target="ait-validation" format="counter"/>).</li>
+          <li>Check that the AIT's "jti" is not on the CRL (Section <xref target="crl-caching" format="counter"/>).</li>
+          <li>Extract the agent's public key from the AIT's "cnf.jwk.x" claim.</li>
+          <li>Verify X-Claw-Timestamp is within the allowed skew window (default: 300 seconds).</li>
+          <li>Recompute SHA-256 of the request body; compare with X-Claw-Body-SHA256.</li>
+          <li>Reconstruct the canonical request (Section <xref target="canonical-request" format="counter"/>).</li>
+          <li>Verify X-Claw-Proof against the canonical request using the agent's public key.</li>
+          <li>Check X-Claw-Nonce has not been seen before for this agent DID within the timestamp window.</li>
+        </ol>
+        <t>If any step fails, the request MUST be rejected with HTTP 401.</t>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="auth-scheme">
+      <name>The "Claw" Authentication Scheme</name>
+      <t>
+        This specification introduces the "Claw" HTTP authentication scheme
+        for the Authorization header, following the framework defined in
+        <xref target="RFC9110"/> Section 11.
+      </t>
+      <artwork type="abnf"><![CDATA[
+credentials = "Claw" SP ait-token
+ait-token   = 1*base64url-char "." 1*base64url-char "." 1*base64url-char
+]]></artwork>
+      <t>
+        The scheme name "Claw" is case-sensitive. The token MUST be a valid
+        JWS Compact Serialization <xref target="RFC7515"/> representing
+        an AIT as defined in Section <xref target="ait" format="counter"/>.
+      </t>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="registration">
+      <name>Agent Registration</name>
+
+      <section anchor="reg-flow">
+        <name>Registration Flow</name>
+        <t>
+          Agent registration uses a challenge-response protocol to prove
+          that the registrant possesses the Ed25519 private key
+          corresponding to the public key being registered.
+        </t>
+        <figure anchor="fig-registration">
+          <name>Agent Registration Sequence</name>
+          <artwork type="ascii-art"><![CDATA[
+  Agent                                Registry
+    |                                      |
+    |  POST /v1/agents/challenge           |
+    |  { ownerDid }                        |
+    |------------------------------------->|
+    |                                      |
+    |  200 { challengeId, nonce }          |
+    |<-------------------------------------|
+    |                                      |
+    |  [Agent signs registration proof]    |
+    |                                      |
+    |  POST /v1/agents                     |
+    |  { proof, publicKey, name, ... }     |
+    |------------------------------------->|
+    |                                      |
+    |  201 { agentDid, ait }               |
+    |<-------------------------------------|
+]]></artwork>
+        </figure>
+      </section>
+
+      <section anchor="reg-proof">
+        <name>Registration Proof</name>
+        <t>
+          The registration proof is computed by signing a canonical message
+          that binds the challenge to the agent's identity parameters:
+        </t>
+        <sourcecode type="text"><![CDATA[
+clawdentity.register.v1
+challengeId:<challengeId>
+nonce:<nonce>
+ownerDid:<ownerDid>
+publicKey:<base64url-public-key>
+name:<agent-name>
+framework:<framework>
+ttlDays:<ttl-days>
+]]></sourcecode>
+        <t>
+          Optional fields (framework, ttlDays) use empty strings when absent.
+          The agent signs this message with Ed25519 and submits the base64url-encoded
+          signature as the "proof" in the registration request.
+        </t>
+      </section>
+
+      <section anchor="ait-refresh">
+        <name>AIT Refresh</name>
+        <t>
+          AITs have bounded lifetimes. Before expiration, the connector
+          MUST request a fresh AIT:
+        </t>
+        <artwork type="http-message"><![CDATA[
+POST /v1/agents/auth/refresh HTTP/1.1
+Authorization: Claw <current-AIT>
+X-Claw-Agent-Access: <access-token>
+]]></artwork>
+        <t>
+          The registry validates the current AIT and access token, verifies
+          the agent is not revoked, and returns a new AIT with an updated
+          expiration time.
+        </t>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="pairing">
+      <name>Trust Establishment (Pairing)</name>
+
+      <section anchor="pairing-overview">
+        <name>Overview</name>
+        <t>
+          Before two agents can exchange messages, they MUST establish
+          mutual trust through a pairing ceremony. Trust is anchored by
+          human approval: agents cannot self-approve trust relationships.
+          The pairing process uses short-lived tickets exchanged
+          out-of-band (e.g., via QR code or messaging).
+        </t>
+      </section>
+
+      <section anchor="pairing-flow">
+        <name>Pairing Flow</name>
+        <figure anchor="fig-pairing">
+          <name>Trust Establishment Sequence</name>
+          <artwork type="ascii-art"><![CDATA[
+  Agent A (Initiator)        Proxy         Agent B (Responder)
+         |                     |                    |
+         | POST /pair/start    |                    |
+         | { initiatorProfile, |                    |
+         |   ttlSeconds }      |                    |
+         |-------------------->|                    |
+         |                     |                    |
+         | { ticket,           |                    |
+         |   expiresAt }       |                    |
+         |<--------------------|                    |
+         |                     |                    |
+         |   (out-of-band ticket exchange)          |
+         |   (QR code, message, copy-paste)         |
+         |----------------------------------------->|
+         |                     |                    |
+         |                     | POST /pair/confirm |
+         |                     | { ticket,          |
+         |                     |   responderProfile}|
+         |                     |<-------------------|
+         |                     |                    |
+         |                     | 201 { paired:true }|
+         |                     |------------------->|
+         |                     |                    |
+         | callback (optional) |                    |
+         |<--------------------|                    |
+]]></artwork>
+        </figure>
+      </section>
+
+      <section anchor="pairing-ticket">
+        <name>Pairing Ticket</name>
+        <t>
+          The pairing ticket is a signed JWT with a short TTL, created by
+          the proxy during the /pair/start request. The ticket encodes
+          the issuer proxy URL, a signing key identifier, and an expiration
+          timestamp.
+        </t>
+        <t>Ticket parameters:</t>
+        <table>
+          <thead>
+            <tr><th>Parameter</th><th>Default</th><th>Maximum</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>TTL (ttlSeconds)</td><td>300 seconds</td><td>900 seconds</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="peer-profile">
+        <name>Peer Profile</name>
+        <t>
+          Each side of a pairing provides a profile containing identity
+          information for display and routing:
+        </t>
+        <sourcecode type="json"><![CDATA[
+{
+  "agentName": "kai",
+  "humanName": "Ravi",
+  "proxyOrigin": "https://proxy.example.com"
+}
+]]></sourcecode>
+        <dl>
+          <dt>agentName</dt>
+          <dd>REQUIRED. Agent display name. Maximum 64 characters. No control characters.</dd>
+          <dt>humanName</dt>
+          <dd>REQUIRED. Owner display name. Maximum 64 characters. No control characters.</dd>
+          <dt>proxyOrigin</dt>
+          <dd>OPTIONAL. The proxy's URL origin, used for cross-proxy message routing.</dd>
+        </dl>
+      </section>
+
+      <section anchor="ownership-verification">
+        <name>Ownership Verification</name>
+        <t>
+          When an agent initiates pairing, the proxy MUST verify that the
+          authenticated caller (identified by "ownerDid" in the AIT)
+          actually owns the claimed initiator agent DID. This is done by
+          querying the registry's internal agent-ownership endpoint. If
+          ownership cannot be verified, the pairing MUST be rejected with
+          HTTP 403.
+        </t>
+      </section>
+
+      <section anchor="trust-store">
+        <name>Trust Store</name>
+        <t>
+          Each proxy maintains a Trust Store that records:
+        </t>
+        <ul>
+          <li><strong>Known agents:</strong> Agents that have been authenticated and accepted.</li>
+          <li><strong>Approved pairs:</strong> Bidirectional trust relationships between agents.</li>
+          <li><strong>Pairing tickets:</strong> Pending and completed pairing ceremonies with expiration tracking.</li>
+        </ul>
+        <t>
+          A message from Agent A to Agent B is permitted only if the ordered
+          pair (A, B) exists in the proxy's trust store. The trust store
+          SHOULD use a durable, transactional storage backend.
+        </t>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="relay">
+      <name>Relay Transport</name>
+
+      <section anchor="relay-overview">
+        <name>Overview</name>
+        <t>
+          Messages between agents are relayed through their respective proxies.
+          The connector maintains a persistent WebSocket <xref target="RFC6455"/>
+          connection to its proxy. The proxy authenticates the WebSocket
+          upgrade request using the full AIT + PoP verification procedure
+          (Section <xref target="verification-procedure" format="counter"/>).
+        </t>
+      </section>
+
+      <section anchor="ws-connect">
+        <name>WebSocket Connection</name>
+        <t>
+          The connector initiates a WebSocket connection to:
+        </t>
+        <artwork type="http-message"><![CDATA[
+GET /v1/relay/connect HTTP/1.1
+Upgrade: websocket
+Connection: Upgrade
+Authorization: Claw <AIT>
+X-Claw-Agent-Access: <access-token>
+X-Claw-Timestamp: <timestamp>
+X-Claw-Nonce: <nonce>
+X-Claw-Body-SHA256: <empty-body-hash>
+X-Claw-Proof: <signature>
+]]></artwork>
+      </section>
+
+      <section anchor="frame-protocol">
+        <name>Frame Protocol</name>
+        <t>
+          All WebSocket messages are JSON objects conforming to the
+          Clawdentity Frame Protocol version 1. Every frame contains
+          a common base structure:
+        </t>
+        <sourcecode type="json"><![CDATA[
+{
+  "v": 1,
+  "type": "<frame-type>",
+  "id": "<ULID>",
+  "ts": "<ISO-8601-timestamp>"
+}
+]]></sourcecode>
+        <dl>
+          <dt>v</dt>
+          <dd>REQUIRED. Integer. Frame protocol version. MUST be 1.</dd>
+          <dt>type</dt>
+          <dd>REQUIRED. String. One of: "heartbeat", "heartbeat_ack", "deliver", "deliver_ack", "enqueue", "enqueue_ack".</dd>
+          <dt>id</dt>
+          <dd>REQUIRED. String. Unique frame identifier (ULID).</dd>
+          <dt>ts</dt>
+          <dd>REQUIRED. String. ISO 8601 timestamp with timezone.</dd>
+        </dl>
+      </section>
+
+      <section anchor="frame-heartbeat">
+        <name>Heartbeat Frames</name>
+        <t>
+          Either side MAY send heartbeat frames to verify liveness.
+          The default heartbeat interval is 30 seconds. If a heartbeat
+          acknowledgement is not received within 60 seconds, the sender
+          SHOULD close the connection and reconnect.
+        </t>
+        <t>Heartbeat:</t>
+        <sourcecode type="json"><![CDATA[
+{ "v": 1, "type": "heartbeat", "id": "<ULID>", "ts": "<ISO>" }
+]]></sourcecode>
+        <t>Heartbeat acknowledgement:</t>
+        <sourcecode type="json"><![CDATA[
+{ "v": 1, "type": "heartbeat_ack", "id": "<ULID>", "ts": "<ISO>",
+  "ackId": "<heartbeat-frame-id>" }
+]]></sourcecode>
+      </section>
+
+      <section anchor="frame-deliver">
+        <name>Deliver Frames</name>
+        <t>
+          The proxy sends a "deliver" frame to the connector when an
+          inbound message arrives for the local agent:
+        </t>
+        <sourcecode type="json"><![CDATA[
+{
+  "v": 1,
+  "type": "deliver",
+  "id": "<ULID>",
+  "ts": "<ISO>",
+  "fromAgentDid": "did:claw:agent:...",
+  "toAgentDid": "did:claw:agent:...",
+  "payload": { ... },
+  "contentType": "application/json",
+  "conversationId": "conv-123",
+  "replyTo": "https://proxy-a.example.com/v1/relay/delivery-receipts"
+}
+]]></sourcecode>
+        <t>
+          The connector MUST respond with a "deliver_ack" frame indicating
+          whether the local agent framework accepted the delivery:
+        </t>
+        <sourcecode type="json"><![CDATA[
+{
+  "v": 1,
+  "type": "deliver_ack",
+  "id": "<ULID>",
+  "ts": "<ISO>",
+  "ackId": "<deliver-frame-id>",
+  "accepted": true
+}
+]]></sourcecode>
+        <t>If rejected, the "accepted" field is false and an optional "reason" string MAY be included.</t>
+      </section>
+
+      <section anchor="frame-enqueue">
+        <name>Enqueue Frames</name>
+        <t>
+          The connector sends an "enqueue" frame to the proxy for outbound
+          messages:
+        </t>
+        <sourcecode type="json"><![CDATA[
+{
+  "v": 1,
+  "type": "enqueue",
+  "id": "<ULID>",
+  "ts": "<ISO>",
+  "toAgentDid": "did:claw:agent:...",
+  "payload": { ... },
+  "conversationId": "conv-123"
+}
+]]></sourcecode>
+        <t>
+          The proxy responds with "enqueue_ack" after accepting or rejecting
+          the message for relay.
+        </t>
+      </section>
+
+      <section anchor="local-delivery">
+        <name>Local Agent Delivery</name>
+        <t>
+          Upon receiving a "deliver" frame, the connector forwards the
+          payload to the local agent framework via HTTP POST:
+        </t>
+        <artwork type="http-message"><![CDATA[
+POST /hooks/agent HTTP/1.1
+Host: 127.0.0.1:18789
+Content-Type: application/json
+x-clawdentity-agent-did: <fromAgentDid>
+x-clawdentity-to-agent-did: <toAgentDid>
+x-clawdentity-verified: true
+x-openclaw-token: <local-hook-token>
+x-request-id: <frame-id>
+]]></artwork>
+        <t>
+          The connector implements retry with exponential backoff for
+          transient failures (5xx, 429, connection errors):
+        </t>
+        <table>
+          <thead>
+            <tr><th>Parameter</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Max attempts</td><td>4</td></tr>
+            <tr><td>Initial delay</td><td>300 ms</td></tr>
+            <tr><td>Max delay</td><td>2,000 ms</td></tr>
+            <tr><td>Backoff factor</td><td>2</td></tr>
+            <tr><td>Total budget</td><td>14,000 ms</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="reconnection">
+        <name>Reconnection</name>
+        <t>
+          On WebSocket disconnection, the connector MUST attempt to
+          reconnect using exponential backoff with jitter:
+        </t>
+        <table>
+          <thead>
+            <tr><th>Parameter</th><th>Default Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Minimum delay</td><td>1,000 ms</td></tr>
+            <tr><td>Maximum delay</td><td>30,000 ms</td></tr>
+            <tr><td>Backoff factor</td><td>2</td></tr>
+            <tr><td>Jitter ratio</td><td>0.2 (&#177;20%)</td></tr>
+          </tbody>
+        </table>
+        <t>
+          On successful reconnection, the connector resets the backoff
+          counter and flushes any queued outbound frames.
+        </t>
+      </section>
+
+      <section anchor="outbound-queue">
+        <name>Outbound Queue Persistence</name>
+        <t>
+          When the WebSocket connection is unavailable, the connector
+          MUST queue outbound "enqueue" frames locally and flush them
+          in FIFO order upon reconnection. The queue SHOULD support
+          optional persistence (to disk or database) to survive
+          connector restarts.
+        </t>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="revocation">
+      <name>Certificate Revocation</name>
+
+      <section anchor="crl-format">
+        <name>CRL Format</name>
+        <t>
+          The Certificate Revocation List (CRL) is a signed JWT containing
+          a list of revoked AITs. Its JOSE header uses:
+        </t>
+        <dl>
+          <dt>alg</dt><dd>MUST be "EdDSA".</dd>
+          <dt>typ</dt><dd>MUST be "CRL".</dd>
+          <dt>kid</dt><dd>Registry signing key identifier.</dd>
+        </dl>
+        <t>CRL claims:</t>
+        <table>
+          <thead>
+            <tr><th>Claim</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>iss</td><td>string</td><td>REQUIRED</td><td>Registry issuer URL.</td></tr>
+            <tr><td>jti</td><td>string</td><td>REQUIRED</td><td>CRL identifier (ULID).</td></tr>
+            <tr><td>iat</td><td>number</td><td>REQUIRED</td><td>Issued-at timestamp.</td></tr>
+            <tr><td>exp</td><td>number</td><td>REQUIRED</td><td>Expiration. MUST be greater than iat.</td></tr>
+            <tr><td>revocations</td><td>array</td><td>REQUIRED</td><td>At least one revocation entry.</td></tr>
+          </tbody>
+        </table>
+        <t>Each revocation entry contains:</t>
+        <table>
+          <thead>
+            <tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>jti</td><td>string</td><td>REQUIRED</td><td>Revoked AIT's jti (ULID).</td></tr>
+            <tr><td>agentDid</td><td>string</td><td>REQUIRED</td><td>Revoked agent's DID.</td></tr>
+            <tr><td>reason</td><td>string</td><td>OPTIONAL</td><td>Human-readable reason. Max 280 chars.</td></tr>
+            <tr><td>revokedAt</td><td>number</td><td>REQUIRED</td><td>Revocation timestamp (Unix seconds).</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="crl-distribution">
+        <name>CRL Distribution</name>
+        <t>
+          The registry publishes the current CRL at the well-known endpoint:
+        </t>
+        <artwork type="http-message"><![CDATA[
+GET /v1/crl HTTP/1.1
+Host: registry.clawdentity.com
+]]></artwork>
+        <t>Response:</t>
+        <sourcecode type="json"><![CDATA[
+{ "crl": "<signed-CRL-JWT>" }
+]]></sourcecode>
+      </section>
+
+      <section anchor="crl-caching">
+        <name>CRL Caching</name>
+        <t>
+          Proxies MUST cache the CRL locally and refresh it periodically.
+          The following parameters control caching behavior:
+        </t>
+        <table>
+          <thead>
+            <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Refresh interval</td><td>5 minutes</td><td>How often to fetch a fresh CRL.</td></tr>
+            <tr><td>Max age</td><td>15 minutes</td><td>Maximum staleness before the cache is considered expired.</td></tr>
+            <tr><td>Stale behavior</td><td>fail-open</td><td>"fail-open" allows stale CRL use; "fail-closed" rejects all requests.</td></tr>
+          </tbody>
+        </table>
+        <t>
+          When "fail-open": if the CRL cannot be refreshed and the cached
+          CRL is within max age, the stale CRL is used for revocation checks.
+        </t>
+        <t>
+          When "fail-closed": if the CRL exceeds max age and cannot be
+          refreshed, the proxy MUST reject all authenticated requests
+          with HTTP 503.
+        </t>
+      </section>
+
+      <section anchor="revocation-scope">
+        <name>Revocation Scope</name>
+        <t>Two levels of revocation are defined:</t>
+        <dl>
+          <dt>Global revocation (revoke agent)</dt>
+          <dd>
+            The agent's AIT jti is added to the CRL by the registry. The
+            agent can no longer authenticate at any proxy. Only the agent's
+            owner can initiate global revocation.
+          </dd>
+          <dt>Local revocation (remove pair)</dt>
+          <dd>
+            A trust relationship is removed from a proxy's trust store.
+            The agent still exists and can communicate with other paired
+            agents, but can no longer reach the unpaired peer via that proxy.
+            Either side of the pair can initiate local revocation.
+          </dd>
+        </dl>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="key-discovery">
+      <name>Registry Key Discovery</name>
+      <t>
+        The registry publishes its active signing keys at a well-known endpoint,
+        following the pattern established by OpenID Connect Discovery
+        <xref target="OIDC.Discovery"/>:
+      </t>
+      <artwork type="http-message"><![CDATA[
+GET /.well-known/claw-keys.json HTTP/1.1
+Host: registry.clawdentity.com
+]]></artwork>
+      <t>Response:</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "keys": [
+    {
+      "kid": "reg-key-2026-01",
+      "x": "<base64url-ed25519-public-key>",
+      "status": "active",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ]
+}
+]]></sourcecode>
+      <t>
+        The registry MAY have multiple active signing keys to support key
+        rotation. The AIT and CRL "kid" headers identify which key was
+        used to sign a given token. Proxies SHOULD cache these keys
+        (default TTL: 1 hour) and refresh them when an unknown "kid"
+        is encountered.
+      </t>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="endpoints">
+      <name>Endpoint Reference</name>
+
+      <section anchor="registry-endpoints">
+        <name>Registry Endpoints</name>
+        <table>
+          <thead>
+            <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>GET</td><td>/.well-known/claw-keys.json</td><td>None</td><td>Registry signing keys</td></tr>
+            <tr><td>GET</td><td>/v1/metadata</td><td>None</td><td>Registry metadata</td></tr>
+            <tr><td>GET</td><td>/v1/crl</td><td>None</td><td>Current CRL</td></tr>
+            <tr><td>POST</td><td>/v1/agents/challenge</td><td>API Key</td><td>Request registration challenge</td></tr>
+            <tr><td>POST</td><td>/v1/agents/auth/refresh</td><td>AIT + Access</td><td>Refresh AIT</td></tr>
+            <tr><td>POST</td><td>/v1/agents/auth/validate</td><td>Internal</td><td>Validate agent access token</td></tr>
+            <tr><td>POST</td><td>/v1/invites</td><td>API Key</td><td>Create invite code</td></tr>
+            <tr><td>POST</td><td>/v1/invites/redeem</td><td>None</td><td>Redeem invite code</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="proxy-endpoints">
+        <name>Proxy Endpoints</name>
+        <table>
+          <thead>
+            <tr><th>Method</th><th>Path</th><th>Auth</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>GET</td><td>/health</td><td>None</td><td>Health check</td></tr>
+            <tr><td>POST</td><td>/hooks/agent</td><td>AIT + PoP + Access</td><td>Inbound message delivery</td></tr>
+            <tr><td>GET</td><td>/v1/relay/connect</td><td>AIT + PoP + Access</td><td>WebSocket relay</td></tr>
+            <tr><td>POST</td><td>/v1/relay/delivery-receipts</td><td>AIT + PoP + Access</td><td>Delivery receipt callback</td></tr>
+            <tr><td>POST</td><td>/pair/start</td><td>AIT + PoP</td><td>Initiate pairing</td></tr>
+            <tr><td>POST</td><td>/pair/confirm</td><td>AIT + PoP</td><td>Confirm pairing</td></tr>
+            <tr><td>POST</td><td>/pair/status</td><td>AIT + PoP</td><td>Check pairing status</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="security">
+      <name>Security Considerations</name>
+
+      <section anchor="sec-private-key">
+        <name>Private Key Protection</name>
+        <t>
+          Agent Ed25519 private keys MUST be stored exclusively on the
+          agent's local machine. The protocol is designed so that only
+          the public key leaves the agent — embedded in the AIT's "cnf"
+          claim and registered with the registry. Implementations SHOULD
+          use operating system key storage facilities where available.
+        </t>
+      </section>
+
+      <section anchor="sec-replay">
+        <name>Replay Protection</name>
+        <t>Three mechanisms provide replay protection:</t>
+        <ol>
+          <li><strong>Timestamp skew:</strong> Requests with X-Claw-Timestamp outside a configurable window (default: 300 seconds) are rejected.</li>
+          <li><strong>Nonce uniqueness:</strong> Each (agentDid, nonce) pair is tracked per proxy. Duplicate nonces within the timestamp window are rejected.</li>
+          <li><strong>AIT expiration:</strong> AITs have bounded lifetimes; expired AITs are rejected regardless of signature validity.</li>
+        </ol>
+      </section>
+
+      <section anchor="sec-mitm">
+        <name>Transport Security</name>
+        <t>
+          TLS 1.2 or later (<xref target="RFC8446"/> for TLS 1.3) is
+          REQUIRED for all proxy-to-proxy, proxy-to-registry, and
+          connector-to-proxy communication over public networks. The PoP
+          signature (Section <xref target="signing" format="counter"/>)
+          provides an additional layer: even if TLS were compromised, a
+          captured AIT cannot produce valid request signatures without
+          the private key.
+        </t>
+      </section>
+
+      <section anchor="sec-connector">
+        <name>Connector Isolation</name>
+        <t>
+          The connector MUST only communicate with its own proxy (via
+          WebSocket) and the local agent framework (via localhost HTTP).
+          It MUST NOT directly access the registry, other proxies, or
+          any cloud infrastructure services (message queues, object
+          storage, databases). This constraint minimizes the connector's
+          attack surface and ensures it remains a simple, auditable bridge.
+        </t>
+      </section>
+
+      <section anchor="sec-trust-store">
+        <name>Trust Store Integrity</name>
+        <t>
+          The trust store is the sole authorization source for message
+          relay. Implementations SHOULD use a transactional storage
+          backend (e.g., SQLite within a Cloudflare Durable Object) to
+          prevent corruption from concurrent access or partial writes.
+        </t>
+      </section>
+
+      <section anchor="sec-crl-freshness">
+        <name>CRL Freshness Window</name>
+        <t>
+          There is an inherent propagation delay between AIT revocation
+          and CRL distribution. With default settings, this window is up
+          to 5 minutes. Deployments requiring tighter revocation windows
+          SHOULD:
+        </t>
+        <ul>
+          <li>Reduce the CRL refresh interval.</li>
+          <li>Use push-based CRL invalidation (e.g., message queues).</li>
+          <li>Combine CRL checks with real-time agent-auth validation for sensitive operations.</li>
+        </ul>
+      </section>
+
+      <section anchor="sec-human-anchor">
+        <name>Human-Anchored Trust</name>
+        <t>
+          The protocol explicitly prevents agent self-certification.
+          An agent cannot approve its own work or establish trust
+          without human involvement. The pairing ceremony requires
+          out-of-band ticket exchange, and global revocation requires
+          the agent owner's credentials. This design prevents
+          autonomous trust escalation.
+        </t>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="error-codes">
+      <name>Error Codes</name>
+      <t>
+        The following error codes are returned in JSON error responses
+        with the corresponding HTTP status codes:
+      </t>
+
+      <section anchor="errors-401">
+        <name>Authentication Errors (401)</name>
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PROXY_AUTH_MISSING_TOKEN</td><td>No Authorization header provided.</td></tr>
+            <tr><td>PROXY_AUTH_INVALID_SCHEME</td><td>Authorization header is not "Claw &lt;token&gt;" format.</td></tr>
+            <tr><td>PROXY_AUTH_INVALID_AIT</td><td>AIT JWT verification failed.</td></tr>
+            <tr><td>PROXY_AUTH_INVALID_PROOF</td><td>PoP signature does not match.</td></tr>
+            <tr><td>PROXY_AUTH_INVALID_TIMESTAMP</td><td>X-Claw-Timestamp missing or not a valid integer.</td></tr>
+            <tr><td>PROXY_AUTH_TIMESTAMP_SKEW</td><td>Timestamp outside the allowed skew window.</td></tr>
+            <tr><td>PROXY_AUTH_REPLAY</td><td>Nonce has been seen before (replay detected).</td></tr>
+            <tr><td>PROXY_AUTH_REVOKED</td><td>AIT jti is on the CRL.</td></tr>
+            <tr><td>PROXY_AGENT_ACCESS_REQUIRED</td><td>X-Claw-Agent-Access header missing.</td></tr>
+            <tr><td>PROXY_AGENT_ACCESS_INVALID</td><td>Agent access token is invalid or expired.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="errors-403">
+        <name>Authorization Errors (403)</name>
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PROXY_AUTH_FORBIDDEN</td><td>Agent not in trust store or pair not approved.</td></tr>
+            <tr><td>PROXY_PAIR_OWNERSHIP_FORBIDDEN</td><td>Caller does not own the initiator agent DID.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section anchor="errors-503">
+        <name>Service Unavailable Errors (503)</name>
+        <table>
+          <thead>
+            <tr><th>Code</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>PROXY_AUTH_DEPENDENCY_UNAVAILABLE</td><td>Registry, CRL, or trust store is unreachable.</td></tr>
+            <tr><td>PROXY_PAIR_STATE_UNAVAILABLE</td><td>Trust store is unreachable for pairing operations.</td></tr>
+            <tr><td>CRL_CACHE_STALE</td><td>CRL exceeds max age and fail-closed is configured.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+
+    <!-- ====================================================================== -->
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+
+      <section anchor="iana-did">
+        <name>DID Method Registration</name>
+        <t>
+          This specification introduces the "claw" DID method. A registration
+          request for the W3C DID Method Registry would include:
+        </t>
+        <dl>
+          <dt>Method Name</dt><dd>claw</dd>
+          <dt>Method Specific Identifier</dt><dd>&lt;kind&gt;:&lt;ulid&gt; where kind is "human" or "agent"</dd>
+          <dt>DID Document</dt><dd>Not applicable; identity is resolved via registry API.</dd>
+        </dl>
+      </section>
+
+      <section anchor="iana-auth">
+        <name>HTTP Authentication Scheme Registration</name>
+        <t>
+          This specification registers the "Claw" authentication scheme
+          in the "Hypertext Transfer Protocol (HTTP) Authentication Scheme
+          Registry" defined in <xref target="RFC9110"/> Section 16.3:
+        </t>
+        <dl>
+          <dt>Authentication Scheme Name</dt><dd>Claw</dd>
+          <dt>Reference</dt><dd>Section <xref target="auth-scheme" format="counter"/> of this document</dd>
+        </dl>
+      </section>
+
+      <section anchor="iana-jwt">
+        <name>JWT "typ" Header Parameter Values</name>
+        <t>
+          This specification registers two JWT "typ" header parameter values
+          in the "JSON Web Token Types" sub-registry of the "JSON Web Token
+          (JWT)" registry:
+        </t>
+        <table>
+          <thead>
+            <tr><th>"typ" Value</th><th>Description</th><th>Reference</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>AIT</td><td>Agent Identity Token</td><td>Section <xref target="ait" format="counter"/></td></tr>
+            <tr><td>CRL</td><td>Certificate Revocation List</td><td>Section <xref target="revocation" format="counter"/></td></tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </middle>
+
+  <back>
+
+    <references>
+      <name>References</name>
+
+      <references>
+        <name>Normative References</name>
+
+        <reference anchor="RFC2119" target="https://www.rfc-editor.org/info/rfc2119">
+          <front>
+            <title>Key words for use in RFCs to Indicate Requirement Levels</title>
+            <author fullname="S. Bradner"/>
+            <date year="1997" month="March"/>
+          </front>
+          <seriesInfo name="BCP" value="14"/>
+          <seriesInfo name="RFC" value="2119"/>
+          <seriesInfo name="DOI" value="10.17487/RFC2119"/>
+        </reference>
+
+        <reference anchor="RFC8174" target="https://www.rfc-editor.org/info/rfc8174">
+          <front>
+            <title>Ambiguity of Uppercase vs Lowercase in RFC 2119 Key Words</title>
+            <author fullname="B. Leiba"/>
+            <date year="2017" month="May"/>
+          </front>
+          <seriesInfo name="BCP" value="14"/>
+          <seriesInfo name="RFC" value="8174"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8174"/>
+        </reference>
+
+        <reference anchor="RFC4648" target="https://www.rfc-editor.org/info/rfc4648">
+          <front>
+            <title>The Base16, Base32, and Base64 Data Encodings</title>
+            <author fullname="S. Josefsson"/>
+            <date year="2006" month="October"/>
+          </front>
+          <seriesInfo name="RFC" value="4648"/>
+          <seriesInfo name="DOI" value="10.17487/RFC4648"/>
+        </reference>
+
+        <reference anchor="RFC6234" target="https://www.rfc-editor.org/info/rfc6234">
+          <front>
+            <title>US Secure Hash Algorithms (SHA and SHA-based HMAC and HKDF)</title>
+            <author fullname="D. Eastlake 3rd"/>
+            <author fullname="T. Hansen"/>
+            <date year="2011" month="May"/>
+          </front>
+          <seriesInfo name="RFC" value="6234"/>
+          <seriesInfo name="DOI" value="10.17487/RFC6234"/>
+        </reference>
+
+        <reference anchor="RFC6455" target="https://www.rfc-editor.org/info/rfc6455">
+          <front>
+            <title>The WebSocket Protocol</title>
+            <author fullname="I. Fette"/>
+            <author fullname="A. Melnikov"/>
+            <date year="2011" month="December"/>
+          </front>
+          <seriesInfo name="RFC" value="6455"/>
+          <seriesInfo name="DOI" value="10.17487/RFC6455"/>
+        </reference>
+
+        <reference anchor="RFC7515" target="https://www.rfc-editor.org/info/rfc7515">
+          <front>
+            <title>JSON Web Signature (JWS)</title>
+            <author fullname="M. Jones"/>
+            <author fullname="J. Bradley"/>
+            <author fullname="N. Sakimura"/>
+            <date year="2015" month="May"/>
+          </front>
+          <seriesInfo name="RFC" value="7515"/>
+          <seriesInfo name="DOI" value="10.17487/RFC7515"/>
+        </reference>
+
+        <reference anchor="RFC7519" target="https://www.rfc-editor.org/info/rfc7519">
+          <front>
+            <title>JSON Web Token (JWT)</title>
+            <author fullname="M. Jones"/>
+            <author fullname="J. Bradley"/>
+            <author fullname="N. Sakimura"/>
+            <date year="2015" month="May"/>
+          </front>
+          <seriesInfo name="RFC" value="7519"/>
+          <seriesInfo name="DOI" value="10.17487/RFC7519"/>
+        </reference>
+
+        <reference anchor="RFC7800" target="https://www.rfc-editor.org/info/rfc7800">
+          <front>
+            <title>Proof-of-Possession Key Semantics for JSON Web Tokens (JWTs)</title>
+            <author fullname="M. Jones"/>
+            <author fullname="J. Bradley"/>
+            <author fullname="H. Tschofenig"/>
+            <date year="2016" month="April"/>
+          </front>
+          <seriesInfo name="RFC" value="7800"/>
+          <seriesInfo name="DOI" value="10.17487/RFC7800"/>
+        </reference>
+
+        <reference anchor="RFC8032" target="https://www.rfc-editor.org/info/rfc8032">
+          <front>
+            <title>Edwards-Curve Digital Signature Algorithm (EdDSA)</title>
+            <author fullname="S. Josefsson"/>
+            <author fullname="I. Liusvaara"/>
+            <date year="2017" month="January"/>
+          </front>
+          <seriesInfo name="RFC" value="8032"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8032"/>
+        </reference>
+
+        <reference anchor="RFC8037" target="https://www.rfc-editor.org/info/rfc8037">
+          <front>
+            <title>CFRG Elliptic Curve Diffie-Hellman (ECDH) and Signatures in JSON Object Signing and Encryption (JOSE)</title>
+            <author fullname="I. Liusvaara"/>
+            <date year="2017" month="January"/>
+          </front>
+          <seriesInfo name="RFC" value="8037"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8037"/>
+        </reference>
+
+        <reference anchor="RFC8446" target="https://www.rfc-editor.org/info/rfc8446">
+          <front>
+            <title>The Transport Layer Security (TLS) Protocol Version 1.3</title>
+            <author fullname="E. Rescorla"/>
+            <date year="2018" month="August"/>
+          </front>
+          <seriesInfo name="RFC" value="8446"/>
+          <seriesInfo name="DOI" value="10.17487/RFC8446"/>
+        </reference>
+
+        <reference anchor="RFC9110" target="https://www.rfc-editor.org/info/rfc9110">
+          <front>
+            <title>HTTP Semantics</title>
+            <author fullname="R. Fielding"/>
+            <author fullname="M. Nottingham"/>
+            <author fullname="J. Reschke"/>
+            <date year="2022" month="June"/>
+          </front>
+          <seriesInfo name="RFC" value="9110"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9110"/>
+        </reference>
+      </references>
+
+      <references>
+        <name>Informative References</name>
+
+        <reference anchor="RFC9449" target="https://www.rfc-editor.org/info/rfc9449">
+          <front>
+            <title>OAuth 2.0 Demonstrating Proof of Possession (DPoP)</title>
+            <author fullname="D. Fett"/>
+            <author fullname="B. Campbell"/>
+            <author fullname="J. Bradley"/>
+            <author fullname="T. Lodderstedt"/>
+            <author fullname="M. Jones"/>
+            <author fullname="D. Waite"/>
+            <date year="2023" month="September"/>
+          </front>
+          <seriesInfo name="RFC" value="9449"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9449"/>
+        </reference>
+
+        <reference anchor="W3C.DID" target="https://www.w3.org/TR/did-core/">
+          <front>
+            <title>Decentralized Identifiers (DIDs) v1.0</title>
+            <author fullname="Manu Sporny"/>
+            <author fullname="Dave Longley"/>
+            <author fullname="Markus Sabadello"/>
+            <author fullname="Drummond Reed"/>
+            <author fullname="Orie Steele"/>
+            <author fullname="Christopher Allen"/>
+            <date year="2022" month="July"/>
+          </front>
+          <refcontent>W3C Recommendation</refcontent>
+        </reference>
+
+        <reference anchor="ULID" target="https://github.com/ulid/spec">
+          <front>
+            <title>Universally Unique Lexicographically Sortable Identifier</title>
+            <author fullname="Alizain Feerasta"/>
+            <date year="2016"/>
+          </front>
+        </reference>
+
+        <reference anchor="OIDC.Discovery" target="https://openid.net/specs/openid-connect-discovery-1_0.html">
+          <front>
+            <title>OpenID Connect Discovery 1.0</title>
+            <author fullname="N. Sakimura"/>
+            <author fullname="J. Bradley"/>
+            <author fullname="M. Jones"/>
+            <author fullname="E. Jay"/>
+            <date year="2014" month="November"/>
+          </front>
+        </reference>
+      </references>
+    </references>
+
+    <!-- ====================================================================== -->
+    <section anchor="example-flow">
+      <name>Example: Complete Message Flow</name>
+      <t>
+        The following describes a complete message relay from Agent A to Agent B:
+      </t>
+      <ol>
+        <li>Agent A's connector creates an "enqueue" frame targeting Agent B's DID.</li>
+        <li>If connected, the frame is sent over WebSocket to Proxy A; otherwise it is queued locally.</li>
+        <li>Proxy A receives the enqueue, looks up Agent B's proxy URL from the trust store, and signs an HTTP request with Agent A's AIT and PoP.</li>
+        <li>Proxy A sends POST /hooks/agent to Proxy B with the signed request.</li>
+        <li>Proxy B verifies the Authorization header (AIT + PoP), checks the CRL, and confirms the (A, B) pair exists in its trust store.</li>
+        <li>Proxy B creates a "deliver" frame and sends it over WebSocket to Connector B.</li>
+        <li>Connector B receives the deliver frame and POSTs the payload to the local agent framework on localhost.</li>
+        <li>Connector B sends a "deliver_ack" (accepted: true) back to Proxy B.</li>
+        <li>Agent B processes the message.</li>
+      </ol>
+    </section>
+
+    <section anchor="comparison">
+      <name>Comparison with Existing Standards</name>
+      <table>
+        <thead>
+          <tr><th>Feature</th><th>OAuth 2.0 / DPoP</th><th>Clawdentity</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Identity model</td><td>Client credentials / tokens</td><td>Per-agent DID + Ed25519 keypair</td></tr>
+          <tr><td>Token issuer</td><td>Authorization server</td><td>Registry (centralized trust anchor)</td></tr>
+          <tr><td>PoP mechanism</td><td>DPoP JWT (RFC 9449)</td><td>Canonical request signing</td></tr>
+          <tr><td>Trust model</td><td>Scope-based authorization</td><td>Explicit bilateral pairing</td></tr>
+          <tr><td>Revocation</td><td>Token introspection</td><td>Signed CRL with local caching</td></tr>
+          <tr><td>Transport</td><td>Direct HTTP</td><td>WebSocket relay with store-and-forward</td></tr>
+          <tr><td>Target</td><td>Human-to-service auth</td><td>Agent-to-agent communication</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>
+        The Clawdentity protocol was designed as part of the OpenClaw
+        ecosystem. The author thanks the OpenClaw community for feedback
+        on the identity model, and the designers of DPoP (RFC 9449) and
+        W3C DIDs whose work informed key design decisions.
+      </t>
+    </section>
+
+  </back>
+</rfc>
