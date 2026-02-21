@@ -2,15 +2,15 @@
 
 
 
-Independent Submission                                       R.K. Vemula
-Internet-Draft                                                 KnackLabs
+Independent Submission                                   R.K. Ravi Kiran
+Internet-Draft                                               CAW Studios
 Intended status: Informational                          21 February 2026
 Expires: 25 August 2026
 
 
   Clawdentity: Cryptographic Identity and Trust Protocol for AI Agent
                              Communication
-                  draft-vemula-clawdentity-protocol-00
+                   draft-caw-clawdentity-protocol-00
 
 Abstract
 
@@ -53,7 +53,7 @@ Copyright Notice
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 1]
+Ravi Kiran               Expires 25 August 2026                 [Page 1]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -109,7 +109,7 @@ Table of Contents
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 2]
+Ravi Kiran               Expires 25 August 2026                 [Page 2]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -165,7 +165,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 3]
+Ravi Kiran               Expires 25 August 2026                 [Page 3]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -221,7 +221,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 4]
+Ravi Kiran               Expires 25 August 2026                 [Page 4]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -277,7 +277,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 5]
+Ravi Kiran               Expires 25 August 2026                 [Page 5]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -333,7 +333,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 6]
+Ravi Kiran               Expires 25 August 2026                 [Page 6]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -389,7 +389,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 7]
+Ravi Kiran               Expires 25 August 2026                 [Page 7]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -445,7 +445,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 8]
+Ravi Kiran               Expires 25 August 2026                 [Page 8]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -501,7 +501,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                 [Page 9]
+Ravi Kiran               Expires 25 August 2026                 [Page 9]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -557,7 +557,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 10]
+Ravi Kiran               Expires 25 August 2026                [Page 10]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -613,7 +613,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 11]
+Ravi Kiran               Expires 25 August 2026                [Page 11]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -669,7 +669,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 12]
+Ravi Kiran               Expires 25 August 2026                [Page 12]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -725,7 +725,7 @@ ait-token   = 1*base64url-char "." 1*base64url-char "." 1*base64url-char
 
 
 
-Vemula                   Expires 25 August 2026                [Page 13]
+Ravi Kiran               Expires 25 August 2026                [Page 13]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -781,7 +781,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 14]
+Ravi Kiran               Expires 25 August 2026                [Page 14]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -837,7 +837,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 15]
+Ravi Kiran               Expires 25 August 2026                [Page 15]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -893,7 +893,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 16]
+Ravi Kiran               Expires 25 August 2026                [Page 16]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -949,7 +949,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 17]
+Ravi Kiran               Expires 25 August 2026                [Page 17]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1005,7 +1005,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 18]
+Ravi Kiran               Expires 25 August 2026                [Page 18]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1061,7 +1061,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 19]
+Ravi Kiran               Expires 25 August 2026                [Page 19]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1117,7 +1117,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 20]
+Ravi Kiran               Expires 25 August 2026                [Page 20]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1173,7 +1173,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 21]
+Ravi Kiran               Expires 25 August 2026                [Page 21]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1229,7 +1229,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 22]
+Ravi Kiran               Expires 25 August 2026                [Page 22]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1285,7 +1285,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 23]
+Ravi Kiran               Expires 25 August 2026                [Page 23]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1341,7 +1341,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 24]
+Ravi Kiran               Expires 25 August 2026                [Page 24]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1397,7 +1397,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 25]
+Ravi Kiran               Expires 25 August 2026                [Page 25]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1453,7 +1453,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 26]
+Ravi Kiran               Expires 25 August 2026                [Page 26]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1509,7 +1509,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 27]
+Ravi Kiran               Expires 25 August 2026                [Page 27]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1565,7 +1565,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 28]
+Ravi Kiran               Expires 25 August 2026                [Page 28]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1621,7 +1621,7 @@ Internet-Draft                 Clawdentity                 February 2026
 
 
 
-Vemula                   Expires 25 August 2026                [Page 29]
+Ravi Kiran               Expires 25 August 2026                [Page 29]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1677,7 +1677,7 @@ Appendix A.  Example: Complete Message Flow
 
 
 
-Vemula                   Expires 25 August 2026                [Page 30]
+Ravi Kiran               Expires 25 August 2026                [Page 30]
 
 Internet-Draft                 Clawdentity                 February 2026
 
@@ -1720,8 +1720,8 @@ Acknowledgements
 
 Author's Address
 
-   Ravi Kiran Vemula
-   KnackLabs
+   Ravi Kiran
+   CAW Studios
    Hyderabad
    India
    Email: ravi@knacklabs.ai
@@ -1733,4 +1733,4 @@ Author's Address
 
 
 
-Vemula                   Expires 25 August 2026                [Page 31]
+Ravi Kiran               Expires 25 August 2026                [Page 31]

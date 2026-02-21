@@ -2,7 +2,7 @@
 
 **Version:** 0.1.0-draft  
 **Status:** Draft  
-**Authors:** Ravi Kiran Vemula  
+**Authors:** Ravi Kiran (CAW Studios)  
 **Date:** 2026-02-21  
 **License:** MIT
 

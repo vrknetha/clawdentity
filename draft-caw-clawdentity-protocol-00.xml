@@ -8,7 +8,7 @@
 ]>
 <rfc xmlns:xi="http://www.w3.org/2001/XInclude"
      ipr="trust200902"
-     docName="draft-vemula-clawdentity-protocol-00"
+     docName="draft-caw-clawdentity-protocol-00"
      category="info"
      submissionType="independent"
      xml:lang="en"
@@ -17,10 +17,10 @@
   <front>
     <title abbrev="Clawdentity">Clawdentity: Cryptographic Identity and Trust Protocol for AI Agent Communication</title>
 
-    <seriesInfo name="Internet-Draft" value="draft-vemula-clawdentity-protocol-00"/>
+    <seriesInfo name="Internet-Draft" value="draft-caw-clawdentity-protocol-00"/>
 
-    <author fullname="Ravi Kiran Vemula" initials="R.K." surname="Vemula">
-      <organization>KnackLabs</organization>
+    <author fullname="Ravi Kiran" initials="R.K." surname="Ravi Kiran">
+      <organization>CAW Studios</organization>
       <address>
         <postal>
           <city>Hyderabad</city>
