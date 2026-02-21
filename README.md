@@ -184,9 +184,9 @@ Clawdentity is a formally specified protocol. The specification is available in 
 | Format | File | Description |
 |--------|------|-------------|
 | **Markdown** | [PROTOCOL.md](./PROTOCOL.md) | Human-readable specification |
-| **Internet-Draft** | [draft-caw-clawdentity-protocol-00.xml](./draft-caw-clawdentity-protocol-00.xml) | IETF xml2rfc v3 source |
-| **RFC Text** | [draft-caw-clawdentity-protocol-00.txt](./draft-caw-clawdentity-protocol-00.txt) | Classic RFC-style plain text |
-| **HTML** | [draft-caw-clawdentity-protocol-00.html](./draft-caw-clawdentity-protocol-00.html) | Rendered HTML |
+| **Internet-Draft** | [draft-ravikiran-clawdentity-protocol-00.xml](./draft-ravikiran-clawdentity-protocol-00.xml) | IETF xml2rfc v3 source |
+| **RFC Text** | [draft-ravikiran-clawdentity-protocol-00.txt](./draft-ravikiran-clawdentity-protocol-00.txt) | Classic RFC-style plain text |
+| **HTML** | [draft-ravikiran-clawdentity-protocol-00.html](./draft-ravikiran-clawdentity-protocol-00.html) | Rendered HTML |
 
 The specification covers: DID format (`did:claw`), Agent Identity Tokens (AIT), Ed25519 proof-of-possession signing, trust establishment via pairing, WebSocket relay transport, certificate revocation, and references 13 RFCs including RFC 8032 (EdDSA), RFC 9449 (DPoP), and RFC 7800 (PoP Key Semantics).
 

@@ -10,7 +10,7 @@ Expires: 25 August 2026
 
   Clawdentity: Cryptographic Identity and Trust Protocol for AI Agent
                              Communication
-                   draft-caw-clawdentity-protocol-00
+                draft-ravikiran-clawdentity-protocol-00
 
 Abstract
 
