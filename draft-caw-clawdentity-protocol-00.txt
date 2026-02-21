@@ -266,7 +266,7 @@ Internet-Draft                 Clawdentity                 February 2026
       containing a list of revoked AITs.
 
    DID  Decentralized Identifier as defined in [W3C.DID], using the
-      "claw" method.
+      "agentid" method.
 
    PoP  Proof of Possession.  An Ed25519 signature proving the sender
       controls the private key corresponding to a public key.
@@ -292,27 +292,27 @@ Internet-Draft                 Clawdentity                 February 2026
 
 3.1.  DID Format
 
-   Clawdentity uses a custom DID method with the scheme "did:claw".  The
-   method-specific identifier consists of a kind and a ULID, separated
-   by a colon:
+   Clawdentity uses a custom DID method with the scheme "did:agentid".
+   The method-specific identifier consists of a kind and a ULID,
+   separated by a colon:
 
-   claw-did    = "did:claw:" kind ":" ulid
+   agentid-did    = "did:agentid:" kind ":" ulid
    kind        = "human" / "agent"
    ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
 
    Two kinds are defined:
 
-    +=======+=============+===========================================+
-    | Kind  | Description | Example                                   |
-    +=======+=============+===========================================+
-    | human | A human     | did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT4 |
-    |       | owner/      |                                           |
-    |       | operator    |                                           |
-    +-------+-------------+-------------------------------------------+
-    | agent | An AI agent | did:claw:agent:01HG8ZBU11X7X8DN8O4X6GEYU5 |
-    +-------+-------------+-------------------------------------------+
+   +=====+=============+==============================================+
+   |Kind | Description | Example                                      |
+   +=====+=============+==============================================+
+   |human| A human     | did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4 |
+   |     | owner/      |                                              |
+   |     | operator    |                                              |
+   +-----+-------------+----------------------------------------------+
+   |agent| An AI agent | did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5 |
+   +-----+-------------+----------------------------------------------+
 
-                                  Table 1
+                                 Table 1
 
    Implementations MUST reject DIDs where the kind is not "human" or
    "agent", or where the ULID component does not conform to the ULID
@@ -375,10 +375,10 @@ Internet-Draft                 Clawdentity                 February 2026
    registry during registration and refresh operations.  A human MAY own
    multiple agents.  An agent MUST have exactly one owner.
 
-     Human (did:claw:human:...)
-       +-- Agent A (did:claw:agent:...)
-       +-- Agent B (did:claw:agent:...)
-       +-- Agent C (did:claw:agent:...)
+     Human (did:agentid:human:...)
+       +-- Agent A (did:agentid:agent:...)
+       +-- Agent B (did:agentid:agent:...)
+       +-- Agent C (did:agentid:agent:...)
 
 4.  Agent Identity Token (AIT)
 
@@ -457,10 +457,10 @@ Internet-Draft                 Clawdentity                 February 2026
    |           |      |        | "https://registry.clawdentity.com")  |
    +-----------+------+--------+--------------------------------------+
    |sub        |string|REQUIRED| Agent DID.  MUST be                  |
-   |           |      |        | "did:claw:agent:<ulid>"              |
+   |           |      |        | "did:agentid:agent:<ulid>"           |
    +-----------+------+--------+--------------------------------------+
    |ownerDid   |string|REQUIRED| Owner human DID.  MUST be            |
-   |           |      |        | "did:claw:human:<ulid>"              |
+   |           |      |        | "did:agentid:human:<ulid>"           |
    +-----------+------+--------+--------------------------------------+
    |name       |string|REQUIRED| Agent name. 1-64 characters matching |
    |           |      |        | [A-Za-z0-9._ -]                      |
@@ -967,8 +967,8 @@ Internet-Draft                 Clawdentity                 February 2026
      "type": "deliver",
      "id": "<ULID>",
      "ts": "<ISO>",
-     "fromAgentDid": "did:claw:agent:...",
-     "toAgentDid": "did:claw:agent:...",
+     "fromAgentDid": "did:agentid:agent:...",
+     "toAgentDid": "did:agentid:agent:...",
      "payload": { ... },
      "contentType": "application/json",
      "conversationId": "conv-123",
@@ -1015,7 +1015,7 @@ Internet-Draft                 Clawdentity                 February 2026
      "type": "enqueue",
      "id": "<ULID>",
      "ts": "<ISO>",
-     "toAgentDid": "did:claw:agent:...",
+     "toAgentDid": "did:agentid:agent:...",
      "payload": { ... },
      "conversationId": "conv-123"
    }
@@ -1493,10 +1493,10 @@ Internet-Draft                 Clawdentity                 February 2026
 
 15.1.  DID Method Registration
 
-   This specification introduces the "claw" DID method.  A registration
-   request for the W3C DID Method Registry would include:
+   This specification introduces the "agentid" DID method.  A
+   registration request for the W3C DID Method Registry would include:
 
-   Method Name  claw
+   Method Name  agentid
 
    Method Specific Identifier  <kind>:<ulid> where kind is "human" or
       "agent"

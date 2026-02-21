@@ -148,7 +148,7 @@
         <dt>CRL</dt>
         <dd>Certificate Revocation List. A signed JWT (Section <xref target="revocation" format="counter"/>) containing a list of revoked AITs.</dd>
         <dt>DID</dt>
-        <dd>Decentralized Identifier as defined in <xref target="W3C.DID"/>, using the "claw" method.</dd>
+        <dd>Decentralized Identifier as defined in <xref target="W3C.DID"/>, using the "agentid" method.</dd>
         <dt>PoP</dt>
         <dd>Proof of Possession. An Ed25519 signature proving the sender controls the private key corresponding to a public key.</dd>
         <dt>Pairing</dt>
@@ -167,12 +167,12 @@
       <section anchor="did-format">
         <name>DID Format</name>
         <t>
-          Clawdentity uses a custom DID method with the scheme "did:claw".
+          Clawdentity uses a custom DID method with the scheme "did:agentid".
           The method-specific identifier consists of a kind and a ULID,
           separated by a colon:
         </t>
         <artwork type="abnf"><![CDATA[
-claw-did    = "did:claw:" kind ":" ulid
+agentid-did    = "did:agentid:" kind ":" ulid
 kind        = "human" / "agent"
 ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
 ]]></artwork>
@@ -182,8 +182,8 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
             <tr><th>Kind</th><th>Description</th><th>Example</th></tr>
           </thead>
           <tbody>
-            <tr><td>human</td><td>A human owner/operator</td><td>did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT4</td></tr>
-            <tr><td>agent</td><td>An AI agent</td><td>did:claw:agent:01HG8ZBU11X7X8DN8O4X6GEYU5</td></tr>
+            <tr><td>human</td><td>A human owner/operator</td><td>did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4</td></tr>
+            <tr><td>agent</td><td>An AI agent</td><td>did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5</td></tr>
           </tbody>
         </table>
         <t>
@@ -233,10 +233,10 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
           own multiple agents. An agent MUST have exactly one owner.
         </t>
         <artwork type="ascii-art"><![CDATA[
-  Human (did:claw:human:...)
-    +-- Agent A (did:claw:agent:...)
-    +-- Agent B (did:claw:agent:...)
-    +-- Agent C (did:claw:agent:...)
+  Human (did:agentid:human:...)
+    +-- Agent A (did:agentid:agent:...)
+    +-- Agent B (did:agentid:agent:...)
+    +-- Agent C (did:agentid:agent:...)
 ]]></artwork>
       </section>
     </section>
@@ -291,8 +291,8 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
           </thead>
           <tbody>
             <tr><td>iss</td><td>string</td><td>REQUIRED</td><td>Registry issuer URL (e.g., "https://registry.clawdentity.com")</td></tr>
-            <tr><td>sub</td><td>string</td><td>REQUIRED</td><td>Agent DID. MUST be "did:claw:agent:&lt;ulid&gt;"</td></tr>
-            <tr><td>ownerDid</td><td>string</td><td>REQUIRED</td><td>Owner human DID. MUST be "did:claw:human:&lt;ulid&gt;"</td></tr>
+            <tr><td>sub</td><td>string</td><td>REQUIRED</td><td>Agent DID. MUST be "did:agentid:agent:&lt;ulid&gt;"</td></tr>
+            <tr><td>ownerDid</td><td>string</td><td>REQUIRED</td><td>Owner human DID. MUST be "did:agentid:human:&lt;ulid&gt;"</td></tr>
             <tr><td>name</td><td>string</td><td>REQUIRED</td><td>Agent name. 1-64 characters matching [A-Za-z0-9._ -]</td></tr>
             <tr><td>framework</td><td>string</td><td>REQUIRED</td><td>Agent framework identifier. 1-32 characters, no control characters.</td></tr>
             <tr><td>description</td><td>string</td><td>OPTIONAL</td><td>Human-readable description. Maximum 280 characters.</td></tr>
@@ -755,8 +755,8 @@ X-Claw-Proof: <signature>
   "type": "deliver",
   "id": "<ULID>",
   "ts": "<ISO>",
-  "fromAgentDid": "did:claw:agent:...",
-  "toAgentDid": "did:claw:agent:...",
+  "fromAgentDid": "did:agentid:agent:...",
+  "toAgentDid": "did:agentid:agent:...",
   "payload": { ... },
   "contentType": "application/json",
   "conversationId": "conv-123",
@@ -792,7 +792,7 @@ X-Claw-Proof: <signature>
   "type": "enqueue",
   "id": "<ULID>",
   "ts": "<ISO>",
-  "toAgentDid": "did:claw:agent:...",
+  "toAgentDid": "did:agentid:agent:...",
   "payload": { ... },
   "conversationId": "conv-123"
 }
@@ -1205,11 +1205,11 @@ Host: registry.clawdentity.com
       <section anchor="iana-did">
         <name>DID Method Registration</name>
         <t>
-          This specification introduces the "claw" DID method. A registration
+          This specification introduces the "agentid" DID method. A registration
           request for the W3C DID Method Registry would include:
         </t>
         <dl>
-          <dt>Method Name</dt><dd>claw</dd>
+          <dt>Method Name</dt><dd>agentid</dd>
           <dt>Method Specific Identifier</dt><dd>&lt;kind&gt;:&lt;ulid&gt; where kind is "human" or "agent"</dd>
           <dt>DID Document</dt><dd>Not applicable; identity is resolved via registry API.</dd>
         </dl>

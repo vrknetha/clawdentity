@@ -116,18 +116,18 @@ Clawdentity addresses these problems with the following design goals:
 
 ### 3.1 DID Format
 
-Clawdentity uses a custom DID method: `did:claw`.
+Clawdentity uses a custom DID method: `did:agentid`.
 
 ```
-did:claw:<kind>:<ulid>
+did:agentid:<kind>:<ulid>
 ```
 
 **Kinds:**
 
 | Kind | Description | Example |
 |------|-------------|---------|
-| `human` | A human owner/operator | `did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT4` |
-| `agent` | An AI agent | `did:claw:agent:01HG8ZBU11X7X8DN8O4X6GEYU5` |
+| `human` | A human owner/operator | `did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4` |
+| `agent` | An AI agent | `did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5` |
 
 The `<ulid>` component MUST be a valid ULID as defined in the [ULID specification](https://github.com/ulid/spec).
 
@@ -158,10 +158,10 @@ The secret key MUST be stored locally and MUST NOT be transmitted. Only the publ
 Every agent DID is bound to exactly one human DID (the `ownerDid`). This binding is recorded in the AIT and enforced by the registry.
 
 ```
-Human (did:claw:human:...)
-  └── Agent A (did:claw:agent:...)
-  └── Agent B (did:claw:agent:...)
-  └── Agent C (did:claw:agent:...)
+Human (did:agentid:human:...)
+  └── Agent A (did:agentid:agent:...)
+  └── Agent B (did:agentid:agent:...)
+  └── Agent C (did:agentid:agent:...)
 ```
 
 A human MAY own multiple agents. An agent MUST have exactly one owner.
@@ -197,8 +197,8 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
 ```json
 {
   "iss": "https://registry.clawdentity.com",
-  "sub": "did:claw:agent:01HG8ZBU11X7X8DN8O4X6GEYU5",
-  "ownerDid": "did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+  "sub": "did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5",
+  "ownerDid": "did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4",
   "name": "kai",
   "framework": "openclaw",
   "description": "Ravi's personal AI assistant",
@@ -219,8 +219,8 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
 | Claim | Type | Required | Description |
 |-------|------|----------|-------------|
 | `iss` | string | REQUIRED | Registry issuer URL |
-| `sub` | string | REQUIRED | Agent DID (`did:claw:agent:<ulid>`) |
-| `ownerDid` | string | REQUIRED | Owner human DID (`did:claw:human:<ulid>`) |
+| `sub` | string | REQUIRED | Agent DID (`did:agentid:agent:<ulid>`) |
+| `ownerDid` | string | REQUIRED | Owner human DID (`did:agentid:human:<ulid>`) |
 | `name` | string | REQUIRED | Agent name. 1-64 chars, `[A-Za-z0-9._ -]` |
 | `framework` | string | REQUIRED | Agent framework identifier, 1-32 chars |
 | `description` | string | OPTIONAL | Human-readable description, max 280 chars |
@@ -374,7 +374,7 @@ For sensitive routes (relay, hooks), the proxy validates the agent's session acc
 ```
 POST /v1/agents/auth/validate
 {
-  "agentDid": "did:claw:agent:...",
+  "agentDid": "did:agentid:agent:...",
   "aitJti": "<current-ait-jti>"
 }
 ```
@@ -539,8 +539,8 @@ Inbound message delivery to the local agent.
   "type": "deliver",
   "id": "01HGA...",
   "ts": "2026-02-21T12:00:01.000Z",
-  "fromAgentDid": "did:claw:agent:...",
-  "toAgentDid": "did:claw:agent:...",
+  "fromAgentDid": "did:agentid:agent:...",
+  "toAgentDid": "did:agentid:agent:...",
   "payload": { ... },
   "contentType": "application/json",
   "conversationId": "conv-123",
@@ -587,7 +587,7 @@ Outbound message from the local agent to a remote agent.
   "type": "enqueue",
   "id": "01HGC...",
   "ts": "2026-02-21T12:00:02.000Z",
-  "toAgentDid": "did:claw:agent:...",
+  "toAgentDid": "did:agentid:agent:...",
   "payload": { ... },
   "conversationId": "conv-123",
   "replyTo": "https://proxy-a.example.com/v1/relay/delivery-receipts"
@@ -687,7 +687,7 @@ The Certificate Revocation List is a signed JWT containing a list of revoked AIT
   "revocations": [
     {
       "jti": "01HGF...",
-      "agentDid": "did:claw:agent:...",
+      "agentDid": "did:agentid:agent:...",
       "reason": "compromised",
       "revokedAt": 1708532000
     }
@@ -886,9 +886,9 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 
 ### 14.1 DID Method Registration
 
-This specification introduces the `did:claw` method. If submitted to the W3C DID Method Registry, it would be registered as:
+This specification introduces the `did:agentid` method. If submitted to the W3C DID Method Registry, it would be registered as:
 
-- **Method name:** `claw`
+- **Method name:** `agentid`
 - **Method specific identifier:** `<kind>:<ulid>` where kind ∈ {`human`, `agent`}
 - **DID document:** Not applicable (identity resolved via registry API)
 
@@ -930,7 +930,7 @@ A complete message from Agent A to Agent B:
 
 ```
 1. Agent A's connector creates an enqueue frame:
-   { type: "enqueue", toAgentDid: "did:claw:agent:B...", payload: {...} }
+   { type: "enqueue", toAgentDid: "did:agentid:agent:B...", payload: {...} }
 
 2. Connector sends frame over WebSocket to Proxy A
 

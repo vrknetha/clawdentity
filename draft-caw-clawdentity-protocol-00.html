@@ -1705,7 +1705,7 @@ li > p:last-of-type:only-child {
 </dd>
         <dd class="break"></dd>
 <dt id="section-2-3.5">DID</dt>
-        <dd style="margin-left: 1.5em" id="section-2-3.6">Decentralized Identifier as defined in <span>[<a href="#W3C.DID" class="cite xref">W3C.DID</a>]</span>, using the "claw" method.<a href="#section-2-3.6" class="pilcrow">¶</a>
+        <dd style="margin-left: 1.5em" id="section-2-3.6">Decentralized Identifier as defined in <span>[<a href="#W3C.DID" class="cite xref">W3C.DID</a>]</span>, using the "agentid" method.<a href="#section-2-3.6" class="pilcrow">¶</a>
 </dd>
         <dd class="break"></dd>
 <dt id="section-2-3.7">PoP</dt>
@@ -1738,12 +1738,12 @@ li > p:last-of-type:only-child {
 <a href="#section-3.1" class="section-number selfRef">3.1. </a><a href="#name-did-format" class="section-name selfRef">DID Format</a>
         </h3>
 <p id="section-3.1-1">
-          Clawdentity uses a custom DID method with the scheme "did:claw".
+          Clawdentity uses a custom DID method with the scheme "did:agentid".
           The method-specific identifier consists of a kind and a ULID,
           separated by a colon:<a href="#section-3.1-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-abnf art-text artwork" id="section-3.1-2">
 <pre>
-claw-did    = "did:claw:" kind ":" ulid
+agentid-did    = "did:agentid:" kind ":" ulid
 kind        = "human" / "agent"
 ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
 </pre><a href="#section-3.1-2" class="pilcrow">¶</a>
@@ -1762,12 +1762,12 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
             <tr>
               <td class="text-left" rowspan="1" colspan="1">human</td>
               <td class="text-left" rowspan="1" colspan="1">A human owner/operator</td>
-              <td class="text-left" rowspan="1" colspan="1">did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT4</td>
+              <td class="text-left" rowspan="1" colspan="1">did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4</td>
             </tr>
             <tr>
               <td class="text-left" rowspan="1" colspan="1">agent</td>
               <td class="text-left" rowspan="1" colspan="1">An AI agent</td>
-              <td class="text-left" rowspan="1" colspan="1">did:claw:agent:01HG8ZBU11X7X8DN8O4X6GEYU5</td>
+              <td class="text-left" rowspan="1" colspan="1">did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5</td>
             </tr>
           </tbody>
         </table>
@@ -1864,10 +1864,10 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
           own multiple agents. An agent MUST have exactly one owner.<a href="#section-3.4-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-ascii-art art-text artwork" id="section-3.4-2">
 <pre>
-  Human (did:claw:human:...)
-    +-- Agent A (did:claw:agent:...)
-    +-- Agent B (did:claw:agent:...)
-    +-- Agent C (did:claw:agent:...)
+  Human (did:agentid:human:...)
+    +-- Agent A (did:agentid:agent:...)
+    +-- Agent B (did:agentid:agent:...)
+    +-- Agent C (did:agentid:agent:...)
 </pre><a href="#section-3.4-2" class="pilcrow">¶</a>
 </div>
 </section>
@@ -1956,13 +1956,13 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
               <td class="text-left" rowspan="1" colspan="1">sub</td>
               <td class="text-left" rowspan="1" colspan="1">string</td>
               <td class="text-left" rowspan="1" colspan="1">REQUIRED</td>
-              <td class="text-left" rowspan="1" colspan="1">Agent DID. MUST be "did:claw:agent:&lt;ulid&gt;"</td>
+              <td class="text-left" rowspan="1" colspan="1">Agent DID. MUST be "did:agentid:agent:&lt;ulid&gt;"</td>
             </tr>
             <tr>
               <td class="text-left" rowspan="1" colspan="1">ownerDid</td>
               <td class="text-left" rowspan="1" colspan="1">string</td>
               <td class="text-left" rowspan="1" colspan="1">REQUIRED</td>
-              <td class="text-left" rowspan="1" colspan="1">Owner human DID. MUST be "did:claw:human:&lt;ulid&gt;"</td>
+              <td class="text-left" rowspan="1" colspan="1">Owner human DID. MUST be "did:agentid:human:&lt;ulid&gt;"</td>
             </tr>
             <tr>
               <td class="text-left" rowspan="1" colspan="1">name</td>
@@ -2628,8 +2628,8 @@ X-Claw-Proof: &lt;signature&gt;
   "type": "deliver",
   "id": "&lt;ULID&gt;",
   "ts": "&lt;ISO&gt;",
-  "fromAgentDid": "did:claw:agent:...",
-  "toAgentDid": "did:claw:agent:...",
+  "fromAgentDid": "did:agentid:agent:...",
+  "toAgentDid": "did:agentid:agent:...",
   "payload": { ... },
   "contentType": "application/json",
   "conversationId": "conv-123",
@@ -2670,7 +2670,7 @@ X-Claw-Proof: &lt;signature&gt;
   "type": "enqueue",
   "id": "&lt;ULID&gt;",
   "ts": "&lt;ISO&gt;",
-  "toAgentDid": "did:claw:agent:...",
+  "toAgentDid": "did:agentid:agent:...",
   "payload": { ... },
   "conversationId": "conv-123"
 }
@@ -3419,11 +3419,11 @@ Host: registry.clawdentity.com
 <a href="#section-15.1" class="section-number selfRef">15.1. </a><a href="#name-did-method-registration" class="section-name selfRef">DID Method Registration</a>
         </h3>
 <p id="section-15.1-1">
-          This specification introduces the "claw" DID method. A registration
+          This specification introduces the "agentid" DID method. A registration
           request for the W3C DID Method Registry would include:<a href="#section-15.1-1" class="pilcrow">¶</a></p>
 <span class="break"></span><dl class="dlParallel" id="section-15.1-2">
           <dt id="section-15.1-2.1">Method Name</dt>
-          <dd style="margin-left: 1.5em" id="section-15.1-2.2">claw<a href="#section-15.1-2.2" class="pilcrow">¶</a>
+          <dd style="margin-left: 1.5em" id="section-15.1-2.2">agentid<a href="#section-15.1-2.2" class="pilcrow">¶</a>
 </dd>
           <dd class="break"></dd>
 <dt id="section-15.1-2.3">Method Specific Identifier</dt>
