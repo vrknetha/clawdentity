@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import { parseDid } from "@clawdentity/protocol";
 import { nowUtcMs } from "@clawdentity/sdk";
 import { PROXY_TRUST_DO_NAME } from "./pairing-constants.js";
@@ -154,14 +155,6 @@ function parseErrorPayload(payload: unknown): {
       : "Trust state operation failed";
 
   return { code, message };
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 }
 
 function createDurableObjectRequest(path: string, payload: unknown): Request {

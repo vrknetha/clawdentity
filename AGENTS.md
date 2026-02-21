@@ -42,6 +42,7 @@
 ## Validation Baseline
 - Run and pass: `pnpm lint`, `pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build` for implementation changes.
 - Lint runs at root (`pnpm lint` via `biome check .`), not per-package.
+- File-size guard must pass via `pnpm check:file-size` (fails when tracked source files under `apps/**` or `packages/**` exceed 800 lines; excludes `dist`, `.wrangler`, `worker-configuration.d.ts`, `drizzle/meta`, `node_modules`).
 - For planning/doc changes, verify dependency/order consistency against the active GitHub issue tracker.
 
 ## Cloudflare Worker & Wrangler Conventions
@@ -89,7 +90,7 @@
 ## Testing Patterns
 - Use **Vitest** for all tests.
 - Hono apps are tested via `app.request()` (Hono's built-in test client) — no wrangler or miniflare needed for unit tests.
-- Pass mock bindings as the third argument: `app.request("/path", {}, { DB: {}, ENVIRONMENT: "test" })`.
+- Pass mock bindings as the third argument: `app.request("/path", {}, { DB: {}, ENVIRONMENT: "local" })`.
 
 ## Dual OpenClaw Container Baseline (Skill E2E)
 - Runtime stack for local dual-agent tests lives in sibling repo `~/Workdir/openclaw`:

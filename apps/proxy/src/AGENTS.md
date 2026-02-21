@@ -4,6 +4,13 @@
 - Keep `index.ts` as runtime bootstrap surface and version export.
 - Keep version resolution in `index.ts` deterministic: prefer `APP_VERSION`, then `PROXY_VERSION`, then fallback constant for local/dev defaults.
 - Keep runtime env parsing and defaults in `config.ts`; do not scatter `process.env` reads across handlers.
+- Keep `config.ts` as a facade export only; place implementation in `config/` modules:
+  - `config/defaults.ts` for exported defaults and env/value types.
+  - `config/schema.ts` for zod runtime/env schemas.
+  - `config/env-normalization.ts` for env aliasing/required-key/deprecation checks.
+  - `config/paths.ts` for home/state/config path resolution and relay JSON base-url fallback parsing.
+  - `config/files.ts` for dotenv merge + fallback loading.
+  - `config/validation.ts` for `parseProxyConfig` and `loadProxyConfig` orchestration.
 - Keep startup fail-fast env validation in `config.ts` and enforce it from runtime boot (`startProxyServer` + worker runtime build) so missing registry/service credentials fail immediately.
 - Keep agent DID rate-limit env parsing in `config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE`, `AGENT_RATE_LIMIT_WINDOW_MS`) and validate as positive integers.
 - Keep HTTP app composition in `server.ts`.
@@ -30,8 +37,9 @@
 
 ## Maintainability
 - Prefer schema-driven parsing with small pure helpers for coercion/overrides.
+- Reuse `@clawdentity/common` for generic transport helpers (for example safe JSON response parsing) instead of duplicating identical utility functions in multiple proxy modules.
 - Keep CRL defaults centralized as exported constants in `config.ts`; do not duplicate timing literals across modules.
-- Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state.ts` (Durable Object backed).
+- Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state/` (Durable Object backed; `proxy-trust-state.ts` remains the facade export).
 - Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
 - Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
@@ -100,7 +108,13 @@
 - Reject blank/whitespace `requestId`, `senderAgentDid`, and `recipientAgentDid` in `relay-delivery-receipt-route.ts` so invalid receipt payloads fail as `400` client errors before DO RPC.
 - Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.
 - Keep `conversationId` and `replyTo` metadata flowing from `/hooks/agent` into relay queue/deliver frames for downstream ordering and callback semantics.
-- Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state.ts` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
+- Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state/` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.
+
+## Agent Relay Session Modularization
+- Keep `agent-relay-session.ts` focused on Durable Object state machine orchestration; move helpers, parsers, and queue helpers into `apps/proxy/src/agent-relay-session/` so the entry file stays below 800 lines.
+- Name helper modules by concern (`types`, `errors`, `frames`, `parsers`, `queue`, `policy`, `rpc`, `socket-tracker`) and avoid importing back from `agent-relay-session.ts` to prevent cycles.
+- Re-export the public API (`Relay*` types, `AgentRelaySession`, and RPC helpers) from `agent-relay-session.ts` so existing imports in routes/tests stay untouched.
+- When introducing a new helper, document it here so future splits keep the Durable Object surface lean and test coverage aware.

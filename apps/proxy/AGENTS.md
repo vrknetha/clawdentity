@@ -14,7 +14,7 @@
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.
-- Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production`, `test` (default `development`).
+- Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production` (default `development`).
 - Keep deployment intent explicit: Wrangler `dev` maps to runtime `ENVIRONMENT=development`; `local` is for local Wrangler dev runs only, and `production` is the live cloud environment.
 - Keep script intent explicit: `pnpm -F @clawdentity/proxy run dev` must run Wrangler with `--env dev --port 8787`, and `dev:local` is the only script that should run `--env local --port 8787`.
 - Keep trust-store backend policy environment-scoped:

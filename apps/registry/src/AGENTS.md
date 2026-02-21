@@ -10,7 +10,7 @@
 ## Health Contract
 - `/health` must return HTTP 200 with `{ status, version, environment }` on valid config.
 - Invalid runtime config must fail through the shared error handler and return `CONFIG_VALIDATION_FAILED`.
-- Runtime startup config must fail fast for non-test environments when required keys are missing (`PROXY_URL`, `REGISTRY_ISSUER_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Runtime startup config must fail fast for non-local environments when required keys are missing (`PROXY_URL`, `REGISTRY_ISSUER_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 - `BOOTSTRAP_INTERNAL_SERVICE_ID` and `BOOTSTRAP_INTERNAL_SERVICE_SECRET` are required bootstrap credentials in every environment and must be set together.
 
 ## Admin Bootstrap Contract
@@ -75,7 +75,7 @@
   - `cursor`: ULID (opaque page token)
 - Return minimal agent fields only: `{ id, did, name, status, expires }` plus pagination `{ limit, nextCursor }`.
 - Keep ordering deterministic (`id` descending) and compute `nextCursor` from the last item in the returned page.
-- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `development`/`test`.
+- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors`: generic 400 message in `production`, detailed `fieldErrors` in `local`/`development`.
 
 ## GET /v1/agents/:id/ownership Contract
 - Require PAT auth via `createApiKeyAuth`.
@@ -143,15 +143,27 @@
   - `challengeId`: ULID from `/v1/agents/challenge`.
   - `challengeSignature`: base64url Ed25519 signature over the canonical proof message.
 - Keep request parsing and validation in a reusable helper module (`agent-registration.ts`) so future routes can share the same constraints without duplicating schema logic.
-- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `development`/`test` for debugging.
+- Keep `agent-registration.ts` as the stable facade import path and keep implementation split under `agent-registration/` by concern:
+  - `constants.ts` for defaults/limits/issuer resolution
+  - `parsing.ts` for payload validation
+  - `challenge.ts` for challenge construction
+  - `proof.ts` for ownership-proof verification
+  - `creation.ts` for registration/reissue claim builders
+- Keep error detail exposure environment-aware via `shouldExposeVerboseErrors` (shared SDK helper path): return generic messages without internals in `production`, but include validation/config details in `local`/`development` for debugging.
 - Persist `agents.current_jti` and `agents.expires_at` on insert; generated AIT claims (`jti`, `exp`) must stay in sync with those persisted values.
 - Verify challenge ownership before signing AIT: challenge must exist for the caller, be unexpired, remain `pending`, and match the request public key + signature.
 - Consume challenge with guarded state transition (`pending` -> `used`) in the same mutation unit as agent insert; reject zero-row updates as replayed challenge.
 - Use shared SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`, `addSeconds`) for issuance/expiry math and timestamp serialization in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
-- Keep AIT `iss` deterministic from environment mapping (`development`/`test` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
+- Keep AIT `iss` deterministic from environment mapping (`local`/`development` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
 - Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.
 - Response shape is `{ agent, ait, agentAuth }` where `agentAuth` returns short-lived access credentials and rotating refresh credentials.
+
+## Agent Registration Helpers
+- Keep `agent-registration.ts` responsibilities grouped by validation/parsing, challenge lifecycle, proof verification, and agent/token builders so each module can be split without changing behavior.
+- Share the parsing helpers with any other routes that must reuse the same error exposure (name, framework, key, TTL, challenge fields) and keep environment-aware detail toggles centralized near `shouldExposeVerboseErrors`.
+- Any refactor that splits this file should still surface `buildAgentRegistrationChallenge`, `verifyAgentRegistrationOwnershipProof`, `buildAgentRegistrationFromParsed`, `buildAgentReissue`, and `resolveRegistryIssuer` from a single barrel so callers need not change.
+- Tests `apps/registry/src/server.test/agent-registration-challenge.test.ts` (challenge creation + persistence) and `apps/registry/src/server.test/agent-registration-create.test.ts` (payload validation, proof verification, error exposure, and issue response) are the canonical guards for this module—keep them green when moving logic into discrete modules.
 
 ## POST /v1/agents/auth/refresh Contract
 - Public endpoint (no PAT): auth is agent-scoped via `Authorization: Claw <AIT>` + PoP headers + refresh token payload.

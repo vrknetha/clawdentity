@@ -1,4 +1,8 @@
 import {
+  isRecord,
+  parseJsonResponseSafe as parseJsonResponse,
+} from "@clawdentity/common";
+import {
   AGENT_AUTH_REFRESH_PATH,
   encodeBase64url,
 } from "@clawdentity/protocol";
@@ -28,24 +32,12 @@ type RefreshSingleFlightOptions<T> = {
 
 const refreshSingleFlights = new Map<string, Promise<unknown>>();
 
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null;
-};
-
 const parseNonEmptyString = (value: unknown): string => {
   if (typeof value !== "string") {
     return "";
   }
 
   return value.trim();
-};
-
-const parseJsonResponse = async (response: Response): Promise<unknown> => {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 };
 
 const toPathWithQuery = (requestUrl: string): string => {

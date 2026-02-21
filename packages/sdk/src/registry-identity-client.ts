@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import {
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   parseDid,
@@ -62,14 +63,6 @@ function parseRegistryErrorEnvelope(payload: unknown): RegistryErrorEnvelope {
           : undefined,
     },
   };
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 }
 
 function parseOwnershipResponse(payload: unknown): AgentOwnershipResult {

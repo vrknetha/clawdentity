@@ -8,6 +8,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { isRecord } from "@clawdentity/common";
 import { type AgentAuthBundle, nowUtcMs } from "@clawdentity/sdk";
 
 const CLAWDENTITY_DIR = ".clawdentity";
@@ -17,10 +18,6 @@ const FILE_MODE = 0o600;
 const LOCK_RETRY_DELAY_MS = 50;
 const LOCK_MAX_ATTEMPTS = 200;
 const STALE_LOCK_AGE_MS = 30_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function getErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) {

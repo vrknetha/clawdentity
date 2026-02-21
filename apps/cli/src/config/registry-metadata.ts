@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import { REGISTRY_METADATA_PATH } from "@clawdentity/protocol";
 import { AppError } from "@clawdentity/sdk";
 
@@ -82,14 +83,6 @@ function extractRegistryErrorMessage(payload: unknown): string | undefined {
 
   const trimmed = envelope.error.message.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 }
 
 function parseMetadataPayload(

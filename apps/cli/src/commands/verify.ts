@@ -1,4 +1,8 @@
 import { readFile } from "node:fs/promises";
+import {
+  isRecord,
+  parseJsonResponseSafe as parseResponseJson,
+} from "@clawdentity/common";
 import { parseCrlClaims } from "@clawdentity/protocol";
 import {
   createLogger,
@@ -57,10 +61,6 @@ class VerifyCommandError extends Error {
     this.name = "VerifyCommandError";
   }
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null;
-};
 
 const normalizeRegistryUrl = (registryUrl: string): string => {
   try {
@@ -128,14 +128,6 @@ const resolveToken = async (tokenOrFile: string): Promise<string> => {
 const parseJson = (raw: string): unknown => {
   try {
     return JSON.parse(raw);
-  } catch {
-    return undefined;
-  }
-};
-
-const parseResponseJson = async (response: Response): Promise<unknown> => {
-  try {
-    return await response.json();
   } catch {
     return undefined;
   }

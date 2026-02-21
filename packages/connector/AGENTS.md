@@ -28,3 +28,8 @@
 - Client tests must mock WebSocket/fetch and verify heartbeat ack, delivery forwarding, reconnect, and outbound queue flush behavior.
 - Inbox tests must cover persistence, dedupe by request id, cap enforcement, and replay state transitions (`markReplayFailure`/`markDelivered`).
 - Keep tests fully offline and deterministic (fake timers where timing matters).
+
+## Modularization Notes
+- Treat `ConnectorClient` as the orchestration entry point; extract lifecycle, socket event handling, and reconnect scheduling into explicit helper modules so the public API stays stable while internals become easier to unit test.
+- New helper modules should expose narrow interfaces (start/stop, attach/detach, schedule/clear) and accept injected dependencies like `Logger`, heartbeat/metric helpers, and hooks so they are replaceable during testing.
+- Document any new helper modules in the respective `client/AGENTS.md` so future contributors can quickly see the division of responsibilities.

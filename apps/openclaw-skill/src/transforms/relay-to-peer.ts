@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isRecord } from "@clawdentity/common";
 import {
   loadPeersConfig,
   type PeersConfigPathOptions,
@@ -34,10 +35,6 @@ type ConnectorRelayRequest = {
   peerDid: string;
   peerProxyUrl: string;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
 
 function getErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) {

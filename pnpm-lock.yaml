@@ -51,6 +51,9 @@ importers:
         specifier: ^8.19.0
         version: 8.19.0
     devDependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../../packages/common
       '@clawdentity/connector':
         specifier: workspace:*
         version: link:../../packages/connector
@@ -72,6 +75,9 @@ importers:
 
   apps/openclaw-skill:
     dependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../../packages/common
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -85,6 +91,9 @@ importers:
 
   apps/proxy:
     dependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../../packages/common
       '@clawdentity/connector':
         specifier: workspace:*
         version: link:../../packages/connector
@@ -139,8 +148,17 @@ importers:
         specifier: ^0.31.9
         version: 0.31.9
 
+  packages/common:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.17.2
+        version: 22.19.11
+
   packages/connector:
     dependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../common
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -175,6 +193,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@clawdentity/common':
+        specifier: workspace:*
+        version: link:../common
       '@clawdentity/protocol':
         specifier: workspace:*
         version: link:../protocol

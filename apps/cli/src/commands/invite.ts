@@ -1,3 +1,7 @@
+import {
+  isRecord,
+  parseJsonResponseSafe as parseJsonResponse,
+} from "@clawdentity/common";
 import { INVITES_PATH, INVITES_REDEEM_PATH } from "@clawdentity/protocol";
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
@@ -71,10 +75,6 @@ type InviteRuntime = {
   fetchImpl: typeof fetch;
   registryUrl: string;
   config: CliConfig;
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null;
 };
 
 function parseNonEmptyString(value: unknown): string {
@@ -155,14 +155,6 @@ function extractRegistryErrorMessage(payload: unknown): string | undefined {
 
   const trimmed = envelope.error.message.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 }
 
 async function executeInviteRequest(input: {

@@ -2,9 +2,30 @@
 
 ## Source Layout
 - Keep frame schema definitions in `frames.ts` and validate every inbound/outbound frame through parser helpers.
-- Keep websocket lifecycle + ack behavior in `client.ts`.
-- Keep local runtime orchestration (`/v1/outbound`, `/v1/status`, auth refresh, replay loop) in `runtime.ts`.
-- Keep durable inbound storage logic isolated in `inbound-inbox.ts`.
+- Keep `client.ts` as the stable public surface (`ConnectorClient` + exported client types) and route internal concerns through `client/` modules:
+  - `client/types.ts` for externally consumed client types.
+  - `client/helpers.ts` for shared pure helpers (event parsing, sanitization, normalization).
+  - `client/inbound.ts` for parsed frame dispatch orchestration (`heartbeat`, `heartbeat_ack`, `deliver`).
+  - `client/metrics.ts` for websocket uptime/reconnect and inbound ack-latency tracking.
+  - `client/retry.ts` for reusable backoff math.
+  - `client/heartbeat.ts` for heartbeat scheduling, ack tracking, and RTT metrics.
+  - `client/queue.ts` for outbound queue + persistence orchestration.
+  - `client/delivery.ts` for local OpenClaw delivery + retry behavior.
+- Keep `runtime.ts` as the runtime entrypoint and wire internal concerns through `runtime/` modules:
+  - `runtime/auth-lifecycle.ts` for in-memory auth state + refresh/sync orchestration.
+  - `runtime/auth-storage.ts` for registry auth disk sync + atomic persistence.
+  - `runtime/openclaw-hook-token.ts` for explicit-vs-runtime hook token precedence and sync.
+  - `runtime/openclaw-probe.ts` for OpenClaw gateway liveness probing state transitions.
+  - `runtime/openclaw.ts` for hook token discovery and abort-aware local hook delivery.
+  - `runtime/policy.ts` for replay/probe configuration loading and retry-delay calculation.
+  - `runtime/replay.ts` for inbound replay orchestration, lane scheduling, retry/dead-letter transitions, and delivery receipts.
+  - `runtime/relay-service.ts` for outbound relay and signed delivery-receipt callbacks.
+  - `runtime/server.ts` for HTTP route handling (`/v1/status`, dead-letter ops, `/v1/outbound`).
+  - `runtime/trusted-receipts.ts`, `runtime/url.ts`, `runtime/ws.ts`, and `runtime/parse.ts` for focused helper concerns.
+- Keep `inbound-inbox.ts` as the public API surface (`ConnectorInboundInbox`, factory helpers, exported types) and route internals through `inbound-inbox/` modules:
+  - `inbound-inbox/types.ts` for inbox/dead-letter/index/event type contracts.
+  - `inbound-inbox/schema.ts` for index parsing/normalization rules.
+  - `inbound-inbox/storage.ts` for lock/index/events file persistence concerns.
 
 ## Inbound Durability Rules
 - Connector must persist inbound relay payloads before sending `deliver_ack accepted=true`.
@@ -55,7 +76,8 @@
 
 ## Testing Rules
 - `inbound-inbox.test.ts` must cover persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, and dead-letter purge transitions.
-- `client.test.ts` must cover both delivery modes:
+- `client.test/*.test.ts` must stay split by concern (for example delivery/heartbeat, reconnect lifecycle, outbound queue) to keep each test file focused and easy to maintain.
+- `client.test/*.test.ts` must cover both delivery modes:
   - direct local OpenClaw delivery fallback
   - injected inbound persistence handler ack path
-- `client.test.ts` must keep websocket lifecycle expectations compatible with non-persistent and persistent queue modes.
+- `client.test/*.test.ts` must keep websocket lifecycle expectations compatible with non-persistent and persistent queue modes.

@@ -1,3 +1,4 @@
+import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import { ME_API_KEYS_PATH, parseUlid } from "@clawdentity/protocol";
 import { AppError, createLogger } from "@clawdentity/sdk";
 import { Command } from "commander";
@@ -128,14 +129,6 @@ function extractRegistryErrorMessage(payload: unknown): string | undefined {
 
   const trimmed = envelope.error.message.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-async function parseJsonResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    return undefined;
-  }
 }
 
 function toHttpErrorMessage(options: {
