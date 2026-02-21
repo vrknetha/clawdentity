@@ -3,7 +3,7 @@
 
 
 Independent Submission                                        Ravi Kiran
-Internet-Draft                                               CAW Studios
+Internet-Draft                                                       CAW
 Intended status: Informational                          21 February 2026
 Expires: 25 August 2026
 
@@ -1721,7 +1721,7 @@ Acknowledgements
 Author's Address
 
    Ravi Kiran
-   CAW Studios
+   CAW
    Hyderabad
    India
    Email: ravi@knacklabs.ai
