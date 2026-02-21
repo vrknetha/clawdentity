@@ -148,7 +148,7 @@
         <dt>CRL</dt>
         <dd>Certificate Revocation List. A signed JWT (Section <xref target="revocation" format="counter"/>) containing a list of revoked AITs.</dd>
         <dt>DID</dt>
-        <dd>Decentralized Identifier as defined in <xref target="W3C.DID"/>, using the "agentid" method.</dd>
+        <dd>Decentralized Identifier as defined in <xref target="W3C.DID"/>, using the "cdi" method.</dd>
         <dt>PoP</dt>
         <dd>Proof of Possession. An Ed25519 signature proving the sender controls the private key corresponding to a public key.</dd>
         <dt>Pairing</dt>
@@ -167,27 +167,30 @@
       <section anchor="did-format">
         <name>DID Format</name>
         <t>
-          Clawdentity uses a custom DID method with the scheme "did:agentid".
-          The method-specific identifier consists of a kind and a ULID,
-          separated by a colon:
+          Clawdentity uses a custom DID method with the scheme "did:cdi"
+          (Clawdentity Identity). The method-specific identifier consists
+          of a registry host and a ULID, separated by a colon:
         </t>
         <artwork type="abnf"><![CDATA[
-agentid-did    = "did:agentid:" kind ":" ulid
-kind        = "human" / "agent"
-ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
+cdi-did         = "did:cdi:" registry-host ":" ulid
+registry-host   = 1*( unreserved / "." / "-" )
+ulid            = 26ALPHA  ; Crockford Base32, see [ULID]
 ]]></artwork>
-        <t>Two kinds are defined:</t>
+        <t>The registry-host identifies which registry issued the DID.
+           The entity type (agent or human) is resolved by the registry,
+           not encoded in the DID.</t>
         <table>
           <thead>
-            <tr><th>Kind</th><th>Description</th><th>Example</th></tr>
+            <tr><th>Entity</th><th>Example</th></tr>
           </thead>
           <tbody>
-            <tr><td>human</td><td>A human owner/operator</td><td>did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4</td></tr>
-            <tr><td>agent</td><td>An AI agent</td><td>did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5</td></tr>
+            <tr><td>Agent</td><td>did:cdi:registry.clawdentity.com:01HG8ZBU11X7X8DN8O4X6GEYU5</td></tr>
+            <tr><td>Human</td><td>did:cdi:registry.clawdentity.com:01HF7YAT00W6W7CM7N3W5FDXT4</td></tr>
+            <tr><td>Self-hosted</td><td>did:cdi:id.acme.corp:01HK9ABC22Y8Y9EO9P5Y7HFZV6</td></tr>
           </tbody>
         </table>
         <t>
-          Implementations MUST reject DIDs where the kind is not "human" or "agent",
+          Implementations MUST reject DIDs where the registry-host is empty
           or where the ULID component does not conform to the ULID specification <xref target="ULID"/>.
         </t>
       </section>
@@ -233,10 +236,10 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
           own multiple agents. An agent MUST have exactly one owner.
         </t>
         <artwork type="ascii-art"><![CDATA[
-  Human (did:agentid:human:...)
-    +-- Agent A (did:agentid:agent:...)
-    +-- Agent B (did:agentid:agent:...)
-    +-- Agent C (did:agentid:agent:...)
+  Human (did:cdi:registry.clawdentity.com:01HF7...)
+    +-- Agent A (did:cdi:registry.clawdentity.com:01HG8...)
+    +-- Agent B (did:cdi:registry.clawdentity.com:01HG9...)
+    +-- Agent C (did:cdi:registry.clawdentity.com:01HGA...)
 ]]></artwork>
       </section>
     </section>
@@ -291,8 +294,8 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
           </thead>
           <tbody>
             <tr><td>iss</td><td>string</td><td>REQUIRED</td><td>Registry issuer URL (e.g., "https://registry.clawdentity.com")</td></tr>
-            <tr><td>sub</td><td>string</td><td>REQUIRED</td><td>Agent DID. MUST be "did:agentid:agent:&lt;ulid&gt;"</td></tr>
-            <tr><td>ownerDid</td><td>string</td><td>REQUIRED</td><td>Owner human DID. MUST be "did:agentid:human:&lt;ulid&gt;"</td></tr>
+            <tr><td>sub</td><td>string</td><td>REQUIRED</td><td>Agent DID. MUST be "did:cdi:&lt;registry-host&gt;:&lt;ulid&gt;"</td></tr>
+            <tr><td>ownerDid</td><td>string</td><td>REQUIRED</td><td>Owner DID. MUST be "did:cdi:&lt;registry-host&gt;:&lt;ulid&gt;"</td></tr>
             <tr><td>name</td><td>string</td><td>REQUIRED</td><td>Agent name. 1-64 characters matching [A-Za-z0-9._ -]</td></tr>
             <tr><td>framework</td><td>string</td><td>REQUIRED</td><td>Agent framework identifier. 1-32 characters, no control characters.</td></tr>
             <tr><td>description</td><td>string</td><td>OPTIONAL</td><td>Human-readable description. Maximum 280 characters.</td></tr>
@@ -336,8 +339,8 @@ ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
           <li>"typ" is not "AIT".</li>
           <li>"kid" does not match any active registry signing key.</li>
           <li>JWS signature verification fails against the registry key identified by "kid".</li>
-          <li>"sub" is not a valid DID with kind "agent".</li>
-          <li>"ownerDid" is not a valid DID with kind "human".</li>
+          <li>"sub" is not a valid "did:cdi" DID.</li>
+          <li>"ownerDid" is not a valid "did:cdi" DID.</li>
           <li>"cnf.jwk.x" does not decode to exactly 32 bytes.</li>
           <li>"exp" is less than or equal to "nbf" or "iat".</li>
           <li>"jti" is not a valid ULID.</li>
@@ -755,8 +758,8 @@ X-Claw-Proof: <signature>
   "type": "deliver",
   "id": "<ULID>",
   "ts": "<ISO>",
-  "fromAgentDid": "did:agentid:agent:...",
-  "toAgentDid": "did:agentid:agent:...",
+  "fromAgentDid": "did:cdi:registry.clawdentity.com:...",
+  "toAgentDid": "did:cdi:registry.clawdentity.com:...",
   "payload": { ... },
   "contentType": "application/json",
   "conversationId": "conv-123",
@@ -792,7 +795,7 @@ X-Claw-Proof: <signature>
   "type": "enqueue",
   "id": "<ULID>",
   "ts": "<ISO>",
-  "toAgentDid": "did:agentid:agent:...",
+  "toAgentDid": "did:cdi:registry.clawdentity.com:...",
   "payload": { ... },
   "conversationId": "conv-123"
 }
@@ -1205,13 +1208,13 @@ Host: registry.clawdentity.com
       <section anchor="iana-did">
         <name>DID Method Registration</name>
         <t>
-          This specification introduces the "agentid" DID method. A registration
+          This specification introduces the "cdi" DID method. A registration
           request for the W3C DID Method Registry would include:
         </t>
         <dl>
-          <dt>Method Name</dt><dd>agentid</dd>
-          <dt>Method Specific Identifier</dt><dd>&lt;kind&gt;:&lt;ulid&gt; where kind is "human" or "agent"</dd>
-          <dt>DID Document</dt><dd>Not applicable; identity is resolved via registry API.</dd>
+          <dt>Method Name</dt><dd>cdi</dd>
+          <dt>Method Specific Identifier</dt><dd>&lt;registry-host&gt;:&lt;ulid&gt;</dd>
+          <dt>DID Document</dt><dd>Resolved via the registry identified by the registry-host component.</dd>
         </dl>
       </section>
 

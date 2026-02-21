@@ -266,7 +266,7 @@ Internet-Draft                 Clawdentity                 February 2026
       containing a list of revoked AITs.
 
    DID  Decentralized Identifier as defined in [W3C.DID], using the
-      "agentid" method.
+      "cdi" method.
 
    PoP  Proof of Possession.  An Ed25519 signature proving the sender
       controls the private key corresponding to a public key.
@@ -292,39 +292,39 @@ Internet-Draft                 Clawdentity                 February 2026
 
 3.1.  DID Format
 
-   Clawdentity uses a custom DID method with the scheme "did:agentid".
-   The method-specific identifier consists of a kind and a ULID,
-   separated by a colon:
+   Clawdentity uses a custom DID method with the scheme "did:cdi"
+   (Clawdentity Identity).  The method-specific identifier consists of a
+   registry host and a ULID, separated by a colon:
 
-   agentid-did    = "did:agentid:" kind ":" ulid
-   kind        = "human" / "agent"
-   ulid        = 26ALPHA  ; Crockford Base32, see [ULID]
+   cdi-did         = "did:cdi:" registry-host ":" ulid
+   registry-host   = 1*( unreserved / "." / "-" )
+   ulid            = 26ALPHA  ; Crockford Base32, see [ULID]
 
-   Two kinds are defined:
+   The registry-host identifies which registry issued the DID.  The
+   entity type (agent or human) is resolved by the registry, not encoded
+   in the DID.
 
-   +=====+=============+==============================================+
-   |Kind | Description | Example                                      |
-   +=====+=============+==============================================+
-   |human| A human     | did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4 |
-   |     | owner/      |                                              |
-   |     | operator    |                                              |
-   +-----+-------------+----------------------------------------------+
-   |agent| An AI agent | did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5 |
-   +-----+-------------+----------------------------------------------+
+   +======+===========================================================+
+   |Entity|Example                                                    |
+   +======+===========================================================+
+   |Agent |did:cdi:registry.clawdentity.com:01HG8ZBU11X7X8DN8O4X6GEYU5|
+   +------+-----------------------------------------------------------+
+   |Human |did:cdi:registry.clawdentity.com:01HF7YAT00W6W7CM7N3W5FDXT4|
+   +------+-----------------------------------------------------------+
+   |Self- |did:cdi:id.acme.corp:01HK9ABC22Y8Y9EO9P5Y7HFZV6            |
+   |hosted|                                                           |
+   +------+-----------------------------------------------------------+
 
                                  Table 1
 
-   Implementations MUST reject DIDs where the kind is not "human" or
-   "agent", or where the ULID component does not conform to the ULID
-   specification [ULID].
+   Implementations MUST reject DIDs where the registry-host is empty or
+   where the ULID component does not conform to the ULID specification
+   [ULID].
 
 3.2.  Cryptographic Primitives
 
    The protocol uses Ed25519 [RFC8032] as the sole signing algorithm.
    Implementations MUST NOT support other signature algorithms.
-
-
-
 
 
 
@@ -375,10 +375,10 @@ Internet-Draft                 Clawdentity                 February 2026
    registry during registration and refresh operations.  A human MAY own
    multiple agents.  An agent MUST have exactly one owner.
 
-     Human (did:agentid:human:...)
-       +-- Agent A (did:agentid:agent:...)
-       +-- Agent B (did:agentid:agent:...)
-       +-- Agent C (did:agentid:agent:...)
+     Human (did:cdi:registry.clawdentity.com:01HF7...)
+       +-- Agent A (did:cdi:registry.clawdentity.com:01HG8...)
+       +-- Agent B (did:cdi:registry.clawdentity.com:01HG9...)
+       +-- Agent C (did:cdi:registry.clawdentity.com:01HGA...)
 
 4.  Agent Identity Token (AIT)
 
@@ -457,10 +457,10 @@ Internet-Draft                 Clawdentity                 February 2026
    |           |      |        | "https://registry.clawdentity.com")  |
    +-----------+------+--------+--------------------------------------+
    |sub        |string|REQUIRED| Agent DID.  MUST be                  |
-   |           |      |        | "did:agentid:agent:<ulid>"           |
+   |           |      |        | "did:cdi:<registry-host>:<ulid>"     |
    +-----------+------+--------+--------------------------------------+
-   |ownerDid   |string|REQUIRED| Owner human DID.  MUST be            |
-   |           |      |        | "did:agentid:human:<ulid>"           |
+   |ownerDid   |string|REQUIRED| Owner DID.  MUST be                  |
+   |           |      |        | "did:cdi:<registry-host>:<ulid>"     |
    +-----------+------+--------+--------------------------------------+
    |name       |string|REQUIRED| Agent name. 1-64 characters matching |
    |           |      |        | [A-Za-z0-9._ -]                      |
@@ -531,9 +531,9 @@ Internet-Draft                 Clawdentity                 February 2026
    4.   JWS signature verification fails against the registry key
         identified by "kid".
 
-   5.   "sub" is not a valid DID with kind "agent".
+   5.   "sub" is not a valid "did:cdi" DID.
 
-   6.   "ownerDid" is not a valid DID with kind "human".
+   6.   "ownerDid" is not a valid "did:cdi" DID.
 
    7.   "cnf.jwk.x" does not decode to exactly 32 bytes.
 
@@ -967,8 +967,8 @@ Internet-Draft                 Clawdentity                 February 2026
      "type": "deliver",
      "id": "<ULID>",
      "ts": "<ISO>",
-     "fromAgentDid": "did:agentid:agent:...",
-     "toAgentDid": "did:agentid:agent:...",
+     "fromAgentDid": "did:cdi:registry.clawdentity.com:...",
+     "toAgentDid": "did:cdi:registry.clawdentity.com:...",
      "payload": { ... },
      "contentType": "application/json",
      "conversationId": "conv-123",
@@ -1015,7 +1015,7 @@ Internet-Draft                 Clawdentity                 February 2026
      "type": "enqueue",
      "id": "<ULID>",
      "ts": "<ISO>",
-     "toAgentDid": "did:agentid:agent:...",
+     "toAgentDid": "did:cdi:registry.clawdentity.com:...",
      "payload": { ... },
      "conversationId": "conv-123"
    }
@@ -1493,15 +1493,15 @@ Internet-Draft                 Clawdentity                 February 2026
 
 15.1.  DID Method Registration
 
-   This specification introduces the "agentid" DID method.  A
-   registration request for the W3C DID Method Registry would include:
+   This specification introduces the "cdi" DID method.  A registration
+   request for the W3C DID Method Registry would include:
 
-   Method Name  agentid
+   Method Name  cdi
 
-   Method Specific Identifier  <kind>:<ulid> where kind is "human" or
-      "agent"
+   Method Specific Identifier  <registry-host>:<ulid>
 
-   DID Document  Not applicable; identity is resolved via registry API.
+   DID Document  Resolved via the registry identified by the registry-
+      host component.
 
 
 

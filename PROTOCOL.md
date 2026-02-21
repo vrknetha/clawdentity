@@ -116,20 +116,21 @@ Clawdentity addresses these problems with the following design goals:
 
 ### 3.1 DID Format
 
-Clawdentity uses a custom DID method: `did:agentid`.
+Clawdentity uses a custom DID method: `did:cdi`.
 
 ```
-did:agentid:<kind>:<ulid>
+did:cdi:<registry-host>:<ulid>
 ```
 
-**Kinds:**
+**Examples:**
 
-| Kind | Description | Example |
-|------|-------------|---------|
-| `human` | A human owner/operator | `did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4` |
-| `agent` | An AI agent | `did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5` |
+| Entity | Example |
+|--------|---------|
+| Agent | `did:cdi:registry.clawdentity.com:01HG8ZBU11X7X8DN8O4X6GEYU5` |
+| Human | `did:cdi:registry.clawdentity.com:01HF7YAT00W6W7CM7N3W5FDXT4` |
+| Self-hosted | `did:cdi:id.acme.corp:01HK9ABC22Y8Y9EO9P5Y7HFZV6` |
 
-The `<ulid>` component MUST be a valid ULID as defined in the [ULID specification](https://github.com/ulid/spec).
+The `<registry-host>` identifies which registry issued the DID. The `<ulid>` component MUST be a valid ULID as defined in the [ULID specification](https://github.com/ulid/spec). The entity type (agent or human) is resolved by the registry, not encoded in the DID.
 
 ### 3.2 Cryptographic Primitives
 
@@ -158,10 +159,10 @@ The secret key MUST be stored locally and MUST NOT be transmitted. Only the publ
 Every agent DID is bound to exactly one human DID (the `ownerDid`). This binding is recorded in the AIT and enforced by the registry.
 
 ```
-Human (did:agentid:human:...)
-  └── Agent A (did:agentid:agent:...)
-  └── Agent B (did:agentid:agent:...)
-  └── Agent C (did:agentid:agent:...)
+Human (did:cdi:registry.clawdentity.com:01HF7...)
+  └── Agent A (did:cdi:registry.clawdentity.com:01HG8...)
+  └── Agent B (did:cdi:registry.clawdentity.com:01HG9...)
+  └── Agent C (did:cdi:registry.clawdentity.com:01HGA...)
 ```
 
 A human MAY own multiple agents. An agent MUST have exactly one owner.
@@ -197,8 +198,8 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
 ```json
 {
   "iss": "https://registry.clawdentity.com",
-  "sub": "did:agentid:agent:01HG8ZBU11X7X8DN8O4X6GEYU5",
-  "ownerDid": "did:agentid:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+  "sub": "did:cdi:registry.clawdentity.com:01HG8ZBU11X7X8DN8O4X6GEYU5",
+  "ownerDid": "did:cdi:registry.clawdentity.com:01HF7YAT00W6W7CM7N3W5FDXT4",
   "name": "kai",
   "framework": "openclaw",
   "description": "Ravi's personal AI assistant",
@@ -219,8 +220,8 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
 | Claim | Type | Required | Description |
 |-------|------|----------|-------------|
 | `iss` | string | REQUIRED | Registry issuer URL |
-| `sub` | string | REQUIRED | Agent DID (`did:agentid:agent:<ulid>`) |
-| `ownerDid` | string | REQUIRED | Owner human DID (`did:agentid:human:<ulid>`) |
+| `sub` | string | REQUIRED | Agent DID (`did:cdi:<registry-host>:<ulid>`) |
+| `ownerDid` | string | REQUIRED | Owner human DID (`did:cdi:<registry-host>:<ulid>`) |
 | `name` | string | REQUIRED | Agent name. 1-64 chars, `[A-Za-z0-9._ -]` |
 | `framework` | string | REQUIRED | Agent framework identifier, 1-32 chars |
 | `description` | string | OPTIONAL | Human-readable description, max 280 chars |
@@ -241,8 +242,8 @@ An AIT MUST be rejected if:
 2. `typ` is not `AIT`
 3. `kid` does not match any active registry signing key
 4. JWT signature verification fails
-5. `sub` is not a valid agent DID
-6. `ownerDid` is not a valid human DID
+5. `sub` is not a valid `did:cdi` DID
+6. `ownerDid` is not a valid `did:cdi` DID
 7. `cnf.jwk.x` does not decode to exactly 32 bytes
 8. `exp <= nbf` or `exp <= iat`
 9. `jti` is not a valid ULID
@@ -374,7 +375,7 @@ For sensitive routes (relay, hooks), the proxy validates the agent's session acc
 ```
 POST /v1/agents/auth/validate
 {
-  "agentDid": "did:agentid:agent:...",
+  "agentDid": "did:cdi:registry.clawdentity.com:...",
   "aitJti": "<current-ait-jti>"
 }
 ```
@@ -539,8 +540,8 @@ Inbound message delivery to the local agent.
   "type": "deliver",
   "id": "01HGA...",
   "ts": "2026-02-21T12:00:01.000Z",
-  "fromAgentDid": "did:agentid:agent:...",
-  "toAgentDid": "did:agentid:agent:...",
+  "fromAgentDid": "did:cdi:registry.clawdentity.com:...",
+  "toAgentDid": "did:cdi:registry.clawdentity.com:...",
   "payload": { ... },
   "contentType": "application/json",
   "conversationId": "conv-123",
@@ -587,7 +588,7 @@ Outbound message from the local agent to a remote agent.
   "type": "enqueue",
   "id": "01HGC...",
   "ts": "2026-02-21T12:00:02.000Z",
-  "toAgentDid": "did:agentid:agent:...",
+  "toAgentDid": "did:cdi:registry.clawdentity.com:...",
   "payload": { ... },
   "conversationId": "conv-123",
   "replyTo": "https://proxy-a.example.com/v1/relay/delivery-receipts"
@@ -687,7 +688,7 @@ The Certificate Revocation List is a signed JWT containing a list of revoked AIT
   "revocations": [
     {
       "jti": "01HGF...",
-      "agentDid": "did:agentid:agent:...",
+      "agentDid": "did:cdi:registry.clawdentity.com:...",
       "reason": "compromised",
       "revokedAt": 1708532000
     }
@@ -886,11 +887,11 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 
 ### 14.1 DID Method Registration
 
-This specification introduces the `did:agentid` method. If submitted to the W3C DID Method Registry, it would be registered as:
+This specification introduces the `did:cdi` method. If submitted to the W3C DID Method Registry, it would be registered as:
 
-- **Method name:** `agentid`
-- **Method specific identifier:** `<kind>:<ulid>` where kind ∈ {`human`, `agent`}
-- **DID document:** Not applicable (identity resolved via registry API)
+- **Method name:** `cdi`
+- **Method specific identifier:** `<registry-host>:<ulid>`
+- **DID document:** Resolved via the registry identified by `<registry-host>`
 
 ### 14.2 HTTP Authentication Scheme
 
@@ -930,7 +931,7 @@ A complete message from Agent A to Agent B:
 
 ```
 1. Agent A's connector creates an enqueue frame:
-   { type: "enqueue", toAgentDid: "did:agentid:agent:B...", payload: {...} }
+   { type: "enqueue", toAgentDid: "did:cdi:registry.clawdentity.com:B...", payload: {...} }
 
 2. Connector sends frame over WebSocket to Proxy A
 
