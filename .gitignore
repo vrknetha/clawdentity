@@ -11,3 +11,4 @@ nx.bat
 !.env.example
 .dev.vars
 .pnpm-store/
+target/
