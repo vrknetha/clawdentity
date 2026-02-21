@@ -19,14 +19,14 @@
 
     <seriesInfo name="Internet-Draft" value="draft-ravikiran-clawdentity-protocol-00"/>
 
-    <author fullname="Ravi Kiran" initials="" surname="Ravi Kiran">
+    <author fullname="Ravi Kiran Vemula" initials="R. K." surname="Vemula">
       <organization>CAW</organization>
       <address>
         <postal>
           <city>Hyderabad</city>
           <country>India</country>
         </postal>
-        <email>ravi@knacklabs.ai</email>
+        <email>vrknetha@gmail.com</email>
         <uri>https://ravi.sh</uri>
       </address>
     </author>
