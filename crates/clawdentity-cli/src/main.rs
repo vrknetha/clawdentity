@@ -1,18 +1,17 @@
 mod commands;
 
-use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser};
 use clawdentity_core::{
     AdminBootstrapInput, ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, CliConfig,
-    ConfigKey, ConfigPathOptions, CreateAgentInput, InstallOptions, InviteCreateInput,
+    ConfigKey, ConfigPathOptions, CreateAgentInput, InviteCreateInput,
     InviteRedeemInput, OpenclawDoctorOptions, OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions,
-    OpenclawRelayWebsocketTestOptions, RelayCheckStatus, SqliteStore, all_providers,
-    bootstrap_admin, create_agent, create_api_key, create_invite, detect_platform,
-    fetch_registry_metadata, get_config_dir, get_config_file_path, get_config_value, get_provider,
+    OpenclawRelayWebsocketTestOptions, RelayCheckStatus, SqliteStore, bootstrap_admin, create_agent,
+    create_api_key, create_invite, fetch_registry_metadata, get_config_dir, get_config_file_path,
+    get_config_value,
     init_identity, inspect_agent, list_api_keys, persist_bootstrap_config, persist_redeem_config,
     read_config, read_identity, redeem_invite, refresh_agent_auth, register_identity,
     resolve_config, revoke_agent_auth, revoke_api_key, run_openclaw_doctor,
@@ -20,7 +19,12 @@ use clawdentity_core::{
     save_relay_runtime_config, set_config_value, write_config, write_selected_openclaw_agent,
 };
 
-use crate::commands::connector::{ConnectorCommand, execute_connector_command};
+use crate::commands::connector::execute_connector_command;
+use crate::commands::install::execute_install_command;
+use crate::commands::{
+    AdminCommand, AgentAuthCommand, AgentCommand, ApiKeyCommand, Commands, ConfigCommand,
+    InviteCommand, OpenclawCommand,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "clawdentity", about = "Clawdentity CLI", version)]
@@ -33,208 +37,14 @@ struct Cli {
     command: Option<Commands>,
 }
 
-#[derive(Debug, Subcommand)]
-enum Commands {
-    Init {
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-    Whoami,
-    Register {
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-    Agent {
-        #[command(subcommand)]
-        command: AgentCommand,
-    },
-    Config {
-        #[command(subcommand)]
-        command: ConfigCommand,
-    },
-    ApiKey {
-        #[command(subcommand)]
-        command: ApiKeyCommand,
-    },
-    Invite {
-        #[command(subcommand)]
-        command: InviteCommand,
-    },
-    Admin {
-        #[command(subcommand)]
-        command: AdminCommand,
-    },
-    Connector {
-        #[command(subcommand)]
-        command: ConnectorCommand,
-    },
-    Openclaw {
-        #[command(subcommand)]
-        command: OpenclawCommand,
-    },
-    Install {
-        /// Target platform (auto-detect if not specified)
-        #[arg(long, alias = "for")]
-        platform: Option<String>,
-        /// Webhook port override
-        #[arg(long)]
-        port: Option<u16>,
-        /// Webhook auth token
-        #[arg(long)]
-        token: Option<String>,
-        /// List available platforms
-        #[arg(long)]
-        list: bool,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum ConfigCommand {
-    Init {
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-    Set {
-        key: String,
-        value: String,
-    },
-    Get {
-        key: String,
-    },
-    Show,
-}
-
-#[derive(Debug, Subcommand)]
-enum AgentCommand {
-    Create {
-        name: String,
-        #[arg(long)]
-        framework: Option<String>,
-        #[arg(long)]
-        ttl_days: Option<u32>,
-    },
-    Inspect {
-        name: String,
-    },
-    Auth {
-        #[command(subcommand)]
-        command: AgentAuthCommand,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum AgentAuthCommand {
-    Refresh { name: String },
-    Revoke { name: String },
-}
-
-#[derive(Debug, Subcommand)]
-enum ApiKeyCommand {
-    Create {
-        #[arg(long)]
-        name: Option<String>,
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-    List {
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-    Revoke {
-        id: String,
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum InviteCommand {
-    Create {
-        #[arg(long)]
-        expires_at: Option<String>,
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-    Redeem {
-        code: String,
-        #[arg(long)]
-        display_name: String,
-        #[arg(long)]
-        api_key_name: Option<String>,
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum AdminCommand {
-    Bootstrap {
-        #[arg(long)]
-        bootstrap_secret: String,
-        #[arg(long)]
-        display_name: Option<String>,
-        #[arg(long)]
-        api_key_name: Option<String>,
-        #[arg(long)]
-        registry_url: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum OpenclawCommand {
-    Setup {
-        agent_name: String,
-        #[arg(long)]
-        openclaw_base_url: Option<String>,
-        #[arg(long)]
-        openclaw_hook_token: Option<String>,
-        #[arg(long)]
-        relay_transform_peers_path: Option<String>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-    },
-    Doctor {
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        openclaw_dir: Option<PathBuf>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        skip_connector_runtime: bool,
-    },
-    RelayTest {
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        openclaw_dir: Option<PathBuf>,
-        #[arg(long)]
-        openclaw_base_url: Option<String>,
-        #[arg(long)]
-        hook_token: Option<String>,
-        #[arg(long)]
-        message: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        no_preflight: bool,
-    },
-    RelayWsTest {
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        openclaw_dir: Option<PathBuf>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        no_preflight: bool,
-    },
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     init_logging();
     let cli = Cli::parse();
+    run(cli).await
+}
+
+async fn run(cli: Cli) -> Result<()> {
     let options = ConfigPathOptions {
         home_dir: cli.home_dir.clone(),
         registry_url_hint: None,
@@ -597,7 +407,7 @@ async fn main() -> Result<()> {
         },
         Some(Commands::Connector { command }) => {
             let state_options = resolve_state_options(&options)?;
-            execute_connector_command(&state_options, command, cli.json)?;
+            execute_connector_command(&state_options, command, cli.json).await?;
         }
         Some(Commands::Install {
             platform,
@@ -825,156 +635,6 @@ fn mask_api_key(config: &CliConfig) -> CliConfig {
         api_key: Some("********".to_string()),
         human_name: config.human_name.clone(),
     }
-}
-
-fn execute_install_command(
-    home_dir: Option<PathBuf>,
-    json: bool,
-    platform: Option<String>,
-    port: Option<u16>,
-    token: Option<String>,
-    list: bool,
-) -> Result<()> {
-    if list {
-        let providers = all_providers();
-        if json {
-            let payload = providers
-                .into_iter()
-                .map(|provider| {
-                    let detection = provider.detect();
-                    serde_json::json!({
-                        "name": provider.name(),
-                        "displayName": provider.display_name(),
-                        "detected": detection.detected,
-                        "confidence": detection.confidence,
-                        "evidence": detection.evidence,
-                        "defaultWebhookHost": provider.default_webhook_host(),
-                        "defaultWebhookPort": provider.default_webhook_port(),
-                        "configPath": provider
-                            .config_path()
-                            .map(|path| path.to_string_lossy().to_string()),
-                    })
-                })
-                .collect::<Vec<_>>();
-            println!("{}", serde_json::to_string_pretty(&payload)?);
-        } else {
-            for provider in providers {
-                let detection = provider.detect();
-                println!("{} ({})", provider.display_name(), provider.name(),);
-                println!(
-                    "  detected: {} (confidence {:.2})",
-                    if detection.detected { "yes" } else { "no" },
-                    detection.confidence
-                );
-                println!(
-                    "  default webhook: {}:{}",
-                    provider.default_webhook_host(),
-                    provider.default_webhook_port()
-                );
-                if let Some(config_path) = provider.config_path() {
-                    println!("  config path: {}", config_path.display());
-                }
-                if detection.evidence.is_empty() {
-                    println!("  evidence: none");
-                } else {
-                    for evidence in detection.evidence {
-                        println!("  evidence: {evidence}");
-                    }
-                }
-            }
-        }
-        return Ok(());
-    }
-
-    let is_auto_detected = platform.is_none();
-
-    let provider = if let Some(platform_name) = platform.as_deref() {
-        get_provider(platform_name).ok_or_else(|| {
-            let available = all_providers()
-                .into_iter()
-                .map(|provider| provider.name().to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            anyhow!(
-                "unknown platform `{}`. Available platforms: {}",
-                platform_name,
-                available
-            )
-        })?
-    } else {
-        detect_platform().ok_or_else(|| {
-            anyhow!(
-                "no supported platform detected. Run `clawdentity install --list` and pick one with `--for`."
-            )
-        })?
-    };
-
-    if is_auto_detected && !json && !confirm_install(provider.display_name(), provider.name())? {
-        println!("Installation cancelled.");
-        return Ok(());
-    }
-
-    let install_result = provider.install(&InstallOptions {
-        home_dir,
-        webhook_port: port,
-        webhook_host: None,
-        webhook_token: token,
-        connector_url: None,
-    })?;
-    let verify_result = provider.verify()?;
-
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "provider": {
-                    "name": provider.name(),
-                    "displayName": provider.display_name(),
-                },
-                "install": install_result,
-                "verify": verify_result,
-            }))?
-        );
-    } else {
-        println!(
-            "Installed {} ({})",
-            provider.display_name(),
-            provider.name()
-        );
-        for note in install_result.notes {
-            println!("- {note}");
-        }
-        println!(
-            "Verification: {}",
-            if verify_result.healthy {
-                "healthy"
-            } else {
-                "unhealthy"
-            }
-        );
-        for (name, passed, detail) in verify_result.checks {
-            println!(
-                "- [{}] {}: {}",
-                if passed { "pass" } else { "fail" },
-                name,
-                detail
-            );
-        }
-    }
-
-    Ok(())
-}
-
-fn confirm_install(display_name: &str, name: &str) -> Result<bool> {
-    print!("Detected platform: {display_name} ({name}). Continue install? [y/N]: ");
-    io::stdout().flush()?;
-
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    Ok(matches!(
-        answer.trim().to_ascii_lowercase().as_str(),
-        "y" | "yes"
-    ))
 }
 
 fn init_logging() {
