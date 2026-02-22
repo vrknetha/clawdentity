@@ -50,6 +50,14 @@ pub struct ConfigPathOptions {
     pub registry_url_hint: Option<String>,
 }
 
+impl ConfigPathOptions {
+    pub fn with_registry_hint(&self, registry_url_hint: impl Into<String>) -> Self {
+        let mut next = self.clone();
+        next.registry_url_hint = Some(registry_url_hint.into());
+        next
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliConfig {
@@ -89,6 +97,15 @@ impl ConfigKey {
             "apiKey" => Ok(Self::ApiKey),
             "humanName" => Ok(Self::HumanName),
             other => Err(CoreError::InvalidConfigKey(other.to_string())),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RegistryUrl => "registryUrl",
+            Self::ProxyUrl => "proxyUrl",
+            Self::ApiKey => "apiKey",
+            Self::HumanName => "humanName",
         }
     }
 }
