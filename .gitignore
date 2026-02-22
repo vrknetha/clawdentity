@@ -12,3 +12,13 @@ nx.bat
 .dev.vars
 .pnpm-store/
 target/
+
+# Working docs (plans, reviews, research — keep local)
+**/PLAN.md
+**/REVIEW.md
+**/KAI_REVIEW.md
+**/*_PLAN.md
+**/*_RESEARCH.md
+**/*_FORMATS.md
+**/EXECUTION_PLAN.md
+**/WEBHOOK_PR_PLAN.md
