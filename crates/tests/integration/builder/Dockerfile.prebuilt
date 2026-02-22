@@ -1,0 +1,5 @@
+# Use pre-built binary instead of compiling in Docker
+# Build locally first: cargo build --release -p clawdentity-cli
+FROM debian:bookworm-slim
+COPY crates/target/release/clawdentity-cli /usr/local/bin/clawdentity-cli
+RUN chmod +x /usr/local/bin/clawdentity-cli

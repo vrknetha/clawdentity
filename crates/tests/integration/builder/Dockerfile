@@ -1,7 +1,5 @@
-FROM rust:1.85-slim AS clawdentity-builder
-WORKDIR /build
-COPY crates/ ./crates/
-RUN cargo build --release --manifest-path crates/Cargo.toml -p clawdentity-cli
-
+# Pre-built Linux ARM64 binary (cross-compiled on macOS)
+# To rebuild: cross build --release --target aarch64-unknown-linux-gnu -p clawdentity-cli
 FROM debian:bookworm-slim
-COPY --from=clawdentity-builder /build/crates/target/release/clawdentity-cli /usr/local/bin/clawdentity-cli
+COPY crates/target/aarch64-unknown-linux-gnu/release/clawdentity-cli /usr/local/bin/clawdentity-cli
+RUN chmod +x /usr/local/bin/clawdentity-cli
