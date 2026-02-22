@@ -41,4 +41,6 @@ pub enum CoreError {
     },
     #[error("failed to serialize json: {0}")]
     JsonSerialize(#[from] serde_json::Error),
+    #[error("sqlite error: {0}")]
+    Sqlite(#[from] rusqlite::Error),
 }

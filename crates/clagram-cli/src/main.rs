@@ -1,13 +1,24 @@
+mod commands;
+
 use std::path::PathBuf;
 
 use anyhow::Result;
 use clagram_core::{
-    CliConfig, ConfigKey, ConfigPathOptions, CreateAgentInput, create_agent,
-    fetch_registry_metadata, get_config_file_path, get_config_value, init_identity, inspect_agent,
-    read_config, read_identity, refresh_agent_auth, register_identity, resolve_config,
-    revoke_agent_auth, set_config_value, write_config,
+    AdminBootstrapInput, ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, CliConfig,
+    ConfigKey, ConfigPathOptions, CreateAgentInput, InviteCreateInput, InviteRedeemInput,
+    OpenclawDoctorOptions, OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions,
+    OpenclawRelayWebsocketTestOptions, RelayCheckStatus, SqliteStore, bootstrap_admin,
+    create_agent, create_api_key, create_invite, fetch_registry_metadata, get_config_dir,
+    get_config_file_path, get_config_value, init_identity, inspect_agent, list_api_keys,
+    persist_bootstrap_config, persist_redeem_config, read_config, read_identity, redeem_invite,
+    refresh_agent_auth, register_identity, resolve_config, revoke_agent_auth, revoke_api_key,
+    run_openclaw_doctor, run_openclaw_relay_test, run_openclaw_relay_websocket_test,
+    save_connector_assignment, save_relay_runtime_config, set_config_value, write_config,
+    write_selected_openclaw_agent,
 };
 use clap::{CommandFactory, Parser, Subcommand};
+
+use crate::commands::connector::{ConnectorCommand, execute_connector_command};
 
 #[derive(Debug, Parser)]
 #[command(name = "clagram", about = "Clagram CLI", version)]
@@ -38,6 +49,26 @@ enum Commands {
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
+    },
+    ApiKey {
+        #[command(subcommand)]
+        command: ApiKeyCommand,
+    },
+    Invite {
+        #[command(subcommand)]
+        command: InviteCommand,
+    },
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+    Connector {
+        #[command(subcommand)]
+        command: ConnectorCommand,
+    },
+    Openclaw {
+        #[command(subcommand)]
+        command: OpenclawCommand,
     },
 }
 
@@ -79,6 +110,109 @@ enum AgentCommand {
 enum AgentAuthCommand {
     Refresh { name: String },
     Revoke { name: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum ApiKeyCommand {
+    Create {
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        registry_url: Option<String>,
+    },
+    List {
+        #[arg(long)]
+        registry_url: Option<String>,
+    },
+    Revoke {
+        id: String,
+        #[arg(long)]
+        registry_url: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum InviteCommand {
+    Create {
+        #[arg(long)]
+        expires_at: Option<String>,
+        #[arg(long)]
+        registry_url: Option<String>,
+    },
+    Redeem {
+        code: String,
+        #[arg(long)]
+        display_name: String,
+        #[arg(long)]
+        api_key_name: Option<String>,
+        #[arg(long)]
+        registry_url: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AdminCommand {
+    Bootstrap {
+        #[arg(long)]
+        bootstrap_secret: String,
+        #[arg(long)]
+        display_name: Option<String>,
+        #[arg(long)]
+        api_key_name: Option<String>,
+        #[arg(long)]
+        registry_url: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum OpenclawCommand {
+    Setup {
+        agent_name: String,
+        #[arg(long)]
+        openclaw_base_url: Option<String>,
+        #[arg(long)]
+        openclaw_hook_token: Option<String>,
+        #[arg(long)]
+        relay_transform_peers_path: Option<String>,
+        #[arg(long)]
+        connector_base_url: Option<String>,
+    },
+    Doctor {
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long)]
+        openclaw_dir: Option<PathBuf>,
+        #[arg(long)]
+        connector_base_url: Option<String>,
+        #[arg(long)]
+        skip_connector_runtime: bool,
+    },
+    RelayTest {
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long)]
+        openclaw_dir: Option<PathBuf>,
+        #[arg(long)]
+        openclaw_base_url: Option<String>,
+        #[arg(long)]
+        hook_token: Option<String>,
+        #[arg(long)]
+        message: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        no_preflight: bool,
+    },
+    RelayWsTest {
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long)]
+        openclaw_dir: Option<PathBuf>,
+        #[arg(long)]
+        connector_base_url: Option<String>,
+        #[arg(long)]
+        no_preflight: bool,
+    },
 }
 
 #[tokio::main]
@@ -158,8 +292,7 @@ async fn main() -> Result<()> {
                 }
             }
             AgentCommand::Inspect { name } => {
-                let config = resolve_config(&options)?;
-                let state_options = options.with_registry_hint(config.registry_url);
+                let state_options = resolve_state_options(&options)?;
                 let inspect = inspect_agent(&state_options, &name)?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&inspect)?);
@@ -174,8 +307,7 @@ async fn main() -> Result<()> {
             }
             AgentCommand::Auth { command } => match command {
                 AgentAuthCommand::Refresh { name } => {
-                    let config = resolve_config(&options)?;
-                    let state_options = options.with_registry_hint(config.registry_url);
+                    let state_options = resolve_state_options(&options)?;
                     let result = refresh_agent_auth(&state_options, &name)?;
                     if cli.json {
                         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -186,8 +318,7 @@ async fn main() -> Result<()> {
                     }
                 }
                 AgentAuthCommand::Revoke { name } => {
-                    let config = resolve_config(&options)?;
-                    let state_options = options.with_registry_hint(config.registry_url);
+                    let state_options = resolve_state_options(&options)?;
                     let result = revoke_agent_auth(&state_options, &name)?;
                     if cli.json {
                         println!("{}", serde_json::to_string_pretty(&result)?);
@@ -258,6 +389,322 @@ async fn main() -> Result<()> {
                 }
             }
         },
+        Some(Commands::ApiKey { command }) => match command {
+            ApiKeyCommand::Create { name, registry_url } => {
+                let result = create_api_key(&options, ApiKeyCreateInput { name, registry_url })?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("API key created");
+                    println!("ID: {}", result.api_key.id);
+                    println!("Name: {}", result.api_key.name);
+                    println!("Status: {}", result.api_key.status);
+                    println!("Created At: {}", result.api_key.created_at);
+                    println!(
+                        "Last Used At: {}",
+                        result.api_key.last_used_at.as_deref().unwrap_or("never")
+                    );
+                    println!("Token (shown once):");
+                    println!("{}", result.api_key.token);
+                }
+            }
+            ApiKeyCommand::List { registry_url } => {
+                let result = list_api_keys(&options, ApiKeyListInput { registry_url })?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else if result.api_keys.is_empty() {
+                    println!("No API keys found.");
+                } else {
+                    for api_key in result.api_keys {
+                        println!(
+                            "{} | {} | {} | created {} | last used {}",
+                            api_key.id,
+                            api_key.name,
+                            api_key.status,
+                            api_key.created_at,
+                            api_key.last_used_at.as_deref().unwrap_or("never")
+                        );
+                    }
+                }
+            }
+            ApiKeyCommand::Revoke { id, registry_url } => {
+                let result = revoke_api_key(&options, ApiKeyRevokeInput { id, registry_url })?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("API key revoked: {}", result.api_key_id);
+                }
+            }
+        },
+        Some(Commands::Invite { command }) => match command {
+            InviteCommand::Create {
+                expires_at,
+                registry_url,
+            } => {
+                let result = create_invite(
+                    &options,
+                    InviteCreateInput {
+                        expires_at,
+                        registry_url,
+                    },
+                )?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("Invite created");
+                    println!("Code: {}", result.invite.code);
+                    if let Some(id) = result.invite.id {
+                        println!("ID: {id}");
+                    }
+                    println!(
+                        "Expires At: {}",
+                        result.invite.expires_at.as_deref().unwrap_or("never")
+                    );
+                }
+            }
+            InviteCommand::Redeem {
+                code,
+                display_name,
+                api_key_name,
+                registry_url,
+            } => {
+                let result = redeem_invite(
+                    &options,
+                    InviteRedeemInput {
+                        code,
+                        display_name,
+                        api_key_name,
+                        registry_url,
+                    },
+                )?;
+                let _ = persist_redeem_config(&options, &result)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("Invite redeemed");
+                    println!("Human name: {}", result.human_name);
+                    if let Some(api_key_name) = result.api_key_name {
+                        println!("API key name: {api_key_name}");
+                    }
+                    println!("API key token (shown once):");
+                    println!("{}", result.api_key_token);
+                    println!("API key saved to local config");
+                }
+            }
+        },
+        Some(Commands::Admin { command }) => match command {
+            AdminCommand::Bootstrap {
+                bootstrap_secret,
+                display_name,
+                api_key_name,
+                registry_url,
+            } => {
+                let result = bootstrap_admin(
+                    &options,
+                    AdminBootstrapInput {
+                        bootstrap_secret,
+                        display_name,
+                        api_key_name,
+                        registry_url,
+                    },
+                )?;
+                let _ = persist_bootstrap_config(&options, &result)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("Admin bootstrap completed");
+                    println!("Human DID: {}", result.human.did);
+                    println!("API key name: {}", result.api_key.name);
+                    println!("API key token (shown once):");
+                    println!("{}", result.api_key.token);
+                    println!("Internal service ID: {}", result.internal_service.id);
+                    println!("Internal service name: {}", result.internal_service.name);
+                    println!("API key saved to local config");
+                }
+            }
+        },
+        Some(Commands::Connector { command }) => {
+            let state_options = resolve_state_options(&options)?;
+            execute_connector_command(&state_options, command, cli.json)?;
+        }
+        Some(Commands::Openclaw { command }) => match command {
+            OpenclawCommand::Setup {
+                agent_name,
+                openclaw_base_url,
+                openclaw_hook_token,
+                relay_transform_peers_path,
+                connector_base_url,
+            } => {
+                let state_options = resolve_state_options(&options)?;
+                let config_dir = get_config_dir(&state_options)?;
+                let marker_path = write_selected_openclaw_agent(&config_dir, &agent_name)?;
+                let resolved_base_url = clagram_core::resolve_openclaw_base_url(
+                    &config_dir,
+                    openclaw_base_url.as_deref(),
+                )?;
+                let existing_runtime = clagram_core::load_relay_runtime_config(&config_dir)?;
+                let runtime_path = save_relay_runtime_config(
+                    &config_dir,
+                    OpenclawRelayRuntimeConfig {
+                        openclaw_base_url: resolved_base_url,
+                        openclaw_hook_token: openclaw_hook_token.or_else(|| {
+                            existing_runtime
+                                .as_ref()
+                                .and_then(|cfg| cfg.openclaw_hook_token.clone())
+                        }),
+                        relay_transform_peers_path: relay_transform_peers_path.or_else(|| {
+                            existing_runtime
+                                .as_ref()
+                                .and_then(|cfg| cfg.relay_transform_peers_path.clone())
+                        }),
+                        updated_at: None,
+                    },
+                )?;
+
+                let connector_assignment_path = if let Some(base_url) = connector_base_url {
+                    Some(save_connector_assignment(
+                        &config_dir,
+                        &agent_name,
+                        &base_url,
+                    )?)
+                } else {
+                    None
+                };
+
+                if cli.json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "agentNamePath": marker_path,
+                            "runtimeConfigPath": runtime_path,
+                            "connectorAssignmentPath": connector_assignment_path,
+                        }))?
+                    );
+                } else {
+                    println!("OpenClaw setup state updated");
+                    println!("Selected agent marker: {}", marker_path.display());
+                    println!("Relay runtime config: {}", runtime_path.display());
+                    if let Some(path) = connector_assignment_path {
+                        println!("Connector assignment: {}", path.display());
+                    }
+                }
+            }
+            OpenclawCommand::Doctor {
+                peer,
+                openclaw_dir,
+                connector_base_url,
+                skip_connector_runtime,
+            } => {
+                let state_options = resolve_state_options(&options)?;
+                let config_dir = get_config_dir(&state_options)?;
+                let store = SqliteStore::open(&state_options)?;
+                let result = run_openclaw_doctor(
+                    &config_dir,
+                    &store,
+                    OpenclawDoctorOptions {
+                        home_dir: cli.home_dir.clone(),
+                        openclaw_dir,
+                        peer_alias: peer,
+                        connector_base_url,
+                        include_connector_runtime_check: !skip_connector_runtime,
+                        ..OpenclawDoctorOptions::default()
+                    },
+                )?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!("Doctor status: {:?}", result.status);
+                    for check in result.checks {
+                        println!("- [{}] {}: {}", check.id, check.label, check.message);
+                        if let Some(remediation_hint) = check.remediation_hint {
+                            println!("  fix: {remediation_hint}");
+                        }
+                    }
+                }
+            }
+            OpenclawCommand::RelayTest {
+                peer,
+                openclaw_dir,
+                openclaw_base_url,
+                hook_token,
+                message,
+                session_id,
+                no_preflight,
+            } => {
+                let state_options = resolve_state_options(&options)?;
+                let config_dir = get_config_dir(&state_options)?;
+                let store = SqliteStore::open(&state_options)?;
+                let result = run_openclaw_relay_test(
+                    &config_dir,
+                    &store,
+                    OpenclawRelayTestOptions {
+                        home_dir: cli.home_dir.clone(),
+                        openclaw_dir,
+                        peer_alias: peer,
+                        openclaw_base_url,
+                        hook_token,
+                        message,
+                        session_id,
+                        skip_preflight: no_preflight,
+                    },
+                )?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!(
+                        "Relay test: {} ({})",
+                        result.message,
+                        match result.status {
+                            RelayCheckStatus::Success => "success",
+                            RelayCheckStatus::Failure => "failure",
+                        }
+                    );
+                    println!("Peer: {}", result.peer_alias);
+                    println!("Endpoint: {}", result.endpoint);
+                    if let Some(remediation_hint) = result.remediation_hint {
+                        println!("Hint: {remediation_hint}");
+                    }
+                }
+            }
+            OpenclawCommand::RelayWsTest {
+                peer,
+                openclaw_dir,
+                connector_base_url,
+                no_preflight,
+            } => {
+                let state_options = resolve_state_options(&options)?;
+                let config_dir = get_config_dir(&state_options)?;
+                let store = SqliteStore::open(&state_options)?;
+                let result = run_openclaw_relay_websocket_test(
+                    &config_dir,
+                    &store,
+                    OpenclawRelayWebsocketTestOptions {
+                        home_dir: cli.home_dir.clone(),
+                        openclaw_dir,
+                        peer_alias: peer,
+                        connector_base_url,
+                        skip_preflight: no_preflight,
+                    },
+                )?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                } else {
+                    println!(
+                        "Relay websocket test: {} ({})",
+                        result.message,
+                        match result.status {
+                            RelayCheckStatus::Success => "success",
+                            RelayCheckStatus::Failure => "failure",
+                        }
+                    );
+                    println!("Peer: {}", result.peer_alias);
+                    println!("Status URL: {}", result.connector_status_url);
+                    if let Some(remediation_hint) = result.remediation_hint {
+                        println!("Hint: {remediation_hint}");
+                    }
+                }
+            }
+        },
         None => {
             let mut command = Cli::command();
             command.print_help()?;
@@ -266,6 +713,11 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn resolve_state_options(options: &ConfigPathOptions) -> Result<ConfigPathOptions> {
+    let config = resolve_config(options)?;
+    Ok(options.with_registry_hint(config.registry_url))
 }
 
 fn mask_api_key(config: &CliConfig) -> CliConfig {

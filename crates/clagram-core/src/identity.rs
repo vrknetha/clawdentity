@@ -8,7 +8,7 @@ use getrandom::fill as getrandom_fill;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{CliConfig, ConfigPathOptions, get_config_dir, resolve_config, write_config};
-use crate::did::make_did_for_registry_host;
+use crate::did::make_human_did;
 use crate::error::{CoreError, Result};
 
 const IDENTITY_FILE: &str = "identity.json";
@@ -111,7 +111,7 @@ pub fn init_identity(
     let signing_key = SigningKey::from_bytes(&secret_bytes);
     let verifying_key: VerifyingKey = signing_key.verifying_key();
 
-    let did = make_did_for_registry_host(&config.registry_url)?;
+    let did = make_human_did();
     let identity = LocalIdentity {
         did,
         public_key: URL_SAFE_NO_PAD.encode(verifying_key.as_bytes()),
@@ -159,7 +159,7 @@ mod tests {
     fn options(home: &std::path::Path) -> ConfigPathOptions {
         ConfigPathOptions {
             home_dir: Some(home.to_path_buf()),
-            registry_url_hint: Some("https://registry.clagram.com".to_string()),
+            registry_url_hint: Some("https://registry.clawdentity.com".to_string()),
         }
     }
 

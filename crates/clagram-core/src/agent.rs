@@ -4,14 +4,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey, VerifyingKey};
 use getrandom::fill as getrandom_fill;
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use ulid::Ulid;
 
 use crate::config::{ConfigPathOptions, get_config_dir, resolve_config};
-use crate::did::make_did_for_registry_host;
 use crate::error::{CoreError, Result};
+use crate::identity::decode_secret_key;
+use crate::signing::{SignHttpRequestInput, sign_http_request};
 
 const AGENTS_DIR: &str = "agents";
 const FILE_MODE: u32 = 0o600;
@@ -20,6 +21,11 @@ const AIT_FILE: &str = "ait.jwt";
 const SECRET_KEY_FILE: &str = "secret.key";
 const PUBLIC_KEY_FILE: &str = "public.key";
 const REGISTRY_AUTH_FILE: &str = "registry-auth.json";
+
+const AGENT_REGISTRATION_CHALLENGE_PATH: &str = "/v1/agents/challenge";
+const AGENT_REGISTRATION_PATH: &str = "/v1/agents";
+const AGENT_AUTH_REFRESH_PATH: &str = "/v1/agents/auth/refresh";
+const AGENT_REGISTRATION_PROOF_VERSION: &str = "clawdentity.register.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,13 +40,11 @@ pub struct AgentIdentityRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentAuthRecord {
+    pub token_type: String,
+    pub access_token: String,
+    pub access_expires_at: String,
     pub refresh_token: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub access_expires_at: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_expires_at: Option<String>,
+    pub refresh_expires_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -85,6 +89,43 @@ pub struct CreateAgentInput {
     pub name: String,
     pub framework: Option<String>,
     pub ttl_days: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentRegistrationChallengeResponse {
+    challenge_id: String,
+    nonce: String,
+    owner_did: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentRegistrationResponse {
+    agent: RegisteredAgentPayload,
+    ait: String,
+    agent_auth: AgentAuthRecord,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisteredAgentPayload {
+    did: String,
+    name: String,
+    framework: String,
+    expires_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ErrorEnvelope {
+    error: Option<RegistryError>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegistryError {
+    message: Option<String>,
 }
 
 fn set_secure_permissions(path: &Path) -> Result<()> {
@@ -138,6 +179,11 @@ fn parse_agent_name(name: &str) -> Result<String> {
             "agent name is required".to_string(),
         ));
     }
+    if candidate == "." || candidate == ".." {
+        return Err(CoreError::InvalidInput(
+            "agent name must not be . or ..".to_string(),
+        ));
+    }
     if candidate.len() > 64 {
         return Err(CoreError::InvalidInput(
             "agent name must be <= 64 characters".to_string(),
@@ -152,6 +198,29 @@ fn parse_agent_name(name: &str) -> Result<String> {
         ));
     }
     Ok(candidate.to_string())
+}
+
+fn parse_optional_framework(value: Option<String>) -> Result<Option<String>> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let normalized = raw.trim();
+    if normalized.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "framework cannot be empty when provided".to_string(),
+        ));
+    }
+    Ok(Some(normalized.to_string()))
+}
+
+fn parse_optional_ttl_days(value: Option<u32>) -> Result<Option<u32>> {
+    match value {
+        Some(0) => Err(CoreError::InvalidInput(
+            "ttlDays must be a positive integer".to_string(),
+        )),
+        Some(days) => Ok(Some(days)),
+        None => Ok(None),
+    }
 }
 
 fn agents_dir(options: &ConfigPathOptions) -> Result<PathBuf> {
@@ -177,31 +246,6 @@ fn unix_seconds_to_iso(seconds: u64) -> Result<String> {
     Ok(datetime.to_rfc3339())
 }
 
-fn default_framework(value: Option<String>) -> String {
-    value
-        .and_then(|raw| {
-            let trimmed = raw.trim().to_string();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-        .unwrap_or_else(|| "openclaw".to_string())
-}
-
-fn ttl_days(value: Option<u32>) -> u32 {
-    value.unwrap_or(30).max(1)
-}
-
-fn encode_jwt(header: serde_json::Value, payload: serde_json::Value) -> Result<String> {
-    let header_raw = serde_json::to_vec(&header)?;
-    let payload_raw = serde_json::to_vec(&payload)?;
-    let encoded_header = URL_SAFE_NO_PAD.encode(header_raw);
-    let encoded_payload = URL_SAFE_NO_PAD.encode(payload_raw);
-    Ok(format!("{encoded_header}.{encoded_payload}.local"))
-}
-
 fn decode_jwt_payload(token: &str) -> Result<serde_json::Value> {
     let parts: Vec<&str> = token.split('.').collect();
     if parts.len() < 2 {
@@ -224,85 +268,245 @@ fn decode_jwt_header(token: &str) -> Result<serde_json::Value> {
     serde_json::from_slice(&header).map_err(|error| CoreError::InvalidInput(error.to_string()))
 }
 
+fn join_url(base: &str, path: &str) -> Result<String> {
+    let base_url = url::Url::parse(base).map_err(|_| CoreError::InvalidUrl {
+        context: "registryUrl",
+        value: base.to_string(),
+    })?;
+    let joined = base_url.join(path).map_err(|_| CoreError::InvalidUrl {
+        context: "registryUrl",
+        value: base.to_string(),
+    })?;
+    Ok(joined.to_string())
+}
+
+fn parse_error_message(response_body: &str) -> String {
+    match serde_json::from_str::<ErrorEnvelope>(response_body) {
+        Ok(envelope) => envelope
+            .error
+            .and_then(|error| error.message)
+            .unwrap_or_else(|| response_body.to_string()),
+        Err(_) => response_body.to_string(),
+    }
+}
+
+fn canonicalize_agent_registration_proof(input: &CanonicalProofInput<'_>) -> String {
+    [
+        AGENT_REGISTRATION_PROOF_VERSION.to_string(),
+        format!("challengeId:{}", input.challenge_id),
+        format!("nonce:{}", input.nonce),
+        format!("ownerDid:{}", input.owner_did),
+        format!("publicKey:{}", input.public_key),
+        format!("name:{}", input.name),
+        format!("framework:{}", input.framework.unwrap_or("")),
+        format!(
+            "ttlDays:{}",
+            input
+                .ttl_days
+                .map(|value| value.to_string())
+                .unwrap_or_default()
+        ),
+    ]
+    .join("\n")
+}
+
+struct CanonicalProofInput<'a> {
+    challenge_id: &'a str,
+    nonce: &'a str,
+    owner_did: &'a str,
+    public_key: &'a str,
+    name: &'a str,
+    framework: Option<&'a str>,
+    ttl_days: Option<u32>,
+}
+
+fn request_registration_challenge(
+    client: &reqwest::blocking::Client,
+    registry_url: &str,
+    api_key: &str,
+    public_key: &str,
+) -> Result<AgentRegistrationChallengeResponse> {
+    let url = join_url(registry_url, AGENT_REGISTRATION_CHALLENGE_PATH)?;
+    let response = client
+        .post(url)
+        .header(AUTHORIZATION, format!("Bearer {api_key}"))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&serde_json::json!({
+            "publicKey": public_key,
+        }))
+        .send()
+        .map_err(|error| CoreError::Http(error.to_string()))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let response_body = response.text().unwrap_or_default();
+        let message = parse_error_message(&response_body);
+        return Err(CoreError::HttpStatus { status, message });
+    }
+
+    response
+        .json::<AgentRegistrationChallengeResponse>()
+        .map_err(|error| CoreError::Http(error.to_string()))
+}
+
+fn request_agent_registration(
+    client: &reqwest::blocking::Client,
+    registry_url: &str,
+    api_key: &str,
+    name: &str,
+    public_key: &str,
+    challenge_id: &str,
+    challenge_signature: &str,
+    framework: Option<&str>,
+    ttl_days: Option<u32>,
+) -> Result<AgentRegistrationResponse> {
+    let mut request_body = serde_json::json!({
+        "name": name,
+        "publicKey": public_key,
+        "challengeId": challenge_id,
+        "challengeSignature": challenge_signature,
+    });
+    if let Some(value) = framework {
+        request_body["framework"] = serde_json::Value::String(value.to_string());
+    }
+    if let Some(value) = ttl_days {
+        request_body["ttlDays"] = serde_json::Value::Number(value.into());
+    }
+
+    let url = join_url(registry_url, AGENT_REGISTRATION_PATH)?;
+    let response = client
+        .post(url)
+        .header(AUTHORIZATION, format!("Bearer {api_key}"))
+        .header(CONTENT_TYPE, "application/json")
+        .json(&request_body)
+        .send()
+        .map_err(|error| CoreError::Http(error.to_string()))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let response_body = response.text().unwrap_or_default();
+        let message = parse_error_message(&response_body);
+        return Err(CoreError::HttpStatus { status, message });
+    }
+
+    response
+        .json::<AgentRegistrationResponse>()
+        .map_err(|error| CoreError::Http(error.to_string()))
+}
+
+fn random_nonce_base64url(size: usize) -> Result<String> {
+    let mut nonce = vec![0_u8; size];
+    getrandom_fill(&mut nonce).map_err(|error| CoreError::InvalidInput(error.to_string()))?;
+    Ok(URL_SAFE_NO_PAD.encode(nonce))
+}
+
+fn path_with_query(request_url: &str) -> Result<String> {
+    let parsed = url::Url::parse(request_url).map_err(|_| CoreError::InvalidUrl {
+        context: "registryUrl",
+        value: request_url.to_string(),
+    })?;
+    Ok(match parsed.query() {
+        Some(query) => format!("{}?{query}", parsed.path()),
+        None => parsed.path().to_string(),
+    })
+}
+
+fn parse_agent_auth_response(payload: serde_json::Value) -> Result<AgentAuthRecord> {
+    let source = payload.get("agentAuth").cloned().unwrap_or(payload);
+    let parsed = serde_json::from_value::<AgentAuthRecord>(source)
+        .map_err(|error| CoreError::InvalidInput(error.to_string()))?;
+    if parsed.token_type != "Bearer" {
+        return Err(CoreError::InvalidInput(
+            "invalid tokenType in agentAuth response".to_string(),
+        ));
+    }
+    Ok(parsed)
+}
+
 pub fn create_agent(
     options: &ConfigPathOptions,
     input: CreateAgentInput,
 ) -> Result<AgentCreateResult> {
     let config = resolve_config(options)?;
-    if config.api_key.is_none() {
-        return Err(CoreError::InvalidInput(
-            "API key is not configured. Run `clagram config set apiKey <token>` first.".to_string(),
-        ));
-    }
+    let api_key = config.api_key.ok_or_else(|| {
+        CoreError::InvalidInput(
+            "API key is not configured. Run `clawdentity config set apiKey <token>` first."
+                .to_string(),
+        )
+    })?;
 
     let name = parse_agent_name(&input.name)?;
+    let framework = parse_optional_framework(input.framework)?;
+    let ttl_days = parse_optional_ttl_days(input.ttl_days)?;
+
     let state_options = options.with_registry_hint(config.registry_url.clone());
     let agent_directory = agent_dir(&state_options, &name)?;
     if agent_directory.exists() {
         return Err(CoreError::IdentityAlreadyExists(agent_directory));
     }
-
     fs::create_dir_all(&agent_directory).map_err(|source| CoreError::Io {
         path: agent_directory.clone(),
         source,
     })?;
-
-    let framework = default_framework(input.framework);
-    let ttl_days = ttl_days(input.ttl_days);
-    let expires_unix = now_unix_seconds()? + (ttl_days as u64 * 24 * 60 * 60);
-    let expires_at = unix_seconds_to_iso(expires_unix)?;
 
     let mut secret_bytes = [0_u8; 32];
     getrandom_fill(&mut secret_bytes)
         .map_err(|error| CoreError::InvalidInput(error.to_string()))?;
     let signing_key = SigningKey::from_bytes(&secret_bytes);
     let verifying_key: VerifyingKey = signing_key.verifying_key();
+
     let public_key = URL_SAFE_NO_PAD.encode(verifying_key.as_bytes());
     let secret_key = URL_SAFE_NO_PAD.encode(signing_key.to_bytes());
 
-    let did = make_did_for_registry_host(&config.registry_url)?;
-    let owner_did = make_did_for_registry_host(&config.registry_url)?;
-    let kid = format!("agent-{}", Ulid::new());
-    let ait = encode_jwt(
-        serde_json::json!({
-            "alg": "EdDSA",
-            "typ": "JWT",
-            "kid": kid,
-        }),
-        serde_json::json!({
-            "sub": did,
-            "ownerDid": owner_did,
-            "exp": expires_unix,
-            "framework": framework,
-            "cnf": { "jwk": { "kty": "OKP", "crv": "Ed25519", "x": public_key } }
-        }),
+    let client = reqwest::blocking::Client::new();
+    let challenge =
+        request_registration_challenge(&client, &config.registry_url, &api_key, &public_key)?;
+    let canonical_proof = canonicalize_agent_registration_proof(&CanonicalProofInput {
+        challenge_id: &challenge.challenge_id,
+        nonce: &challenge.nonce,
+        owner_did: &challenge.owner_did,
+        public_key: &public_key,
+        name: &name,
+        framework: framework.as_deref(),
+        ttl_days,
+    });
+    let challenge_signature =
+        URL_SAFE_NO_PAD.encode(signing_key.sign(canonical_proof.as_bytes()).to_bytes());
+
+    let registration = request_agent_registration(
+        &client,
+        &config.registry_url,
+        &api_key,
+        &name,
+        &public_key,
+        &challenge.challenge_id,
+        &challenge_signature,
+        framework.as_deref(),
+        ttl_days,
     )?;
 
     let identity = AgentIdentityRecord {
-        did: did.clone(),
-        name: name.clone(),
-        framework: framework.clone(),
-        expires_at: expires_at.clone(),
+        did: registration.agent.did.clone(),
+        name: registration.agent.name.clone(),
+        framework: registration.agent.framework.clone(),
+        expires_at: registration.agent.expires_at.clone(),
         registry_url: config.registry_url.clone(),
-    };
-    let auth = AgentAuthRecord {
-        refresh_token: "not-provisioned".to_string(),
-        access_token: None,
-        access_expires_at: None,
-        refresh_expires_at: None,
     };
 
     write_secure_json(&agent_directory.join(IDENTITY_FILE), &identity)?;
-    write_secure_text(&agent_directory.join(AIT_FILE), &ait)?;
+    write_secure_text(&agent_directory.join(AIT_FILE), registration.ait.trim())?;
     write_secure_text(&agent_directory.join(SECRET_KEY_FILE), &secret_key)?;
     write_secure_text(&agent_directory.join(PUBLIC_KEY_FILE), &public_key)?;
-    write_secure_json(&agent_directory.join(REGISTRY_AUTH_FILE), &auth)?;
+    write_secure_json(
+        &agent_directory.join(REGISTRY_AUTH_FILE),
+        &registration.agent_auth,
+    )?;
 
     Ok(AgentCreateResult {
-        name,
-        did,
-        expires_at,
-        framework,
+        name: registration.agent.name,
+        did: registration.agent.did,
+        expires_at: registration.agent.expires_at,
+        framework: registration.agent.framework,
         registry_url: config.registry_url,
     })
 }
@@ -374,15 +578,84 @@ pub fn refresh_agent_auth(
 ) -> Result<AgentAuthRefreshResult> {
     let name = parse_agent_name(name)?;
     let agent_directory = agent_dir(options, &name)?;
+
     let auth_path = agent_directory.join(REGISTRY_AUTH_FILE);
-    let mut auth: AgentAuthRecord = read_json(&auth_path)?;
-    auth.refresh_token = "not-yet-supported".to_string();
-    write_secure_json(&auth_path, &auth)?;
+    let current_auth: AgentAuthRecord = read_json(&auth_path)?;
+
+    let identity_path = agent_directory.join(IDENTITY_FILE);
+    let identity: AgentIdentityRecord = read_json(&identity_path)?;
+    if identity.registry_url.trim().is_empty() {
+        return Err(CoreError::InvalidInput(
+            "agent identity is missing registryUrl".to_string(),
+        ));
+    }
+
+    let ait_path = agent_directory.join(AIT_FILE);
+    let ait_raw = fs::read_to_string(&ait_path).map_err(|source| CoreError::Io {
+        path: ait_path.clone(),
+        source,
+    })?;
+    let ait = ait_raw.trim();
+    if ait.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "agent AIT token is empty".to_string(),
+        ));
+    }
+
+    let secret_path = agent_directory.join(SECRET_KEY_FILE);
+    let secret_raw = fs::read_to_string(&secret_path).map_err(|source| CoreError::Io {
+        path: secret_path.clone(),
+        source,
+    })?;
+    let signing_key = decode_secret_key(secret_raw.trim())?;
+
+    let request_body = serde_json::json!({
+        "refreshToken": current_auth.refresh_token,
+    });
+    let request_body_bytes = serde_json::to_vec(&request_body)?;
+    let refresh_url = join_url(&identity.registry_url, AGENT_AUTH_REFRESH_PATH)?;
+    let path_with_query = path_with_query(&refresh_url)?;
+    let timestamp = now_unix_seconds()?.to_string();
+    let nonce = random_nonce_base64url(16)?;
+    let signed = sign_http_request(&SignHttpRequestInput {
+        method: "POST",
+        path_with_query: &path_with_query,
+        timestamp: &timestamp,
+        nonce: &nonce,
+        body: &request_body_bytes,
+        secret_key: &signing_key,
+    })?;
+
+    let mut request = reqwest::blocking::Client::new()
+        .post(refresh_url)
+        .header(AUTHORIZATION, format!("Claw {ait}"))
+        .header(CONTENT_TYPE, "application/json");
+    for (header_name, value) in signed.headers {
+        request = request.header(&header_name, value);
+    }
+
+    let response = request
+        .body(request_body_bytes)
+        .send()
+        .map_err(|error| CoreError::Http(error.to_string()))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let response_body = response.text().unwrap_or_default();
+        let message = parse_error_message(&response_body);
+        return Err(CoreError::HttpStatus { status, message });
+    }
+
+    let payload = response
+        .json::<serde_json::Value>()
+        .map_err(|error| CoreError::Http(error.to_string()))?;
+    let refreshed = parse_agent_auth_response(payload)?;
+    write_secure_json(&auth_path, &refreshed)?;
 
     Ok(AgentAuthRefreshResult {
         name,
-        status: "not_supported".to_string(),
-        message: "not yet supported by registry".to_string(),
+        status: "refreshed".to_string(),
+        message: "agent auth bundle updated".to_string(),
     })
 }
 
@@ -390,10 +663,7 @@ pub fn revoke_agent_auth(options: &ConfigPathOptions, name: &str) -> Result<Agen
     let name = parse_agent_name(name)?;
     let agent_directory = agent_dir(options, &name)?;
     let auth_path = agent_directory.join(REGISTRY_AUTH_FILE);
-    let mut auth: AgentAuthRecord = read_json(&auth_path)?;
-    auth.access_token = None;
-    auth.access_expires_at = None;
-    write_secure_json(&auth_path, &auth)?;
+    let _: AgentAuthRecord = read_json(&auth_path)?;
 
     Ok(AgentAuthRevokeResult {
         name,
@@ -404,74 +674,237 @@ pub fn revoke_agent_auth(options: &ConfigPathOptions, name: &str) -> Result<Agen
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::path::Path;
 
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use tempfile::TempDir;
+    use wiremock::matchers::{header_exists, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use crate::config::{CliConfig, ConfigPathOptions, write_config};
 
     use super::{
-        CreateAgentInput, create_agent, inspect_agent, refresh_agent_auth, revoke_agent_auth,
+        AgentAuthRecord, CreateAgentInput, create_agent, inspect_agent, refresh_agent_auth,
+        revoke_agent_auth,
     };
 
-    fn options(home: &Path) -> ConfigPathOptions {
+    fn options(home: &Path, registry_url: &str) -> ConfigPathOptions {
         ConfigPathOptions {
             home_dir: Some(home.to_path_buf()),
-            registry_url_hint: Some("https://registry.clagram.com".to_string()),
+            registry_url_hint: Some(registry_url.to_string()),
         }
     }
 
-    fn seed_config(options: &ConfigPathOptions) {
+    fn seed_config(options: &ConfigPathOptions, registry_url: &str) {
         let config = CliConfig {
-            registry_url: "https://registry.clagram.com".to_string(),
+            registry_url: registry_url.to_string(),
             proxy_url: None,
-            api_key: Some("local-key".to_string()),
+            api_key: Some("pat_local_test".to_string()),
             human_name: Some("alice".to_string()),
         };
         let _ = write_config(&config, options).expect("seed config");
     }
 
-    #[test]
-    fn create_and_inspect_agent_round_trip() {
-        let tmp = TempDir::new().expect("temp dir");
-        let options = options(tmp.path());
-        seed_config(&options);
+    fn test_ait(agent_did: &str) -> String {
+        let header = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&serde_json::json!({
+                "alg": "EdDSA",
+                "typ": "JWT",
+                "kid": "test-kid",
+            }))
+            .expect("header"),
+        );
+        let payload = URL_SAFE_NO_PAD.encode(
+            serde_json::to_vec(&serde_json::json!({
+                "sub": agent_did,
+                "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+                "exp": 2_208_988_800_u64,
+                "framework": "openclaw",
+                "cnf": { "jwk": { "kty": "OKP", "crv": "Ed25519", "x": "public-key-b64url" } }
+            }))
+            .expect("payload"),
+        );
+        format!("{header}.{payload}.local")
+    }
 
-        let created = create_agent(
-            &options,
-            CreateAgentInput {
-                name: "alpha".to_string(),
-                framework: Some("openclaw".to_string()),
-                ttl_days: Some(7),
-            },
-        )
+    #[tokio::test]
+    async fn create_and_inspect_agent_round_trip() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents/challenge"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "challengeId": "01JCHALLENGEID1234567890ABC",
+                "nonce": "nonce-b64url",
+                "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+                "expiresAt": "2030-01-01T00:00:00.000Z",
+                "algorithm": "Ed25519",
+                "messageTemplate": "clawdentity.register.v1",
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "agent": {
+                    "did": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                    "name": "alpha",
+                    "framework": "openclaw",
+                    "expiresAt": "2030-01-01T00:00:00.000Z"
+                },
+                "ait": test_ait("did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
+                "agentAuth": {
+                    "tokenType": "Bearer",
+                    "accessToken": "clw_agt_access_token",
+                    "accessExpiresAt": "2030-01-01T01:00:00.000Z",
+                    "refreshToken": "clw_rft_refresh_token",
+                    "refreshExpiresAt": "2030-01-02T00:00:00.000Z"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let tmp = TempDir::new().expect("temp dir");
+        let options = options(tmp.path(), &server.uri());
+        seed_config(&options, &server.uri());
+
+        let create_options = options.clone();
+        let created = tokio::task::spawn_blocking(move || {
+            create_agent(
+                &create_options,
+                CreateAgentInput {
+                    name: "alpha".to_string(),
+                    framework: Some("openclaw".to_string()),
+                    ttl_days: Some(30),
+                },
+            )
+        })
+        .await
+        .expect("join")
         .expect("create");
         assert_eq!(created.name, "alpha");
+        assert_eq!(created.did, "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4");
 
-        let inspect = inspect_agent(&options, "alpha").expect("inspect");
+        let inspect_options = options.clone();
+        let inspect = tokio::task::spawn_blocking(move || inspect_agent(&inspect_options, "alpha"))
+            .await
+            .expect("join")
+            .expect("inspect");
         assert_eq!(inspect.framework, "openclaw");
         assert_eq!(inspect.did, created.did);
+        assert_eq!(
+            inspect.owner_did,
+            "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7"
+        );
+
+        let auth_path = tmp
+            .path()
+            .join(".clawdentity/states/local/agents/alpha/registry-auth.json");
+        let auth: AgentAuthRecord = super::read_json(&auth_path).expect("auth json");
+        assert_eq!(auth.token_type, "Bearer");
+        assert_eq!(auth.refresh_token, "clw_rft_refresh_token");
+    }
+
+    #[tokio::test]
+    async fn refresh_agent_auth_updates_registry_auth_bundle() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents/challenge"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "challengeId": "01JCHALLENGEID1234567890ABC",
+                "nonce": "nonce-b64url",
+                "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+                "expiresAt": "2030-01-01T00:00:00.000Z",
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "agent": {
+                    "did": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                    "name": "beta",
+                    "framework": "openclaw",
+                    "expiresAt": "2030-01-01T00:00:00.000Z"
+                },
+                "ait": test_ait("did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
+                "agentAuth": {
+                    "tokenType": "Bearer",
+                    "accessToken": "clw_agt_old_access_token",
+                    "accessExpiresAt": "2030-01-01T01:00:00.000Z",
+                    "refreshToken": "clw_rft_old_refresh_token",
+                    "refreshExpiresAt": "2030-01-02T00:00:00.000Z"
+                }
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v1/agents/auth/refresh"))
+            .and(header_exists("x-claw-timestamp"))
+            .and(header_exists("x-claw-nonce"))
+            .and(header_exists("x-claw-body-sha256"))
+            .and(header_exists("x-claw-proof"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "agentAuth": {
+                    "tokenType": "Bearer",
+                    "accessToken": "clw_agt_new_access_token",
+                    "accessExpiresAt": "2030-01-03T01:00:00.000Z",
+                    "refreshToken": "clw_rft_new_refresh_token",
+                    "refreshExpiresAt": "2030-01-04T00:00:00.000Z"
+                }
+            })))
+            .mount(&server)
+            .await;
+
+        let tmp = TempDir::new().expect("temp dir");
+        let options = options(tmp.path(), &server.uri());
+        seed_config(&options, &server.uri());
+        let create_options = options.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            create_agent(
+                &create_options,
+                CreateAgentInput {
+                    name: "beta".to_string(),
+                    framework: None,
+                    ttl_days: None,
+                },
+            )
+        })
+        .await
+        .expect("join")
+        .expect("create");
+
+        let refresh_options = options.clone();
+        let refreshed =
+            tokio::task::spawn_blocking(move || refresh_agent_auth(&refresh_options, "beta"))
+                .await
+                .expect("join")
+                .expect("refresh");
+        assert_eq!(refreshed.status, "refreshed");
+
+        let auth_path = tmp
+            .path()
+            .join(".clawdentity/states/local/agents/beta/registry-auth.json");
+        let auth: AgentAuthRecord = super::read_json(&auth_path).expect("auth json");
+        assert_eq!(auth.access_token, "clw_agt_new_access_token");
+        assert_eq!(auth.refresh_token, "clw_rft_new_refresh_token");
     }
 
     #[test]
-    fn auth_commands_return_not_supported() {
+    fn auth_revoke_returns_not_supported() {
         let tmp = TempDir::new().expect("temp dir");
-        let options = options(tmp.path());
-        seed_config(&options);
-        let _ = create_agent(
-            &options,
-            CreateAgentInput {
-                name: "beta".to_string(),
-                framework: None,
-                ttl_days: None,
-            },
+        let options = options(tmp.path(), "https://registry.clawdentity.com");
+        seed_config(&options, "https://registry.clawdentity.com");
+
+        let agent_dir = tmp.path().join(".clawdentity/states/prod/agents/gamma");
+        fs::create_dir_all(&agent_dir).expect("agent dir");
+        fs::write(
+            agent_dir.join("registry-auth.json"),
+            "{\n  \"tokenType\": \"Bearer\",\n  \"accessToken\": \"a\",\n  \"accessExpiresAt\": \"b\",\n  \"refreshToken\": \"c\",\n  \"refreshExpiresAt\": \"d\"\n}\n",
         )
-        .expect("create");
-
-        let refresh = refresh_agent_auth(&options, "beta").expect("refresh");
-        assert_eq!(refresh.status, "not_supported");
-
-        let revoke = revoke_agent_auth(&options, "beta").expect("revoke");
-        assert_eq!(revoke.status, "not_supported");
+        .expect("auth");
+        let result = revoke_agent_auth(&options, "gamma").expect("revoke");
+        assert_eq!(result.status, "not_supported");
     }
 }

@@ -1,22 +1,23 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CoreError, Result};
 
-pub const DEFAULT_REGISTRY_URL: &str = "https://registry.clagram.com";
-const DEFAULT_DEV_REGISTRY_URL: &str = "https://dev.registry.clagram.com";
+pub const DEFAULT_REGISTRY_URL: &str = "https://registry.clawdentity.com";
+const DEFAULT_DEV_REGISTRY_URL: &str = "https://dev.registry.clawdentity.com";
 const DEFAULT_LOCAL_REGISTRY_URL: &str = "http://127.0.0.1:8788";
 
-const CONFIG_ROOT_DIR: &str = ".clagram";
+const CONFIG_ROOT_DIR: &str = ".clawdentity";
 const CONFIG_STATES_DIR: &str = "states";
 const CONFIG_ROUTER_FILE: &str = "router.json";
 const CONFIG_FILE: &str = "config.json";
 const FILE_MODE: u32 = 0o600;
 
-const PROD_REGISTRY_HOST: &str = "registry.clagram.com";
-const DEV_REGISTRY_HOST: &str = "dev.registry.clagram.com";
+const PROD_REGISTRY_HOST: &str = "registry.clawdentity.com";
+const DEV_REGISTRY_HOST: &str = "dev.registry.clawdentity.com";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliStateKind {
@@ -117,6 +118,8 @@ struct CliStateRouter {
     last_registry_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     last_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    migrated_legacy_state: Option<bool>,
 }
 
 fn trim_non_empty(value: Option<String>) -> Option<String> {
@@ -144,23 +147,19 @@ fn env_first_non_empty(keys: &[&str]) -> Option<String> {
 }
 
 fn env_registry_override() -> Option<String> {
-    env_first_non_empty(&[
-        "CLAGRAM_REGISTRY_URL",
-        "CLAWDENTITY_REGISTRY_URL",
-        "CLAWDENTITY_REGISTRY",
-    ])
+    env_first_non_empty(&["CLAWDENTITY_REGISTRY_URL", "CLAWDENTITY_REGISTRY"])
 }
 
 fn env_proxy_override() -> Option<String> {
-    env_first_non_empty(&["CLAGRAM_PROXY_URL", "CLAWDENTITY_PROXY_URL"])
+    env_first_non_empty(&["CLAWDENTITY_PROXY_URL"])
 }
 
 fn env_api_key_override() -> Option<String> {
-    env_first_non_empty(&["CLAGRAM_API_KEY", "CLAWDENTITY_API_KEY"])
+    env_first_non_empty(&["CLAWDENTITY_API_KEY"])
 }
 
 fn env_human_name_override() -> Option<String> {
-    env_first_non_empty(&["CLAGRAM_HUMAN_NAME", "CLAWDENTITY_HUMAN_NAME"])
+    env_first_non_empty(&["CLAWDENTITY_HUMAN_NAME"])
 }
 
 pub fn resolve_state_kind_from_registry_url(registry_url: &str) -> CliStateKind {
@@ -220,7 +219,7 @@ fn read_router(options: &ConfigPathOptions) -> Result<CliStateRouter> {
     let path = get_router_path(options)?;
     let raw = match fs::read_to_string(&path) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Err(error) if error.kind() == ErrorKind::NotFound => {
             return Ok(CliStateRouter::default());
         }
         Err(source) => {
@@ -296,7 +295,7 @@ fn normalize_config(config: CliConfig) -> CliConfig {
 fn load_config_file(path: &Path) -> Result<CliConfig> {
     let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+        Err(error) if error.kind() == ErrorKind::NotFound => {
             return Ok(CliConfig::default());
         }
         Err(source) => {
@@ -319,7 +318,113 @@ fn load_config_file(path: &Path) -> Result<CliConfig> {
         })
 }
 
+fn copy_recursively(source: &Path, target: &Path) -> Result<()> {
+    let metadata = fs::symlink_metadata(source).map_err(|source_error| CoreError::Io {
+        path: source.to_path_buf(),
+        source: source_error,
+    })?;
+
+    if metadata.is_dir() {
+        fs::create_dir_all(target).map_err(|source_error| CoreError::Io {
+            path: target.to_path_buf(),
+            source: source_error,
+        })?;
+
+        for entry in fs::read_dir(source).map_err(|source_error| CoreError::Io {
+            path: source.to_path_buf(),
+            source: source_error,
+        })? {
+            let entry = entry.map_err(|source_error| CoreError::Io {
+                path: source.to_path_buf(),
+                source: source_error,
+            })?;
+            let child_source = entry.path();
+            let child_target = target.join(entry.file_name());
+            copy_recursively(&child_source, &child_target)?;
+        }
+        return Ok(());
+    }
+
+    if metadata.is_file() {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|source_error| CoreError::Io {
+                path: parent.to_path_buf(),
+                source: source_error,
+            })?;
+        }
+        fs::copy(source, target).map_err(|source_error| CoreError::Io {
+            path: target.to_path_buf(),
+            source: source_error,
+        })?;
+    }
+
+    Ok(())
+}
+
+fn ensure_state_layout_migrated(options: &ConfigPathOptions) -> Result<()> {
+    let router = read_router(options)?;
+    if router.migrated_legacy_state == Some(true) {
+        return Ok(());
+    }
+
+    let root = get_config_root_dir(options)?;
+    let entries = match fs::read_dir(&root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(source) => {
+            return Err(CoreError::Io { path: root, source });
+        }
+    };
+
+    let mut legacy_entries: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|source| CoreError::Io {
+            path: root.clone(),
+            source,
+        })?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == CONFIG_STATES_DIR || name == CONFIG_ROUTER_FILE {
+            continue;
+        }
+        legacy_entries.push(entry.path());
+    }
+
+    if !legacy_entries.is_empty() {
+        let prod_state_dir = get_states_dir(options)?.join(CliStateKind::Prod.as_str());
+        fs::create_dir_all(&prod_state_dir).map_err(|source| CoreError::Io {
+            path: prod_state_dir.clone(),
+            source,
+        })?;
+
+        for source_path in legacy_entries {
+            let Some(file_name) = source_path.file_name() else {
+                continue;
+            };
+            let target_path = prod_state_dir.join(file_name);
+            if target_path.exists() {
+                continue;
+            }
+            copy_recursively(&source_path, &target_path)?;
+        }
+    }
+
+    let next_router = CliStateRouter {
+        last_registry_url: trim_non_empty(router.last_registry_url)
+            .or_else(|| Some(DEFAULT_REGISTRY_URL.to_string())),
+        last_state: router
+            .last_state
+            .and_then(|value| CliStateKind::from_str(&value).map(|_| value))
+            .or_else(|| Some(CliStateKind::Prod.as_str().to_string())),
+        migrated_legacy_state: Some(true),
+    };
+    write_router(options, &next_router)?;
+
+    Ok(())
+}
+
 pub fn read_config(options: &ConfigPathOptions) -> Result<CliConfig> {
+    ensure_state_layout_migrated(options)?;
     let path = get_config_file_path(options)?;
     load_config_file(&path)
 }
@@ -385,15 +490,19 @@ fn set_secure_permissions(_path: &Path) -> Result<()> {
 }
 
 pub fn write_config(config: &CliConfig, options: &ConfigPathOptions) -> Result<PathBuf> {
+    ensure_state_layout_migrated(options)?;
+
     let normalized = normalize_config(config.clone());
     let state = resolve_state_kind_from_registry_url(&normalized.registry_url);
     let target_dir = get_states_dir(options)?.join(state.as_str());
     let target_path = target_dir.join(CONFIG_FILE);
     write_secure_json(&target_path, &normalized)?;
 
+    let current_router = read_router(options)?;
     let router = CliStateRouter {
         last_registry_url: Some(normalized.registry_url),
         last_state: Some(state.as_str().to_string()),
+        migrated_legacy_state: Some(current_router.migrated_legacy_state == Some(true)),
     };
     write_router(options, &router)?;
 
@@ -470,11 +579,11 @@ mod tests {
     #[test]
     fn state_kind_is_derived_from_registry_host() {
         assert_eq!(
-            resolve_state_kind_from_registry_url("https://registry.clagram.com"),
+            resolve_state_kind_from_registry_url("https://registry.clawdentity.com"),
             CliStateKind::Prod
         );
         assert_eq!(
-            resolve_state_kind_from_registry_url("https://dev.registry.clagram.com"),
+            resolve_state_kind_from_registry_url("https://dev.registry.clawdentity.com"),
             CliStateKind::Dev
         );
         assert_eq!(
@@ -489,22 +598,22 @@ mod tests {
         let options = opts(tmp.path());
 
         let dev = CliConfig {
-            registry_url: "https://dev.registry.clagram.com".to_string(),
-            proxy_url: Some("https://proxy.dev.clagram.com".to_string()),
+            registry_url: "https://dev.registry.clawdentity.com".to_string(),
+            proxy_url: Some("https://proxy.dev.clawdentity.com".to_string()),
             api_key: None,
             human_name: None,
         };
         let dev_path = write_config(&dev, &options).expect("write dev");
-        assert!(dev_path.ends_with(".clagram/states/dev/config.json"));
+        assert!(dev_path.ends_with(".clawdentity/states/dev/config.json"));
 
         let prod = CliConfig {
-            registry_url: "https://registry.clagram.com".to_string(),
+            registry_url: "https://registry.clawdentity.com".to_string(),
             proxy_url: None,
             api_key: None,
             human_name: None,
         };
         let prod_path = write_config(&prod, &options).expect("write prod");
-        assert!(prod_path.ends_with(".clagram/states/prod/config.json"));
+        assert!(prod_path.ends_with(".clawdentity/states/prod/config.json"));
     }
 
     #[test]
@@ -527,5 +636,28 @@ mod tests {
         let config = read_config(&options).expect("read config");
         assert_eq!(config.registry_url, DEFAULT_REGISTRY_URL);
         assert!(config.proxy_url.is_none());
+    }
+
+    #[test]
+    fn migrate_legacy_root_entries_to_prod_state() {
+        let tmp = TempDir::new().expect("temp dir");
+        let options = opts(tmp.path());
+        let root = get_config_root_dir(&options).expect("root");
+        fs::create_dir_all(&root).expect("root dir");
+        fs::write(
+            root.join("config.json"),
+            "{\n  \"registryUrl\": \"https://dev.registry.clawdentity.com\"\n}\n",
+        )
+        .expect("legacy config");
+        fs::create_dir_all(root.join("agents")).expect("legacy agents dir");
+        fs::write(root.join("agents/legacy-agent.txt"), "legacy").expect("legacy file");
+
+        let config = read_config(&options).expect("read config");
+        assert_eq!(config.registry_url, "https://dev.registry.clawdentity.com");
+        assert!(root.join("states/prod/config.json").exists());
+        assert!(root.join("states/prod/agents/legacy-agent.txt").exists());
+
+        let router_raw = fs::read_to_string(root.join("router.json")).expect("router");
+        assert!(router_raw.contains("\"migratedLegacyState\": true"));
     }
 }
