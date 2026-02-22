@@ -26,6 +26,7 @@ pair_agents() {
     --arg initiator_name "${initiator_agent}" \
     '{ttlSeconds: 300, initiatorProfile: {agentName: $initiator_name, humanName: "Integration Initiator", proxyOrigin: $proxy}}')"
 
+  # Mock proxy does not validate cryptographic proofs; placeholder values used
   start_response="$(curl -fsS -X POST "${MOCK_PROXY_URL}/pair/start" \
     -H "Authorization: Claw ${initiator_ait}" \
     -H "Content-Type: application/json" \

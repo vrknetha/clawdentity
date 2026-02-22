@@ -1,5 +1,7 @@
-FROM node:22-alpine
-RUN apk add --no-cache bash curl jq sqlite git libc6-compat
+FROM node:22-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash curl jq sqlite3 git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 ARG NANOCLAW_REPO=https://github.com/vrknetha/nanoclaw.git
 ARG NANOCLAW_BRANCH=feat/webhook-skill

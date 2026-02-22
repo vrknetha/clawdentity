@@ -1,5 +1,5 @@
 use std::fs;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
@@ -46,6 +46,8 @@ pub enum ConnectorCommand {
         openclaw_hook_token: Option<String>,
         #[arg(long, default_value_t = DEFAULT_CONNECTOR_PORT)]
         port: u16,
+        #[arg(long, default_value = "127.0.0.1")]
+        bind: IpAddr,
     },
     Service {
         #[command(subcommand)]
@@ -82,6 +84,7 @@ struct StartConnectorInput {
     openclaw_hook_path: Option<String>,
     openclaw_hook_token: Option<String>,
     port: u16,
+    bind: IpAddr,
 }
 
 struct ConnectorRuntimeConfig {
@@ -91,6 +94,7 @@ struct ConnectorRuntimeConfig {
     relay_headers: Vec<(String, String)>,
     openclaw_runtime: OpenclawRuntimeConfig,
     port: u16,
+    bind: IpAddr,
 }
 
 pub async fn execute_connector_command(
@@ -106,6 +110,7 @@ pub async fn execute_connector_command(
             openclaw_hook_path,
             openclaw_hook_token,
             port,
+            bind,
         } => {
             start_connector_runtime(
                 options,
@@ -116,6 +121,7 @@ pub async fn execute_connector_command(
                     openclaw_hook_path,
                     openclaw_hook_token,
                     port,
+                    bind,
                 },
                 json,
             )
@@ -207,7 +213,7 @@ async fn start_connector_runtime(
     ));
     let relay_sender = client.sender();
 
-    let bind_addr = SocketAddr::from(([127, 0, 0, 1], runtime.port));
+    let bind_addr = SocketAddr::new(runtime.bind, runtime.port);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     let mut runtime_server_task = spawn_runtime_server_task(
@@ -236,7 +242,7 @@ async fn start_connector_runtime(
                 "agentName": runtime.agent_name,
                 "agentDid": runtime.agent_did,
                 "relay": runtime.proxy_ws_url,
-                "outboundServer": format!("http://127.0.0.1:{}", runtime.port),
+                "outboundServer": format!("http://{}:{}", runtime.bind, runtime.port),
             }))?
         );
     } else {
@@ -245,7 +251,7 @@ async fn start_connector_runtime(
             runtime.agent_name, runtime.agent_did
         );
         println!("Relay: {}", runtime.proxy_ws_url);
-        println!("Outbound server: http://127.0.0.1:{}", runtime.port);
+        println!("Outbound server: http://{}:{}", runtime.bind, runtime.port);
     }
 
     tokio::select! {
@@ -318,6 +324,7 @@ async fn resolve_runtime_config(
             hook_token: openclaw_hook_token,
         },
         port: input.port,
+        bind: input.bind,
     })
 }
 
@@ -470,6 +477,8 @@ async fn forward_deliver_to_openclaw(
     let mut request = http_client
         .post(hook_url)
         .header("content-type", "application/json")
+        .header("x-clawdentity-agent-did", &deliver.from_agent_did)
+        .header("x-clawdentity-to-agent-did", &deliver.to_agent_did)
         .json(&build_openclaw_hook_payload(deliver));
 
     if let Some(token) = openclaw_runtime

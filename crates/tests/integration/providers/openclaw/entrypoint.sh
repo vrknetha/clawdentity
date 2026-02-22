@@ -9,6 +9,7 @@ API_KEY="${API_KEY:-pat_openclaw}"
 AGENT_NAME="${AGENT_NAME:-openclaw-agent}"
 FRAMEWORK="${FRAMEWORK:-openclaw}"
 CONNECTOR_PORT="${CONNECTOR_PORT:-19400}"
+BIND_ADDR="${BIND_ADDR:-0.0.0.0}"
 RUNTIME_PORT="${RUNTIME_PORT:-3001}"
 RUNTIME_BASE_URL="${RUNTIME_BASE_URL:-http://127.0.0.1:${RUNTIME_PORT}}"
 RUNTIME_HOOK_PATH="${RUNTIME_HOOK_PATH:-/hooks/agent}"
@@ -42,7 +43,7 @@ run_clawdentity() {
 }
 
 start_connector() {
-  connector_args="connector start $AGENT_NAME --port $CONNECTOR_PORT --openclaw-base-url $RUNTIME_BASE_URL --openclaw-hook-path $RUNTIME_HOOK_PATH"
+  connector_args="connector start $AGENT_NAME --port $CONNECTOR_PORT --bind $BIND_ADDR --openclaw-base-url $RUNTIME_BASE_URL --openclaw-hook-path $RUNTIME_HOOK_PATH"
   if [ -n "$RUNTIME_HOOK_TOKEN" ]; then
     connector_args="$connector_args --openclaw-hook-token $RUNTIME_HOOK_TOKEN"
   fi

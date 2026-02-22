@@ -3,11 +3,14 @@ SHELL := /bin/bash
 ROOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 COMPOSE := docker compose --env-file $(ROOT).env -f $(ROOT)docker-compose.yml
 
-.PHONY: build test test-rotate clean
+.PHONY: build build-rotate test test-rotate clean
 
 build:
 	$(COMPOSE) build clawdentity-builder
-	$(COMPOSE) build mock-registry mock-proxy openclaw picoclaw nanobot nanoclaw
+	$(COMPOSE) build mock-registry mock-proxy openclaw picoclaw nanobot
+
+build-rotate: build
+	$(COMPOSE) --profile rotate build nanoclaw
 
 test: build
 	@set -euo pipefail; \
@@ -15,7 +18,7 @@ test: build
 	trap '$(COMPOSE) down --remove-orphans >/dev/null 2>&1 || true' EXIT; \
 	$(ROOT)runner/run-all.sh
 
-test-rotate: build
+test-rotate: build-rotate
 	@set -euo pipefail; \
 	$(COMPOSE) --profile rotate up -d mock-registry mock-proxy openclaw picoclaw nanoclaw; \
 	trap '$(COMPOSE) --profile rotate down --remove-orphans >/dev/null 2>&1 || true' EXIT; \

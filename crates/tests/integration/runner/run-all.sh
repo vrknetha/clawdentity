@@ -16,6 +16,7 @@ scenarios=(
   "05-mesh.sh"
   "06-offline-queue.sh"
 )
+# TODO: add dead-letter API scenarios (replay, purge)
 
 passed=0
 failed=0

@@ -91,6 +91,36 @@ container_home_for_service() {
   esac
 }
 
+state_name_from_registry_url() {
+  local registry_url="$1"
+  local host
+  host="$(printf '%s' "${registry_url}" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://([^/:?#]+).*$#\1#' | tr '[:upper:]' '[:lower:]')"
+  if [[ -z "${host}" ]]; then
+    printf '%s\n' 'prod'
+    return 0
+  fi
+
+  case "${host}" in
+    dev.registry.clawdentity.com) printf '%s\n' 'dev' ;;
+    registry.clawdentity.com) printf '%s\n' 'prod' ;;
+    localhost|127.0.0.1|host.docker.internal) printf '%s\n' 'local' ;;
+    *) printf '%s\n' 'prod' ;;
+  esac
+}
+
+active_state_dir_for_service() {
+  local service="$1"
+  local home_dir config_json registry_url state_name
+  home_dir="$(container_home_for_service "${service}")"
+  config_json="$(run_in_container "${service}" "clawdentity --home-dir '${home_dir}' --json config show")"
+  registry_url="$(jq -r '.registryUrl // empty' <<<"${config_json}")"
+  if [[ -z "${registry_url}" ]]; then
+    fail "unable to resolve registryUrl from config for ${service}"
+  fi
+  state_name="$(state_name_from_registry_url "${registry_url}")"
+  printf '%s\n' "${home_dir}/.clawdentity/states/${state_name}"
+}
+
 agent_did() {
   local service="$1"
   local agent_name="$2"
@@ -112,18 +142,19 @@ agent_framework() {
 agent_ait() {
   local service="$1"
   local agent_name="$2"
-  local home_dir
+  local home_dir state_dir
   home_dir="$(container_home_for_service "${service}")"
+  state_dir="$(active_state_dir_for_service "${service}")"
   run_in_container "${service}" \
-    "tr -d '\n' < '${home_dir}/.clawdentity/states/local/agents/${agent_name}/ait.jwt'"
+    "clawdentity --home-dir '${home_dir}' --json agent inspect '${agent_name}' >/dev/null; tr -d '\n' < '${state_dir}/agents/${agent_name}/ait.jwt'"
 }
 
 delivered_count() {
   local service="$1"
-  local home_dir
-  home_dir="$(container_home_for_service "${service}")"
+  local state_dir
+  state_dir="$(active_state_dir_for_service "${service}")"
   run_in_container "${service}" \
-    "sqlite3 '${home_dir}/.clawdentity/states/local/clawdentity.sqlite3' \"SELECT COUNT(*) FROM inbound_events WHERE event_type='delivered';\""
+    "sqlite3 '${state_dir}/clawdentity.sqlite3' \"SELECT COUNT(*) FROM inbound_events WHERE event_type='delivered';\""
 }
 
 outbound_pending_count() {
@@ -150,20 +181,15 @@ check_received() {
   fail "${label} (no delivered event observed on ${service})"
 }
 
-json_escape() {
-  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
-}
-
 send_message() {
   local from_service="$1"
   local to_agent_did="$2"
   local content="$3"
-  local escaped_to escaped_content payload response frame_id
+  local payload payload_b64 response frame_id
 
-  escaped_to="$(json_escape "${to_agent_did}")"
-  escaped_content="$(json_escape "${content}")"
-  payload="{\"toAgentDid\":\"${escaped_to}\",\"payload\":{\"content\":\"${escaped_content}\"}}"
-  response="$(run_in_container "${from_service}" "curl -sS -X POST http://127.0.0.1:19400/v1/outbound -H 'Content-Type: application/json' --data '${payload}'")"
+  payload="$(jq -nc --arg to "${to_agent_did}" --arg content "${content}" '{toAgentDid: $to, payload: {content: $content}}')"
+  payload_b64="$(printf '%s' "${payload}" | base64 | tr -d '\n')"
+  response="$(run_in_container "${from_service}" "payload_file=\$(mktemp); printf '%s' '${payload_b64}' | base64 -d >\"\${payload_file}\"; response=\$(curl -sS -X POST http://127.0.0.1:19400/v1/outbound -H 'Content-Type: application/json' --data-binary @\"\${payload_file}\"); rm -f \"\${payload_file}\"; printf '%s' \"\${response}\"")"
   if ! jq -e '.accepted == true' >/dev/null 2>&1 <<<"${response}"; then
     fail "${from_service} rejected outbound message payload: ${response}"
   fi

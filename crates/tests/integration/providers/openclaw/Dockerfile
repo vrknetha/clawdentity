@@ -1,5 +1,7 @@
-FROM node:22-alpine
-RUN apk add --no-cache bash curl jq sqlite
+FROM node:22-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash curl jq sqlite3 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=clawdentity-builder /usr/local/bin/clawdentity-cli /usr/local/bin/clawdentity
 RUN ln -sf /usr/local/bin/clawdentity /usr/local/bin/clawdentity-cli
 COPY crates/tests/integration/providers/openclaw/mock-platform.js /opt/platform/mock-platform.js

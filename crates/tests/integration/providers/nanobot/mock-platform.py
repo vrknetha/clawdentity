@@ -10,6 +10,22 @@ LOG_PATH = os.environ.get("PLATFORM_LOG_PATH", "/var/log/mock-platform-nanobot.j
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _append_event(self, event):
+        with open(LOG_PATH, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event) + "\n")
+
+    def _reject(self, reason):
+        event = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "path": self.path,
+            "headers": dict(self.headers),
+            "rejected": True,
+            "reason": reason,
+        }
+        self._append_event(event)
+        print(f"nanobot mock platform rejected inbound request: {reason}")
+        self._write_json(400, {"error": "invalid_request", "message": reason})
+
     def _write_json(self, code, payload):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(code)
@@ -28,6 +44,19 @@ class Handler(BaseHTTPRequestHandler):
         if self.path != HOOK_PATH:
             self._write_json(404, {"error": "not_found"})
             return
+        content_type = self.headers.get("Content-Type", "")
+        if not content_type.lower().startswith("application/json"):
+            self._reject("missing or invalid content-type header")
+            return
+        from_agent_did = self.headers.get("x-clawdentity-agent-did", "").strip()
+        to_agent_did = self.headers.get("x-clawdentity-to-agent-did", "").strip()
+        if not from_agent_did:
+            self._reject("missing x-clawdentity-agent-did header")
+            return
+        if not to_agent_did:
+            self._reject("missing x-clawdentity-to-agent-did header")
+            return
+
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length).decode("utf-8")
         event = {
@@ -36,8 +65,7 @@ class Handler(BaseHTTPRequestHandler):
             "headers": dict(self.headers),
             "body": body,
         }
-        with open(LOG_PATH, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(event) + "\n")
+        self._append_event(event)
         self._write_json(200, {"accepted": True})
 
     def log_message(self, _format, *_args):
