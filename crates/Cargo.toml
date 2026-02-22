@@ -1,5 +1,11 @@
 [workspace]
-members = ["clawdentity-core", "clawdentity-cli"]
+members = [
+    "clawdentity-core",
+    "clawdentity-cli",
+    "tests/local/mock-registry",
+    "tests/local/mock-proxy",
+]
+default-members = ["clawdentity-core", "clawdentity-cli"]
 resolver = "2"
 
 [workspace.package]

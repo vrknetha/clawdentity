@@ -292,14 +292,18 @@ async fn main() -> Result<()> {
                 framework,
                 ttl_days,
             } => {
-                let created = create_agent(
-                    &options,
-                    CreateAgentInput {
-                        name,
-                        framework,
-                        ttl_days,
-                    },
-                )?;
+                let options_for_create = options.clone();
+                let created = run_blocking(move || {
+                    Ok(create_agent(
+                        &options_for_create,
+                        CreateAgentInput {
+                            name,
+                            framework,
+                            ttl_days,
+                        },
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&created)?);
                 } else {
@@ -311,7 +315,7 @@ async fn main() -> Result<()> {
             }
             AgentCommand::Inspect { name } => {
                 let state_options = resolve_state_options(&options)?;
-                let inspect = inspect_agent(&state_options, &name)?;
+                let inspect = run_blocking(move || Ok(inspect_agent(&state_options, &name)?)).await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&inspect)?);
                 } else {
@@ -326,7 +330,8 @@ async fn main() -> Result<()> {
             AgentCommand::Auth { command } => match command {
                 AgentAuthCommand::Refresh { name } => {
                     let state_options = resolve_state_options(&options)?;
-                    let result = refresh_agent_auth(&state_options, &name)?;
+                    let result =
+                        run_blocking(move || Ok(refresh_agent_auth(&state_options, &name)?)).await?;
                     if cli.json {
                         println!("{}", serde_json::to_string_pretty(&result)?);
                     } else {
@@ -337,7 +342,8 @@ async fn main() -> Result<()> {
                 }
                 AgentAuthCommand::Revoke { name } => {
                     let state_options = resolve_state_options(&options)?;
-                    let result = revoke_agent_auth(&state_options, &name)?;
+                    let result =
+                        run_blocking(move || Ok(revoke_agent_auth(&state_options, &name)?)).await?;
                     if cli.json {
                         println!("{}", serde_json::to_string_pretty(&result)?);
                     } else {
@@ -411,7 +417,14 @@ async fn main() -> Result<()> {
         },
         Some(Commands::ApiKey { command }) => match command {
             ApiKeyCommand::Create { name, registry_url } => {
-                let result = create_api_key(&options, ApiKeyCreateInput { name, registry_url })?;
+                let options_for_create = options.clone();
+                let result = run_blocking(move || {
+                    Ok(create_api_key(
+                        &options_for_create,
+                        ApiKeyCreateInput { name, registry_url },
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -429,7 +442,14 @@ async fn main() -> Result<()> {
                 }
             }
             ApiKeyCommand::List { registry_url } => {
-                let result = list_api_keys(&options, ApiKeyListInput { registry_url })?;
+                let options_for_list = options.clone();
+                let result = run_blocking(move || {
+                    Ok(list_api_keys(
+                        &options_for_list,
+                        ApiKeyListInput { registry_url },
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else if result.api_keys.is_empty() {
@@ -448,7 +468,14 @@ async fn main() -> Result<()> {
                 }
             }
             ApiKeyCommand::Revoke { id, registry_url } => {
-                let result = revoke_api_key(&options, ApiKeyRevokeInput { id, registry_url })?;
+                let options_for_revoke = options.clone();
+                let result = run_blocking(move || {
+                    Ok(revoke_api_key(
+                        &options_for_revoke,
+                        ApiKeyRevokeInput { id, registry_url },
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -461,13 +488,17 @@ async fn main() -> Result<()> {
                 expires_at,
                 registry_url,
             } => {
-                let result = create_invite(
-                    &options,
-                    InviteCreateInput {
-                        expires_at,
-                        registry_url,
-                    },
-                )?;
+                let options_for_create = options.clone();
+                let result = run_blocking(move || {
+                    Ok(create_invite(
+                        &options_for_create,
+                        InviteCreateInput {
+                            expires_at,
+                            registry_url,
+                        },
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -488,16 +519,25 @@ async fn main() -> Result<()> {
                 api_key_name,
                 registry_url,
             } => {
-                let result = redeem_invite(
-                    &options,
-                    InviteRedeemInput {
-                        code,
-                        display_name,
-                        api_key_name,
-                        registry_url,
-                    },
-                )?;
-                let _ = persist_redeem_config(&options, &result)?;
+                let options_for_redeem = options.clone();
+                let result = run_blocking(move || {
+                    Ok(redeem_invite(
+                        &options_for_redeem,
+                        InviteRedeemInput {
+                            code,
+                            display_name,
+                            api_key_name,
+                            registry_url,
+                        },
+                    )?)
+                })
+                .await?;
+                let options_for_persist = options.clone();
+                let result_for_persist = result.clone();
+                let _ = run_blocking(move || {
+                    Ok(persist_redeem_config(&options_for_persist, &result_for_persist)?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -519,16 +559,28 @@ async fn main() -> Result<()> {
                 api_key_name,
                 registry_url,
             } => {
-                let result = bootstrap_admin(
-                    &options,
-                    AdminBootstrapInput {
-                        bootstrap_secret,
-                        display_name,
-                        api_key_name,
-                        registry_url,
-                    },
-                )?;
-                let _ = persist_bootstrap_config(&options, &result)?;
+                let options_for_bootstrap = options.clone();
+                let result = run_blocking(move || {
+                    Ok(bootstrap_admin(
+                        &options_for_bootstrap,
+                        AdminBootstrapInput {
+                            bootstrap_secret,
+                            display_name,
+                            api_key_name,
+                            registry_url,
+                        },
+                    )?)
+                })
+                .await?;
+                let options_for_persist = options.clone();
+                let result_for_persist = result.clone();
+                let _ = run_blocking(move || {
+                    Ok(persist_bootstrap_config(
+                        &options_for_persist,
+                        &result_for_persist,
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -624,20 +676,24 @@ async fn main() -> Result<()> {
                 skip_connector_runtime,
             } => {
                 let state_options = resolve_state_options(&options)?;
-                let config_dir = get_config_dir(&state_options)?;
-                let store = SqliteStore::open(&state_options)?;
-                let result = run_openclaw_doctor(
-                    &config_dir,
-                    &store,
-                    OpenclawDoctorOptions {
-                        home_dir: cli.home_dir.clone(),
-                        openclaw_dir,
-                        peer_alias: peer,
-                        connector_base_url,
-                        include_connector_runtime_check: !skip_connector_runtime,
-                        ..OpenclawDoctorOptions::default()
-                    },
-                )?;
+                let home_dir = cli.home_dir.clone();
+                let result = run_blocking(move || {
+                    let config_dir = get_config_dir(&state_options)?;
+                    let store = SqliteStore::open(&state_options)?;
+                    Ok(run_openclaw_doctor(
+                        &config_dir,
+                        &store,
+                        OpenclawDoctorOptions {
+                            home_dir,
+                            openclaw_dir,
+                            peer_alias: peer,
+                            connector_base_url,
+                            include_connector_runtime_check: !skip_connector_runtime,
+                            ..OpenclawDoctorOptions::default()
+                        },
+                    )?)
+                })
+                .await?;
                 if cli.json {
                     println!("{}", serde_json::to_string_pretty(&result)?);
                 } else {
@@ -741,6 +797,16 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+async fn run_blocking<F, T>(operation: F) -> Result<T>
+where
+    F: FnOnce() -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|error| anyhow!("blocking task failed: {error}"))?
 }
 
 fn resolve_state_options(options: &ConfigPathOptions) -> Result<ConfigPathOptions> {
