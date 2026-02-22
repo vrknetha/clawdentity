@@ -5,192 +5,221 @@
 <h1 align="center">Clawdentity</h1>
 
 <p align="center">
-  Cryptographic identity layer for AI agent-to-agent trust — starting with <strong>OpenClaw</strong>.
+  Identity, messaging, and trust for AI agents — across any platform.
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/clawdentity"><img src="https://img.shields.io/npm/v/clawdentity.svg" alt="npm version" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
-  <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node 22+" />
-  <img src="https://img.shields.io/badge/TypeScript-5-blue.svg" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Rust-1.75+-orange.svg" alt="Rust" />
+  <a href="https://www.npmjs.com/package/clawdentity"><img src="https://img.shields.io/npm/v/clawdentity.svg" alt="npm version" /></a>
 </p>
 
 ---
 
 ## The Problem
 
-OpenClaw lets agents talk to each other over webhooks, but every agent shares **one token**. That causes real problems:
+AI agents today are stuck in silos. An agent on OpenClaw can't talk to an agent on NanoBot. An agent on PicoClaw can't verify who's calling it. Every platform has its own messaging format, its own auth model, its own way of doing things.
 
-- **One leak exposes everyone** — if the token gets out, anyone can impersonate any agent
-- **No way to tell agents apart** — you can't prove which agent sent a request
-- **Can't block just one agent** — disabling one means resetting the token for all of them
-- **No access control** — you can't decide which agents are allowed to call yours
-- **Your server is exposed** — without a proxy, OpenClaw has to be publicly reachable and every caller needs the token
+And even within a single platform, agents share one webhook token — one leak exposes everyone, no way to tell agents apart, no way to revoke just one.
 
 ## What Clawdentity Does
 
-Clawdentity works **with** OpenClaw (not a fork) and adds the missing identity layer:
+Clawdentity is a **cross-platform protocol** that gives every AI agent:
 
-- **Each agent gets its own identity** — a unique keypair and a registry-signed passport (DID + AIT)
-- **Every request is signed** — the proxy can verify exactly who sent it and reject tampering
-- **Revoke one agent without breaking the rest** — no shared token rotation needed
-- **Per-agent access control** — trust policies, rate limits, and replay protection at the proxy
-- **OpenClaw stays private** — only the proxy is public; your OpenClaw instance stays on localhost
-- **QR-code pairing** — one scan to approve trust between two agents
-- **Resilient local relay delivery** — connector probes local OpenClaw liveness and recovers from hook-token rotation without dropping inbound messages
+- **Its own identity** — a unique keypair and registry-signed passport (`did:claw`)
+- **Cross-platform messaging** — agents on different platforms can talk to each other through a relay proxy
+- **Signed requests** — every message is signed, tamper-proof, and replay-protected
+- **Per-agent trust** — pair agents with QR codes, revoke individually, set access policies
+- **One CLI, any platform** — single binary installs on OpenClaw, PicoClaw, NanoBot, or NanoClaw
+
+## Supported Platforms
+
+| Platform | Language | Stars | Status |
+|----------|----------|-------|--------|
+| [OpenClaw](https://github.com/openclaw/openclaw) | TypeScript | 216K | ✅ Native support |
+| [PicoClaw](https://github.com/sipeed/picoclaw) | Go | 17.4K | ✅ [Webhook PR](https://github.com/sipeed/picoclaw/pull/626) |
+| [NanoBot](https://github.com/HKUDS/nanobot) | Python | 22.6K | ✅ [Webhook PR](https://github.com/HKUDS/nanobot/pull/985) |
+| [NanoClaw](https://github.com/qwibitai/nanoclaw) | TypeScript | 10.6K | ✅ [Skill PR](https://github.com/qwibitai/nanoclaw/pull/377) |
 
 ## How It Works
 
 ```
-Caller Agent
-  │
-  │  Authorization: Claw <AIT>
-  │  + X-Claw-Proof / Nonce / Timestamp
-  ▼
-Clawdentity Proxy          ← verifies identity, trust policy, rate limits
-  │
-  │  x-openclaw-token: <hooks.token>   (internal only)
-  ▼
-OpenClaw Gateway            ← localhost only, never exposed
+Agent A (OpenClaw)                              Agent B (NanoBot)
+  │                                                  │
+  │ clawdentity send --to did:claw:agent:xyz         │
+  │ + Ed25519 signature                              │
+  ▼                                                  │
+Connector (:19400)                          Connector (:19400)
+  │                                                  ▲
+  │  WebSocket                          WebSocket    │
+  ▼                                                  │
+┌─────────────────────────────────────────────────────┐
+│              Clawdentity Relay Proxy                │
+│     Verifies identity · Enforces trust policy       │
+│     Rate limits · Replay protection                 │
+└─────────────────────────────────────────────────────┘
 ```
 
-1. **Create** — generate an agent identity (keypair + registry-issued passport)
-2. **Sign** — every outbound request is signed with the agent's private key
-3. **Verify** — the proxy checks the signature, revocation status, and trust policy
-4. **Forward** — only verified requests reach OpenClaw on localhost
+Each platform gets a **bidirectional webhook channel** with two routes:
+- `POST /v1/inbound` — relay delivers messages to the agent
+- `POST /v1/outbound` — agent sends messages through the relay
+
+The connector handles format translation per platform — PicoClaw gets headers, NanoBot gets body fields. Same protocol, native feel.
 
 ## Quick Start
 
-Have an invite code (`clw_inv_...`) ready, then prompt your OpenClaw agent:
-
-> Set up Clawdentity relay
-
-The agent runs the full onboarding sequence — install, identity creation, relay configuration, and readiness checks. It will ask for your invite code and agent name.
-
-<details>
-<summary>Manual CLI setup</summary>
-
 ```bash
-# Install the CLI
-npm install -g clawdentity
+# Install (single binary, zero deps)
+curl -fsSL https://clawdentity.com/install.sh | sh
 
-# Initialize config
-clawdentity config init
+# Initialize identity
+clawdentity init
 
-# Redeem an invite (sets API key)
-clawdentity invite redeem <code> --display-name "Your Name"
+# Register with the network
+clawdentity register
 
-# Create an agent identity
-clawdentity agent create <name> --framework openclaw
+# Create an agent
+clawdentity agent create my-agent --framework openclaw
 
-# Configure the relay
-clawdentity openclaw setup <name>
+# Auto-detect platform and configure webhook + connector
+clawdentity install
 
-# Install the skill artifact
-clawdentity skill install
+# Or specify explicitly
+clawdentity install --for picoclaw --port 18794
 
 # Verify everything works
-clawdentity openclaw doctor
+clawdentity doctor
+```
+
+<details>
+<summary>Alternative install methods</summary>
+
+```bash
+# Rust developers
+cargo install clawdentity-cli
+
+# macOS
+brew install clawdentity
+
+# npm wrapper (like esbuild pattern)
+npm install -g @clawdentity/cli
 ```
 
 </details>
 
-## Worktree-Safe Env Setup
+## Platform Install
 
-Clawdentity supports deterministic env bootstrapping for Codex worktrees.
+`clawdentity install` auto-detects your agent platform and configures everything:
 
-1. Copy `/Users/dev/Workdir/clawdentity/.env.example` to `~/.clawdentity/worktree.env`.
-2. Fill required keys in `~/.clawdentity/worktree.env`.
-3. Run `pnpm env:sync` from repo root.
+| Platform | Detection | What it does |
+|----------|-----------|-------------|
+| OpenClaw | `~/.openclaw/` dir | Configures connector in `openclaw.json` |
+| PicoClaw | `picoclaw` in PATH | Enables webhook channel in `config.json` |
+| NanoBot | `~/.nanobot/` dir | Enables webhook channel in `config.yaml` |
+| NanoClaw | `.claude/` skills dir | Applies webhook skill via skills engine |
 
-`pnpm env:sync` generates local env files for root + apps using
-`scripts/env/sync-worktree-env.sh`:
+The connector starts as a system service (launchd on macOS, systemd on Linux) and auto-restarts on boot.
 
-- `/Users/dev/Workdir/clawdentity/.env`
-- `/Users/dev/Workdir/clawdentity/apps/registry/.env`
-- `/Users/dev/Workdir/clawdentity/apps/proxy/.env`
-- `/Users/dev/Workdir/clawdentity/apps/cli/.env`
-- `/Users/dev/Workdir/clawdentity/apps/openclaw-skill/.env`
+## Messaging
 
-`pnpm env:sync` is authoritative and overwrites those generated files.
+```bash
+# Send a message to a paired agent
+clawdentity send --to did:claw:agent:abc123 --msg "Hello from my agent"
 
-Codex app worktree setup is configured in
-`/Users/dev/Workdir/clawdentity/.codex/environments/environment.toml` and runs the same sync script automatically.
+# Listen for incoming messages (persistent connection)
+clawdentity listen
+```
+
+Messages flow through the relay proxy, which verifies identity and trust before delivery. No public endpoints needed — both agents connect outbound via WebSocket.
+
+## Identity & Trust
+
+```bash
+# Show your agent's identity
+clawdentity whoami
+
+# Pair with another agent (generates QR code)
+clawdentity pair --with did:claw:agent:abc123
+
+# Verify an agent's identity
+clawdentity verify did:claw:agent:abc123
+
+# Revoke a compromised agent (doesn't affect others)
+clawdentity agent revoke compromised-agent
+```
+
+### DID Format
+
+```
+did:claw:agent:01JKXYZ...
+         ^^^^  ^^^^^^^^^^
+         kind    ULID
+```
+
+Every agent gets a `did:claw` identifier backed by an Ed25519 keypair. Private keys never leave the machine.
 
 ## Shared Tokens vs Clawdentity
 
-| Property | Shared Webhook Token | Clawdentity |
-|----------|---------------------|-------------|
+| | Shared Token | Clawdentity |
+|---|---|---|
 | **Identity** | All callers look the same | Each agent has its own signed identity |
-| **Blast radius** | One leak exposes everything | One compromised key only affects that agent |
+| **Blast radius** | One leak exposes everyone | One key compromised = one agent affected |
 | **Revocation** | Rotate token = break all integrations | Revoke one agent, others unaffected |
-| **Replay protection** | None | Timestamp + nonce + signature on every request |
-| **Tamper detection** | None | Signed body hash — any modification is detectable |
-| **Access control** | Not possible | Per-agent trust policies and rate limits |
-| **Key exposure** | Token must be shared with every caller | Private key never leaves the agent's machine |
-| **Network exposure** | OpenClaw must be public, token shared with each caller | OpenClaw stays on localhost; only the proxy is public |
+| **Cross-platform** | Not possible | Any platform → relay → any platform |
+| **Replay protection** | None | Timestamp + nonce + signature |
+| **Access control** | All or nothing | Per-agent trust policies |
 
-## Security Highlights
-
-- **Private keys never leave your machine** — generated and stored locally, never transmitted
-- **Ed25519 signatures** — fast, modern elliptic-curve cryptography
-- **Every request is signed** — method, path, body hash, timestamp, and nonce are all covered
-- **Replay protection** — timestamp skew check + per-agent nonce cache
-- **Revoke any agent instantly** — the proxy stops accepting it on the next refresh
-- **Trust pairs** — receiver operators control which agents are allowed, per-DID
-
-## Self-Hosting
-
-Clawdentity runs on **Cloudflare Workers** with **D1** for storage:
-
-| Component | Role |
-|-----------|------|
-| **Registry** (`apps/registry`) | Issues AITs, serves public keys + CRL, manages invites |
-| **Proxy** (`apps/proxy`) | Verifies identity headers, enforces trust policy, forwards to OpenClaw |
-
-Both are Cloudflare Workers deployed with `wrangler`. See [ARCHITECTURE.md](./ARCHITECTURE.md) for full deployment instructions, environment configuration, and CI/CD setup.
-
-## Project Structure
+## Architecture
 
 ```
 clawdentity/
+├── crates/
+│   ├── clawdentity-core/    — Rust business logic (identity, messaging, providers)
+│   └── clawdentity-cli/     — CLI (clap)
 ├── apps/
-│   ├── registry/          — Identity registry (Cloudflare Worker)
-│   ├── proxy/             — Verification proxy (Cloudflare Worker)
-│   ├── cli/               — Operator CLI (npm: clawdentity)
-│   └── openclaw-skill/    — OpenClaw relay skill integration
+│   ├── registry/            — Identity registry (Cloudflare Worker + D1)
+│   ├── proxy/               — Relay proxy (Cloudflare Worker)
+│   └── openclaw-skill/      — OpenClaw integration skill
 ├── packages/
-│   ├── protocol/          — Canonical types + signing rules
-│   └── sdk/               — TypeScript SDK (sign, verify, CRL, auth)
-└── nx.json                — Nx monorepo orchestration
+│   ├── protocol/            — Canonical types + signing rules
+│   ├── sdk/                 — TypeScript SDK
+│   └── connector/           — Connector runtime (TypeScript reference)
 ```
+
+## Roadmap
+
+- [x] Agent identity (DID, keypairs, registry)
+- [x] Signed messaging with replay protection
+- [x] QR-code pairing and trust policies
+- [x] Relay proxy (WebSocket + HTTP)
+- [x] Rust CLI (single binary)
+- [x] Cross-platform webhook channels (OpenClaw, PicoClaw, NanoBot, NanoClaw)
+- [x] Install providers with platform auto-detection
+- [ ] Group messaging (multi-agent channels)
+- [ ] Agent discovery (find agents by capability)
+- [ ] Encrypted messaging (E2E between agents)
+- [ ] Federation (multiple registries)
+
+## Protocol Specification
+
+Clawdentity is a formally specified protocol:
+
+| Format | File |
+|--------|------|
+| Markdown | [PROTOCOL.md](./PROTOCOL.md) |
+| Internet-Draft | [draft-ravikiran-clawdentity-protocol-00.xml](./draft-ravikiran-clawdentity-protocol-00.xml) |
+| RFC Text | [draft-ravikiran-clawdentity-protocol-00.txt](./draft-ravikiran-clawdentity-protocol-00.txt) |
+
+Covers: DID format, Agent Identity Tokens, Ed25519 signing, trust establishment, WebSocket relay, certificate revocation. References 13 RFCs including RFC 8032 (EdDSA) and RFC 9449 (DPoP).
 
 ## Contributing
 
-This repo uses a **deployment-first gate** tracked in [GitHub Issues](https://github.com/vrknetha/clawdentity/issues):
+1. Pick an open [issue](https://github.com/vrknetha/clawdentity/issues)
+2. Implement in a feature branch with tests
+3. Open a PR to `develop`
 
-1. Pick an open issue and confirm dependencies/blockers.
-2. Implement in a feature branch with tests.
-3. Open a PR to `develop`.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for deep technical docs.
 
 ## License
 
 [MIT](./LICENSE)
-
-## Protocol Specification
-
-Clawdentity is a formally specified protocol. The specification is available in three formats:
-
-| Format | File | Description |
-|--------|------|-------------|
-| **Markdown** | [PROTOCOL.md](./PROTOCOL.md) | Human-readable specification |
-| **Internet-Draft** | [draft-ravikiran-clawdentity-protocol-00.xml](./draft-ravikiran-clawdentity-protocol-00.xml) | IETF xml2rfc v3 source |
-| **RFC Text** | [draft-ravikiran-clawdentity-protocol-00.txt](./draft-ravikiran-clawdentity-protocol-00.txt) | Classic RFC-style plain text |
-| **HTML** | [draft-ravikiran-clawdentity-protocol-00.html](./draft-ravikiran-clawdentity-protocol-00.html) | Rendered HTML |
-
-The specification covers: DID format (`did:claw`), Agent Identity Tokens (AIT), Ed25519 proof-of-possession signing, trust establishment via pairing, WebSocket relay transport, certificate revocation, and references 13 RFCs including RFC 8032 (EdDSA), RFC 9449 (DPoP), and RFC 7800 (PoP Key Semantics).
-
-## Deep Docs
-
-- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — full protocol flows, verification pipeline, security architecture, deployment details
-- **[PROTOCOL.md](./PROTOCOL.md)** — formal protocol specification
