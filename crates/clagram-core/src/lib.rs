@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod config;
 pub mod did;
 pub mod error;
@@ -5,6 +6,11 @@ pub mod identity;
 pub mod registry;
 pub mod signing;
 
+pub use agent::{
+    AgentAuthRefreshResult, AgentAuthRevokeResult, AgentCreateResult, AgentIdentityRecord,
+    AgentInspectResult, CreateAgentInput, create_agent, inspect_agent, refresh_agent_auth,
+    revoke_agent_auth,
+};
 pub use config::{
     CliConfig, CliStateKind, ConfigKey, ConfigPathOptions, DEFAULT_REGISTRY_URL, get_config_dir,
     get_config_file_path, get_config_root_dir, get_config_value, read_config, resolve_config,

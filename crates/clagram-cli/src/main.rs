@@ -2,9 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clagram_core::{
-    CliConfig, ConfigKey, ConfigPathOptions, fetch_registry_metadata, get_config_file_path,
-    get_config_value, init_identity, read_config, read_identity, register_identity, resolve_config,
-    set_config_value, write_config,
+    CliConfig, ConfigKey, ConfigPathOptions, CreateAgentInput, create_agent,
+    fetch_registry_metadata, get_config_file_path, get_config_value, init_identity, inspect_agent,
+    read_config, read_identity, refresh_agent_auth, register_identity, resolve_config,
+    revoke_agent_auth, set_config_value, write_config,
 };
 use clap::{CommandFactory, Parser, Subcommand};
 
@@ -30,6 +31,10 @@ enum Commands {
         #[arg(long)]
         registry_url: Option<String>,
     },
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommand,
+    },
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
@@ -50,6 +55,30 @@ enum ConfigCommand {
         key: String,
     },
     Show,
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentCommand {
+    Create {
+        name: String,
+        #[arg(long)]
+        framework: Option<String>,
+        #[arg(long)]
+        ttl_days: Option<u32>,
+    },
+    Inspect {
+        name: String,
+    },
+    Auth {
+        #[command(subcommand)]
+        command: AgentAuthCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentAuthCommand {
+    Refresh { name: String },
+    Revoke { name: String },
 }
 
 #[tokio::main]
@@ -105,6 +134,71 @@ async fn main() -> Result<()> {
                 println!("Message: {}", result.message);
             }
         }
+        Some(Commands::Agent { command }) => match command {
+            AgentCommand::Create {
+                name,
+                framework,
+                ttl_days,
+            } => {
+                let created = create_agent(
+                    &options,
+                    CreateAgentInput {
+                        name,
+                        framework,
+                        ttl_days,
+                    },
+                )?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&created)?);
+                } else {
+                    println!("Agent created: {}", created.name);
+                    println!("DID: {}", created.did);
+                    println!("Framework: {}", created.framework);
+                    println!("Expires At: {}", created.expires_at);
+                }
+            }
+            AgentCommand::Inspect { name } => {
+                let config = resolve_config(&options)?;
+                let state_options = options.with_registry_hint(config.registry_url);
+                let inspect = inspect_agent(&state_options, &name)?;
+                if cli.json {
+                    println!("{}", serde_json::to_string_pretty(&inspect)?);
+                } else {
+                    println!("DID: {}", inspect.did);
+                    println!("Owner: {}", inspect.owner_did);
+                    println!("Expires: {}", inspect.expires_at);
+                    println!("Key ID: {}", inspect.key_id);
+                    println!("Public Key: {}", inspect.public_key);
+                    println!("Framework: {}", inspect.framework);
+                }
+            }
+            AgentCommand::Auth { command } => match command {
+                AgentAuthCommand::Refresh { name } => {
+                    let config = resolve_config(&options)?;
+                    let state_options = options.with_registry_hint(config.registry_url);
+                    let result = refresh_agent_auth(&state_options, &name)?;
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&result)?);
+                    } else {
+                        println!("Agent auth refresh: {}", result.name);
+                        println!("Status: {}", result.status);
+                        println!("Message: {}", result.message);
+                    }
+                }
+                AgentAuthCommand::Revoke { name } => {
+                    let config = resolve_config(&options)?;
+                    let state_options = options.with_registry_hint(config.registry_url);
+                    let result = revoke_agent_auth(&state_options, &name)?;
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&result)?);
+                    } else {
+                        println!("Agent auth revoke: {}", result.name);
+                        println!("Status: {}", result.status);
+                        println!("Message: {}", result.message);
+                    }
+                }
+            },
+        },
         Some(Commands::Config { command }) => match command {
             ConfigCommand::Init { registry_url } => {
                 let mut config = read_config(&options)?;
