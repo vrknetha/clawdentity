@@ -13,7 +13,7 @@ RUNTIME_PORT="${RUNTIME_PORT:-3001}"
 RUNTIME_BASE_URL="${RUNTIME_BASE_URL:-http://127.0.0.1:${RUNTIME_PORT}}"
 RUNTIME_HOOK_PATH="${RUNTIME_HOOK_PATH:-/hooks/agent}"
 RUNTIME_HOOK_TOKEN="${RUNTIME_HOOK_TOKEN:-openclaw-hook-token}"
-PLATFORM_RUN_CMD="${PLATFORM_RUN_CMD:-openclaw gateway run --allow-unconfigured --port ${RUNTIME_PORT} --bind loopback}"
+PLATFORM_RUN_CMD="${PLATFORM_RUN_CMD:-node /opt/platform/mock-platform.js}"
 
 log() {
   printf '[%s] %s\n' "$PROVIDER_ID" "$*"

@@ -6,7 +6,8 @@ COMPOSE := docker compose --env-file $(ROOT).env -f $(ROOT)docker-compose.yml
 .PHONY: build test test-rotate clean
 
 build:
-	$(COMPOSE) build
+	$(COMPOSE) build clawdentity-builder
+	$(COMPOSE) build mock-registry mock-proxy openclaw picoclaw nanobot nanoclaw
 
 test: build
 	@set -euo pipefail; \

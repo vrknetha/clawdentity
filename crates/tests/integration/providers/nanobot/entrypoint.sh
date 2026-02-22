@@ -13,7 +13,7 @@ RUNTIME_PORT="${RUNTIME_PORT:-18794}"
 RUNTIME_BASE_URL="${RUNTIME_BASE_URL:-http://127.0.0.1:${RUNTIME_PORT}}"
 RUNTIME_HOOK_PATH="${RUNTIME_HOOK_PATH:-/v1/inbound}"
 RUNTIME_HOOK_TOKEN="${RUNTIME_HOOK_TOKEN:-nanobot-hook-token}"
-PLATFORM_RUN_CMD="${PLATFORM_RUN_CMD:-nanobot gateway}"
+PLATFORM_RUN_CMD="${PLATFORM_RUN_CMD:-python3 /opt/platform/mock-platform.py}"
 
 log() {
   printf '[%s] %s\n' "$PROVIDER_ID" "$*"

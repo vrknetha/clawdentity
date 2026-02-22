@@ -1,4 +1,10 @@
 services:
+  clawdentity-builder:
+    build:
+      context: ../../..
+      dockerfile: crates/tests/integration/builder/Dockerfile
+    image: clawdentity-builder:local
+
   mock-registry:
     build:
       context: ../../..
@@ -40,6 +46,8 @@ services:
     build:
       context: ../../..
       dockerfile: crates/tests/integration/providers/openclaw/Dockerfile
+      additional_contexts:
+        clawdentity-builder: service:clawdentity-builder
     depends_on:
       mock-registry:
         condition: service_healthy
@@ -57,7 +65,7 @@ services:
       RUNTIME_BASE_URL: http://127.0.0.1:${OPENCLAW_RUNTIME_PORT}
       RUNTIME_HOOK_PATH: /hooks/agent
       RUNTIME_HOOK_TOKEN: openclaw-hook-token
-      PLATFORM_RUN_CMD: openclaw gateway run --allow-unconfigured --port ${OPENCLAW_RUNTIME_PORT} --bind loopback
+      PLATFORM_RUN_CMD: node /opt/platform/mock-platform.js
     ports:
       - "${OPENCLAW_CONNECTOR_HOST_PORT}:19400"
       - "${OPENCLAW_RUNTIME_HOST_PORT}:${OPENCLAW_RUNTIME_PORT}"
@@ -74,6 +82,8 @@ services:
     build:
       context: ../../..
       dockerfile: crates/tests/integration/providers/picoclaw/Dockerfile
+      additional_contexts:
+        clawdentity-builder: service:clawdentity-builder
     depends_on:
       mock-registry:
         condition: service_healthy
@@ -91,7 +101,7 @@ services:
       RUNTIME_BASE_URL: http://127.0.0.1:${PICOCLAW_RUNTIME_PORT}
       RUNTIME_HOOK_PATH: /v1/inbound
       RUNTIME_HOOK_TOKEN: picoclaw-hook-token
-      PLATFORM_RUN_CMD: picoclaw gateway
+      PLATFORM_RUN_CMD: python3 /opt/platform/mock-platform.py
     ports:
       - "${PICOCLAW_CONNECTOR_HOST_PORT}:19400"
       - "${PICOCLAW_RUNTIME_HOST_PORT}:${PICOCLAW_RUNTIME_PORT}"
@@ -108,6 +118,8 @@ services:
     build:
       context: ../../..
       dockerfile: crates/tests/integration/providers/nanobot/Dockerfile
+      additional_contexts:
+        clawdentity-builder: service:clawdentity-builder
     depends_on:
       mock-registry:
         condition: service_healthy
@@ -125,7 +137,7 @@ services:
       RUNTIME_BASE_URL: http://127.0.0.1:${NANOBOT_RUNTIME_PORT}
       RUNTIME_HOOK_PATH: /v1/inbound
       RUNTIME_HOOK_TOKEN: nanobot-hook-token
-      PLATFORM_RUN_CMD: nanobot gateway
+      PLATFORM_RUN_CMD: python3 /opt/platform/mock-platform.py
     ports:
       - "${NANOBOT_CONNECTOR_HOST_PORT}:19400"
       - "${NANOBOT_RUNTIME_HOST_PORT}:${NANOBOT_RUNTIME_PORT}"
@@ -138,13 +150,14 @@ services:
     networks:
       - clawdentity-test
 
-  # Optional rotation provider: enable with
-  # docker compose --profile rotate up -d mock-registry mock-proxy openclaw picoclaw nanoclaw
+  # Optional rotation provider (not part of default 3-provider mesh)
   nanoclaw:
     profiles: ["rotate"]
     build:
       context: ../../..
       dockerfile: crates/tests/integration/providers/nanoclaw/Dockerfile
+      additional_contexts:
+        clawdentity-builder: service:clawdentity-builder
     depends_on:
       mock-registry:
         condition: service_healthy

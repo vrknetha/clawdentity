@@ -9,6 +9,11 @@ if [[ -f "${INTEGRATION_ROOT}/.env" ]]; then
   set +a
 fi
 
+MOCK_REGISTRY_PORT="${MOCK_REGISTRY_PORT:-13370}"
+MOCK_PROXY_PORT="${MOCK_PROXY_PORT:-13371}"
+MOCK_REGISTRY_URL="${MOCK_REGISTRY_URL:-http://127.0.0.1:${MOCK_REGISTRY_PORT}}"
+MOCK_PROXY_URL="${MOCK_PROXY_URL:-http://127.0.0.1:${MOCK_PROXY_PORT}}"
+
 PROVIDER_A_SERVICE="${PROVIDER_A_SERVICE:-openclaw}"
 PROVIDER_B_SERVICE="${PROVIDER_B_SERVICE:-picoclaw}"
 PROVIDER_C_SERVICE="${PROVIDER_C_SERVICE:-nanobot}"
@@ -153,26 +158,16 @@ send_message() {
   local from_service="$1"
   local to_agent_did="$2"
   local content="$3"
-  local escaped_to escaped_content simplified_payload canonical_payload response frame_id
+  local escaped_to escaped_content payload response frame_id
 
   escaped_to="$(json_escape "${to_agent_did}")"
   escaped_content="$(json_escape "${content}")"
-  simplified_payload="{\"to\":\"${escaped_to}\",\"content\":\"${escaped_content}\"}"
-  canonical_payload="{\"toAgentDid\":\"${escaped_to}\",\"payload\":{\"content\":\"${escaped_content}\"}}"
-
-  response="$(run_in_container "${from_service}" "curl -sS -X POST http://127.0.0.1:19400/v1/outbound -H 'Content-Type: application/json' --data '${simplified_payload}' || true")"
-  if jq -e '.accepted == true' >/dev/null 2>&1 <<<"${response}"; then
-    frame_id="$(jq -r '.frameId // empty' <<<"${response}")"
-    pass "${from_service} accepted outbound message (simple payload)"
-    printf '%s\n' "${frame_id}"
-    return 0
-  fi
-
-  response="$(run_in_container "${from_service}" "curl -sS -X POST http://127.0.0.1:19400/v1/outbound -H 'Content-Type: application/json' --data '${canonical_payload}'")"
+  payload="{\"toAgentDid\":\"${escaped_to}\",\"payload\":{\"content\":\"${escaped_content}\"}}"
+  response="$(run_in_container "${from_service}" "curl -sS -X POST http://127.0.0.1:19400/v1/outbound -H 'Content-Type: application/json' --data '${payload}'")"
   if ! jq -e '.accepted == true' >/dev/null 2>&1 <<<"${response}"; then
     fail "${from_service} rejected outbound message payload: ${response}"
   fi
   frame_id="$(jq -r '.frameId // empty' <<<"${response}")"
-  pass "${from_service} accepted outbound message (canonical payload)"
+  pass "${from_service} accepted outbound message"
   printf '%s\n' "${frame_id}"
 }
