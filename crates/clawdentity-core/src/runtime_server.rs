@@ -103,7 +103,8 @@ async fn outbound_handler(
     State(state): State<RuntimeServerState>,
     Json(request): Json<OutboundRequest>,
 ) -> impl IntoResponse {
-    match parse_did(request.to_agent_did.trim()) {
+    let normalized_to_agent_did = request.to_agent_did.trim().to_string();
+    match parse_did(&normalized_to_agent_did) {
         Ok(parsed) if parsed.kind == ClawDidKind::Agent => {}
         _ => {
             return (
@@ -125,7 +126,7 @@ async fn outbound_handler(
             frame_id: frame_id.clone(),
             frame_version: 1,
             frame_type: "enqueue".to_string(),
-            to_agent_did: request.to_agent_did,
+            to_agent_did: normalized_to_agent_did,
             payload_json: request.payload.to_string(),
             conversation_id: request.conversation_id,
             reply_to: request.reply_to,

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 use crate::provider_nanobot::NanobotProvider;
 use crate::provider_nanoclaw::NanoclawProvider;
 use crate::provider_openclaw::OpenclawProvider;
@@ -240,7 +241,7 @@ pub(crate) fn join_url_path(base_url: &str, path: &str, context: &'static str) -
 pub(crate) fn health_check(host: &str, port: u16) -> Result<(bool, String)> {
     let url = default_webhook_url(host, port, "/health")?;
 
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .get(&url)
         .header("accept", "application/json")
         .send();

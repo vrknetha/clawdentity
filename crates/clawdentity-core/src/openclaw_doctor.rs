@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::db::SqliteStore;
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 use crate::openclaw_setup::{
     OPENCLAW_DEFAULT_BASE_URL, load_relay_runtime_config, openclaw_agent_name_path,
     read_selected_openclaw_agent, resolve_connector_base_url, resolve_openclaw_hook_token,
@@ -15,9 +17,6 @@ use crate::peers::load_peers_config;
 
 const RELAY_TRANSFORM_MODULE_RELATIVE_PATH: &str = "hooks/transforms/relay-to-peer.mjs";
 const OPENCLAW_PENDING_DEVICES_RELATIVE_PATH: &str = "devices/pending.json";
-const AGENTS_DIR: &str = "agents";
-const AIT_FILE_NAME: &str = "ait.jwt";
-const SECRET_KEY_FILE_NAME: &str = "secret.key";
 const STATUS_PATH: &str = "/v1/status";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -203,7 +202,7 @@ fn run_connector_checks(
     };
 
     let status_url = get_status_url(&base_url)?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .get(&status_url)
         .header("accept", "application/json")
         .send();

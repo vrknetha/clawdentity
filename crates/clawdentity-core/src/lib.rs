@@ -1,7 +1,10 @@
+//! Core Clawdentity library modules and public exports.
+
 pub mod admin;
 pub mod agent;
 pub mod api_key;
 pub mod config;
+pub mod constants;
 pub mod connector_client;
 pub mod connector_frames;
 pub mod crl;
@@ -12,6 +15,7 @@ pub mod db_peers;
 pub mod db_verify_cache;
 pub mod did;
 pub mod error;
+pub mod http;
 pub mod identity;
 pub mod invite;
 pub mod openclaw_doctor;

@@ -1,4 +1,5 @@
 use crate::error::{CoreError, Result};
+use crate::http::client;
 
 #[derive(Debug, Clone)]
 pub struct OpenclawRuntimeConfig {
@@ -49,7 +50,7 @@ pub async fn check_openclaw_gateway_health(base_url: &str) -> Result<bool> {
             context: "openclawBaseUrl",
             value: base.to_string(),
         })?;
-    let response = reqwest::Client::new()
+    let response = client()?
         .get(health_url)
         .send()
         .await

@@ -22,6 +22,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.10.9"
 thiserror.workspace = true
+tracing.workspace = true
 tokio = { version = "1.49.0", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-tungstenite = "0.28.0"
 ulid = "1.2.1"

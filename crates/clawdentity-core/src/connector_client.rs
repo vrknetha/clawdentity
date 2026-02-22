@@ -166,29 +166,53 @@ async fn run_connector_loop(
             break;
         }
 
-        metrics.reconnect_attempts.fetch_add(1, Ordering::SeqCst);
-        match connect_socket(&options).await {
+        let attempt = metrics.reconnect_attempts.fetch_add(1, Ordering::SeqCst) + 1;
+        tracing::info!(
+            relay_connect_url = %options.relay_connect_url,
+            attempt,
+            "connector websocket connect attempt"
+        );
+        let stream = match connect_socket(&options).await {
             Ok(stream) => {
-                metrics.connected.store(true, Ordering::SeqCst);
-                let exit = run_socket_session(
-                    stream,
-                    &options,
-                    &mut outbound_rx,
-                    &inbound_tx,
-                    metrics.clone(),
-                    &mut shutdown_rx,
-                )
-                .await;
-                metrics.connected.store(false, Ordering::SeqCst);
+                tracing::info!(
+                    relay_connect_url = %options.relay_connect_url,
+                    "connector websocket connected"
+                );
+                Some(stream)
+            }
+            Err(error) => {
+                tracing::warn!(
+                    relay_connect_url = %options.relay_connect_url,
+                    attempt,
+                    error = %error,
+                    "connector websocket connect failed"
+                );
+                None
+            }
+        };
+        if let Some(stream) = stream {
+            metrics.connected.store(true, Ordering::SeqCst);
+            let exit = run_socket_session(
+                stream,
+                &options,
+                &mut outbound_rx,
+                &inbound_tx,
+                metrics.clone(),
+                &mut shutdown_rx,
+            )
+            .await;
+            metrics.connected.store(false, Ordering::SeqCst);
 
-                match exit {
-                    SessionExit::Shutdown => break,
-                    SessionExit::Reconnect => {
-                        backoff = options.reconnect_min_delay;
-                    }
+            match exit {
+                SessionExit::Shutdown => break,
+                SessionExit::Reconnect => {
+                    tracing::warn!(
+                        relay_connect_url = %options.relay_connect_url,
+                        "connector websocket session ended; reconnecting"
+                    );
+                    backoff = options.reconnect_min_delay;
                 }
             }
-            Err(_) => {}
         }
 
         if *shutdown_rx.borrow() {
@@ -335,13 +359,14 @@ async fn run_socket_session(
             }
         }
 
-        if let Some((_, sent_at)) = &pending_heartbeat_ack {
-            if sent_at.elapsed() >= options.heartbeat_ack_timeout {
-                metrics
-                    .heartbeat_ack_timeouts
-                    .fetch_add(1, Ordering::SeqCst);
-                return SessionExit::Reconnect;
-            }
+        if let Some((_, sent_at)) = &pending_heartbeat_ack
+            && sent_at.elapsed() >= options.heartbeat_ack_timeout
+        {
+            metrics
+                .heartbeat_ack_timeouts
+                .fetch_add(1, Ordering::SeqCst);
+            tracing::warn!("connector heartbeat ack timeout; reconnecting");
+            return SessionExit::Reconnect;
         }
     }
 }
@@ -368,10 +393,10 @@ async fn handle_incoming_frame(
                 .map_err(|error| CoreError::Http(error.to_string()))?;
         }
         ConnectorFrame::HeartbeatAck(ack) => {
-            if let Some((pending_id, _)) = pending_heartbeat_ack {
-                if pending_id == &ack.ack_id {
-                    *pending_heartbeat_ack = None;
-                }
+            if let Some((pending_id, _)) = pending_heartbeat_ack
+                && pending_id == &ack.ack_id
+            {
+                *pending_heartbeat_ack = None;
             }
         }
         _ => {

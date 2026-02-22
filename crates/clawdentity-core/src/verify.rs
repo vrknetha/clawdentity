@@ -12,6 +12,7 @@ use crate::db::now_utc_ms;
 use crate::db_verify_cache::{get_verify_cache_entry, upsert_verify_cache_entry};
 use crate::did::{ClawDidKind, parse_did};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 
 pub const REGISTRY_KEYS_CACHE_TTL_MS: i64 = 60 * 60 * 1000;
 const REGISTRY_KEYS_CACHE_KEY_PREFIX: &str = "registry-keys::";
@@ -108,12 +109,12 @@ fn load_registry_keys(store: &SqliteStore, registry_url: &str) -> Result<Vec<Reg
     let cache_key = format!("{REGISTRY_KEYS_CACHE_KEY_PREFIX}{registry_url}");
     if let Some(cache_entry) = get_verify_cache_entry(store, &cache_key)? {
         let age_ms = now_utc_ms() - cache_entry.fetched_at_ms;
-        if cache_entry.registry_url == registry_url && age_ms <= REGISTRY_KEYS_CACHE_TTL_MS {
-            if let Ok(keys) =
+        if cache_entry.registry_url == registry_url
+            && age_ms <= REGISTRY_KEYS_CACHE_TTL_MS
+            && let Ok(keys) =
                 serde_json::from_str::<Vec<RegistrySigningKey>>(&cache_entry.payload_json)
-            {
-                return Ok(keys);
-            }
+        {
+            return Ok(keys);
         }
     }
 
@@ -127,7 +128,7 @@ fn load_registry_keys(store: &SqliteStore, registry_url: &str) -> Result<Vec<Reg
             context: "registryUrl",
             value: registry_url.to_string(),
         })?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .get(request_url)
         .send()
         .map_err(|error| CoreError::Http(error.to_string()))?;
@@ -218,12 +219,12 @@ fn verify_ait_token(
     if claims.exp <= chrono::Utc::now().timestamp() {
         return Err(CoreError::InvalidInput("token is expired".to_string()));
     }
-    if let Some(expected_issuer) = expected_issuer {
-        if claims.iss != expected_issuer {
-            return Err(CoreError::InvalidInput(
-                "token issuer does not match expected issuer".to_string(),
-            ));
-        }
+    if let Some(expected_issuer) = expected_issuer
+        && claims.iss != expected_issuer
+    {
+        return Err(CoreError::InvalidInput(
+            "token issuer does not match expected issuer".to_string(),
+        ));
     }
 
     let sub = parse_did(&claims.sub)?;

@@ -10,15 +10,14 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{ConfigPathOptions, get_config_dir, resolve_config};
+use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 use crate::identity::decode_secret_key;
 use crate::signing::{SignHttpRequestInput, sign_http_request};
 
-const AGENTS_DIR: &str = "agents";
 const FILE_MODE: u32 = 0o600;
 const IDENTITY_FILE: &str = "identity.json";
-const AIT_FILE: &str = "ait.jwt";
-const SECRET_KEY_FILE: &str = "secret.key";
 const PUBLIC_KEY_FILE: &str = "public.key";
 const REGISTRY_AUTH_FILE: &str = "registry-auth.json";
 
@@ -320,6 +319,15 @@ struct CanonicalProofInput<'a> {
     ttl_days: Option<u32>,
 }
 
+struct AgentRegistrationRequest<'a> {
+    name: &'a str,
+    public_key: &'a str,
+    challenge_id: &'a str,
+    challenge_signature: &'a str,
+    framework: Option<&'a str>,
+    ttl_days: Option<u32>,
+}
+
 fn request_registration_challenge(
     client: &reqwest::blocking::Client,
     registry_url: &str,
@@ -353,23 +361,18 @@ fn request_agent_registration(
     client: &reqwest::blocking::Client,
     registry_url: &str,
     api_key: &str,
-    name: &str,
-    public_key: &str,
-    challenge_id: &str,
-    challenge_signature: &str,
-    framework: Option<&str>,
-    ttl_days: Option<u32>,
+    input: AgentRegistrationRequest<'_>,
 ) -> Result<AgentRegistrationResponse> {
     let mut request_body = serde_json::json!({
-        "name": name,
-        "publicKey": public_key,
-        "challengeId": challenge_id,
-        "challengeSignature": challenge_signature,
+        "name": input.name,
+        "publicKey": input.public_key,
+        "challengeId": input.challenge_id,
+        "challengeSignature": input.challenge_signature,
     });
-    if let Some(value) = framework {
+    if let Some(value) = input.framework {
         request_body["framework"] = serde_json::Value::String(value.to_string());
     }
-    if let Some(value) = ttl_days {
+    if let Some(value) = input.ttl_days {
         request_body["ttlDays"] = serde_json::Value::Number(value.into());
     }
 
@@ -458,7 +461,7 @@ pub fn create_agent(
     let public_key = URL_SAFE_NO_PAD.encode(verifying_key.as_bytes());
     let secret_key = URL_SAFE_NO_PAD.encode(signing_key.to_bytes());
 
-    let client = reqwest::blocking::Client::new();
+    let client = blocking_client()?;
     let challenge =
         request_registration_challenge(&client, &config.registry_url, &api_key, &public_key)?;
     let canonical_proof = canonicalize_agent_registration_proof(&CanonicalProofInput {
@@ -477,12 +480,14 @@ pub fn create_agent(
         &client,
         &config.registry_url,
         &api_key,
-        &name,
-        &public_key,
-        &challenge.challenge_id,
-        &challenge_signature,
-        framework.as_deref(),
-        ttl_days,
+        AgentRegistrationRequest {
+            name: &name,
+            public_key: &public_key,
+            challenge_id: &challenge.challenge_id,
+            challenge_signature: &challenge_signature,
+            framework: framework.as_deref(),
+            ttl_days,
+        },
     )?;
 
     let identity = AgentIdentityRecord {
@@ -494,8 +499,8 @@ pub fn create_agent(
     };
 
     write_secure_json(&agent_directory.join(IDENTITY_FILE), &identity)?;
-    write_secure_text(&agent_directory.join(AIT_FILE), registration.ait.trim())?;
-    write_secure_text(&agent_directory.join(SECRET_KEY_FILE), &secret_key)?;
+    write_secure_text(&agent_directory.join(AIT_FILE_NAME), registration.ait.trim())?;
+    write_secure_text(&agent_directory.join(SECRET_KEY_FILE_NAME), &secret_key)?;
     write_secure_text(&agent_directory.join(PUBLIC_KEY_FILE), &public_key)?;
     write_secure_json(
         &agent_directory.join(REGISTRY_AUTH_FILE),
@@ -514,7 +519,7 @@ pub fn create_agent(
 pub fn inspect_agent(options: &ConfigPathOptions, name: &str) -> Result<AgentInspectResult> {
     let name = parse_agent_name(name)?;
     let agent_directory = agent_dir(options, &name)?;
-    let ait_path = agent_directory.join(AIT_FILE);
+    let ait_path = agent_directory.join(AIT_FILE_NAME);
     let raw = fs::read_to_string(&ait_path).map_err(|source| CoreError::Io {
         path: ait_path.clone(),
         source,
@@ -590,7 +595,7 @@ pub fn refresh_agent_auth(
         ));
     }
 
-    let ait_path = agent_directory.join(AIT_FILE);
+    let ait_path = agent_directory.join(AIT_FILE_NAME);
     let ait_raw = fs::read_to_string(&ait_path).map_err(|source| CoreError::Io {
         path: ait_path.clone(),
         source,
@@ -602,7 +607,7 @@ pub fn refresh_agent_auth(
         ));
     }
 
-    let secret_path = agent_directory.join(SECRET_KEY_FILE);
+    let secret_path = agent_directory.join(SECRET_KEY_FILE_NAME);
     let secret_raw = fs::read_to_string(&secret_path).map_err(|source| CoreError::Io {
         path: secret_path.clone(),
         source,
@@ -626,7 +631,7 @@ pub fn refresh_agent_auth(
         secret_key: &signing_key,
     })?;
 
-    let mut request = reqwest::blocking::Client::new()
+    let mut request = blocking_client()?
         .post(refresh_url)
         .header(AUTHORIZATION, format!("Claw {ait}"))
         .header(CONTENT_TYPE, "application/json");

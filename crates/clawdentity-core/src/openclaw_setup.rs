@@ -33,17 +33,9 @@ pub struct OpenclawConnectorAssignment {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpenclawConnectorsConfig {
     pub agents: BTreeMap<String, OpenclawConnectorAssignment>,
-}
-
-impl Default for OpenclawConnectorsConfig {
-    fn default() -> Self {
-        Self {
-            agents: BTreeMap::new(),
-        }
-    }
 }
 
 fn parse_non_empty(value: &str, field: &str) -> Result<String> {

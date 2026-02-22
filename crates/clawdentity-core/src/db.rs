@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -138,10 +137,7 @@ impl SqliteStore {
 }
 
 pub fn now_utc_ms() -> i64 {
-    match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(duration) => duration.as_millis() as i64,
-        Err(_) => 0,
-    }
+    chrono::Utc::now().timestamp_millis()
 }
 
 fn configure_connection(connection: &Connection) -> Result<()> {
@@ -151,6 +147,7 @@ fn configure_connection(connection: &Connection) -> Result<()> {
 }
 
 fn apply_migrations(connection: &Connection) -> Result<()> {
+    tracing::info!(migration = MIGRATION_NAME_PHASE3, "checking database migrations");
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY,
@@ -166,14 +163,17 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
         )
         .optional()?;
     if already_applied.is_some() {
+        tracing::info!(migration = MIGRATION_NAME_PHASE3, "database migration already applied");
         return Ok(());
     }
 
+    tracing::info!(migration = MIGRATION_NAME_PHASE3, "applying database migration");
     connection.execute_batch(MIGRATION_SQL_PHASE3)?;
     connection.execute(
         "INSERT INTO schema_migrations (name, applied_at_ms) VALUES (?1, ?2)",
         params![MIGRATION_NAME_PHASE3, now_utc_ms()],
     )?;
+    tracing::info!(migration = MIGRATION_NAME_PHASE3, "database migration applied");
     Ok(())
 }
 

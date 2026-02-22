@@ -2,6 +2,7 @@ mod commands;
 
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::{CommandFactory, Parser, Subcommand};
@@ -271,7 +272,9 @@ async fn main() -> Result<()> {
             }
             let state_options = options.with_registry_hint(config.registry_url.clone());
             let identity = read_identity(&state_options)?;
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()?;
             let metadata = fetch_registry_metadata(&client, &config.registry_url).await?;
             let result = register_identity(&client, &metadata.registry_url, &identity).await?;
 
@@ -351,7 +354,9 @@ async fn main() -> Result<()> {
                 if let Some(url) = registry_url {
                     config.registry_url = url;
                 }
-                let client = reqwest::Client::new();
+                let client = reqwest::Client::builder()
+                    .timeout(Duration::from_secs(30))
+                    .build()?;
                 if let Ok(metadata) = fetch_registry_metadata(&client, &config.registry_url).await {
                     config.registry_url = metadata.registry_url;
                     if !metadata.proxy_url.trim().is_empty() {

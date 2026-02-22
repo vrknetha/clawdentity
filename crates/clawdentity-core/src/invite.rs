@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{CliConfig, ConfigPathOptions, read_config, resolve_config, write_config};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 
 const INVITES_PATH: &str = "/v1/invites";
 const INVITES_REDEEM_PATH: &str = "/v1/invites/redeem";
@@ -299,18 +300,33 @@ fn parse_redeem_result(
 }
 
 fn fetch_proxy_url_from_metadata(registry_url: &str) -> Result<Option<String>> {
-    let response = reqwest::blocking::Client::new()
-        .get(to_request_url(registry_url, METADATA_PATH)?)
-        .send()
-        .map_err(|error| CoreError::Http(error.to_string()))?;
+    let request_url = to_request_url(registry_url, METADATA_PATH)?;
+    let client = match blocking_client() {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::warn!(%registry_url, error = %error, "invite metadata client setup failed");
+            return Ok(None);
+        }
+    };
+    let response = match client.get(&request_url).send() {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%request_url, error = %error, "invite metadata request failed");
+            return Ok(None);
+        }
+    };
 
     if !response.status().is_success() {
         return Ok(None);
     }
 
-    let payload = response
-        .json::<RegistryMetadata>()
-        .map_err(|error| CoreError::Http(error.to_string()))?;
+    let payload = match response.json::<RegistryMetadata>() {
+        Ok(payload) => payload,
+        Err(error) => {
+            tracing::warn!(%request_url, error = %error, "invite metadata parse failed");
+            return Ok(None);
+        }
+    };
     Ok(payload
         .proxy_url
         .map(|value| value.trim().to_string())
@@ -323,7 +339,7 @@ pub fn create_invite(
 ) -> Result<InviteCreateResult> {
     let runtime = resolve_runtime(options, input.registry_url)?;
     let api_key = require_api_key(&runtime.config)?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .post(to_request_url(&runtime.registry_url, INVITES_PATH)?)
         .header("authorization", format!("Bearer {api_key}"))
         .header("content-type", "application/json")
@@ -363,7 +379,7 @@ pub fn redeem_invite(
     let invite_code = parse_non_empty(&input.code, "code")?;
     let display_name = parse_non_empty(&input.display_name, "displayName")?;
 
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .post(to_request_url(&runtime.registry_url, INVITES_REDEEM_PATH)?)
         .header("content-type", "application/json")
         .json(&serde_json::json!({

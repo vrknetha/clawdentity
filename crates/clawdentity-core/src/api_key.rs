@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{ConfigPathOptions, resolve_config};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 
 const ME_API_KEYS_PATH: &str = "/v1/me/api-keys";
 
@@ -249,7 +250,7 @@ pub fn create_api_key(
     input: ApiKeyCreateInput,
 ) -> Result<ApiKeyCreateResult> {
     let runtime = resolve_runtime(options, input.registry_url)?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .post(to_api_key_request_url(&runtime.registry_url, None)?)
         .header("authorization", format!("Bearer {}", runtime.api_key))
         .header("content-type", "application/json")
@@ -286,7 +287,7 @@ pub fn list_api_keys(
     input: ApiKeyListInput,
 ) -> Result<ApiKeyListResult> {
     let runtime = resolve_runtime(options, input.registry_url)?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .get(to_api_key_request_url(&runtime.registry_url, None)?)
         .header("authorization", format!("Bearer {}", runtime.api_key))
         .send()
@@ -321,7 +322,7 @@ pub fn revoke_api_key(
 ) -> Result<ApiKeyRevokeResult> {
     let runtime = resolve_runtime(options, input.registry_url)?;
     let api_key_id = parse_api_key_id(&input.id)?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .delete(to_api_key_request_url(
             &runtime.registry_url,
             Some(&api_key_id),

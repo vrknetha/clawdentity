@@ -38,20 +38,20 @@ pub struct PersistPeerInput {
 }
 
 pub fn derive_peer_alias_base(peer_did: &str) -> String {
-    if let Ok(parsed) = parse_did(peer_did) {
-        if parsed.kind == ClawDidKind::Agent {
-            let suffix = parsed
-                .ulid
-                .chars()
-                .rev()
-                .take(8)
-                .collect::<String>()
-                .chars()
-                .rev()
-                .collect::<String>()
-                .to_ascii_lowercase();
-            return format!("peer-{suffix}");
-        }
+    if let Ok(parsed) = parse_did(peer_did)
+        && parsed.kind == ClawDidKind::Agent
+    {
+        let suffix = parsed
+            .ulid
+            .chars()
+            .rev()
+            .take(8)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>()
+            .to_ascii_lowercase();
+        return format!("peer-{suffix}");
     }
     "peer".to_string()
 }

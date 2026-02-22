@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::SqliteStore;
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 use crate::openclaw_doctor::{
     DoctorStatus, OpenclawDoctorOptions, OpenclawDoctorResult, run_openclaw_doctor,
 };
@@ -215,7 +216,7 @@ pub fn run_openclaw_relay_test(
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "clawdentity relay probe".to_string());
 
-    let mut request = reqwest::blocking::Client::new()
+    let mut request = blocking_client()?
         .post(&endpoint)
         .header("content-type", "application/json")
         .json(&serde_json::json!({
@@ -298,7 +299,7 @@ pub fn run_openclaw_relay_websocket_test(
         )
     })?;
     let connector_status_url = join_url(&connector_base_url, STATUS_PATH, "connectorBaseUrl")?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .get(&connector_status_url)
         .header("accept", "application/json")
         .send()

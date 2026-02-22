@@ -7,9 +7,11 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use getrandom::fill as getrandom_fill;
 use serde::{Deserialize, Serialize};
 
+use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::db::SqliteStore;
 use crate::did::{ClawDidKind, parse_did};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 use crate::identity::decode_secret_key;
 use crate::peers::{
     PersistPeerInput, load_peers_config, persist_peer, sync_openclaw_relay_peers_snapshot,
@@ -24,10 +26,6 @@ pub const PAIRING_TICKET_PREFIX: &str = "clwpair1_";
 
 pub const DEFAULT_STATUS_WAIT_SECONDS: u64 = 300;
 pub const DEFAULT_STATUS_POLL_INTERVAL_SECONDS: u64 = 3;
-
-const AGENTS_DIR: &str = "agents";
-const AIT_FILE_NAME: &str = "ait.jwt";
-const SECRET_KEY_FILE_NAME: &str = "secret.key";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -353,7 +351,7 @@ fn execute_pair_request(
     let body_bytes = request_body.as_bytes();
     let signed_headers = build_signed_headers("POST", request_url, body_bytes, secret_key)?;
 
-    let mut request = reqwest::blocking::Client::new()
+    let mut request = blocking_client()?
         .post(request_url.to_string())
         .header("authorization", format!("Claw {}", ait.trim()))
         .header("content-type", "application/json");

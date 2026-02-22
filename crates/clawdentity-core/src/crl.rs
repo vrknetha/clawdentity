@@ -8,6 +8,7 @@ use crate::db::now_utc_ms;
 use crate::db_verify_cache::{get_verify_cache_entry, upsert_verify_cache_entry};
 use crate::did::{ClawDidKind, parse_did};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 
 pub const CRL_CACHE_TTL_MS: i64 = 15 * 60 * 1000;
 const CRL_CACHE_KEY_PREFIX: &str = "crl::";
@@ -156,10 +157,11 @@ pub fn load_crl_claims(
     let cache_key = format!("{CRL_CACHE_KEY_PREFIX}{registry_url}");
     if let Some(cache_entry) = get_verify_cache_entry(store, &cache_key)? {
         let age_ms = now_utc_ms() - cache_entry.fetched_at_ms;
-        if cache_entry.registry_url == registry_url && age_ms <= CRL_CACHE_TTL_MS {
-            if let Ok(claims) = serde_json::from_str::<CrlClaims>(&cache_entry.payload_json) {
-                return Ok(claims);
-            }
+        if cache_entry.registry_url == registry_url
+            && age_ms <= CRL_CACHE_TTL_MS
+            && let Ok(claims) = serde_json::from_str::<CrlClaims>(&cache_entry.payload_json)
+        {
+            return Ok(claims);
         }
     }
 
@@ -173,7 +175,7 @@ pub fn load_crl_claims(
             context: "registryUrl",
             value: registry_url.to_string(),
         })?;
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .get(request_url)
         .send()
         .map_err(|error| CoreError::Http(error.to_string()))?;

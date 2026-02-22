@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{CliConfig, ConfigPathOptions, read_config, resolve_config, write_config};
 use crate::error::{CoreError, Result};
+use crate::http::blocking_client;
 
 const ADMIN_BOOTSTRAP_PATH: &str = "/v1/admin/bootstrap";
 
@@ -176,7 +177,7 @@ pub fn bootstrap_admin(
     )?;
     let bootstrap_secret = parse_non_empty(&input.bootstrap_secret, "bootstrapSecret")?;
 
-    let response = reqwest::blocking::Client::new()
+    let response = blocking_client()?
         .post(to_request_url(&registry_url)?)
         .header("x-bootstrap-secret", bootstrap_secret)
         .header("content-type", "application/json")

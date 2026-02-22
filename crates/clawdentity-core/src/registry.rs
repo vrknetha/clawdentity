@@ -104,7 +104,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = reqwest::Client::new();
+        let client = crate::http::client().expect("client");
         let metadata = fetch_registry_metadata(&client, &server.uri())
             .await
             .expect("metadata");
@@ -114,7 +114,7 @@ mod tests {
 
     #[tokio::test]
     async fn register_identity_returns_not_supported_for_legacy_flow() {
-        let client = reqwest::Client::new();
+        let client = crate::http::client().expect("client");
         let identity = LocalIdentity {
             did: "did:claw:human:01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
             public_key: "abc".to_string(),
