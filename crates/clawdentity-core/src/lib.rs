@@ -19,6 +19,11 @@ pub mod openclaw_relay_test;
 pub mod openclaw_setup;
 pub mod pairing;
 pub mod peers;
+pub mod provider;
+pub mod provider_nanobot;
+pub mod provider_nanoclaw;
+pub mod provider_openclaw;
+pub mod provider_picoclaw;
 pub mod qr;
 pub mod registry;
 pub mod runtime_auth;
@@ -117,6 +122,11 @@ pub use pairing::{
 pub use peers::{
     PeerEntry, PeersConfig, PersistPeerInput, derive_peer_alias_base, load_peers_config,
     persist_peer, resolve_peer_alias, sync_openclaw_relay_peers_snapshot,
+};
+pub use provider::{
+    DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
+    PlatformProvider, VerifyResult as ProviderVerifyResult, all_providers, detect_platform,
+    get_provider,
 };
 pub use qr::{
     PAIRING_QR_DIR_NAME, PAIRING_QR_MAX_AGE_SECONDS, decode_ticket_from_png, encode_ticket_qr_png,

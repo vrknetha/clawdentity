@@ -1,21 +1,22 @@
 mod commands;
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use clap::{CommandFactory, Parser, Subcommand};
 use clawdentity_core::{
     AdminBootstrapInput, ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, CliConfig,
-    ConfigKey, ConfigPathOptions, CreateAgentInput, InviteCreateInput, InviteRedeemInput,
-    OpenclawDoctorOptions, OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions,
-    OpenclawRelayWebsocketTestOptions, RelayCheckStatus, SqliteStore, bootstrap_admin,
-    create_agent, create_api_key, create_invite, fetch_registry_metadata, get_config_dir,
-    get_config_file_path, get_config_value, init_identity, inspect_agent, list_api_keys,
-    persist_bootstrap_config, persist_redeem_config, read_config, read_identity, redeem_invite,
-    refresh_agent_auth, register_identity, resolve_config, revoke_agent_auth, revoke_api_key,
-    run_openclaw_doctor, run_openclaw_relay_test, run_openclaw_relay_websocket_test,
-    save_connector_assignment, save_relay_runtime_config, set_config_value, write_config,
-    write_selected_openclaw_agent,
+    ConfigKey, ConfigPathOptions, CreateAgentInput, InstallOptions, InviteCreateInput,
+    InviteRedeemInput, OpenclawDoctorOptions, OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions,
+    OpenclawRelayWebsocketTestOptions, RelayCheckStatus, SqliteStore, all_providers,
+    bootstrap_admin, create_agent, create_api_key, create_invite, detect_platform,
+    fetch_registry_metadata, get_config_dir, get_config_file_path, get_config_value, get_provider,
+    init_identity, inspect_agent, list_api_keys, persist_bootstrap_config, persist_redeem_config,
+    read_config, read_identity, redeem_invite, refresh_agent_auth, register_identity,
+    resolve_config, revoke_agent_auth, revoke_api_key, run_openclaw_doctor,
+    run_openclaw_relay_test, run_openclaw_relay_websocket_test, save_connector_assignment,
+    save_relay_runtime_config, set_config_value, write_config, write_selected_openclaw_agent,
 };
 
 use crate::commands::connector::{ConnectorCommand, execute_connector_command};
@@ -69,6 +70,20 @@ enum Commands {
     Openclaw {
         #[command(subcommand)]
         command: OpenclawCommand,
+    },
+    Install {
+        /// Target platform (auto-detect if not specified)
+        #[arg(long, alias = "for")]
+        platform: Option<String>,
+        /// Webhook port override
+        #[arg(long)]
+        port: Option<u16>,
+        /// Webhook auth token
+        #[arg(long)]
+        token: Option<String>,
+        /// List available platforms
+        #[arg(long)]
+        list: bool,
     },
 }
 
@@ -527,6 +542,14 @@ async fn main() -> Result<()> {
             let state_options = resolve_state_options(&options)?;
             execute_connector_command(&state_options, command, cli.json)?;
         }
+        Some(Commands::Install {
+            platform,
+            port,
+            token,
+            list,
+        }) => {
+            execute_install_command(cli.home_dir.clone(), cli.json, platform, port, token, list)?;
+        }
         Some(Commands::Openclaw { command }) => match command {
             OpenclawCommand::Setup {
                 agent_name,
@@ -731,6 +754,156 @@ fn mask_api_key(config: &CliConfig) -> CliConfig {
         api_key: Some("********".to_string()),
         human_name: config.human_name.clone(),
     }
+}
+
+fn execute_install_command(
+    home_dir: Option<PathBuf>,
+    json: bool,
+    platform: Option<String>,
+    port: Option<u16>,
+    token: Option<String>,
+    list: bool,
+) -> Result<()> {
+    if list {
+        let providers = all_providers();
+        if json {
+            let payload = providers
+                .into_iter()
+                .map(|provider| {
+                    let detection = provider.detect();
+                    serde_json::json!({
+                        "name": provider.name(),
+                        "displayName": provider.display_name(),
+                        "detected": detection.detected,
+                        "confidence": detection.confidence,
+                        "evidence": detection.evidence,
+                        "defaultWebhookHost": provider.default_webhook_host(),
+                        "defaultWebhookPort": provider.default_webhook_port(),
+                        "configPath": provider
+                            .config_path()
+                            .map(|path| path.to_string_lossy().to_string()),
+                    })
+                })
+                .collect::<Vec<_>>();
+            println!("{}", serde_json::to_string_pretty(&payload)?);
+        } else {
+            for provider in providers {
+                let detection = provider.detect();
+                println!("{} ({})", provider.display_name(), provider.name(),);
+                println!(
+                    "  detected: {} (confidence {:.2})",
+                    if detection.detected { "yes" } else { "no" },
+                    detection.confidence
+                );
+                println!(
+                    "  default webhook: {}:{}",
+                    provider.default_webhook_host(),
+                    provider.default_webhook_port()
+                );
+                if let Some(config_path) = provider.config_path() {
+                    println!("  config path: {}", config_path.display());
+                }
+                if detection.evidence.is_empty() {
+                    println!("  evidence: none");
+                } else {
+                    for evidence in detection.evidence {
+                        println!("  evidence: {evidence}");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    let is_auto_detected = platform.is_none();
+
+    let provider = if let Some(platform_name) = platform.as_deref() {
+        get_provider(platform_name).ok_or_else(|| {
+            let available = all_providers()
+                .into_iter()
+                .map(|provider| provider.name().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow!(
+                "unknown platform `{}`. Available platforms: {}",
+                platform_name,
+                available
+            )
+        })?
+    } else {
+        detect_platform().ok_or_else(|| {
+            anyhow!(
+                "no supported platform detected. Run `clawdentity install --list` and pick one with `--for`."
+            )
+        })?
+    };
+
+    if is_auto_detected && !json && !confirm_install(provider.display_name(), provider.name())? {
+        println!("Installation cancelled.");
+        return Ok(());
+    }
+
+    let install_result = provider.install(&InstallOptions {
+        home_dir,
+        webhook_port: port,
+        webhook_host: None,
+        webhook_token: token,
+        connector_url: None,
+    })?;
+    let verify_result = provider.verify()?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "provider": {
+                    "name": provider.name(),
+                    "displayName": provider.display_name(),
+                },
+                "install": install_result,
+                "verify": verify_result,
+            }))?
+        );
+    } else {
+        println!(
+            "Installed {} ({})",
+            provider.display_name(),
+            provider.name()
+        );
+        for note in install_result.notes {
+            println!("- {note}");
+        }
+        println!(
+            "Verification: {}",
+            if verify_result.healthy {
+                "healthy"
+            } else {
+                "unhealthy"
+            }
+        );
+        for (name, passed, detail) in verify_result.checks {
+            println!(
+                "- [{}] {}: {}",
+                if passed { "pass" } else { "fail" },
+                name,
+                detail
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn confirm_install(display_name: &str, name: &str) -> Result<bool> {
+    print!("Detected platform: {display_name} ({name}). Continue install? [y/N]: ");
+    io::stdout().flush()?;
+
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    Ok(matches!(
+        answer.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
 }
 
 fn init_logging() {
