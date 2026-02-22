@@ -253,49 +253,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clagram-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clagram-core",
- "clap",
- "reqwest",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "clagram-core"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64",
- "chrono",
- "dirs",
- "ed25519-dalek",
- "futures-util",
- "getrandom 0.4.1",
- "image",
- "qrcode",
- "quircs",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-tungstenite",
- "tower",
- "ulid",
- "url",
- "wiremock",
-]
-
-[[package]]
 name = "clap"
 version = "4.5.60"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -334,6 +291,49 @@ name = "clap_lex"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
+
+[[package]]
+name = "clawdentity-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clawdentity-core",
+ "reqwest",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "clawdentity-core"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "chrono",
+ "dirs",
+ "ed25519-dalek",
+ "futures-util",
+ "getrandom 0.4.1",
+ "image",
+ "qrcode",
+ "quircs",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+ "ulid",
+ "url",
+ "wiremock",
+]
 
 [[package]]
 name = "colorchoice"

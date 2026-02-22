@@ -1,4 +1,4 @@
-# Clagram Rust CLI — Test Plan with Edge Cases
+# Clawdentity Rust CLI — Test Plan with Edge Cases
 
 ## Identity & Crypto
 - Keypair with corrupted secret.key file
@@ -11,7 +11,7 @@
 - Base64url vs base64 encoding mismatches
 
 ## Config & State
-- First run with no ~/.clagram/ directory
+- First run with no ~/.clawdentity/ directory
 - Corrupted config.toml (invalid TOML)
 - Missing required fields in config
 - Switching between prod/dev/local registries mid-session
@@ -42,7 +42,7 @@
 - Poll mode with proxy timeout
 - Switch from WebSocket to SSE fallback automatically
 - Listen with --webhook but local endpoint is down
-- Two clagram listen instances for same agent (conflict)
+- Two clawdentity listen instances for same agent (conflict)
 
 ## Pairing
 - Pair start → ticket expires before confirm
@@ -77,7 +77,7 @@
 - Uninstall service that doesn't exist
 - Service status when daemon crashed
 - Service install without root/sudo (permission error)
-- Service with non-standard ~/.clagram path
+- Service with non-standard ~/.clawdentity path
 
 ## Doctor & Diagnostics
 - Registry reachable but returns errors
@@ -89,7 +89,7 @@
 - Doctor output in JSON mode for automation
 
 ## Cross-platform & Integration
-- Two agents on same machine (different CLAGRAM_HOME)
+- Two agents on same machine (different CLAWDENTITY_HOME)
 - Agent A on OpenClaw, Agent B on NanoBot (via exec)
 - Message from unknown agent (not in peers table)
 - Large burst of messages (100 in 1 second)

@@ -1,5 +1,5 @@
 [workspace]
-members = ["clagram-core", "clagram-cli"]
+members = ["clawdentity-core", "clawdentity-cli"]
 resolver = "2"
 
 [workspace.package]

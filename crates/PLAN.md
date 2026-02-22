@@ -1,4 +1,4 @@
-# Clagram Rust CLI Plan
+# Clawdentity Rust CLI Plan
 
 Inputs reviewed for this plan:
 - GitHub issue `#179`: `https://github.com/vrknetha/clawdentity/issues/179`
@@ -11,7 +11,7 @@ This document is planning only. No Rust implementation is included.
 ```text
 crates/
 ├── Cargo.toml                            # Workspace manifest (members + shared deps/lints)
-├── clagram-core/
+├── clawdentity-core/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs
@@ -20,7 +20,7 @@ crates/
 │       ├── did.rs                        # did:cdi parse/build/validate
 │       ├── ait.rs                        # AIT parse/inspect/verify helpers
 │       ├── signing.rs                    # Canonical request signing + X-Claw headers
-│       ├── config.rs                     # ~/.clagram paths, state router, env overrides
+│       ├── config.rs                     # ~/.clawdentity paths, state router, env overrides
 │       ├── db.rs                         # SQLite connection, migrations bootstrap
 │       ├── db_messages.rs                # messages + inbox read/write/query
 │       ├── db_outbox.rs                  # outbox queue + retry scheduling
@@ -41,7 +41,7 @@ crates/
 │       ├── service.rs                    # launchd/systemd install/uninstall/status
 │       ├── doctor.rs                     # full diagnostics + remediation model
 │       └── status.rs                     # quick health summary
-├── clagram-cli/
+├── clawdentity-cli/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs
@@ -75,10 +75,10 @@ crates/
 ```
 
 Layout principles:
-- `clagram-core` owns all business logic and protocol IO.
-- `clagram-cli` is a thin clap-based command surface and formatter only.
+- `clawdentity-core` owns all business logic and protocol IO.
+- `clawdentity-cli` is a thin clap-based command surface and formatter only.
 - Keep command names and flags mapped 1:1 with issue `#179`.
-- Keep all local state under `~/.clagram` and preserve prod/dev/local routing semantics.
+- Keep all local state under `~/.clawdentity` and preserve prod/dev/local routing semantics.
 
 ## 2. Dependency List With Versions
 
@@ -188,7 +188,7 @@ Test/dev dependencies:
 | Verify with registry keys + CRL cache | `apps/cli/src/commands/verify.ts` | Direct verification flow port with Rust crypto libs |
 | Connector websocket/session/retry semantics | `packages/connector/src/client/*` | Partial logic port, but reorganized into `listen` architecture |
 | Inbound inbox handling | `packages/connector/src/inbound-inbox.ts` | Rewrite persistence from JSON index/events to SQLite `inbound_inbox` |
-| Connector runtime local HTTP server | `packages/connector/src/runtime/server.ts` | Rewrite: Clagram CLI becomes direct sender/listener, no local connector endpoint dependency |
+| Connector runtime local HTTP server | `packages/connector/src/runtime/server.ts` | Rewrite: Clawdentity CLI becomes direct sender/listener, no local connector endpoint dependency |
 | OpenClaw-specific commands | `apps/cli/src/commands/openclaw/*` | Replace with platform-agnostic `doctor` + `status` checks |
 | Service install/uninstall | `apps/cli/src/commands/connector/service.ts` | Port launchd/systemd behavior, add explicit `service status` |
 
@@ -211,7 +211,7 @@ Signing/canonicalization compatibility:
 Storage compatibility:
 - Implement required SQL schema tables: `messages`, `outbox`, `peers`, `inbound_inbox`.
 - Keep message status/domain semantics aligned with issue `#179` (`received/read/delivered/failed`, inbound/outbound).
-- Keep multi-env state routing under `~/.clagram/states/{prod,dev,local}`.
+- Keep multi-env state routing under `~/.clawdentity/states/{prod,dev,local}`.
 
 Parity caveats to lock before coding:
 - `pair recover` is specified in issue `#179` but not implemented in current TS CLI; endpoint/behavior must be finalized with proxy contract.
@@ -221,7 +221,7 @@ Parity caveats to lock before coding:
 ## 6. Testing Strategy
 
 Test pyramid:
-- Unit tests in `clagram-core` for parsing, signing, canonicalization, config routing, DB repositories, retry scheduling.
+- Unit tests in `clawdentity-core` for parsing, signing, canonicalization, config routing, DB repositories, retry scheduling.
 - Contract tests using `wiremock` for registry and proxy HTTP semantics, including error-code mapping.
 - WebSocket/SSE integration tests with local test servers for reconnect, heartbeat, and backoff behavior.
 - CLI integration tests with `assert_cmd` validating command UX, exit codes, and JSON/human output.
@@ -262,7 +262,7 @@ Scale: `S` (small), `M` (medium), `L` (large), `XL` (very large).
 | `crl` + `verify` | `L` | Key cache policy + cryptographic verification correctness |
 | `service` | `M` | OS-specific launchd/systemd behavior and status probing |
 | `doctor` + `status` | `L` | Broad check surface and actionable remediation output |
-| `clagram-cli` command layer | `M` | Many commands, mostly thin wrappers if core stays clean |
+| `clawdentity-cli` command layer | `M` | Many commands, mostly thin wrappers if core stays clean |
 
 Suggested execution sequence by risk:
 1. `config`, `identity`, `signing`, `registry`, `agent`

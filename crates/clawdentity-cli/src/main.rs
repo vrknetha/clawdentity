@@ -3,7 +3,8 @@ mod commands;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use clagram_core::{
+use clap::{CommandFactory, Parser, Subcommand};
+use clawdentity_core::{
     AdminBootstrapInput, ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, CliConfig,
     ConfigKey, ConfigPathOptions, CreateAgentInput, InviteCreateInput, InviteRedeemInput,
     OpenclawDoctorOptions, OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions,
@@ -16,12 +17,11 @@ use clagram_core::{
     save_connector_assignment, save_relay_runtime_config, set_config_value, write_config,
     write_selected_openclaw_agent,
 };
-use clap::{CommandFactory, Parser, Subcommand};
 
 use crate::commands::connector::{ConnectorCommand, execute_connector_command};
 
 #[derive(Debug, Parser)]
-#[command(name = "clagram", about = "Clagram CLI", version)]
+#[command(name = "clawdentity", about = "Clawdentity CLI", version)]
 struct Cli {
     #[arg(long, global = true)]
     json: bool,
@@ -538,11 +538,11 @@ async fn main() -> Result<()> {
                 let state_options = resolve_state_options(&options)?;
                 let config_dir = get_config_dir(&state_options)?;
                 let marker_path = write_selected_openclaw_agent(&config_dir, &agent_name)?;
-                let resolved_base_url = clagram_core::resolve_openclaw_base_url(
+                let resolved_base_url = clawdentity_core::resolve_openclaw_base_url(
                     &config_dir,
                     openclaw_base_url.as_deref(),
                 )?;
-                let existing_runtime = clagram_core::load_relay_runtime_config(&config_dir)?;
+                let existing_runtime = clawdentity_core::load_relay_runtime_config(&config_dir)?;
                 let runtime_path = save_relay_runtime_config(
                     &config_dir,
                     OpenclawRelayRuntimeConfig {

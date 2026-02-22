@@ -1,15 +1,15 @@
-# Clagram Rust CLI Implementation Plan (Revalidated)
+# Clawdentity Rust CLI Implementation Plan (Revalidated)
 
 ## Context
 - Repository: `/Users/ravikiranvemula/Workdir/clawdentity`
-- Rust sources reviewed: `crates/clagram-core/src/*`, `crates/clagram-cli/src/main.rs`
+- Rust sources reviewed: `crates/clawdentity-core/src/*`, `crates/clawdentity-cli/src/main.rs`
 - TypeScript behavior reference reviewed: `apps/cli/src/**`, `packages/connector/src/**`
 - Goal of this update: correct schema assumptions, dependency choices, and missing module coverage before coding phases 3-10.
 
 ## Critical Corrections From TS Parity Review
 
 1. Identity/config baseline in current Rust scaffolding is not TS-parity yet.
-- TS uses `~/.clawdentity`, not `~/.clagram`.
+- TS uses `~/.clawdentity` as the CLI config root.
 - TS DID format is `did:claw:{human|agent}:<ULID>`, not `did:cdi:<host>:<ULID>`.
 - TS registry defaults and endpoints are `clawdentity` contracts.
 
@@ -43,11 +43,11 @@ These items must be completed before Phase 3 is treated as authoritative:
 ## Phase 3: Persistence Model (SQLite) Aligned To TS Connector Semantics
 
 ### Files to Create
-- `crates/clagram-core/src/db.rs`
-- `crates/clagram-core/src/db_inbound.rs`
-- `crates/clagram-core/src/db_outbound.rs`
-- `crates/clagram-core/src/db_peers.rs`
-- `crates/clagram-core/src/db_verify_cache.rs`
+- `crates/clawdentity-core/src/db.rs`
+- `crates/clawdentity-core/src/db_inbound.rs`
+- `crates/clawdentity-core/src/db_outbound.rs`
+- `crates/clawdentity-core/src/db_peers.rs`
+- `crates/clawdentity-core/src/db_verify_cache.rs`
 
 ### Corrected Core Schema
 ```sql
@@ -133,14 +133,14 @@ CREATE TABLE IF NOT EXISTS verify_cache (
 ## Phase 4: Connector Runtime (WebSocket + Local HTTP Runtime)
 
 ### Missing Modules To Add
-- `crates/clagram-core/src/connector_frames.rs`
-- `crates/clagram-core/src/connector_client.rs`
-- `crates/clagram-core/src/runtime_server.rs`
-- `crates/clagram-core/src/runtime_replay.rs`
-- `crates/clagram-core/src/runtime_relay.rs`
-- `crates/clagram-core/src/runtime_auth.rs`
-- `crates/clagram-core/src/runtime_openclaw.rs`
-- `crates/clagram-core/src/runtime_trusted_receipts.rs`
+- `crates/clawdentity-core/src/connector_frames.rs`
+- `crates/clawdentity-core/src/connector_client.rs`
+- `crates/clawdentity-core/src/runtime_server.rs`
+- `crates/clawdentity-core/src/runtime_replay.rs`
+- `crates/clawdentity-core/src/runtime_relay.rs`
+- `crates/clawdentity-core/src/runtime_auth.rs`
+- `crates/clawdentity-core/src/runtime_openclaw.rs`
+- `crates/clawdentity-core/src/runtime_trusted_receipts.rs`
 
 ### Required Behavior
 - WebSocket connect path parity (`/v1/relay/connect`) with signed upgrade headers.
@@ -162,9 +162,9 @@ CREATE TABLE IF NOT EXISTS verify_cache (
 ## Phase 5: Pairing + Trust Persistence
 
 ### Files to Create
-- `crates/clagram-core/src/pairing.rs`
-- `crates/clagram-core/src/peers.rs`
-- `crates/clagram-core/src/qr.rs`
+- `crates/clawdentity-core/src/pairing.rs`
+- `crates/clawdentity-core/src/peers.rs`
+- `crates/clawdentity-core/src/qr.rs`
 
 ### Corrected Behavior
 - `pair start`, `pair confirm`, `pair status` parity including:
@@ -187,8 +187,8 @@ CREATE TABLE IF NOT EXISTS verify_cache (
 ## Phase 6: Verify + CRL
 
 ### Files to Create
-- `crates/clagram-core/src/verify.rs`
-- `crates/clagram-core/src/crl.rs`
+- `crates/clawdentity-core/src/verify.rs`
+- `crates/clawdentity-core/src/crl.rs`
 
 ### Corrected Behavior
 - Match TS verify flow:
@@ -208,9 +208,9 @@ CREATE TABLE IF NOT EXISTS verify_cache (
 ## Phase 7: Account Operations (API Keys, Invites, Admin)
 
 ### Files to Create
-- `crates/clagram-core/src/api_key.rs`
-- `crates/clagram-core/src/invite.rs`
-- `crates/clagram-core/src/admin.rs`
+- `crates/clawdentity-core/src/api_key.rs`
+- `crates/clawdentity-core/src/invite.rs`
+- `crates/clawdentity-core/src/admin.rs`
 
 ### Endpoint/Schema Parity Targets
 - `/v1/me/api-keys` create/list/revoke
@@ -223,8 +223,8 @@ CREATE TABLE IF NOT EXISTS verify_cache (
 ## Phase 8: Connector Service Management
 
 ### Files to Create
-- `crates/clagram-core/src/service.rs`
-- `crates/clagram-cli/src/commands/connector.rs`
+- `crates/clawdentity-core/src/service.rs`
+- `crates/clawdentity-cli/src/commands/connector.rs`
 
 ### Corrected Scope
 - TS parity baseline is:
@@ -238,9 +238,9 @@ CREATE TABLE IF NOT EXISTS verify_cache (
 ## Phase 9: OpenClaw Diagnostics + Relay Checks
 
 ### Missing Modules To Add
-- `crates/clagram-core/src/openclaw_doctor.rs`
-- `crates/clagram-core/src/openclaw_setup.rs`
-- `crates/clagram-core/src/openclaw_relay_test.rs`
+- `crates/clawdentity-core/src/openclaw_doctor.rs`
+- `crates/clawdentity-core/src/openclaw_setup.rs`
+- `crates/clawdentity-core/src/openclaw_relay_test.rs`
 
 ### Corrected Behavior
 - Mirror TS doctor coverage categories (selected agent, credentials, peers, transform mapping, hook token, gateway pairing, connector runtime/inbound inbox health).

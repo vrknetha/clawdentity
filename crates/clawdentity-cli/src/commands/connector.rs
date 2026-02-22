@@ -1,9 +1,9 @@
 use anyhow::Result;
-use clagram_core::{
+use clap::Subcommand;
+use clawdentity_core::{
     ConfigPathOptions, ConnectorServiceInstallInput, ConnectorServiceUninstallInput,
     install_connector_service, uninstall_connector_service,
 };
-use clap::Subcommand;
 
 #[derive(Debug, Subcommand)]
 pub enum ConnectorCommand {

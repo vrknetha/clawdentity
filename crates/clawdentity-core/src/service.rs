@@ -550,10 +550,10 @@ mod tests {
             openclaw_base_url: Some("http://127.0.0.1:18789".to_string()),
             openclaw_hook_path: Some("/hooks/agent".to_string()),
             openclaw_hook_token: Some("token".to_string()),
-            executable_path: Some("/tmp/clagram".into()),
+            executable_path: Some("/tmp/clawdentity".into()),
         };
         let command = {
-            let mut args = vec!["/tmp/clagram".to_string()];
+            let mut args = vec!["/tmp/clawdentity".to_string()];
             args.extend(super::build_connector_start_args(&input));
             args
         };
