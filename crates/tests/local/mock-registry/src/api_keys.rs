@@ -1,13 +1,13 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::Utc;
 use serde_json::json;
 use ulid::Ulid;
 
 use crate::crypto::{make_human_did, parse_bearer_token};
-use crate::state::{error_response, ApiKeyCreateRequest, ApiKeyRecord, AppState, InnerState};
+use crate::state::{ApiKeyCreateRequest, ApiKeyRecord, AppState, InnerState, error_response};
 
 pub(crate) async fn create_api_key_handler(
     State(state): State<AppState>,
@@ -136,7 +136,8 @@ pub(crate) async fn ensure_owner_for_api_token(state: &AppState, token: &str) ->
     }
 
     let owner_did = make_human_did();
-    let bootstrap_key = create_api_key_record(&owner_did, "bootstrap".to_string(), Some(token.to_string()));
+    let bootstrap_key =
+        create_api_key_record(&owner_did, "bootstrap".to_string(), Some(token.to_string()));
     insert_api_key(&mut inner, bootstrap_key);
     owner_did
 }

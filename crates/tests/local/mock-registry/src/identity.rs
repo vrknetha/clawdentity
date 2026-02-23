@@ -1,13 +1,13 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use ulid::Ulid;
 
 use crate::api_keys::{create_api_key_record, insert_api_key};
 use crate::crypto::make_human_did;
-use crate::state::{error_response, AdminBootstrapRequest, AppState};
+use crate::state::{AdminBootstrapRequest, AppState, error_response};
 
 pub(crate) async fn register_identity_handler(
     State(state): State<AppState>,

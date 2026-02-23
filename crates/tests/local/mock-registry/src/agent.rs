@@ -1,9 +1,9 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::{Duration, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use ulid::Ulid;
 
 use crate::api_keys::ensure_owner_for_api_token;
@@ -12,8 +12,8 @@ use crate::crypto::{
     sign_jwt,
 };
 use crate::state::{
-    error_response, AgentAuthRefreshRequest, AgentChallengeRequest, AgentRecord, AgentRegisterRequest,
-    AppState, ChallengeRecord,
+    AgentAuthRefreshRequest, AgentChallengeRequest, AgentRecord, AgentRegisterRequest, AppState,
+    ChallengeRecord, error_response,
 };
 
 pub(crate) async fn get_agent_challenge_handler(
@@ -76,7 +76,10 @@ pub(crate) async fn register_agent_handler(
         || body.challenge_id.trim().is_empty()
         || body.challenge_signature.trim().is_empty()
     {
-        return error_response(StatusCode::BAD_REQUEST, "invalid agent registration payload");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "invalid agent registration payload",
+        );
     }
 
     let mut inner = state.inner.lock().await;
@@ -84,7 +87,8 @@ pub(crate) async fn register_agent_handler(
         Some(challenge) => challenge,
         None => return error_response(StatusCode::BAD_REQUEST, "invalid challenge"),
     };
-    if !challenge.public_key.trim().is_empty() && challenge.public_key.trim() != body.public_key.trim()
+    if !challenge.public_key.trim().is_empty()
+        && challenge.public_key.trim() != body.public_key.trim()
     {
         return error_response(StatusCode::BAD_REQUEST, "challenge public key mismatch");
     }
@@ -136,7 +140,9 @@ pub(crate) async fn register_agent_handler(
             owner_did: challenge.owner_did.clone(),
         },
     );
-    inner.refresh_tokens.insert(refresh_token.clone(), agent_did.clone());
+    inner
+        .refresh_tokens
+        .insert(refresh_token.clone(), agent_did.clone());
 
     (
         StatusCode::CREATED,
@@ -188,7 +194,9 @@ pub(crate) async fn refresh_agent_auth_handler(
 
     let access_token = format!("clw_agt_access_{}", Ulid::new());
     let refresh_token = format!("clw_rft_refresh_{}", Ulid::new());
-    inner.refresh_tokens.insert(refresh_token.clone(), agent_did);
+    inner
+        .refresh_tokens
+        .insert(refresh_token.clone(), agent_did);
     (
         StatusCode::OK,
         Json(json!({

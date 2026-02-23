@@ -1,16 +1,17 @@
 use axum::http::HeaderMap;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ed25519_dalek::{Signer, SigningKey};
 use getrandom::fill as getrandom_fill;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use ulid::Ulid;
 
 use crate::state::SigningMaterial;
 
 pub(crate) fn generate_signing_material() -> Result<SigningMaterial, String> {
     let mut secret = [0_u8; 32];
-    getrandom_fill(&mut secret).map_err(|error| format!("failed to generate signing key: {error}"))?;
+    getrandom_fill(&mut secret)
+        .map_err(|error| format!("failed to generate signing key: {error}"))?;
     let signing_key = SigningKey::from_bytes(&secret);
     let public_key_x = URL_SAFE_NO_PAD.encode(signing_key.verifying_key().as_bytes());
     Ok(SigningMaterial {
@@ -30,10 +31,14 @@ pub(crate) fn sign_jwt(signing: &SigningMaterial, payload: &Value) -> Result<Str
         .map_err(|error| format!("failed to encode jwt header: {error}"))?,
     );
     let payload_b64 = URL_SAFE_NO_PAD.encode(
-        serde_json::to_vec(payload).map_err(|error| format!("failed to encode jwt payload: {error}"))?,
+        serde_json::to_vec(payload)
+            .map_err(|error| format!("failed to encode jwt payload: {error}"))?,
     );
     let signing_input = format!("{header_b64}.{payload_b64}");
-    let signature = signing.signing_key.sign(signing_input.as_bytes()).to_bytes();
+    let signature = signing
+        .signing_key
+        .sign(signing_input.as_bytes())
+        .to_bytes();
     let signature_b64 = URL_SAFE_NO_PAD.encode(signature);
     Ok(format!("{signing_input}.{signature_b64}"))
 }

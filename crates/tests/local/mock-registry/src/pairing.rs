@@ -1,17 +1,17 @@
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::{Duration, Utc};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use ulid::Ulid;
 
 use crate::crypto::{parse_agent_did_from_ait, parse_claw_token};
 use crate::state::{
-    error_response, AppState, PairConfirmRequest, PairProfile, PairStartRequest, PairStatusRequest,
-    PairingRecord,
+    AppState, PairConfirmRequest, PairProfile, PairStartRequest, PairStatusRequest, PairingRecord,
+    error_response,
 };
 
 const PAIRING_TICKET_PREFIX: &str = "clwpair1_";
@@ -110,7 +110,10 @@ pub(crate) async fn pair_status_get_handler(
     pair_status_for_ticket(state, ticket).await
 }
 
-pub(crate) async fn pair_status_for_ticket(state: AppState, ticket: String) -> (StatusCode, Json<Value>) {
+pub(crate) async fn pair_status_for_ticket(
+    state: AppState,
+    ticket: String,
+) -> (StatusCode, Json<Value>) {
     let inner = state.inner.lock().await;
     let Some(pairing) = inner.pairings.get(ticket.trim()) else {
         return error_response(StatusCode::NOT_FOUND, "ticket not found");

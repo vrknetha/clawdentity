@@ -30,7 +30,7 @@ use crate::invites::{create_invite_handler, redeem_invite_handler};
 use crate::pairing::{
     pair_confirm_handler, pair_start_handler, pair_status_get_handler, pair_status_post_handler,
 };
-use crate::state::{error_response, AppState, InnerState};
+use crate::state::{AppState, InnerState, error_response};
 
 const DEFAULT_REGISTRY_PORT: u16 = 13370;
 const DEFAULT_PROXY_URL: &str = "http://127.0.0.1:13371";

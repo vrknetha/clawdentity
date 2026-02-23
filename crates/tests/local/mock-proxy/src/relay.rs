@@ -1,9 +1,9 @@
-use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::Json;
 use axum::extract::State;
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorFrame, DeliverAckFrame, DeliverFrame, EnqueueAckFrame,
     HeartbeatAckFrame, new_frame_id, now_iso, parse_frame, serialize_frame,
@@ -216,7 +216,10 @@ async fn route_or_queue_frame(state: &AppState, target_did: &str, frame: Connect
     }
 
     let mut queued = state.queued.lock().await;
-    queued.entry(target_did.to_string()).or_default().push(frame);
+    queued
+        .entry(target_did.to_string())
+        .or_default()
+        .push(frame);
     false
 }
 

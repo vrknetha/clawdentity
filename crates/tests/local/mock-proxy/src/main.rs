@@ -36,7 +36,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/pair/start", post(pairing::pair_start_handler))
         .route("/pair/confirm", post(pairing::pair_confirm_handler))
         .route("/pair/status", post(pairing::pair_status_post_handler))
-        .route("/pair/status/{ticket}", get(pairing::pair_status_get_handler))
+        .route(
+            "/pair/status/{ticket}",
+            get(pairing::pair_status_get_handler),
+        )
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));

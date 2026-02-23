@@ -1,14 +1,16 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
-use axum::Json;
 use chrono::Utc;
 use serde_json::json;
 use ulid::Ulid;
 
 use crate::api_keys::{create_api_key_record, ensure_owner_for_api_token, insert_api_key};
 use crate::crypto::{make_human_did, parse_bearer_token};
-use crate::state::{error_response, AppState, InviteCreateRequest, InviteRecord, InviteRedeemRequest};
+use crate::state::{
+    AppState, InviteCreateRequest, InviteRecord, InviteRedeemRequest, error_response,
+};
 
 pub(crate) async fn create_invite_handler(
     State(state): State<AppState>,

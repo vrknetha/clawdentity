@@ -91,7 +91,10 @@ pub async fn pair_status_post_handler(
     Json(body): Json<PairStatusRequest>,
 ) -> impl IntoResponse {
     if authenticate_claw_headers(&headers).is_err() {
-        return error_response(StatusCode::UNAUTHORIZED, "missing or invalid claw auth headers");
+        return error_response(
+            StatusCode::UNAUTHORIZED,
+            "missing or invalid claw auth headers",
+        );
     }
     pair_status_for_ticket(state, body.ticket.trim().to_string()).await
 }
