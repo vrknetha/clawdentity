@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { decodeAIT } from "@clawdentity/sdk";
 import { getConfigDir, resolveConfig } from "../../config/manager.js";
 import {
   readConnectorAssignedBaseUrl,
@@ -102,6 +103,35 @@ function escapeXml(value: string): string {
 
 function quoteSystemdArgument(value: string): string {
   return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
+function resolveRegistryUrlFromAit(rawAit: string): string {
+  let issuer: string;
+  try {
+    issuer = decodeAIT(rawAit).claims.iss;
+  } catch {
+    throw createCliError(
+      "CLI_CONNECTOR_INVALID_AIT",
+      "Agent AIT is invalid for connector startup",
+    );
+  }
+
+  try {
+    const parsedIssuer = new URL(issuer);
+    if (
+      parsedIssuer.protocol !== "http:" &&
+      parsedIssuer.protocol !== "https:"
+    ) {
+      throw new Error("invalid protocol");
+    }
+
+    return parsedIssuer.origin;
+  } catch {
+    throw createCliError(
+      "CLI_CONNECTOR_INVALID_AIT",
+      "Agent AIT issuer is invalid for connector startup",
+    );
+  }
 }
 
 function createSystemdServiceFileContent(input: {
@@ -483,10 +513,11 @@ export async function startConnectorForAgent(
 
   const identity = parseAgentIdentity(rawIdentity);
   const registryAuth = parseRegistryAuth(rawRegistryAuth);
+  const registryUrl = resolveRegistryUrlFromAit(rawAit);
   const resolvedProxyWebsocketUrl = await resolveProxyWebsocketUrl({
     explicitProxyWsUrl: commandOptions.proxyWsUrl,
     configProxyUrl: config.proxyUrl,
-    registryUrl: config.registryUrl,
+    registryUrl,
     fetchImpl,
   });
   const openclawHookToken =
@@ -499,7 +530,6 @@ export async function startConnectorForAgent(
   const runtime = await connectorModule.startConnectorRuntime({
     agentName,
     configDir,
-    registryUrl: config.registryUrl,
     outboundBaseUrl,
     outboundPath,
     proxyWebsocketUrl: resolvedProxyWebsocketUrl,

@@ -8,6 +8,8 @@ import { describe, expect, it } from "vitest";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe("POST /v1/agents/:id/reissue", () => {
   it("returns 401 when PAT is missing", async () => {
     const agentId = generateUlid(1700300000000);
@@ -69,7 +71,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       [
         {
           id: foreignAgentId,
-          did: makeAgentDid(foreignAgentId),
+          did: makeAgentDid(DID_AUTHORITY, foreignAgentId),
           ownerId: "human-2",
           name: "foreign-agent",
           framework: "openclaw",
@@ -112,7 +114,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "revoked-agent",
           framework: "openclaw",
@@ -161,7 +163,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",
@@ -222,7 +224,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",
@@ -268,7 +270,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       ait: string;
     };
     expect(body.agent.id).toBe(agentId);
-    expect(body.agent.did).toBe(makeAgentDid(agentId));
+    expect(body.agent.did).toBe(makeAgentDid(DID_AUTHORITY, agentId));
     expect(body.agent.ownerDid).toBe(authRow.humanDid);
     expect(body.agent.framework).toBe("openclaw");
     expect(body.agent.publicKey).toBe(encodeBase64url(agentKeypair.publicKey));
@@ -362,7 +364,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",
@@ -441,7 +443,7 @@ describe("POST /v1/agents/:id/reissue", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",

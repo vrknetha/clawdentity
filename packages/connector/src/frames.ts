@@ -1,4 +1,4 @@
-import { parseDid, parseUlid } from "@clawdentity/protocol";
+import { parseAgentDid, parseUlid } from "@clawdentity/protocol";
 import { z } from "zod";
 import { CONNECTOR_FRAME_VERSION } from "./constants.js";
 
@@ -29,17 +29,11 @@ const ulidStringSchema = z.string().superRefine((value, ctx) => {
 
 const agentDidSchema = z.string().superRefine((value, ctx) => {
   try {
-    const parsedDid = parseDid(value);
-    if (parsedDid.kind !== "agent") {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "must be an agent DID",
-      });
-    }
+    parseAgentDid(value);
   } catch {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "must be a valid DID",
+      message: "must be a valid agent DID",
     });
   }
 });

@@ -52,7 +52,7 @@ pub(crate) async fn admin_bootstrap_handler(
         .filter(|value| !value.is_empty())
         .unwrap_or("admin-cli")
         .to_string();
-    let owner_did = make_human_did();
+    let owner_did = make_human_did(&state.registry_url);
 
     let mut inner = state.inner.lock().await;
     let api_key = create_api_key_record(&owner_did, api_key_name, None);

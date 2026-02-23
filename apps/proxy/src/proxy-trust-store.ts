@@ -1,5 +1,5 @@
 import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
-import { parseDid } from "@clawdentity/protocol";
+import { parseAgentDid } from "@clawdentity/protocol";
 import { nowUtcMs } from "@clawdentity/sdk";
 import { PROXY_TRUST_DO_NAME } from "./pairing-constants.js";
 import {
@@ -540,10 +540,7 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       }
       if (allowResponderAgentDid !== undefined) {
         try {
-          const parsed = parseDid(allowResponderAgentDid);
-          if (parsed.kind !== "agent") {
-            throw new Error("invalid kind");
-          }
+          parseAgentDid(allowResponderAgentDid);
         } catch {
           throw new ProxyTrustStoreError({
             code: "PROXY_PAIR_START_INVALID_BODY",

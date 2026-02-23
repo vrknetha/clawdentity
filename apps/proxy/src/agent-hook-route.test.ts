@@ -11,11 +11,11 @@ vi.mock("./auth-middleware.js", async () => {
           const dirtyAuth = c.req.header("x-test-dirty-auth") === "1";
           c.set("auth", {
             agentDid: dirtyAuth
-              ? `\u0000 did:claw:agent:${"a".repeat(200)} \n`
-              : "did:claw:agent:alpha",
+              ? `\u0000 did:cdi:dev.registry.clawdentity.com:agent:${"a".repeat(200)} \n`
+              : "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
             ownerDid: dirtyAuth
-              ? " \t did:claw:owner:alpha\u0007"
-              : "did:claw:owner:alpha",
+              ? " \t did:cdi:dev.registry.clawdentity.com:human:01HF7YAT8M89D8W9DH2S5Y4JQK\u0007"
+              : "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
             issuer: dirtyAuth
               ? ` https://registry.example.com/${"b".repeat(260)} `
               : "https://registry.example.com",
@@ -128,7 +128,8 @@ function createHookRouteApp(input: {
     isAgentKnown: vi.fn(async () => true),
     isPairAllowed: vi.fn(
       async (pair) =>
-        pair.responderAgentDid === "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        pair.responderAgentDid ===
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
     ),
     upsertPair: vi.fn(async () => {}),
   };
@@ -159,7 +160,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json; charset=utf-8",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         event: "agent.started",
@@ -168,14 +169,16 @@ describe("POST /hooks/agent", () => {
 
     expect(response.status).toBe(202);
     expect(relayHarness.idFromName).toHaveBeenCalledWith(
-      "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
     );
     expect(relayHarness.get).toHaveBeenCalledTimes(1);
     expect(relayHarness.fetchRpc).toHaveBeenCalledTimes(1);
     const [relayInput] = relayHarness.receivedInputs;
-    expect(relayInput.senderAgentDid).toBe("did:claw:agent:alpha");
+    expect(relayInput.senderAgentDid).toBe(
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+    );
     expect(relayInput.recipientAgentDid).toBe(
-      "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
     );
     expect(relayInput.payload).toEqual({ event: "agent.started" });
     expect(typeof relayInput.requestId).toBe("string");
@@ -212,7 +215,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
@@ -232,7 +235,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
@@ -255,7 +258,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         message: "Summarize this payload",
@@ -271,8 +274,8 @@ describe("POST /hooks/agent", () => {
     expect(forwardedPayload.message).toBe(
       [
         "[Clawdentity Identity]",
-        "agentDid: did:claw:agent:alpha",
-        "ownerDid: did:claw:owner:alpha",
+        "agentDid: did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        "ownerDid: did:cdi:dev.registry.clawdentity.com:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
         "issuer: https://registry.example.com",
         "aitJti: ait-jti-alpha",
         "",
@@ -297,7 +300,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         "x-test-missing-auth": "1",
       },
       body: JSON.stringify(rawPayload),
@@ -318,7 +321,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         event: "agent.started",
@@ -330,7 +333,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({
         message: { nested: true },
@@ -355,7 +358,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         "x-test-dirty-auth": "1",
       },
       body: JSON.stringify({
@@ -392,7 +395,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "text/plain",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: "hello",
     });
@@ -418,7 +421,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: "{not valid json",
     });
@@ -462,7 +465,8 @@ describe("POST /hooks/agent", () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        [RELAY_RECIPIENT_AGENT_DID_HEADER]: "did:claw:human:not-agent",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00S80QZY8QB7FSRVFF",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
@@ -482,7 +486,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
@@ -503,7 +507,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
@@ -533,7 +537,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });
@@ -569,7 +573,7 @@ describe("POST /hooks/agent", () => {
       headers: {
         "content-type": "application/json",
         [RELAY_RECIPIENT_AGENT_DID_HEADER]:
-          "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       },
       body: JSON.stringify({ event: "agent.started" }),
     });

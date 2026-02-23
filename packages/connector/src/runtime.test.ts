@@ -4,7 +4,12 @@ import { writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
+import {
+  encodeBase64url,
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { parseFrame, serializeFrame } from "./frames.js";
@@ -35,6 +40,7 @@ const ENV_KEYS = [
   "CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS",
   "CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS",
 ] as const;
+const DID_AUTHORITY = "registry.example.test";
 
 function createSandbox(): Sandbox {
   const rootDir = mkdtempSync(join(tmpdir(), "clawdentity-connector-runtime-"));
@@ -130,8 +136,10 @@ async function createWsHarness(port: number): Promise<WsHarness> {
         type: "deliver",
         id: input.requestId,
         ts: "2026-02-20T00:00:00.000Z",
-        fromAgentDid: input.fromAgentDid ?? makeAgentDid(generateUlid(1)),
-        toAgentDid: input.toAgentDid ?? makeAgentDid(generateUlid(2)),
+        fromAgentDid:
+          input.fromAgentDid ?? makeAgentDid(DID_AUTHORITY, generateUlid(1)),
+        toAgentDid:
+          input.toAgentDid ?? makeAgentDid(DID_AUTHORITY, generateUlid(2)),
         payload: input.payload,
       }),
     );
@@ -149,10 +157,54 @@ async function createWsHarness(port: number): Promise<WsHarness> {
   };
 }
 
-function createRuntimeCredentials() {
+function createRuntimeAitToken(input: {
+  agentDid: string;
+  ownerDid: string;
+  issuer: string;
+}): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: input.issuer,
+    sub: input.agentDid,
+    ownerDid: input.ownerDid,
+    name: "alpha",
+    framework: "openclaw",
+    cnf: {
+      jwk: {
+        kty: "OKP" as const,
+        crv: "Ed25519" as const,
+        x: encodeBase64url(randomBytes(32)),
+      },
+    },
+    iat: nowSeconds,
+    nbf: nowSeconds,
+    exp: nowSeconds + 3600,
+    jti: generateUlid(nowSeconds * 1000),
+  };
+  const header = {
+    alg: "EdDSA",
+    typ: "AIT",
+    kid: "test-registry-kid",
+  };
+
+  return [
+    encodeBase64url(Buffer.from(JSON.stringify(header), "utf8")),
+    encodeBase64url(Buffer.from(JSON.stringify(payload), "utf8")),
+    "signature",
+  ].join(".");
+}
+
+function createRuntimeCredentials(input: { issuer?: string } = {}) {
+  const agentDid = makeAgentDid(DID_AUTHORITY, generateUlid(100));
+  const ownerDid = makeHumanDid(DID_AUTHORITY, generateUlid(101));
+
   return {
-    agentDid: makeAgentDid(generateUlid(100)),
-    ait: "test-ait",
+    agentDid,
+    ait: createRuntimeAitToken({
+      agentDid,
+      ownerDid,
+      issuer: input.issuer ?? "https://registry.example.test",
+    }),
     secretKey: Buffer.from(randomBytes(32)).toString("base64url"),
     accessToken: "access-token",
     accessExpiresAt: "2100-01-01T00:00:00.000Z",
@@ -226,7 +278,6 @@ describe("startConnectorRuntime", () => {
       openclawBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
-      registryUrl: "https://registry.example.test",
     });
 
     try {
@@ -313,7 +364,6 @@ describe("startConnectorRuntime", () => {
       openclawBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
-      registryUrl: "https://registry.example.test",
     });
 
     try {
@@ -331,6 +381,72 @@ describe("startConnectorRuntime", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(postTokens).toEqual(["token-a", "token-b"]);
+    } finally {
+      await runtime.stop();
+      await wsHarness.cleanup();
+      sandbox.cleanup();
+    }
+  });
+
+  it("derives registry refresh URL from AIT issuer claims", async () => {
+    const sandbox = createSandbox();
+    const wsPort = await findAvailablePort();
+    const wsHarness = await createWsHarness(wsPort);
+    const outboundPort = await findAvailablePort();
+    const openclawBaseUrl = "http://127.0.0.1:39106";
+    const issuerFromAit = "https://registry.example.test/base";
+    const expectedRefreshUrl =
+      "https://registry.example.test/v1/agents/auth/refresh";
+    const refreshCalls: string[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      const method = init?.method ?? "GET";
+
+      if (method === "GET" && url === openclawBaseUrl) {
+        return new Response("ok", { status: 200 });
+      }
+
+      if (method === "POST" && url === expectedRefreshUrl) {
+        refreshCalls.push(url);
+        return new Response(
+          JSON.stringify({
+            tokenType: "Bearer",
+            accessToken: "refreshed-access-token",
+            accessExpiresAt: "2100-01-01T00:00:00.000Z",
+            refreshToken: "refreshed-refresh-token",
+            refreshExpiresAt: "2100-01-01T00:00:00.000Z",
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch call: ${method} ${url}`);
+    });
+
+    const credentials = createRuntimeCredentials({
+      issuer: issuerFromAit,
+    });
+    credentials.accessToken = "";
+    credentials.accessExpiresAt = "1970-01-01T00:00:00.000Z";
+
+    const runtime = await startConnectorRuntime({
+      agentName: "alpha",
+      configDir: sandbox.rootDir,
+      credentials,
+      fetchImpl: fetchMock,
+      openclawBaseUrl,
+      outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
+      proxyWebsocketUrl: wsHarness.wsUrl,
+    });
+
+    try {
+      expect(refreshCalls).toEqual([expectedRefreshUrl]);
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -378,7 +494,6 @@ describe("startConnectorRuntime", () => {
       openclawHookToken: "token-from-cli",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
-      registryUrl: "https://registry.example.test",
     });
 
     try {
@@ -446,7 +561,6 @@ describe("startConnectorRuntime", () => {
       openclawBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
-      registryUrl: "https://registry.example.test",
     });
 
     try {
@@ -520,7 +634,6 @@ describe("startConnectorRuntime", () => {
       openclawBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
-      registryUrl: "https://registry.example.test",
     });
 
     try {

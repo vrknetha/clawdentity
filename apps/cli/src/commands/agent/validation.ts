@@ -24,7 +24,7 @@ export const parseNonEmptyString = (value: unknown): string => {
 export const parseAgentIdFromDid = (agentName: string, did: string): string => {
   try {
     const parsedDid = parseDid(did);
-    if (parsedDid.kind !== "agent") {
+    if (parsedDid.entity !== "agent") {
       throw new Error("DID is not an agent DID");
     }
 

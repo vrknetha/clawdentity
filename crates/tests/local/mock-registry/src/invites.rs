@@ -70,7 +70,7 @@ pub(crate) async fn redeem_invite_handler(
     }
     invite.redeemed = true;
 
-    let owner_did = make_human_did();
+    let owner_did = make_human_did(&state.registry_url);
     let key_name = body
         .api_key_name
         .as_deref()

@@ -1,4 +1,8 @@
-import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
+import {
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
 import { describe, expect, it } from "vitest";
 import {
   ConnectorFrameParseError,
@@ -6,8 +10,10 @@ import {
   serializeFrame,
 } from "./frames.js";
 
+const DID_AUTHORITY = "registry.example.test";
+
 function createAgentDid(seedMs: number): string {
-  return makeAgentDid(generateUlid(seedMs));
+  return makeAgentDid(DID_AUTHORITY, generateUlid(seedMs));
 }
 
 describe("connector frame parsing", () => {
@@ -64,7 +70,7 @@ describe("connector frame parsing", () => {
       type: "enqueue",
       id: generateUlid(1700000000000),
       ts: "2026-01-01T00:00:00.000Z",
-      toAgentDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      toAgentDid: makeHumanDid(DID_AUTHORITY, generateUlid(1700000000100)),
       payload: {
         message: "hello",
       },

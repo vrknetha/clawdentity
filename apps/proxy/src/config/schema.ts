@@ -9,7 +9,6 @@ import {
   DEFAULT_OPENCLAW_BASE_URL,
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
-  DEFAULT_REGISTRY_URL,
   DEFAULT_RELAY_MAX_FRAME_BYTES,
   DEFAULT_RELAY_MAX_IN_FLIGHT_DELIVERIES,
   DEFAULT_RELAY_QUEUE_MAX_MESSAGES_PER_AGENT,
@@ -54,7 +53,7 @@ export const proxyRuntimeEnvSchema = z.object({
     .max(65535)
     .default(DEFAULT_PROXY_LISTEN_PORT),
   OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
-  REGISTRY_URL: z.string().trim().url().default(DEFAULT_REGISTRY_URL),
+  REGISTRY_URL: z.string().trim().url().optional(),
   REGISTRY_INTERNAL_SERVICE_ID: z.string().trim().min(1).optional(),
   REGISTRY_INTERNAL_SERVICE_SECRET: z.string().trim().min(1).optional(),
   ENVIRONMENT: z

@@ -23,8 +23,8 @@ fn seed_agent_material(config_dir: &Path, agent_name: &str) {
     );
     let payload = URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&serde_json::json!({
-            "sub":"did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-            "ownerDid":"did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            "sub":"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            "ownerDid":"did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
             "exp": 2208988800_u64,
             "framework":"openclaw",
             "cnf": {"jwk":{"kty":"OKP","crv":"Ed25519","x":"abc"}}
@@ -48,7 +48,7 @@ fn pairing_ticket_parsing_round_trip() {
     let payload = URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&serde_json::json!({
             "iss":"https://proxy.example",
-            "sub":"did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            "sub":"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
         }))
         .expect("payload"),
     );
@@ -66,7 +66,7 @@ async fn start_confirm_and_status_flow() {
     let ticket_payload = URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&serde_json::json!({
             "iss": server.uri(),
-            "sub":"did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+            "sub":"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
         }))
         .expect("payload"),
     );
@@ -76,7 +76,7 @@ async fn start_confirm_and_status_flow() {
         .and(path("/pair/start"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "ticket": ticket,
-            "initiatorAgentDid": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            "initiatorAgentDid": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
             "initiatorProfile": { "agentName":"alpha", "humanName":"alice" },
             "expiresAt": "2030-01-01T00:00:00.000Z"
         })))
@@ -86,9 +86,9 @@ async fn start_confirm_and_status_flow() {
             .and(path("/pair/confirm"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "paired": true,
-                "initiatorAgentDid": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                "initiatorAgentDid": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "initiatorProfile": { "agentName":"alpha", "humanName":"alice", "proxyOrigin": server.uri() },
-                "responderAgentDid": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT5",
+                "responderAgentDid": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT5",
                 "responderProfile": { "agentName":"beta", "humanName":"bob" }
             })))
             .mount(&server)
@@ -97,9 +97,9 @@ async fn start_confirm_and_status_flow() {
             .and(path("/pair/status"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "status": "confirmed",
-                "initiatorAgentDid": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                "initiatorAgentDid": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "initiatorProfile": { "agentName":"alpha", "humanName":"alice", "proxyOrigin": server.uri() },
-                "responderAgentDid": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                "responderAgentDid": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "responderProfile": { "agentName":"beta", "humanName":"bob" },
                 "expiresAt": "2030-01-01T00:00:00.000Z",
                 "confirmedAt": "2030-01-01T00:00:10.000Z"

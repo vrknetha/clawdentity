@@ -131,7 +131,7 @@ Tradeoff:
 ## R4) DID format for identities
 
 Decision:
-- Represent identities as `did:claw:<kind>:<ulid>`.
+- Represent identities as `did:cdi:<authority>:<entity>:<ulid>`.
 
 Why:
 - Clear type separation between human and agent identities.

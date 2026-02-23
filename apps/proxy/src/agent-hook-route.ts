@@ -1,5 +1,5 @@
 import {
-  parseDid,
+  parseAgentDid as parseProtocolAgentDid,
   RELAY_CONVERSATION_ID_HEADER,
   RELAY_DELIVERY_RECEIPT_URL_HEADER,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
@@ -125,19 +125,9 @@ function parseRecipientAgentDid(c: ProxyContext): string {
   }
 
   const recipientDid = recipientHeader.trim();
-  let parsedDid: ReturnType<typeof parseDid>;
   try {
-    parsedDid = parseDid(recipientDid);
+    parseProtocolAgentDid(recipientDid);
   } catch {
-    throw new AppError({
-      code: "PROXY_HOOK_RECIPIENT_INVALID",
-      message: "X-Claw-Recipient-Agent-Did must be a valid agent DID",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  if (parsedDid.kind !== "agent") {
     throw new AppError({
       code: "PROXY_HOOK_RECIPIENT_INVALID",
       message: "X-Claw-Recipient-Agent-Did must be a valid agent DID",

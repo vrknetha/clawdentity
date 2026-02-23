@@ -1,3 +1,4 @@
+import { parseAgentDid as parseProtocolAgentDid } from "@clawdentity/protocol";
 import { AppError } from "@clawdentity/sdk";
 import type { ConnectorServicePlatform } from "./types.js";
 
@@ -53,7 +54,9 @@ export function parseNonEmptyString(value: unknown, label: string): string {
 
 export function parseAgentDid(value: unknown): string {
   const did = parseNonEmptyString(value, "agent did");
-  if (!did.startsWith("did:claw:agent:")) {
+  try {
+    parseProtocolAgentDid(did);
+  } catch {
     throw createCliError(
       "CLI_CONNECTOR_INVALID_AGENT_IDENTITY",
       "Agent identity is invalid for connector startup",

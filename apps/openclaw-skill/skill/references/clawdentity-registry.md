@@ -27,7 +27,7 @@ clawdentity admin bootstrap --bootstrap-secret <secret>
 
 ```
 Admin bootstrap completed
-Human DID: did:claw:human:01H...
+Human DID: did:cdi:<authority>:human:01H...
 API key name: <name>
 API key token (shown once):
 <token>

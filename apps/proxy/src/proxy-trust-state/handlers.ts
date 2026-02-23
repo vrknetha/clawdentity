@@ -62,7 +62,7 @@ export class ProxyTrustStateHandlers {
       }
       try {
         const parsedResponderDid = parseDid(body.allowResponderAgentDid.trim());
-        if (parsedResponderDid.kind !== "agent") {
+        if (parsedResponderDid.entity !== "agent") {
           throw new Error("invalid kind");
         }
       } catch {

@@ -7,7 +7,8 @@ import {
 } from "./cache.js";
 
 const REGISTRY_ISSUER = "https://registry.clawdentity.dev";
-const AGENT_DID = "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
+const AGENT_DID =
+  "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
 const CRL_JTI = "01HF7YAT4TXP6AW5QNXA2Y9K43";
 const REVOCATION_JTI_A = "01HF7YAT31JZHSMW1CG6Q6MHB7";
 const REVOCATION_JTI_B = "01HF7YAT5QJ4K3YVQJ6Q2F9M1N";

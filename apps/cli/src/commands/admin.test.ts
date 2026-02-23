@@ -16,7 +16,7 @@ describe("admin bootstrap helper", () => {
         JSON.stringify({
           human: {
             id: "00000000000000000000000000",
-            did: "did:claw:human:00000000000000000000000000",
+            did: "did:cdi:registry.clawdentity.dev:human:00000000000000000000000000",
             displayName: "Primary Admin",
             role: "admin",
             status: "active",
@@ -49,7 +49,9 @@ describe("admin bootstrap helper", () => {
       },
     );
 
-    expect(result.human.did).toBe("did:claw:human:00000000000000000000000000");
+    expect(result.human.did).toBe(
+      "did:cdi:registry.clawdentity.dev:human:00000000000000000000000000",
+    );
     expect(result.apiKey.token).toBe("clw_pat_testtoken");
     expect(result.internalService.id).toBe("01KHH000000000000000000002");
     expect(result.registryUrl).toBe("https://api.example.com/");

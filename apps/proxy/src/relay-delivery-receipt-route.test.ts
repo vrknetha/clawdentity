@@ -9,8 +9,10 @@ vi.mock("./auth-middleware.js", async () => {
         if (c.req.header("x-test-missing-auth") !== "1") {
           c.set("auth", {
             agentDid:
-              c.req.header("x-test-auth-agent-did") ?? "did:claw:agent:alpha",
-            ownerDid: "did:claw:owner:alpha",
+              c.req.header("x-test-auth-agent-did") ??
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+            ownerDid:
+              "did:cdi:registry.clawdentity.dev:human:01HF7YAT00S80QZY8QB7FSRVFF",
             issuer: "https://registry.example.com",
             aitJti: "ait-jti-alpha",
             cnfPublicKey: "test-public-key",
@@ -86,7 +88,8 @@ function createRelayReceiptHarness(input?: {
                   requestId: payload.requestId,
                   state: input?.lookupReceiptState ?? "processed_by_openclaw",
                   senderAgentDid: payload.senderAgentDid,
-                  recipientAgentDid: "did:claw:agent:beta",
+                  recipientAgentDid:
+                    "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
                   statusUpdatedAt: "2026-02-20T00:00:00.000Z",
                   expiresAtMs: Date.now() + 60_000,
                 },
@@ -142,8 +145,10 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:beta",
-          responder: "did:claw:agent:alpha",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         },
       ],
     });
@@ -158,8 +163,10 @@ describe("relay delivery receipt route", () => {
         },
         body: JSON.stringify({
           requestId: "req-1",
-          senderAgentDid: "did:claw:agent:beta",
-          recipientAgentDid: "did:claw:agent:alpha",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
           status: "processed_by_openclaw",
         }),
       },
@@ -180,8 +187,10 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:beta",
-          responder: "did:claw:agent:alpha",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         },
       ],
     });
@@ -196,8 +205,10 @@ describe("relay delivery receipt route", () => {
         },
         body: JSON.stringify({
           requestId: "req-2",
-          senderAgentDid: "did:claw:agent:beta",
-          recipientAgentDid: "did:claw:agent:gamma",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT4TXP6AW5QNXA2Y9K43",
           status: "dead_lettered",
         }),
       },
@@ -217,8 +228,10 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:beta",
-          responder: "did:claw:agent:alpha",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         },
       ],
     });
@@ -233,8 +246,10 @@ describe("relay delivery receipt route", () => {
         },
         body: JSON.stringify({
           requestId: "   ",
-          senderAgentDid: "did:claw:agent:beta",
-          recipientAgentDid: "did:claw:agent:alpha",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
           status: "processed_by_openclaw",
         }),
       },
@@ -254,8 +269,10 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:beta",
-          responder: "did:claw:agent:alpha",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         },
       ],
     });
@@ -271,7 +288,8 @@ describe("relay delivery receipt route", () => {
         body: JSON.stringify({
           requestId: "req-6",
           senderAgentDid: "\n\t",
-          recipientAgentDid: "did:claw:agent:alpha",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
           status: "processed_by_openclaw",
         }),
       },
@@ -291,8 +309,10 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:beta",
-          responder: "did:claw:agent:alpha",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         },
       ],
     });
@@ -307,7 +327,8 @@ describe("relay delivery receipt route", () => {
         },
         body: JSON.stringify({
           requestId: "req-7",
-          senderAgentDid: "did:claw:agent:beta",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid: "   ",
           status: "processed_by_openclaw",
         }),
@@ -328,14 +349,16 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:alpha",
-          responder: "did:claw:agent:beta",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         },
       ],
     });
 
     const response = await app.request(
-      `${RELAY_DELIVERY_RECEIPTS_PATH}?requestId=req-3&recipientAgentDid=did:claw:agent:beta`,
+      `${RELAY_DELIVERY_RECEIPTS_PATH}?requestId=req-3&recipientAgentDid=did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7`,
       {
         method: "GET",
         headers: {
@@ -357,7 +380,7 @@ describe("relay delivery receipt route", () => {
     expect(body.receipt?.state).toBe("processed_by_openclaw");
     expect(relayHarness.lookupInputs).toHaveLength(1);
     expect(relayHarness.lookupInputs[0]?.senderAgentDid).toBe(
-      "did:claw:agent:alpha",
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     );
   });
 
@@ -368,14 +391,16 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:alpha",
-          responder: "did:claw:agent:beta",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         },
       ],
     });
 
     const response = await app.request(
-      `${RELAY_DELIVERY_RECEIPTS_PATH}?requestId=req-4&recipientAgentDid=did:claw:agent:beta`,
+      `${RELAY_DELIVERY_RECEIPTS_PATH}?requestId=req-4&recipientAgentDid=did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7`,
       {
         method: "GET",
         headers: {
@@ -398,14 +423,16 @@ describe("relay delivery receipt route", () => {
     const app = createApp({
       allowedPairs: [
         {
-          initiator: "did:claw:agent:alpha",
-          responder: "did:claw:agent:beta",
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         },
       ],
     });
 
     const response = await app.request(
-      `${RELAY_DELIVERY_RECEIPTS_PATH}?requestId=req-5&recipientAgentDid=did:claw:agent:beta`,
+      `${RELAY_DELIVERY_RECEIPTS_PATH}?requestId=req-5&recipientAgentDid=did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7`,
       {
         method: "GET",
         headers: {

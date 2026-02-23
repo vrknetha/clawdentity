@@ -191,7 +191,7 @@ impl PlatformProvider for PicoclawProvider {
         })
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
         let mut checks = Vec::new();
         let state_dir =
@@ -379,7 +379,7 @@ impl PlatformProvider for PicoclawProvider {
         })
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let checked_at = now_iso();
         let state_dir =
@@ -568,7 +568,8 @@ mod tests {
         metadata.insert("thread".to_string(), "relay".to_string());
 
         let request = provider.format_inbound(&InboundMessage {
-            sender_did: "did:claw:sender".to_string(),
+            sender_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB"
+                .to_string(),
             recipient_did: "chat-123".to_string(),
             content: "hello".to_string(),
             request_id: Some("req-123".to_string()),
@@ -580,7 +581,7 @@ mod tests {
                 .headers
                 .get("x-webhook-sender-id")
                 .map(String::as_str),
-            Some("did:claw:sender")
+            Some("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB")
         );
         assert_eq!(
             request.headers.get("x-webhook-chat-id").map(String::as_str),

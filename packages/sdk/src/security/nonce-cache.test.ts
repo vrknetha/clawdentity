@@ -28,11 +28,13 @@ describe("nonce cache", () => {
     });
 
     const first = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-1",
     });
     const second = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-1",
     });
 
@@ -52,12 +54,14 @@ describe("nonce cache", () => {
     });
 
     const first = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-2",
     });
     now += ttlMs + 1;
     const second = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-2",
     });
 
@@ -71,11 +75,13 @@ describe("nonce cache", () => {
     });
 
     const first = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-shared",
     });
     const second = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       nonce: "nonce-shared",
     });
 
@@ -91,14 +97,16 @@ describe("nonce cache", () => {
     });
 
     cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-3",
     });
     now += 101;
     cache.purgeExpired();
 
     const next = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-3",
     });
     expect(next.accepted).toBe(true);
@@ -113,7 +121,8 @@ describe("nonce cache", () => {
     });
 
     cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: targetNonce,
     });
     now += 101;
@@ -133,7 +142,8 @@ describe("nonce cache", () => {
 
     try {
       cache.tryAcceptNonce({
-        agentDid: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        agentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         nonce: "nonce-fresh",
       });
     } finally {

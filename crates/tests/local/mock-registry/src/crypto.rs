@@ -86,10 +86,26 @@ pub(crate) fn random_b64url(size: usize) -> Option<String> {
     Some(URL_SAFE_NO_PAD.encode(bytes))
 }
 
-pub(crate) fn make_human_did() -> String {
-    format!("did:claw:human:{}", Ulid::new())
+fn did_authority_from_registry_url(registry_url: &str) -> String {
+    url::Url::parse(registry_url)
+        .ok()
+        .and_then(|value| value.host_str().map(ToOwned::to_owned))
+        .filter(|host| !host.is_empty())
+        .unwrap_or_else(|| "localhost".to_string())
 }
 
-pub(crate) fn make_agent_did() -> String {
-    format!("did:claw:agent:{}", Ulid::new())
+pub(crate) fn make_human_did(registry_url: &str) -> String {
+    format!(
+        "did:cdi:{}:human:{}",
+        did_authority_from_registry_url(registry_url),
+        Ulid::new()
+    )
+}
+
+pub(crate) fn make_agent_did(registry_url: &str) -> String {
+    format!(
+        "did:cdi:{}:agent:{}",
+        did_authority_from_registry_url(registry_url),
+        Ulid::new()
+    )
 }

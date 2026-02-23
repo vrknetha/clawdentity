@@ -1,7 +1,8 @@
 import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import {
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
-  parseDid,
+  parseAgentDid,
+  parseHumanDid,
 } from "@clawdentity/protocol";
 import { AppError } from "./exceptions.js";
 
@@ -119,12 +120,8 @@ function validateOwnershipInput(input: {
   agentDid: string;
 }): void {
   try {
-    if (parseDid(input.ownerDid).kind !== "human") {
-      throw new Error("invalid owner did");
-    }
-    if (parseDid(input.agentDid).kind !== "agent") {
-      throw new Error("invalid agent did");
-    }
+    parseHumanDid(input.ownerDid);
+    parseAgentDid(input.agentDid);
   } catch {
     throw new AppError({
       code: "IDENTITY_SERVICE_INVALID_INPUT",

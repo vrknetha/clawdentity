@@ -266,7 +266,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "human": {
                     "id": "01HF7YAT00W6W7CM7N3W5FDXT4",
-                    "did": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+                    "did": "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
                     "displayName": "Alice",
                     "role": "admin",
                     "status": "active"

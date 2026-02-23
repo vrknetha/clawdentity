@@ -24,7 +24,6 @@ export type StartConnectorRuntimeInput = {
   outboundBaseUrl?: string;
   outboundPath?: string;
   proxyWebsocketUrl?: string;
-  registryUrl: string;
 };
 
 export type ConnectorRuntimeHandle = {

@@ -11,6 +11,10 @@ import {
   shouldExposeVerboseErrors,
 } from "@clawdentity/sdk";
 import { and, eq, isNull } from "drizzle-orm";
+import {
+  resolveDidAuthorityFromIssuer,
+  resolveRegistryIssuer,
+} from "../../agent-registration.js";
 import { createApiKeyAuth } from "../../auth/api-key-auth.js";
 import {
   deriveApiKeyLookupPrefix,
@@ -145,8 +149,10 @@ export function registerInviteRoutes(input: RegistryRouteDependencies): void {
       throw inviteRedeemExpiredError();
     }
 
+    const issuer = resolveRegistryIssuer(config);
+    const didAuthority = resolveDidAuthorityFromIssuer(issuer);
     const humanId = generateUlid(nowMillis);
-    const humanDid = makeHumanDid(humanId);
+    const humanDid = makeHumanDid(didAuthority, humanId);
     const apiKeyToken = generateApiKeyToken();
     const apiKeyHash = await hashApiKeyToken(apiKeyToken);
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);

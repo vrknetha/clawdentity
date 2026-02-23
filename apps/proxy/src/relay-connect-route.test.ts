@@ -7,8 +7,10 @@ vi.mock("./auth-middleware.js", async () => {
     createProxyAuthMiddleware: () =>
       createMiddleware(async (c, next) => {
         c.set("auth", {
-          agentDid: "did:claw:agent:connector",
-          ownerDid: "did:claw:owner:connector",
+          agentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT7NQWWJ9ZXM8P9J8H4C",
+          ownerDid:
+            "did:cdi:registry.clawdentity.dev:human:01HF7YAT00S80QZY8QB7FSRVFF",
           issuer: "https://registry.example.com",
           aitJti: "ait-jti-connector",
           cnfPublicKey: "test-public-key",
@@ -79,7 +81,7 @@ describe(`GET ${RELAY_CONNECT_PATH}`, () => {
 
     expect(response.status).toBe(204);
     expect(relayHarness.idFromName).toHaveBeenCalledWith(
-      "did:claw:agent:connector",
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT7NQWWJ9ZXM8P9J8H4C",
     );
     expect(relayHarness.get).toHaveBeenCalledTimes(1);
     expect(relayHarness.fetchRelaySession).toHaveBeenCalledTimes(1);
@@ -88,7 +90,7 @@ describe(`GET ${RELAY_CONNECT_PATH}`, () => {
       Request,
     ];
     expect(forwardedRequest.headers.get("x-claw-connector-agent-did")).toBe(
-      "did:claw:agent:connector",
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT7NQWWJ9ZXM8P9J8H4C",
     );
   });
 

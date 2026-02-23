@@ -18,7 +18,7 @@ pub enum ConnectorServicePlatform {
 }
 
 impl ConnectorServicePlatform {
-/// TODO(clawdentity): document `as_str`.
+    /// TODO(clawdentity): document `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Launchd => "launchd",

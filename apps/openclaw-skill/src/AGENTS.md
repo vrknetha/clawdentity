@@ -9,6 +9,7 @@
 ## Safety Rules
 - Validate external input (`payload`, peer config JSON) before use.
 - Reuse `@clawdentity/common` guards (for example `isRecord`) instead of redefining local record/type guard helpers in transform modules.
+- Peer DID validation must be DID v2 only: accept `did:cdi:<authority>:<agent|human>:<ulid>` via protocol parsers (`parseDid` / `parseAgentDid`) and never use raw prefix checks.
 - Do not log relay payload contents or local connector credential material.
 - Keep local auth/lock timestamps UTC and standardized via SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`) instead of direct `Date` calls.
 - Keep transform relay path as local connector handoff only, not direct peer HTTP calls.

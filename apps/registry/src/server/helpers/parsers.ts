@@ -1,4 +1,9 @@
-import { generateUlid, parseDid, parseUlid } from "@clawdentity/protocol";
+import {
+  generateUlid,
+  parseAgentDid as parseProtocolAgentDid,
+  parseHumanDid as parseProtocolHumanDid,
+  parseUlid,
+} from "@clawdentity/protocol";
 import {
   AppError,
   nowUtcMs,
@@ -236,10 +241,7 @@ function parseHumanDid(value: unknown): string {
 
   const candidate = value.trim();
   try {
-    const parsed = parseDid(candidate);
-    if (parsed.kind !== "human") {
-      throw new Error("invalid");
-    }
+    parseProtocolHumanDid(candidate);
   } catch {
     throw new AppError({
       code: "AGENT_OWNERSHIP_INVALID",
@@ -273,10 +275,7 @@ function parseAgentDid(value: unknown): string {
 
   const candidate = value.trim();
   try {
-    const parsed = parseDid(candidate);
-    if (parsed.kind !== "agent") {
-      throw new Error("invalid");
-    }
+    parseProtocolAgentDid(candidate);
   } catch {
     throw new AppError({
       code: "AGENT_OWNERSHIP_INVALID",

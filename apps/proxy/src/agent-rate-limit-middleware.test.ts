@@ -38,7 +38,8 @@ function createRateLimitTestApp(input: {
     if (typeof testAgentDid === "string" && testAgentDid.trim().length > 0) {
       c.set("auth", {
         agentDid: testAgentDid,
-        ownerDid: "did:claw:human:test-owner",
+        ownerDid:
+          "did:cdi:registry.clawdentity.dev:human:01HF7YAT00S80QZY8QB7FSRVFF",
         aitJti: "test-jti",
         issuer: "https://registry.clawdentity.com",
         cnfPublicKey: "test-key",
@@ -79,7 +80,8 @@ describe("proxy agent DID rate limit middleware", () => {
     });
     const headers = {
       "content-type": "application/json",
-      "x-test-agent-did": "did:claw:agent:alpha",
+      "x-test-agent-did":
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     };
 
     const first = await app.request("/protected", {
@@ -104,7 +106,8 @@ describe("proxy agent DID rate limit middleware", () => {
     const body = (await third.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_RATE_LIMIT_EXCEEDED");
     expect(logger.warnSpy).toHaveBeenCalledWith("proxy.rate_limit.exceeded", {
-      agentDid: "did:claw:agent:alpha",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
       windowMs: 60_000,
       maxRequests: 2,
     });
@@ -121,11 +124,13 @@ describe("proxy agent DID rate limit middleware", () => {
 
     const alphaHeaders = {
       "content-type": "application/json",
-      "x-test-agent-did": "did:claw:agent:alpha",
+      "x-test-agent-did":
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     };
     const betaHeaders = {
       "content-type": "application/json",
-      "x-test-agent-did": "did:claw:agent:beta",
+      "x-test-agent-did":
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
     };
 
     const alphaFirst = await app.request("/protected", {
@@ -160,7 +165,8 @@ describe("proxy agent DID rate limit middleware", () => {
     });
     const headers = {
       "content-type": "application/json",
-      "x-test-agent-did": "did:claw:agent:alpha",
+      "x-test-agent-did":
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     };
 
     const first = await app.request("/protected", {

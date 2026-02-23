@@ -93,8 +93,12 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     expect(requestInit?.method).toBe("POST");
     expect(requestInit?.headers).toMatchObject({
       "content-type": "application/json",
-      "x-clawdentity-agent-did": expect.stringMatching(/^did:claw:agent:/),
-      "x-clawdentity-to-agent-did": expect.stringMatching(/^did:claw:agent:/),
+      "x-clawdentity-agent-did": expect.stringMatching(
+        /^did:cdi:registry.clawdentity.com:agent:/,
+      ),
+      "x-clawdentity-to-agent-did": expect.stringMatching(
+        /^did:cdi:registry.clawdentity.com:agent:/,
+      ),
       "x-clawdentity-verified": "true",
       "x-openclaw-token": "hook-secret",
       "x-request-id": deliverId,

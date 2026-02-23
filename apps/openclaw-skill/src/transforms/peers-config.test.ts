@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
 import { describe, expect, it } from "vitest";
 import {
   addPeer,
@@ -8,6 +9,13 @@ import {
   resolvePeersConfigPath,
   savePeersConfig,
 } from "./peers-config.js";
+
+const DID_AUTHORITY = "registry.example.test";
+const BETA_AGENT_DID = makeAgentDid(DID_AUTHORITY, generateUlid(1700000000000));
+const ALPHA_AGENT_DID = makeAgentDid(
+  DID_AUTHORITY,
+  generateUlid(1700000001000),
+);
 
 function createSandbox(): { cleanup: () => void; homeDir: string } {
   const root = mkdtempSync(join(tmpdir(), "clawdentity-openclaw-skill-"));
@@ -44,7 +52,7 @@ describe("peers config", () => {
         {
           peers: {
             beta: {
-              did: "did:claw:agent:01TEST",
+              did: BETA_AGENT_DID,
               proxyUrl: "https://beta.example.com/hooks/agent",
               agentName: "beta",
               humanName: "Ira",
@@ -58,7 +66,7 @@ describe("peers config", () => {
       expect(loaded).toEqual({
         peers: {
           beta: {
-            did: "did:claw:agent:01TEST",
+            did: BETA_AGENT_DID,
             proxyUrl: "https://beta.example.com/hooks/agent",
             agentName: "beta",
             humanName: "Ira",
@@ -77,7 +85,7 @@ describe("peers config", () => {
       await addPeer(
         "alpha",
         {
-          did: "did:claw:agent:01ALPHA",
+          did: ALPHA_AGENT_DID,
           proxyUrl: "https://alpha.example.com/hooks/agent",
         },
         { homeDir: sandbox.homeDir },
@@ -87,7 +95,7 @@ describe("peers config", () => {
       expect(loaded).toEqual({
         peers: {
           alpha: {
-            did: "did:claw:agent:01ALPHA",
+            did: ALPHA_AGENT_DID,
             proxyUrl: "https://alpha.example.com/hooks/agent",
           },
         },

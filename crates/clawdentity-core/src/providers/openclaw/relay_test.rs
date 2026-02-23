@@ -372,7 +372,8 @@ mod tests {
             store,
             PersistPeerInput {
                 alias: Some("peer-alpha".to_string()),
-                did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+                did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                    .to_string(),
                 proxy_url: "https://proxy.example/hooks/agent".to_string(),
                 agent_name: Some("alpha".to_string()),
                 human_name: Some("alice".to_string()),

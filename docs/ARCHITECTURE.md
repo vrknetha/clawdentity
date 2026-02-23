@@ -168,7 +168,7 @@ AIT claims used throughout flows:
 
 | Claim | Purpose |
 |------|---------|
-| `sub` | Agent DID (`did:claw:agent:<ulid>`) |
+| `sub` | Agent DID (`did:cdi:<authority>:agent:<ulid>`) |
 | `ownerDid` | Owning human DID |
 | `cnf.jwk.x` | Public key material for PoP verification |
 | `jti` | Token identifier for revocation checks |
@@ -468,7 +468,7 @@ connector start
 ### Rust Types, Storage, and Security
 
 Identity/signing:
-- DID format: `did:claw:{human|agent}:<ULID>`
+- DID format: `did:cdi:<authority>:{human|agent}:<ULID>`
 - signing primitive: Ed25519
 - proof headers: timestamp/nonce/body-hash/proof signature
 

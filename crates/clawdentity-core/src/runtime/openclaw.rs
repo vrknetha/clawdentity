@@ -9,7 +9,7 @@ pub struct OpenclawRuntimeConfig {
 }
 
 impl OpenclawRuntimeConfig {
-/// TODO(clawdentity): document `hook_url`.
+    /// TODO(clawdentity): document `hook_url`.
     pub fn hook_url(&self) -> Result<String> {
         let base = self.base_url.trim();
         if base.is_empty() {

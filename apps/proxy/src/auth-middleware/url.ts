@@ -33,16 +33,7 @@ export function toRegistryUrl(registryUrl: string, path: string): string {
 
 export function resolveExpectedIssuer(registryUrl: string): string | undefined {
   try {
-    const hostname = new URL(registryUrl).hostname;
-    if (hostname === "registry.clawdentity.com") {
-      return "https://registry.clawdentity.com";
-    }
-
-    if (hostname === "dev.registry.clawdentity.com") {
-      return "https://dev.registry.clawdentity.com";
-    }
-
-    return undefined;
+    return new URL(registryUrl).origin;
   } catch {
     return undefined;
   }

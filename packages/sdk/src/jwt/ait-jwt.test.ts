@@ -13,11 +13,12 @@ function makeClaims(overrides: Partial<AitClaims> = {}): AitClaims {
   const agentUlid = generateUlid(1700100000000);
   const ownerUlid = generateUlid(1700100001000);
   const now = Math.floor(Date.now() / 1000);
+  const authority = "registry.clawdentity.dev";
 
   return {
-    iss: "https://registry.clawdentity.dev",
-    sub: makeAgentDid(agentUlid),
-    ownerDid: makeHumanDid(ownerUlid),
+    iss: `https://${authority}`,
+    sub: makeAgentDid(authority, agentUlid),
+    ownerDid: makeHumanDid(authority, ownerUlid),
     name: "agent-jwt-01",
     framework: "openclaw",
     description: "AIT JWT test payload",

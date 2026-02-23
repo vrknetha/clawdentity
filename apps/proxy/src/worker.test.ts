@@ -184,9 +184,7 @@ describe("proxy worker", () => {
       };
     };
     expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
-    expect(payload.error.details.fieldErrors?.REGISTRY_URL?.[0]).toBe(
-      "REGISTRY_URL is required",
-    );
+    expect(payload.error.details.fieldErrors?.REGISTRY_URL).toBeUndefined();
     expect(
       payload.error.details.fieldErrors?.BOOTSTRAP_INTERNAL_SERVICE_ID?.[0],
     ).toBe("BOOTSTRAP_INTERNAL_SERVICE_ID is required");

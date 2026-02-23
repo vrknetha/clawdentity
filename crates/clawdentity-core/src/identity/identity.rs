@@ -8,7 +8,7 @@ use getrandom::fill as getrandom_fill;
 use serde::{Deserialize, Serialize};
 
 use crate::config::{CliConfig, ConfigPathOptions, get_config_dir, resolve_config, write_config};
-use crate::did::make_human_did;
+use crate::did::{did_authority_from_url, new_human_did};
 use crate::error::{CoreError, Result};
 
 const IDENTITY_FILE: &str = "identity.json";
@@ -32,7 +32,7 @@ pub struct PublicIdentityView {
 }
 
 impl LocalIdentity {
-/// TODO(clawdentity): document `public_view`.
+    /// TODO(clawdentity): document `public_view`.
     pub fn public_view(&self) -> PublicIdentityView {
         PublicIdentityView {
             did: self.did.clone(),
@@ -114,7 +114,8 @@ pub fn init_identity(
     let signing_key = SigningKey::from_bytes(&secret_bytes);
     let verifying_key: VerifyingKey = signing_key.verifying_key();
 
-    let did = make_human_did();
+    let did_authority = did_authority_from_url(&config.registry_url, "registryUrl")?;
+    let did = new_human_did(&did_authority)?;
     let identity = LocalIdentity {
         did,
         public_key: URL_SAFE_NO_PAD.encode(verifying_key.as_bytes()),

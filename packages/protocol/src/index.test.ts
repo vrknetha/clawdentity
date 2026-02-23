@@ -26,9 +26,11 @@ import {
   makeHumanDid,
   PROTOCOL_VERSION,
   ProtocolParseError,
+  parseAgentDid,
   parseAitClaims,
   parseCrlClaims,
   parseDid,
+  parseHumanDid,
   parseUlid,
   REGISTRY_METADATA_PATH,
   RELAY_CONNECT_PATH,
@@ -59,16 +61,29 @@ describe("protocol", () => {
   });
 
   it("exports helpers from package root", () => {
+    const authority = "registry.clawdentity.dev";
     const ulid = generateUlid(1700000000000);
-    const humanDid = makeHumanDid(ulid);
-    const agentDid = makeAgentDid(ulid);
+    const humanDid = makeHumanDid(authority, ulid);
+    const agentDid = makeAgentDid(authority, ulid);
     const encoded = encodeBase64url(Uint8Array.from([1, 2, 3]));
 
     expect(encoded).toBe("AQID");
     expect(Array.from(decodeBase64url(encoded))).toEqual([1, 2, 3]);
     expect(parseUlid(ulid).value).toBe(ulid);
-    expect(parseDid(humanDid)).toEqual({ kind: "human", ulid });
-    expect(parseDid(agentDid)).toEqual({ kind: "agent", ulid });
+    expect(parseDid(humanDid)).toEqual({
+      method: "cdi",
+      authority,
+      entity: "human",
+      ulid,
+    });
+    expect(parseDid(agentDid)).toEqual({
+      method: "cdi",
+      authority,
+      entity: "agent",
+      ulid,
+    });
+    expect(parseHumanDid(humanDid).entity).toBe("human");
+    expect(parseAgentDid(agentDid).entity).toBe("agent");
     expect(ProtocolParseError).toBeTypeOf("function");
   });
 
@@ -98,7 +113,8 @@ describe("protocol", () => {
     const canonical = canonicalizeAgentRegistrationProof({
       challengeId: "01JCHALLENGEABC",
       nonce: "nonce123",
-      ownerDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      ownerDid:
+        "did:cdi:registry.clawdentity.dev:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
       name: "agent_01",
     });
@@ -121,7 +137,7 @@ describe("protocol", () => {
         "clawdentity.register.v1",
         "challengeId:01JCHALLENGEABC",
         "nonce:nonce123",
-        "ownerDid:did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        "ownerDid:did:cdi:registry.clawdentity.dev:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
         "publicKey:AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
         "name:agent_01",
         "framework:",
@@ -131,12 +147,13 @@ describe("protocol", () => {
   });
 
   it("exports AIT helpers from package root", () => {
+    const authority = "registry.clawdentity.dev";
     const agentUlid = generateUlid(1700000000000);
     const ownerUlid = generateUlid(1700000000100);
     const parsed = parseAitClaims({
-      iss: "https://registry.clawdentity.dev",
-      sub: makeAgentDid(agentUlid),
-      ownerDid: makeHumanDid(ownerUlid),
+      iss: `https://${authority}`,
+      sub: makeAgentDid(authority, agentUlid),
+      ownerDid: makeHumanDid(authority, ownerUlid),
       name: "agent_01",
       framework: "openclaw",
       cnf: {
@@ -162,12 +179,13 @@ describe("protocol", () => {
   });
 
   it("exports CRL helpers from package root", () => {
+    const authority = "registry.clawdentity.dev";
     const now = 1700000000;
     const agentUlid = generateUlid(now);
-    const agentDid = makeAgentDid(agentUlid);
+    const agentDid = makeAgentDid(authority, agentUlid);
 
     const parsed = parseCrlClaims({
-      iss: "https://registry.clawdentity.dev",
+      iss: `https://${authority}`,
       jti: generateUlid(now + 1000),
       iat: now,
       exp: now + 3600,

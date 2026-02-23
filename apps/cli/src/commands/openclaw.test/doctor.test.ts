@@ -24,7 +24,7 @@ describe("openclaw doctor helpers", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -91,7 +91,7 @@ describe("openclaw doctor helpers", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -156,7 +156,7 @@ describe("openclaw doctor helpers", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -477,7 +477,7 @@ describe("openclaw doctor helpers", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });

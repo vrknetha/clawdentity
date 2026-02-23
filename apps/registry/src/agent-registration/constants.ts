@@ -30,3 +30,19 @@ export function resolveRegistryIssuer(
 
   return REGISTRY_ISSUER_BY_ENVIRONMENT[config.ENVIRONMENT];
 }
+
+export function resolveDidAuthorityFromIssuer(issuer: string): string {
+  let parsedIssuer: URL;
+  try {
+    parsedIssuer = new URL(issuer);
+  } catch {
+    throw new Error("Registry issuer URL is invalid");
+  }
+
+  const authority = parsedIssuer.hostname.trim().toLowerCase();
+  if (authority.length === 0) {
+    throw new Error("Registry issuer URL must include a hostname");
+  }
+
+  return authority;
+}

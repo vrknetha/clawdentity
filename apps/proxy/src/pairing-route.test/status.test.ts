@@ -1,13 +1,24 @@
-import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
+import {
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPairingTicket,
   createPairingTicketSigningKey,
 } from "../pairing-ticket.js";
 
-const INITIATOR_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_000));
-const RESPONDER_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_100));
-const OWNER_DID = "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7";
+const DID_AUTHORITY = "registry.clawdentity.com";
+const INITIATOR_AGENT_DID = makeAgentDid(
+  DID_AUTHORITY,
+  generateUlid(1_700_000_000_000),
+);
+const RESPONDER_AGENT_DID = makeAgentDid(
+  DID_AUTHORITY,
+  generateUlid(1_700_000_000_100),
+);
+const OWNER_DID = makeHumanDid(DID_AUTHORITY, "01HF7YAT31JZHSMW1CG6Q6MHB7");
 const INITIATOR_PROFILE = {
   agentName: "alpha",
   humanName: "Ravi",
@@ -240,7 +251,10 @@ describe(`POST ${PAIR_STATUS_PATH}`, () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-test-agent-did": makeAgentDid(generateUlid(1_700_000_000_300)),
+        "x-test-agent-did": makeAgentDid(
+          DID_AUTHORITY,
+          generateUlid(1_700_000_000_300),
+        ),
       },
       body: JSON.stringify({
         ticket: ticket.ticket,

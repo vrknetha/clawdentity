@@ -18,16 +18,17 @@ const textDecoder = new TextDecoder();
 function makeClaims(overrides: Partial<CrlClaims> = {}): CrlClaims {
   const now = Math.floor(Date.now() / 1000);
   const agentId = generateUlid(1700105002000);
+  const authority = "registry.clawdentity.dev";
 
   return {
-    iss: "https://registry.clawdentity.dev",
+    iss: `https://${authority}`,
     jti: generateUlid(1700105000000),
     iat: now,
     exp: now + 3600,
     revocations: [
       {
         jti: generateUlid(1700105001000),
-        agentDid: makeAgentDid(agentId),
+        agentDid: makeAgentDid(authority, agentId),
         reason: "compromised key",
         revokedAt: now,
       },

@@ -2,9 +2,15 @@ import {
   ADMIN_INTERNAL_SERVICES_PATH,
   generateUlid,
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
+  parseAgentDid,
+  parseHumanDid,
 } from "@clawdentity/protocol";
 import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
 import { desc, eq } from "drizzle-orm";
+import {
+  resolveDidAuthorityFromIssuer,
+  resolveRegistryIssuer,
+} from "../../agent-registration.js";
 import { createApiKeyAuth } from "../../auth/api-key-auth.js";
 import {
   createServiceAuth,
@@ -273,6 +279,23 @@ export function registerInternalServiceRoutes(
       }
 
       const parsed = parseInternalOwnershipCheckPayload(payload);
+      const config = getConfig(c.env);
+      const issuer = resolveRegistryIssuer(config);
+      const localAuthority = resolveDidAuthorityFromIssuer(issuer);
+      const parsedOwnerDid = parseHumanDid(parsed.ownerDid);
+      const parsedAgentDid = parseAgentDid(parsed.agentDid);
+      if (
+        parsedOwnerDid.authority !== localAuthority ||
+        parsedAgentDid.authority !== localAuthority
+      ) {
+        throw new AppError({
+          code: "AGENT_OWNERSHIP_INVALID",
+          message: "Ownership payload is invalid",
+          status: 400,
+          expose: true,
+        });
+      }
+
       const db = createDb(c.env.DB);
 
       const rows = await db

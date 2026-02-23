@@ -59,7 +59,10 @@ describe("sdk", () => {
     const eventBus = createInMemoryEventBus();
     const event = createEventEnvelope({
       type: "agent.auth.issued",
-      data: { agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4" },
+      data: {
+        agentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      },
     });
     const identityClient = createRegistryIdentityClient({
       registryUrl: "https://registry.clawdentity.com",
@@ -143,8 +146,9 @@ describe("sdk", () => {
     const token = await signAIT({
       claims: {
         iss: "https://registry.clawdentity.dev",
-        sub: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-        ownerDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        sub: "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+        ownerDid:
+          "did:cdi:registry.clawdentity.dev:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
         name: "jwt-root-test",
         framework: "openclaw",
         cnf: {
@@ -194,7 +198,8 @@ describe("sdk", () => {
         revocations: [
           {
             jti: "01HF7YAT31JZHSMW1CG6Q6MHB7",
-            agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            agentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
             reason: "manual revoke",
             revokedAt: now,
           },
@@ -255,11 +260,13 @@ describe("sdk", () => {
     });
 
     const first = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-root",
     });
     const second = cache.tryAcceptNonce({
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       nonce: "nonce-root",
     });
 
@@ -281,7 +288,8 @@ describe("sdk", () => {
         revocations: [
           {
             jti: "01HF7YAT31JZHSMW1CG6Q6MHB7",
-            agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            agentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
             reason: "manual revoke",
             revokedAt: 1700100010,
           },

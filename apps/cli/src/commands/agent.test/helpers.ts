@@ -62,7 +62,8 @@ import { createAgentCommand } from "../agent.js";
 export const DEFAULT_REGISTRY_URL = "https://registry.clawdentity.com";
 export const DEFAULT_API_KEY = "pat_123";
 export const DEFAULT_AGENT_NAME = "agent-01";
-export const DEFAULT_AGENT_DID = "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
+export const DEFAULT_AGENT_DID =
+  "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
 export const DEFAULT_AGENT_ID = "01HF7YAT00W6W7CM7N3W5FDXT4";
 
 export const mockedAccess = vi.mocked(access);
@@ -210,7 +211,8 @@ export const setupCreateCommandDefaults = () => {
       return createJsonResponse(201, {
         challengeId: "01JCHALLENGEID1234567890ABC",
         nonce: "challenge-nonce-b64url",
-        ownerDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        ownerDid:
+          "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
         expiresAt: "2030-01-01T00:05:00.000Z",
       });
     }
@@ -313,8 +315,9 @@ export const decodedAitFixture: DecodedAit = {
   },
   claims: {
     iss: "https://registry.clawdentity.dev",
-    sub: "did:claw:agent:abc",
-    ownerDid: "did:claw:human:def",
+    sub: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+    ownerDid:
+      "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
     name: "agent-01",
     framework: "openclaw",
     cnf: {

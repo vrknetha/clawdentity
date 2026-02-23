@@ -140,7 +140,7 @@ impl PlatformProvider for NanoclawProvider {
             .map(|project_root| project_root.join(".env"))
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
         let project_root = self.install_project_root(opts)?;
         let env_path = project_root.join(".env");
@@ -213,7 +213,7 @@ impl PlatformProvider for NanoclawProvider {
         })
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
         let mut checks = Vec::new();
         let state_dir = resolve_state_dir(opts.home_dir.clone())?;
@@ -399,7 +399,7 @@ impl PlatformProvider for NanoclawProvider {
         })
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let checked_at = now_iso();
         let state_dir = resolve_state_dir(opts.home_dir.clone())?;
@@ -589,8 +589,10 @@ mod tests {
         let provider = NanoclawProvider::default();
 
         let request = provider.format_inbound(&InboundMessage {
-            sender_did: "did:claw:sender".to_string(),
-            recipient_did: "did:claw:recipient".to_string(),
+            sender_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB"
+                .to_string(),
+            recipient_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTC"
+                .to_string(),
             content: "hello".to_string(),
             request_id: Some("req-123".to_string()),
             metadata: HashMap::new(),
@@ -599,7 +601,7 @@ mod tests {
         assert!(request.headers.is_empty());
         assert_eq!(
             request.body.get("userId").and_then(|value| value.as_str()),
-            Some("did:claw:sender")
+            Some("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB")
         );
         assert_eq!(
             request.body.get("content").and_then(|value| value.as_str()),

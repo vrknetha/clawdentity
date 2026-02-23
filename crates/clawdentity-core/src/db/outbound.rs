@@ -285,7 +285,8 @@ mod tests {
                 frame_id: "frame-1".to_string(),
                 frame_version: 1,
                 frame_type: "relay.frame".to_string(),
-                to_agent_did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+                to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                    .to_string(),
                 payload_json: "{\"hello\":\"world\"}".to_string(),
                 conversation_id: Some("conv-1".to_string()),
                 reply_to: None,
@@ -298,7 +299,8 @@ mod tests {
                 frame_id: "frame-2".to_string(),
                 frame_version: 1,
                 frame_type: "relay.frame".to_string(),
-                to_agent_did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT5".to_string(),
+                to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT5"
+                    .to_string(),
                 payload_json: "{\"hi\":\"there\"}".to_string(),
                 conversation_id: None,
                 reply_to: None,
@@ -329,7 +331,8 @@ mod tests {
                 frame_id: "frame-1".to_string(),
                 frame_version: 1,
                 frame_type: "relay.frame".to_string(),
-                to_agent_did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+                to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                    .to_string(),
                 payload_json: "{\"broken\":\"json\"}".to_string(),
                 conversation_id: None,
                 reply_to: None,

@@ -5,15 +5,17 @@ import { makeAgentDid, makeHumanDid } from "./did.js";
 import { ProtocolParseError } from "./errors.js";
 import { generateUlid } from "./ulid.js";
 
+const AUTHORITY = "registry.clawdentity.dev";
+
 function makeValidClaims() {
   const agentUlid = generateUlid(1700000000000);
   const ownerUlid = generateUlid(1700000000100);
   const now = 1700000000;
 
   return {
-    iss: "https://registry.clawdentity.dev",
-    sub: makeAgentDid(agentUlid),
-    ownerDid: makeHumanDid(ownerUlid),
+    iss: `https://${AUTHORITY}`,
+    sub: makeAgentDid(AUTHORITY, agentUlid),
+    ownerDid: makeHumanDid(AUTHORITY, ownerUlid),
     name: "agent_name.v1",
     framework: "openclaw",
     description: "Safe agent description.",
@@ -53,8 +55,10 @@ describe("AIT name validation", () => {
 describe("AIT claims schema", () => {
   it("accepts valid MVP claims", () => {
     const parsed = parseAitClaims(makeValidClaims());
-    expect(parsed.sub).toMatch(/^did:claw:agent:/);
-    expect(parsed.ownerDid).toMatch(/^did:claw:human:/);
+    expect(parsed.sub).toMatch(/^did:cdi:registry\.clawdentity\.dev:agent:/);
+    expect(parsed.ownerDid).toMatch(
+      /^did:cdi:registry\.clawdentity\.dev:human:/,
+    );
     expect(parsed.cnf.jwk.kty).toBe("OKP");
     expect(parsed.cnf.jwk.crv).toBe("Ed25519");
   });
@@ -77,6 +81,27 @@ describe("AIT claims schema", () => {
       ProtocolParseError,
     );
     expect(() => parseAitClaims(claimsWithAgentOwner)).toThrow(
+      ProtocolParseError,
+    );
+  });
+
+  it("rejects when DID authorities do not match issuer hostname", () => {
+    const claimsWithSubMismatch = makeValidClaims();
+    claimsWithSubMismatch.sub = makeAgentDid(
+      "alt-registry.clawdentity.dev",
+      generateUlid(1700000000500),
+    );
+
+    const claimsWithOwnerMismatch = makeValidClaims();
+    claimsWithOwnerMismatch.ownerDid = makeHumanDid(
+      "alt-registry.clawdentity.dev",
+      generateUlid(1700000000600),
+    );
+
+    expect(() => parseAitClaims(claimsWithSubMismatch)).toThrow(
+      ProtocolParseError,
+    );
+    expect(() => parseAitClaims(claimsWithOwnerMismatch)).toThrow(
       ProtocolParseError,
     );
   });

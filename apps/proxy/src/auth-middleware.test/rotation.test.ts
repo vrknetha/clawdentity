@@ -132,7 +132,9 @@ async function runRotationCase(input: RotationCase) {
   });
 
   const app = createProxyApp({
-    config: parseProxyConfig({}),
+    config: parseProxyConfig({
+      REGISTRY_URL: ISSUER,
+    }),
     trustStore,
     auth: {
       fetchImpl: fetchMock as typeof fetch,

@@ -4,6 +4,7 @@ export {
   DEFAULT_AGENT_TTL_DAYS,
   MAX_AGENT_TTL_DAYS,
   MIN_AGENT_TTL_DAYS,
+  resolveDidAuthorityFromIssuer,
   resolveRegistryIssuer,
 } from "./constants.js";
 export {

@@ -45,9 +45,11 @@ describe("pair confirm helpers", () => {
       return Response.json(
         {
           paired: true,
-          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
-          responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+          responderAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HBBB22222222222222222222",
           responderProfile: RESPONDER_PROFILE,
         },
         { status: 201 },
@@ -99,9 +101,11 @@ describe("pair confirm helpers", () => {
       return Response.json(
         {
           paired: true,
-          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
-          responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+          responderAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HBBB22222222222222222222",
           responderProfile: RESPONDER_PROFILE,
         },
         { status: 201 },
@@ -198,9 +202,11 @@ describe("pair confirm helpers", () => {
       return Response.json(
         {
           paired: true,
-          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
-          responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+          responderAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HBBB22222222222222222222",
           responderProfile: RESPONDER_PROFILE,
         },
         { status: 201 },

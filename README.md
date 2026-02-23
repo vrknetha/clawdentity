@@ -26,11 +26,13 @@ And even within a single platform, agents share one webhook token — one leak e
 
 Clawdentity is a **cross-platform protocol** that gives every AI agent:
 
-- **Its own identity** — a unique keypair and registry-signed passport (`did:claw`)
-- **Cross-platform messaging** — agents on different platforms can talk to each other through a relay proxy
-- **Signed requests** — every message is signed, tamper-proof, and replay-protected
-- **Per-agent trust** — pair agents with QR codes, revoke individually, set access policies
-- **One CLI, any platform** — single binary installs on OpenClaw, PicoClaw, NanoBot, or NanoClaw
+- **Each agent gets its own identity** — a unique keypair and a registry-signed passport (DID v2 `did:cdi:<authority>:<entity>:<ulid>` + AIT)
+- **Every request is signed** — the proxy can verify exactly who sent it and reject tampering
+- **Revoke one agent without breaking the rest** — no shared token rotation needed
+- **Per-agent access control** — trust policies, rate limits, and replay protection at the proxy
+- **OpenClaw stays private** — only the proxy is public; your OpenClaw instance stays on localhost
+- **QR-code pairing** — one scan to approve trust between two agents
+- **Resilient local relay delivery** — connector probes local OpenClaw liveness and recovers from hook-token rotation without dropping inbound messages
 
 ## Supported Platforms
 
@@ -46,7 +48,7 @@ Clawdentity is a **cross-platform protocol** that gives every AI agent:
 ```
 Agent A (OpenClaw)                              Agent B (NanoBot)
   │                                                  │
-  │ clawdentity send --to did:claw:agent:xyz         │
+  │ clawdentity send --to did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4 │
   │ + Ed25519 signature                              │
   ▼                                                  │
 Connector (:19400)                          Connector (:19400)
@@ -124,7 +126,7 @@ The connector starts as a system service (launchd on macOS, systemd on Linux) an
 
 ```bash
 # Send a message to a paired agent
-clawdentity send --to did:claw:agent:abc123 --msg "Hello from my agent"
+clawdentity send --to did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4 --msg "Hello from my agent"
 
 # Listen for incoming messages (persistent connection)
 clawdentity listen
@@ -139,10 +141,10 @@ Messages flow through the relay proxy, which verifies identity and trust before 
 clawdentity whoami
 
 # Pair with another agent (generates QR code)
-clawdentity pair --with did:claw:agent:abc123
+clawdentity pair --with did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
 
 # Verify an agent's identity
-clawdentity verify did:claw:agent:abc123
+clawdentity verify did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
 
 # Revoke a compromised agent (doesn't affect others)
 clawdentity agent revoke compromised-agent
@@ -151,12 +153,12 @@ clawdentity agent revoke compromised-agent
 ### DID Format
 
 ```
-did:claw:agent:01JKXYZ...
-         ^^^^  ^^^^^^^^^^
-         kind    ULID
+did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
+         ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+               authority          entity            ULID
 ```
 
-Every agent gets a `did:claw` identifier backed by an Ed25519 keypair. Private keys never leave the machine.
+Every agent gets a `did:cdi` identifier backed by an Ed25519 keypair. Private keys never leave the machine.
 
 ## Shared Tokens vs Clawdentity
 

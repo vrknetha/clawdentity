@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe("DELETE /v1/agents/:id", () => {
   it("returns 401 when PAT is missing", async () => {
     const agentId = generateUlid(1700200000000);
@@ -64,7 +66,7 @@ describe("DELETE /v1/agents/:id", () => {
       [
         {
           id: foreignAgentId,
-          did: makeAgentDid(foreignAgentId),
+          did: makeAgentDid(DID_AUTHORITY, foreignAgentId),
           ownerId: "human-2",
           name: "foreign-agent",
           framework: "openclaw",
@@ -107,7 +109,7 @@ describe("DELETE /v1/agents/:id", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",
@@ -157,7 +159,7 @@ describe("DELETE /v1/agents/:id", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",
@@ -208,7 +210,7 @@ describe("DELETE /v1/agents/:id", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",

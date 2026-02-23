@@ -12,13 +12,15 @@ import {
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
   it("validates active access token and updates access_last_used_at", async () => {
     const nowIso = new Date().toISOString();
     const accessToken = "clw_agt_fixture_access_token_value_for_registry_tests";
     const accessTokenHash = await hashAgentToken(accessToken);
     const agentId = generateUlid(Date.now() + 200);
-    const agentDid = makeAgentDid(agentId);
+    const agentDid = makeAgentDid(DID_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 201);
     const { database, agentAuthSessionRows, agentAuthSessionUpdates } =
       createFakeDb(
@@ -95,7 +97,7 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          agentDid: makeAgentDid(generateUlid(Date.now() + 203)),
+          agentDid: makeAgentDid(DID_AUTHORITY, generateUlid(Date.now() + 203)),
           aitJti: generateUlid(Date.now() + 204),
         }),
       },
@@ -118,7 +120,7 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       "clw_agt_fixture_expired_access_token_for_registry_tests";
     const accessTokenHash = await hashAgentToken(accessToken);
     const agentId = generateUlid(Date.now() + 205);
-    const agentDid = makeAgentDid(agentId);
+    const agentDid = makeAgentDid(DID_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 206);
     const { database } = createFakeDb(
       [],
@@ -191,7 +193,7 @@ describe(`POST ${AGENT_AUTH_VALIDATE_PATH}`, () => {
       "clw_agt_fixture_race_window_access_token_for_registry_tests";
     const accessTokenHash = await hashAgentToken(accessToken);
     const agentId = generateUlid(Date.now() + 208);
-    const agentDid = makeAgentDid(agentId);
+    const agentDid = makeAgentDid(DID_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 209);
     const { database, agentAuthSessionUpdates } = createFakeDb(
       [],
@@ -331,7 +333,7 @@ describe("DELETE /v1/agents/:id/auth/revoke", () => {
         [
           {
             id: agentId,
-            did: makeAgentDid(agentId),
+            did: makeAgentDid(DID_AUTHORITY, agentId),
             ownerId: authRow.humanId,
             name: "agent-auth-revoke",
             framework: "openclaw",

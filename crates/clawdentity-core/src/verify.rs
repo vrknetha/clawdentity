@@ -10,7 +10,7 @@ use crate::crl::{CrlVerificationKey, is_jti_revoked, load_crl_claims};
 use crate::db::SqliteStore;
 use crate::db::now_utc_ms;
 use crate::db_verify_cache::{get_verify_cache_entry, upsert_verify_cache_entry};
-use crate::did::{ClawDidKind, parse_did};
+use crate::did::{did_authority_from_url, parse_agent_did, parse_human_did};
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 
@@ -67,11 +67,7 @@ fn normalize_registry_url(registry_url: &str) -> Result<String> {
 /// TODO(clawdentity): document `expected_issuer_for_registry`.
 pub fn expected_issuer_for_registry(registry_url: &str) -> Option<String> {
     let parsed = url::Url::parse(registry_url).ok()?;
-    match parsed.host_str()? {
-        "registry.clawdentity.com" => Some("https://registry.clawdentity.com".to_string()),
-        "dev.registry.clawdentity.com" => Some("https://dev.registry.clawdentity.com".to_string()),
-        _ => None,
-    }
+    Some(parsed.origin().unicode_serialization())
 }
 
 fn resolve_token(token_or_file: &str) -> Result<String> {
@@ -229,16 +225,19 @@ fn verify_ait_token(
         ));
     }
 
-    let sub = parse_did(&claims.sub)?;
-    if sub.kind != ClawDidKind::Agent {
+    let sub = parse_agent_did(&claims.sub)
+        .map_err(|_| CoreError::InvalidInput("token sub must be an agent DID".to_string()))?;
+    let owner = parse_human_did(&claims.owner_did)
+        .map_err(|_| CoreError::InvalidInput("token ownerDid must be a human DID".to_string()))?;
+    let issuer_authority = did_authority_from_url(&claims.iss, "iss")?;
+    if sub.authority != issuer_authority {
         return Err(CoreError::InvalidInput(
-            "token sub must be an agent DID".to_string(),
+            "token sub authority must match token issuer host".to_string(),
         ));
     }
-    let owner = parse_did(&claims.owner_did)?;
-    if owner.kind != ClawDidKind::Human {
+    if owner.authority != issuer_authority {
         return Err(CoreError::InvalidInput(
-            "token ownerDid must be a human DID".to_string(),
+            "token ownerDid authority must match token issuer host".to_string(),
         ));
     }
 
@@ -304,6 +303,13 @@ mod tests {
 
     use super::verify_ait_token_with_registry;
 
+    fn did_authority(url: &str) -> String {
+        url::Url::parse(url)
+            .ok()
+            .and_then(|value| value.host_str().map(ToOwned::to_owned))
+            .expect("issuer host")
+    }
+
     fn sign_jwt_token(
         _issuer: &str,
         kid: &str,
@@ -332,10 +338,11 @@ mod tests {
         let server = MockServer::start().await;
         let signing_key = SigningKey::from_bytes(&[9_u8; 32]);
         let public_key = URL_SAFE_NO_PAD.encode(signing_key.verifying_key().as_bytes());
+        let authority = did_authority(&server.uri());
         let ait_claims = serde_json::json!({
             "iss": server.uri(),
-            "sub": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-            "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            "sub": format!("did:cdi:{authority}:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
+            "ownerDid": format!("did:cdi:{authority}:human:01HF7YAT31JZHSMW1CG6Q6MHB7"),
             "jti": "01HF7YAT00W6W7CM7N3W5FDXT5",
             "exp": 2_208_988_800_i64
         });
@@ -347,7 +354,7 @@ mod tests {
             "exp": 2_208_988_800_i64,
             "revocations": [{
                 "jti":"01HF7YAT00W6W7CM7N3W5FDXT9",
-                "agentDid":"did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                "agentDid": format!("did:cdi:{authority}:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
                 "revokedAt": 1_700_000_100_i64
             }]
         });

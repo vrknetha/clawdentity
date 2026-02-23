@@ -7,7 +7,7 @@ import {
 describe("openclaw invite helpers", () => {
   it("creates and decodes invite codes", () => {
     const invite = createOpenclawInviteCode({
-      did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       proxyUrl: "https://beta.example.com/hooks/agent",
       peerAlias: "beta",
       agentName: "beta",
@@ -18,7 +18,9 @@ describe("openclaw invite helpers", () => {
 
     const decoded = decodeOpenclawInviteCode(invite.code);
     expect(decoded.v).toBe(1);
-    expect(decoded.did).toBe("did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4");
+    expect(decoded.did).toBe(
+      "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+    );
     expect(decoded.proxyUrl).toBe("https://beta.example.com/hooks/agent");
     expect(decoded.alias).toBe("beta");
     expect(decoded.agentName).toBe("beta");

@@ -47,7 +47,8 @@ describe("pair start helpers", () => {
 
       return Response.json(
         {
-          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
           ticket: "clwpair1_eyJ2IjoxfQ",
           expiresAt: "2026-02-18T00:00:00.000Z",
@@ -115,7 +116,8 @@ describe("pair start helpers", () => {
         fetchImpl: asFetch(async () =>
           Response.json(
             {
-              initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+              initiatorAgentDid:
+                "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
               initiatorProfile: INITIATOR_PROFILE,
               ticket: "clwpair1_eyJ2IjoxfQ",
               expiresAt: "2026-02-18T00:00:00.000Z",
@@ -157,7 +159,8 @@ describe("pair start helpers", () => {
 
           return Response.json(
             {
-              initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+              initiatorAgentDid:
+                "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
               initiatorProfile: INITIATOR_PROFILE,
               ticket: "clwpair1_eyJ2IjoxfQ",
               expiresAt: "2026-02-18T00:00:00.000Z",
@@ -201,7 +204,8 @@ describe("pair start helpers", () => {
 
             return Response.json(
               {
-                initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+                initiatorAgentDid:
+                  "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
                 initiatorProfile: INITIATOR_PROFILE,
                 ticket: "clwpair1_eyJ2IjoxfQ",
                 expiresAt: "2026-02-18T00:00:00.000Z",

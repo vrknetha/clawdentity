@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::did::{ClawDidKind, parse_did};
+use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
 
 pub const CONNECTOR_FRAME_VERSION: i64 = 1;
@@ -106,12 +106,8 @@ fn validate_frame_base(version: i64, id: &str, ts: &str) -> Result<()> {
 }
 
 fn validate_agent_did(value: &str, field_name: &str) -> Result<()> {
-    let parsed = parse_did(value)?;
-    if parsed.kind != ClawDidKind::Agent {
-        return Err(CoreError::InvalidInput(format!(
-            "{field_name} must be an agent DID"
-        )));
-    }
+    let _ = parse_agent_did(value)
+        .map_err(|_| CoreError::InvalidInput(format!("{field_name} must be an agent DID")))?;
     Ok(())
 }
 
@@ -195,7 +191,8 @@ mod tests {
             v: CONNECTOR_FRAME_VERSION,
             id: new_frame_id(),
             ts: now_iso(),
-            to_agent_did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+            to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                .to_string(),
             payload: serde_json::json!({"text":"hello"}),
             conversation_id: Some("conv-1".to_string()),
             reply_to: None,

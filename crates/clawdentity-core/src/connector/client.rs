@@ -31,7 +31,7 @@ pub struct ConnectorClientOptions {
 }
 
 impl ConnectorClientOptions {
-/// TODO(clawdentity): document `with_defaults`.
+    /// TODO(clawdentity): document `with_defaults`.
     pub fn with_defaults(
         relay_connect_url: impl Into<String>,
         headers: Vec<(String, String)>,
@@ -90,7 +90,7 @@ pub struct ConnectorClientSender {
 }
 
 impl ConnectorClientSender {
-/// TODO(clawdentity): document `send_frame`.
+    /// TODO(clawdentity): document `send_frame`.
     pub async fn send_frame(&self, frame: ConnectorFrame) -> Result<()> {
         self.sender
             .send(frame)
@@ -98,17 +98,17 @@ impl ConnectorClientSender {
             .map_err(|_| CoreError::InvalidInput("connector client is not running".to_string()))
     }
 
-/// TODO(clawdentity): document `is_connected`.
+    /// TODO(clawdentity): document `is_connected`.
     pub fn is_connected(&self) -> bool {
         self.metrics.connected.load(Ordering::SeqCst)
     }
 
-/// TODO(clawdentity): document `metrics_snapshot`.
+    /// TODO(clawdentity): document `metrics_snapshot`.
     pub fn metrics_snapshot(&self) -> ConnectorClientMetricsSnapshot {
         self.metrics.snapshot()
     }
 
-/// TODO(clawdentity): document `shutdown`.
+    /// TODO(clawdentity): document `shutdown`.
     pub fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
     }
@@ -120,12 +120,12 @@ pub struct ConnectorClient {
 }
 
 impl ConnectorClient {
-/// TODO(clawdentity): document `sender`.
+    /// TODO(clawdentity): document `sender`.
     pub fn sender(&self) -> ConnectorClientSender {
         self.sender.clone()
     }
 
-/// TODO(clawdentity): document `recv_frame`.
+    /// TODO(clawdentity): document `recv_frame`.
     pub async fn recv_frame(&mut self) -> Option<ConnectorFrame> {
         self.inbound_rx.recv().await
     }

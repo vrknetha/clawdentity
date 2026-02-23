@@ -107,8 +107,10 @@ describe("ProxyTrustState", () => {
 
     const upsertResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.upsertPair, {
-        initiatorAgentDid: "did:claw:agent:alice",
-        responderAgentDid: "did:claw:agent:bob",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       }),
     );
 
@@ -116,7 +118,8 @@ describe("ProxyTrustState", () => {
 
     const knownAliceResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.isAgentKnown, {
-        agentDid: "did:claw:agent:alice",
+        agentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       }),
     );
     expect(knownAliceResponse.status).toBe(200);
@@ -137,7 +140,8 @@ describe("ProxyTrustState", () => {
 
     const ticketResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
-        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
@@ -152,7 +156,8 @@ describe("ProxyTrustState", () => {
     const confirmResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
         ticket: ticketBody.ticket,
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
         nowMs: 1_700_000_000_100,
       }),
@@ -167,9 +172,11 @@ describe("ProxyTrustState", () => {
         callbackUrl?: string;
       },
     ).toEqual({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       issuerProxyUrl: "https://proxy-a.example.com",
       callbackUrl: "https://callbacks.example.com/pairing/complete",
@@ -177,8 +184,10 @@ describe("ProxyTrustState", () => {
 
     const pairCheckResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.isPairAllowed, {
-        initiatorAgentDid: "did:claw:agent:bob",
-        responderAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       }),
     );
     expect((await pairCheckResponse.json()) as { allowed: boolean }).toEqual({
@@ -201,9 +210,11 @@ describe("ProxyTrustState", () => {
       },
     ).toMatchObject({
       status: "confirmed",
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       expiresAtMs: 1_700_000_060_000,
       confirmedAtMs: 1_700_000_000_000,
@@ -220,7 +231,8 @@ describe("ProxyTrustState", () => {
 
     const ticketResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
-        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
@@ -245,7 +257,8 @@ describe("ProxyTrustState", () => {
       },
     ).toMatchObject({
       status: "pending",
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       expiresAtMs: 1_700_000_060_000,
@@ -262,7 +275,8 @@ describe("ProxyTrustState", () => {
 
     const ticketResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
-        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
@@ -292,7 +306,8 @@ describe("ProxyTrustState", () => {
 
     const ticketResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
-        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
@@ -306,7 +321,8 @@ describe("ProxyTrustState", () => {
     const confirmResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
         ticket: tamperTicketNonce(ticketBody.ticket),
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_000_100,
       }),
@@ -334,7 +350,8 @@ describe("ProxyTrustState", () => {
         [createdTicket.ticket]: {
           ticket: createdTicket.ticket,
           expiresAtMs: 1_700_000_060_000,
-          initiatorAgentDid: "did:claw:agent:alice",
+          initiatorAgentDid:
+            "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
           initiatorProfile: INITIATOR_PROFILE,
           issuerProxyUrl: "https://proxy-a.example.com",
         },
@@ -344,7 +361,8 @@ describe("ProxyTrustState", () => {
     const confirmResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
         ticket: createdTicket.ticket,
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_000_100,
       }),
@@ -357,8 +375,10 @@ describe("ProxyTrustState", () => {
         responderAgentDid: string;
       },
     ).toMatchObject({
-      initiatorAgentDid: "did:claw:agent:alice",
-      responderAgentDid: "did:claw:agent:bob",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
     });
   });
 
@@ -372,7 +392,8 @@ describe("ProxyTrustState", () => {
 
     const ticketResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
-        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
@@ -384,7 +405,8 @@ describe("ProxyTrustState", () => {
     const ticketBody = (await ticketResponse.json()) as { ticket: string };
     const confirmBody = {
       ticket: ticketBody.ticket,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE,
       nowMs: 1_700_000_000_100,
     };
@@ -416,11 +438,12 @@ describe("ProxyTrustState", () => {
       expiresAtMs: 1_700_000_060_000,
     });
     const allowedResponderAgentDid =
-      "did:claw:agent:01HF7YAT00S80QZY8QB7FSRVFF";
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00S80QZY8QB7FSRVFF";
 
     const ticketResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
-        initiatorAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
         initiatorProfile: INITIATOR_PROFILE,
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
@@ -435,7 +458,8 @@ describe("ProxyTrustState", () => {
     const confirmResponse = await proxyTrustState.fetch(
       makeRequest(TRUST_STORE_ROUTES.confirmPairingTicket, {
         ticket: ticketBody.ticket,
-        responderAgentDid: "did:claw:agent:not-allowed",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT7NQWWJ9ZXM8P9J8H4C",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_000_100,
       }),
