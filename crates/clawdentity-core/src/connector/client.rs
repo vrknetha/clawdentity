@@ -236,6 +236,15 @@ fn next_backoff(current: Duration, max: Duration) -> Duration {
     cmp::min(doubled, max)
 }
 
+fn heartbeat_ack_timed_out(
+    pending_heartbeat_ack: &Option<(String, Instant)>,
+    heartbeat_ack_timeout: Duration,
+) -> bool {
+    pending_heartbeat_ack
+        .as_ref()
+        .is_some_and(|(_, sent_at)| sent_at.elapsed() >= heartbeat_ack_timeout)
+}
+
 async fn connect_socket(
     options: &ConnectorClientOptions,
 ) -> Result<
@@ -301,6 +310,18 @@ async fn run_socket_session(
                 }
             }
             _ = heartbeat_tick.tick() => {
+                if heartbeat_ack_timed_out(&pending_heartbeat_ack, options.heartbeat_ack_timeout) {
+                    metrics
+                        .heartbeat_ack_timeouts
+                        .fetch_add(1, Ordering::SeqCst);
+                    tracing::warn!("connector heartbeat ack timeout; reconnecting");
+                    return SessionExit::Reconnect;
+                }
+
+                if pending_heartbeat_ack.is_some() {
+                    continue;
+                }
+
                 let heartbeat = ConnectorFrame::Heartbeat(HeartbeatFrame {
                     v: CONNECTOR_FRAME_VERSION,
                     id: new_frame_id(),
@@ -359,9 +380,7 @@ async fn run_socket_session(
             }
         }
 
-        if let Some((_, sent_at)) = &pending_heartbeat_ack
-            && sent_at.elapsed() >= options.heartbeat_ack_timeout
-        {
+        if heartbeat_ack_timed_out(&pending_heartbeat_ack, options.heartbeat_ack_timeout) {
             metrics
                 .heartbeat_ack_timeouts
                 .fetch_add(1, Ordering::SeqCst);
@@ -408,9 +427,9 @@ async fn handle_incoming_frame(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
-    use super::{ConnectorClientOptions, spawn_connector_client};
+    use super::{ConnectorClientOptions, heartbeat_ack_timed_out, spawn_connector_client};
 
     #[tokio::test]
     async fn client_sender_exposes_default_metrics_snapshot() {
@@ -423,5 +442,25 @@ mod tests {
         assert!(!snapshot.connected);
         assert!(snapshot.reconnect_attempts >= 1);
         client.sender().shutdown();
+    }
+
+    #[test]
+    fn heartbeat_ack_timeout_helper_handles_missing_pending_ack() {
+        let timed_out = heartbeat_ack_timed_out(&None, Duration::from_secs(15));
+        assert!(!timed_out);
+    }
+
+    #[test]
+    fn heartbeat_ack_timeout_helper_detects_expired_ack() {
+        let pending = Some(("hb-1".to_string(), Instant::now() - Duration::from_secs(20)));
+        let timed_out = heartbeat_ack_timed_out(&pending, Duration::from_secs(15));
+        assert!(timed_out);
+    }
+
+    #[test]
+    fn heartbeat_ack_timeout_helper_allows_recent_ack() {
+        let pending = Some(("hb-1".to_string(), Instant::now()));
+        let timed_out = heartbeat_ack_timed_out(&pending, Duration::from_secs(15));
+        assert!(!timed_out);
     }
 }

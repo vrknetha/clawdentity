@@ -16,9 +16,9 @@ use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientOptions, ConnectorClientSender,
     ConnectorFrame, ConnectorServiceInstallInput, ConnectorServiceUninstallInput, DeliverAckFrame,
     DeliverFrame, RuntimeServerState, SqliteStore, build_relay_connect_headers,
-    fetch_registry_metadata, flush_outbound_queue_to_relay, install_connector_service, new_frame_id,
-    now_iso, resolve_openclaw_base_url, resolve_openclaw_hook_token, spawn_connector_client,
-    uninstall_connector_service,
+    fetch_registry_metadata, flush_outbound_queue_to_relay, install_connector_service,
+    new_frame_id, now_iso, resolve_openclaw_base_url, resolve_openclaw_hook_token,
+    spawn_connector_client, uninstall_connector_service,
 };
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -126,7 +126,9 @@ pub async fn execute_connector_command(
             )
             .await
         }
-        ConnectorCommand::Service { command } => execute_connector_service_command(options, command, json),
+        ConnectorCommand::Service { command } => {
+            execute_connector_service_command(options, command, json)
+        }
     }
 }
 
@@ -232,7 +234,8 @@ async fn start_connector_runtime(
         shutdown_rx.clone(),
     );
 
-    let mut outbound_flush_task = spawn_outbound_flush_task(store, relay_sender.clone(), shutdown_rx);
+    let mut outbound_flush_task =
+        spawn_outbound_flush_task(store, relay_sender.clone(), shutdown_rx);
 
     if json {
         println!(
@@ -290,7 +293,8 @@ async fn resolve_runtime_config(
 
     let agent_dir = config_dir.join(AGENTS_DIR).join(&input.agent_name);
     let ait = read_required_trimmed_file(&agent_dir.join(AIT_FILE_NAME), AIT_FILE_NAME)?;
-    let secret_key = read_required_trimmed_file(&agent_dir.join(SECRET_KEY_FILE_NAME), SECRET_KEY_FILE_NAME)?;
+    let secret_key =
+        read_required_trimmed_file(&agent_dir.join(SECRET_KEY_FILE_NAME), SECRET_KEY_FILE_NAME)?;
     let signing_key = clawdentity_core::decode_secret_key(&secret_key)?;
 
     let proxy_ws_url = resolve_proxy_ws_url(
@@ -302,15 +306,14 @@ async fn resolve_runtime_config(
 
     let relay_headers = build_relay_connect_headers(&proxy_ws_url, &ait, &signing_key)?;
     let mut connector_headers = Vec::with_capacity(relay_headers.signed_headers.len() + 1);
-    connector_headers.push((
-        "authorization".to_string(),
-        relay_headers.authorization,
-    ));
+    connector_headers.push(("authorization".to_string(), relay_headers.authorization));
     connector_headers.extend(relay_headers.signed_headers);
 
-    let openclaw_base_url = resolve_openclaw_base_url(&config_dir, input.openclaw_base_url.as_deref())?;
+    let openclaw_base_url =
+        resolve_openclaw_base_url(&config_dir, input.openclaw_base_url.as_deref())?;
     let openclaw_hook_path = resolve_openclaw_hook_path(input.openclaw_hook_path.as_deref());
-    let openclaw_hook_token = resolve_openclaw_hook_token(&config_dir, input.openclaw_hook_token.as_deref())?;
+    let openclaw_hook_token =
+        resolve_openclaw_hook_token(&config_dir, input.openclaw_hook_token.as_deref())?;
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
@@ -452,18 +455,48 @@ async fn handle_deliver_frame(
     openclaw_runtime: &OpenclawRuntimeConfig,
     deliver: DeliverFrame,
 ) {
-    let delivery_result = forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await;
+    let delivery_result =
+        forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await;
 
-    if let Err(error) = persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await {
+    let persistence_result =
+        persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
+    if let Err(error) = persistence_result.as_ref() {
         tracing::warn!(error = %error, request_id = %deliver.id, "failed to persist inbound delivery result");
     }
 
-    if let Err(error) = send_deliver_ack(relay_sender, &deliver.id, delivery_result.as_ref().err()).await {
+    let ack_reason = build_deliver_ack_reason(
+        delivery_result.as_ref().err(),
+        persistence_result.as_ref().err(),
+    );
+    let ack_accepted = ack_reason.is_none();
+    if let Err(error) = send_deliver_ack(relay_sender, &deliver.id, ack_accepted, ack_reason).await
+    {
         tracing::warn!(error = %error, request_id = %deliver.id, "failed to send deliver ack");
     }
 
     if let Err(error) = delivery_result {
         tracing::warn!(error = %error, request_id = %deliver.id, to_agent_did = %deliver.to_agent_did, "failed to forward inbound payload to OpenClaw hook");
+    }
+}
+
+fn build_deliver_ack_reason(
+    delivery_error: Option<&anyhow::Error>,
+    persistence_error: Option<&anyhow::Error>,
+) -> Option<String> {
+    let mut reasons: Vec<String> = Vec::new();
+    if let Some(error) = delivery_error {
+        reasons.push(error.to_string());
+    }
+    if let Some(error) = persistence_error {
+        reasons.push(format!(
+            "failed to persist inbound delivery result: {error}"
+        ));
+    }
+
+    if reasons.is_empty() {
+        None
+    } else {
+        Some(reasons.join("; "))
     }
 }
 
@@ -600,7 +633,8 @@ async fn persist_inbound_delivery_result(
 async fn send_deliver_ack(
     relay_sender: &ConnectorClientSender,
     ack_id: &str,
-    delivery_error: Option<&anyhow::Error>,
+    accepted: bool,
+    reason: Option<String>,
 ) -> Result<()> {
     relay_sender
         .send_frame(ConnectorFrame::DeliverAck(DeliverAckFrame {
@@ -608,15 +642,16 @@ async fn send_deliver_ack(
             id: new_frame_id(),
             ts: now_iso(),
             ack_id: ack_id.to_string(),
-            accepted: delivery_error.is_none(),
-            reason: delivery_error.map(ToString::to_string),
+            accepted,
+            reason,
         }))
         .await
         .map_err(anyhow::Error::from)
 }
 
 fn read_required_trimmed_file(path: &Path, label: &str) -> Result<String> {
-    let raw = fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Err(anyhow!("{label} is empty at {}", path.display()));
@@ -694,7 +729,8 @@ async fn resolve_proxy_ws_url(
 }
 
 fn normalize_proxy_ws_url(value: &str) -> Result<String> {
-    let mut url = reqwest::Url::parse(value).map_err(|_| anyhow!("invalid proxy websocket URL: {value}"))?;
+    let mut url =
+        reqwest::Url::parse(value).map_err(|_| anyhow!("invalid proxy websocket URL: {value}"))?;
 
     let target_scheme = match url.scheme() {
         "ws" | "wss" => None,
@@ -760,25 +796,4 @@ async fn wait_for_shutdown_signal() -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{normalize_hook_path, normalize_proxy_ws_url};
-
-    #[test]
-    fn normalizes_hook_path_with_leading_slash() {
-        assert_eq!(normalize_hook_path("hooks/agent"), "/hooks/agent");
-        assert_eq!(normalize_hook_path("/hooks/agent"), "/hooks/agent");
-    }
-
-    #[test]
-    fn normalizes_proxy_http_url_to_ws_connect_route() {
-        let resolved = normalize_proxy_ws_url("http://127.0.0.1:13371").expect("proxy ws url");
-        assert_eq!(resolved, "ws://127.0.0.1:13371/v1/relay/connect");
-    }
-
-    #[test]
-    fn preserves_ws_url_when_already_websocket() {
-        let resolved = normalize_proxy_ws_url("wss://proxy.example/v1/relay/connect")
-            .expect("proxy ws url");
-        assert_eq!(resolved, "wss://proxy.example/v1/relay/connect");
-    }
-}
+mod tests;

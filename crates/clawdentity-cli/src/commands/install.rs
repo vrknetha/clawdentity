@@ -2,9 +2,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
-use clawdentity_core::{
-    InstallOptions, all_providers, detect_platform, get_provider,
-};
+use clawdentity_core::{InstallOptions, all_providers, detect_platform, get_provider};
 
 pub(crate) fn execute_install_command(
     home_dir: Option<PathBuf>,
@@ -115,7 +113,11 @@ pub(crate) fn execute_install_command(
             }))?
         );
     } else {
-        println!("Installed {} ({})", provider.display_name(), provider.name());
+        println!(
+            "Installed {} ({})",
+            provider.display_name(),
+            provider.name()
+        );
         for note in install_result.notes {
             println!("- {note}");
         }
@@ -135,6 +137,14 @@ pub(crate) fn execute_install_command(
                 detail
             );
         }
+    }
+
+    if !verify_result.healthy {
+        return Err(anyhow!(
+            "{} ({}) verification is unhealthy; fix failed checks and rerun install",
+            provider.display_name(),
+            provider.name()
+        ));
     }
 
     Ok(())
