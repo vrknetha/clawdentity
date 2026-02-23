@@ -316,14 +316,17 @@ fn find_commented_out_code_blocks(workspace_root: &Path, path: &Path, content: &
     let flush_block = |block_start_line: &mut Option<usize>,
                        block_lines: &mut Vec<String>,
                        violations: &mut Vec<String>| {
-        if let Some(start_line) = *block_start_line {
-            if block_lines.len() >= 3 && block_lines.iter().any(|line| is_code_like_comment_line(line)) {
-                violations.push(format!(
-                    "DEAD_CODE: {}:{} has commented-out code block. Delete it - git has history.",
-                    display_path(workspace_root, path),
-                    start_line
-                ));
-            }
+        if let Some(start_line) = *block_start_line
+            && block_lines.len() >= 3
+            && block_lines
+                .iter()
+                .any(|line| is_code_like_comment_line(line))
+        {
+            violations.push(format!(
+                "DEAD_CODE: {}:{} has commented-out code block. Delete it - git has history.",
+                display_path(workspace_root, path),
+                start_line
+            ));
         }
 
         *block_start_line = None;
