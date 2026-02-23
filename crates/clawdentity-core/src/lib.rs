@@ -6,12 +6,6 @@ pub mod db;
 pub mod error;
 pub mod http;
 pub mod identity;
-#[path = "providers/openclaw_doctor.rs"]
-pub mod openclaw_doctor;
-#[path = "providers/openclaw_relay_test.rs"]
-pub mod openclaw_relay_test;
-#[path = "providers/openclaw_setup.rs"]
-pub mod openclaw_setup;
 pub mod pairing;
 pub mod providers;
 pub mod registry;
@@ -106,16 +100,11 @@ pub use invite::{
     InviteCreateInput, InviteCreateResult, InviteRecord, InviteRedeemInput, InviteRedeemResult,
     create_invite, persist_redeem_config, redeem_invite,
 };
-pub use openclaw_doctor::{
+pub use provider_openclaw::{
     DoctorCheckStatus, DoctorStatus, OpenclawDoctorCheck, OpenclawDoctorOptions,
-    OpenclawDoctorResult, run_openclaw_doctor,
-};
-pub use openclaw_relay_test::{
-    OpenclawRelayTestOptions, OpenclawRelayTestResult, OpenclawRelayWebsocketTestOptions,
-    OpenclawRelayWebsocketTestResult, RelayCheckStatus, run_openclaw_relay_test,
-    run_openclaw_relay_websocket_test,
-};
-pub use openclaw_setup::{
+    OpenclawDoctorResult, OpenclawRelayTestOptions, OpenclawRelayTestResult,
+    OpenclawRelayWebsocketTestOptions, OpenclawRelayWebsocketTestResult, RelayCheckStatus,
+    run_openclaw_doctor, run_openclaw_relay_test, run_openclaw_relay_websocket_test,
     OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME, OPENCLAW_DEFAULT_BASE_URL,
     OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment, OpenclawConnectorsConfig,
     OpenclawRelayRuntimeConfig, load_connector_assignments, load_relay_runtime_config,

@@ -43,10 +43,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: ConnectorCommand,
     },
-    Openclaw {
-        #[command(subcommand)]
-        command: OpenclawCommand,
-    },
     Provider {
         #[command(subcommand)]
         command: ProviderCommand,
@@ -156,57 +152,6 @@ pub enum AdminCommand {
         api_key_name: Option<String>,
         #[arg(long)]
         registry_url: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum OpenclawCommand {
-    Setup {
-        agent_name: String,
-        #[arg(long)]
-        openclaw_base_url: Option<String>,
-        #[arg(long)]
-        openclaw_hook_token: Option<String>,
-        #[arg(long)]
-        relay_transform_peers_path: Option<String>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-    },
-    Doctor {
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        openclaw_dir: Option<PathBuf>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        skip_connector_runtime: bool,
-    },
-    RelayTest {
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        openclaw_dir: Option<PathBuf>,
-        #[arg(long)]
-        openclaw_base_url: Option<String>,
-        #[arg(long)]
-        hook_token: Option<String>,
-        #[arg(long)]
-        message: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        no_preflight: bool,
-    },
-    RelayWsTest {
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        openclaw_dir: Option<PathBuf>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        no_preflight: bool,
     },
 }
 

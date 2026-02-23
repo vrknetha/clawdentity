@@ -11,14 +11,13 @@ use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAM
 use clawdentity_core::db::now_utc_ms;
 use clawdentity_core::db_inbound::{InboundPendingItem, append_inbound_event, upsert_pending};
 use clawdentity_core::http::client as create_http_client;
-use clawdentity_core::openclaw_setup::{resolve_openclaw_base_url, resolve_openclaw_hook_token};
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientOptions, ConnectorClientSender,
     ConnectorFrame, ConnectorServiceInstallInput, ConnectorServiceUninstallInput, DeliverAckFrame,
     DeliverFrame, RuntimeServerState, SqliteStore, build_relay_connect_headers,
     fetch_registry_metadata, flush_outbound_queue_to_relay, install_connector_service, new_frame_id,
-    now_iso, spawn_connector_client,
+    now_iso, resolve_openclaw_base_url, resolve_openclaw_hook_token, spawn_connector_client,
     uninstall_connector_service,
 };
 use serde_json::{Value, json};

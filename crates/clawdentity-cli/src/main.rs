@@ -8,14 +8,11 @@ use clap::{CommandFactory, Parser};
 use clawdentity_core::{
     AdminBootstrapInput, ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, CliConfig,
     ConfigKey, ConfigPathOptions, CreateAgentInput, InviteCreateInput, InviteRedeemInput,
-    OpenclawRelayWebsocketTestOptions, ProviderDoctorOptions, ProviderDoctorStatus,
-    ProviderRelayTestOptions, ProviderRelayTestStatus, ProviderSetupOptions, RelayCheckStatus,
-    SqliteStore, all_providers, bootstrap_admin, create_agent, create_api_key, create_invite,
-    detect_platform, fetch_registry_metadata, get_config_dir, get_config_file_path,
-    get_config_value, get_provider, init_identity, inspect_agent, list_api_keys,
+    bootstrap_admin, create_agent, create_api_key, create_invite, fetch_registry_metadata,
+    get_config_file_path, get_config_value, init_identity, inspect_agent, list_api_keys,
     persist_bootstrap_config, persist_redeem_config, read_config, read_identity, redeem_invite,
     refresh_agent_auth, register_identity, resolve_config, revoke_agent_auth, revoke_api_key,
-    run_openclaw_relay_websocket_test, set_config_value, write_config,
+    set_config_value, write_config,
 };
 
 use crate::commands::connector::execute_connector_command;
@@ -23,7 +20,7 @@ use crate::commands::install::execute_install_command;
 use crate::commands::provider::execute_provider_command;
 use crate::commands::{
     AdminCommand, AgentAuthCommand, AgentCommand, ApiKeyCommand, Commands, ConfigCommand,
-    InviteCommand, OpenclawCommand,
+    InviteCommand,
 };
 
 #[derive(Debug, Parser)]
@@ -425,151 +422,6 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Provider { command }) => {
             execute_provider_command(cli.home_dir.clone(), cli.json, command)?;
         }
-        Some(Commands::Openclaw { command }) => match command {
-            OpenclawCommand::Setup {
-                agent_name,
-                openclaw_base_url,
-                openclaw_hook_token,
-                relay_transform_peers_path,
-                connector_base_url,
-            } => {
-                let provider = resolve_provider_instance(Some("openclaw".to_string()))?;
-                let result = provider.setup(&ProviderSetupOptions {
-                    home_dir: cli.home_dir.clone(),
-                    agent_name: Some(agent_name),
-                    platform_base_url: openclaw_base_url,
-                    webhook_host: None,
-                    webhook_port: None,
-                    webhook_token: openclaw_hook_token,
-                    connector_base_url,
-                    connector_url: None,
-                    relay_transform_peers_path,
-                })?;
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                } else {
-                    println!("OpenClaw setup completed");
-                    for note in result.notes {
-                        println!("- {note}");
-                    }
-                    for path in result.updated_paths {
-                        println!("- updated: {path}");
-                    }
-                }
-            }
-            OpenclawCommand::Doctor {
-                peer,
-                openclaw_dir,
-                connector_base_url,
-                skip_connector_runtime,
-            } => {
-                let provider = resolve_provider_instance(Some("openclaw".to_string()))?;
-                let result = provider.doctor(&ProviderDoctorOptions {
-                    home_dir: cli.home_dir.clone(),
-                    platform_state_dir: openclaw_dir,
-                    selected_agent: None,
-                    peer_alias: peer,
-                    connector_base_url,
-                    include_connector_runtime_check: !skip_connector_runtime,
-                })?;
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                } else {
-                    println!(
-                        "Doctor status: {}",
-                        match result.status {
-                            ProviderDoctorStatus::Healthy => "healthy",
-                            ProviderDoctorStatus::Unhealthy => "unhealthy",
-                        }
-                    );
-                    for check in result.checks {
-                        println!("- [{}] {}: {}", check.id, check.label, check.message);
-                        if let Some(remediation_hint) = check.remediation_hint {
-                            println!("  fix: {remediation_hint}");
-                        }
-                    }
-                }
-            }
-            OpenclawCommand::RelayTest {
-                peer,
-                openclaw_dir,
-                openclaw_base_url,
-                hook_token,
-                message,
-                session_id,
-                no_preflight,
-            } => {
-                let provider = resolve_provider_instance(Some("openclaw".to_string()))?;
-                let result = provider.relay_test(&ProviderRelayTestOptions {
-                    home_dir: cli.home_dir.clone(),
-                    platform_state_dir: openclaw_dir,
-                    peer_alias: peer,
-                    platform_base_url: openclaw_base_url,
-                    webhook_token: hook_token,
-                    connector_base_url: None,
-                    message,
-                    session_id,
-                    skip_preflight: no_preflight,
-                })?;
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                } else {
-                    println!(
-                        "Relay test: {} ({})",
-                        result.message,
-                        match result.status {
-                            ProviderRelayTestStatus::Success => "success",
-                            ProviderRelayTestStatus::Failure => "failure",
-                        }
-                    );
-                    if let Some(peer_alias) = result.peer_alias {
-                        println!("Peer: {peer_alias}");
-                    }
-                    println!("Endpoint: {}", result.endpoint);
-                    if let Some(remediation_hint) = result.remediation_hint {
-                        println!("Hint: {remediation_hint}");
-                    }
-                }
-            }
-            OpenclawCommand::RelayWsTest {
-                peer,
-                openclaw_dir,
-                connector_base_url,
-                no_preflight,
-            } => {
-                let state_options = resolve_state_options(&options)?;
-                let config_dir = get_config_dir(&state_options)?;
-                let store = SqliteStore::open(&state_options)?;
-                let result = run_openclaw_relay_websocket_test(
-                    &config_dir,
-                    &store,
-                    OpenclawRelayWebsocketTestOptions {
-                        home_dir: cli.home_dir.clone(),
-                        openclaw_dir,
-                        peer_alias: peer,
-                        connector_base_url,
-                        skip_preflight: no_preflight,
-                    },
-                )?;
-                if cli.json {
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-                } else {
-                    println!(
-                        "Relay websocket test: {} ({})",
-                        result.message,
-                        match result.status {
-                            RelayCheckStatus::Success => "success",
-                            RelayCheckStatus::Failure => "failure",
-                        }
-                    );
-                    println!("Peer: {}", result.peer_alias);
-                    println!("Status URL: {}", result.connector_status_url);
-                    if let Some(remediation_hint) = result.remediation_hint {
-                        println!("Hint: {remediation_hint}");
-                    }
-                }
-            }
-        },
         None => {
             let mut command = Cli::command();
             command.print_help()?;
@@ -578,29 +430,6 @@ async fn run(cli: Cli) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn resolve_provider_instance(
-    platform: Option<String>,
-) -> Result<Box<dyn clawdentity_core::PlatformProvider>> {
-    if let Some(platform) = platform {
-        return get_provider(&platform).ok_or_else(|| {
-            let available = all_providers()
-                .into_iter()
-                .map(|provider| provider.name().to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            anyhow!(
-                "unknown platform `{}`. Available platforms: {}",
-                platform,
-                available
-            )
-        });
-    }
-
-    detect_platform().ok_or_else(|| {
-        anyhow!("no supported platform detected. Pass `--for <platform>` to select one explicitly.")
-    })
 }
 
 async fn run_blocking<F, T>(operation: F) -> Result<T>
