@@ -4,6 +4,7 @@ use clap::Subcommand;
 
 pub mod connector;
 pub mod install;
+pub mod provider;
 
 use crate::commands::connector::ConnectorCommand;
 
@@ -45,6 +46,10 @@ pub enum Commands {
     Openclaw {
         #[command(subcommand)]
         command: OpenclawCommand,
+    },
+    Provider {
+        #[command(subcommand)]
+        command: ProviderCommand,
     },
     Install {
         /// Target platform (auto-detect if not specified)
@@ -98,12 +103,8 @@ pub enum AgentCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum AgentAuthCommand {
-    Refresh {
-        name: String,
-    },
-    Revoke {
-        name: String,
-    },
+    Refresh { name: String },
+    Revoke { name: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -206,5 +207,65 @@ pub enum OpenclawCommand {
         connector_base_url: Option<String>,
         #[arg(long)]
         no_preflight: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProviderCommand {
+    Doctor {
+        #[arg(long = "for")]
+        platform: Option<String>,
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long)]
+        platform_state_dir: Option<PathBuf>,
+        #[arg(long)]
+        connector_base_url: Option<String>,
+        #[arg(long)]
+        skip_connector_runtime: bool,
+    },
+    Setup {
+        #[arg(long = "for")]
+        platform: Option<String>,
+        #[arg(long)]
+        agent_name: Option<String>,
+        #[arg(long)]
+        platform_base_url: Option<String>,
+        #[arg(long)]
+        webhook_host: Option<String>,
+        #[arg(long)]
+        webhook_port: Option<u16>,
+        #[arg(long)]
+        webhook_token: Option<String>,
+        #[arg(long)]
+        connector_base_url: Option<String>,
+        #[arg(long)]
+        connector_url: Option<String>,
+        #[arg(long)]
+        relay_transform_peers_path: Option<String>,
+    },
+    RelayTest {
+        #[arg(long = "for")]
+        platform: Option<String>,
+        #[arg(long)]
+        peer: Option<String>,
+        #[arg(long)]
+        platform_state_dir: Option<PathBuf>,
+        #[arg(long)]
+        platform_base_url: Option<String>,
+        #[arg(long)]
+        webhook_token: Option<String>,
+        #[arg(long)]
+        connector_base_url: Option<String>,
+        #[arg(long)]
+        message: Option<String>,
+        #[arg(long)]
+        session_id: Option<String>,
+        #[arg(long)]
+        no_preflight: bool,
+    },
+    Status {
+        #[arg(long = "for")]
+        platform: Option<String>,
     },
 }

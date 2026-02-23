@@ -1,3 +1,13 @@
+pub mod nanobot;
+pub mod nanoclaw;
+pub mod openclaw;
+pub mod picoclaw;
+
+pub use nanobot::NanobotProvider;
+pub use nanoclaw::NanoclawProvider;
+pub use openclaw::OpenclawProvider;
+pub use picoclaw::PicoclawProvider;
+
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -7,12 +17,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::config::{ConfigPathOptions, get_config_dir};
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
-use crate::provider_nanobot::NanobotProvider;
-use crate::provider_nanoclaw::NanoclawProvider;
-use crate::provider_openclaw::OpenclawProvider;
-use crate::provider_picoclaw::PicoclawProvider;
 
 pub trait PlatformProvider {
     /// Provider name (e.g., "openclaw", "picoclaw", "nanobot", "nanoclaw")
@@ -43,6 +50,15 @@ pub trait PlatformProvider {
 
     /// Verify the installation is working
     fn verify(&self) -> Result<VerifyResult>;
+
+    /// Run provider-specific diagnostics.
+    fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult>;
+
+    /// Persist provider-specific relay setup.
+    fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult>;
+
+    /// Send a provider-specific relay probe to validate webhook delivery.
+    fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult>;
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,6 +104,115 @@ pub struct InstallResult {
 pub struct VerifyResult {
     pub healthy: bool,
     pub checks: Vec<(String, bool, String)>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDoctorOptions {
+    pub home_dir: Option<PathBuf>,
+    pub platform_state_dir: Option<PathBuf>,
+    pub selected_agent: Option<String>,
+    pub peer_alias: Option<String>,
+    pub connector_base_url: Option<String>,
+    pub include_connector_runtime_check: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderDoctorCheckStatus {
+    Pass,
+    Fail,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderDoctorStatus {
+    Healthy,
+    Unhealthy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDoctorCheck {
+    pub id: String,
+    pub label: String,
+    pub status: ProviderDoctorCheckStatus,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remediation_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDoctorResult {
+    pub platform: String,
+    pub status: ProviderDoctorStatus,
+    pub checks: Vec<ProviderDoctorCheck>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSetupOptions {
+    pub home_dir: Option<PathBuf>,
+    pub agent_name: Option<String>,
+    pub platform_base_url: Option<String>,
+    pub webhook_host: Option<String>,
+    pub webhook_port: Option<u16>,
+    pub webhook_token: Option<String>,
+    pub connector_base_url: Option<String>,
+    pub connector_url: Option<String>,
+    pub relay_transform_peers_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderSetupResult {
+    pub platform: String,
+    pub notes: Vec<String>,
+    pub updated_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderRelayTestOptions {
+    pub home_dir: Option<PathBuf>,
+    pub platform_state_dir: Option<PathBuf>,
+    pub peer_alias: Option<String>,
+    pub platform_base_url: Option<String>,
+    pub webhook_token: Option<String>,
+    pub connector_base_url: Option<String>,
+    pub message: Option<String>,
+    pub session_id: Option<String>,
+    pub skip_preflight: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderRelayTestStatus {
+    Success,
+    Failure,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderRelayTestResult {
+    pub platform: String,
+    pub status: ProviderRelayTestStatus,
+    pub checked_at: String,
+    pub endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_alias: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remediation_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preflight: Option<ProviderDoctorResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 pub fn all_providers() -> Vec<Box<dyn PlatformProvider>> {
@@ -422,6 +547,175 @@ pub(crate) fn upsert_marked_block(contents: &str, start: &str, end: &str, block:
     output.push_str(block.trim_end_matches('\n'));
     output.push('\n');
     output
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProviderRelayRuntimeConfig {
+    pub webhook_endpoint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform_base_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relay_transform_peers_path: Option<String>,
+    pub updated_at: String,
+}
+
+pub(crate) fn now_iso() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
+
+pub(crate) fn resolve_state_dir(home_dir: Option<PathBuf>) -> Result<PathBuf> {
+    let options = ConfigPathOptions {
+        home_dir,
+        registry_url_hint: None,
+    };
+    get_config_dir(&options)
+}
+
+pub(crate) fn provider_agent_marker_path(state_dir: &Path, provider: &str) -> PathBuf {
+    state_dir.join(format!("{provider}-agent-name"))
+}
+
+pub(crate) fn provider_runtime_path(state_dir: &Path, provider: &str) -> PathBuf {
+    state_dir.join(format!("{provider}-relay.json"))
+}
+
+pub(crate) fn write_provider_agent_marker(
+    state_dir: &Path,
+    provider: &str,
+    agent_name: &str,
+) -> Result<PathBuf> {
+    let agent_name = agent_name.trim();
+    if agent_name.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "agent name cannot be empty".to_string(),
+        ));
+    }
+    let path = provider_agent_marker_path(state_dir, provider);
+    write_text(&path, &format!("{agent_name}\n"))?;
+    Ok(path)
+}
+
+pub(crate) fn read_provider_agent_marker(
+    state_dir: &Path,
+    provider: &str,
+) -> Result<Option<String>> {
+    let path = provider_agent_marker_path(state_dir, provider);
+    let value = read_text(&path)?;
+    Ok(value.and_then(|value| {
+        let trimmed = value.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }))
+}
+
+pub(crate) fn save_provider_runtime_config(
+    state_dir: &Path,
+    provider: &str,
+    config: ProviderRelayRuntimeConfig,
+) -> Result<PathBuf> {
+    let path = provider_runtime_path(state_dir, provider);
+    let mut value = serde_json::to_value(&config)?;
+    if !value.is_object() {
+        value = Value::Object(Map::new());
+    }
+    write_json(&path, &value)?;
+    Ok(path)
+}
+
+pub(crate) fn load_provider_runtime_config(
+    state_dir: &Path,
+    provider: &str,
+) -> Result<Option<ProviderRelayRuntimeConfig>> {
+    let path = provider_runtime_path(state_dir, provider);
+    let value = match read_text(&path)? {
+        Some(raw) => {
+            if raw.trim().is_empty() {
+                return Ok(None);
+            }
+            serde_json::from_str::<ProviderRelayRuntimeConfig>(&raw).map_err(|source| {
+                CoreError::JsonParse {
+                    path: path.clone(),
+                    source,
+                }
+            })?
+        }
+        None => return Ok(None),
+    };
+    Ok(Some(value))
+}
+
+pub(crate) fn push_doctor_check(
+    checks: &mut Vec<ProviderDoctorCheck>,
+    id: impl Into<String>,
+    label: impl Into<String>,
+    status: ProviderDoctorCheckStatus,
+    message: impl Into<String>,
+    remediation_hint: Option<String>,
+    details: Option<Value>,
+) {
+    checks.push(ProviderDoctorCheck {
+        id: id.into(),
+        label: label.into(),
+        status,
+        message: message.into(),
+        remediation_hint,
+        details,
+    });
+}
+
+pub(crate) fn doctor_status_from_checks(checks: &[ProviderDoctorCheck]) -> ProviderDoctorStatus {
+    if checks
+        .iter()
+        .any(|check| check.status == ProviderDoctorCheckStatus::Fail)
+    {
+        ProviderDoctorStatus::Unhealthy
+    } else {
+        ProviderDoctorStatus::Healthy
+    }
+}
+
+pub(crate) fn check_connector_runtime(connector_base_url: &str) -> Result<(bool, String)> {
+    let status_url = join_url_path(connector_base_url, "/v1/status", "connectorBaseUrl")?;
+    let response = blocking_client()?
+        .get(&status_url)
+        .header("accept", "application/json")
+        .send();
+
+    let response = match response {
+        Ok(response) => response,
+        Err(error) => {
+            return Ok((false, format!("connector status request failed: {error}")));
+        }
+    };
+
+    if !response.status().is_success() {
+        return Ok((
+            false,
+            format!("connector status returned HTTP {}", response.status()),
+        ));
+    }
+
+    let payload: Value = response
+        .json()
+        .map_err(|error| CoreError::Http(error.to_string()))?;
+    let connected = payload
+        .get("websocket")
+        .and_then(|value| value.get("connected"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if connected {
+        Ok((true, "connector websocket is connected".to_string()))
+    } else {
+        Ok((false, "connector websocket is disconnected".to_string()))
+    }
 }
 
 #[cfg(test)]

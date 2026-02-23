@@ -1,3 +1,13 @@
+pub mod inbound;
+pub mod outbound;
+pub mod peers;
+pub mod verify_cache;
+
+pub use inbound::*;
+pub use outbound::*;
+pub use peers::*;
+pub use verify_cache::*;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -147,7 +157,10 @@ fn configure_connection(connection: &Connection) -> Result<()> {
 }
 
 fn apply_migrations(connection: &Connection) -> Result<()> {
-    tracing::info!(migration = MIGRATION_NAME_PHASE3, "checking database migrations");
+    tracing::info!(
+        migration = MIGRATION_NAME_PHASE3,
+        "checking database migrations"
+    );
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY,
@@ -163,17 +176,26 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
         )
         .optional()?;
     if already_applied.is_some() {
-        tracing::info!(migration = MIGRATION_NAME_PHASE3, "database migration already applied");
+        tracing::info!(
+            migration = MIGRATION_NAME_PHASE3,
+            "database migration already applied"
+        );
         return Ok(());
     }
 
-    tracing::info!(migration = MIGRATION_NAME_PHASE3, "applying database migration");
+    tracing::info!(
+        migration = MIGRATION_NAME_PHASE3,
+        "applying database migration"
+    );
     connection.execute_batch(MIGRATION_SQL_PHASE3)?;
     connection.execute(
         "INSERT INTO schema_migrations (name, applied_at_ms) VALUES (?1, ?2)",
         params![MIGRATION_NAME_PHASE3, now_utc_ms()],
     )?;
-    tracing::info!(migration = MIGRATION_NAME_PHASE3, "database migration applied");
+    tracing::info!(
+        migration = MIGRATION_NAME_PHASE3,
+        "database migration applied"
+    );
     Ok(())
 }
 

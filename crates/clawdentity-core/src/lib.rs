@@ -1,44 +1,52 @@
 //! Core Clawdentity library modules and public exports.
 
-pub mod admin;
-pub mod agent;
-pub mod api_key;
-pub mod config;
+pub mod connector;
 pub mod constants;
-pub mod connector_client;
-pub mod connector_frames;
-pub mod crl;
 pub mod db;
-pub mod db_inbound;
-pub mod db_outbound;
-pub mod db_peers;
-pub mod db_verify_cache;
-pub mod did;
 pub mod error;
 pub mod http;
 pub mod identity;
-pub mod invite;
+#[path = "providers/openclaw_doctor.rs"]
 pub mod openclaw_doctor;
+#[path = "providers/openclaw_relay_test.rs"]
 pub mod openclaw_relay_test;
+#[path = "providers/openclaw_setup.rs"]
 pub mod openclaw_setup;
 pub mod pairing;
-pub mod peers;
-pub mod provider;
-pub mod provider_nanobot;
-pub mod provider_nanoclaw;
-pub mod provider_openclaw;
-pub mod provider_picoclaw;
-pub mod qr;
+pub mod providers;
 pub mod registry;
-pub mod runtime_auth;
-pub mod runtime_openclaw;
-pub mod runtime_relay;
-pub mod runtime_replay;
-pub mod runtime_server;
-pub mod runtime_trusted_receipts;
-pub mod service;
-pub mod signing;
+pub mod runtime;
 pub mod verify;
+
+// Backward-compatible module aliases for the previous flat layout.
+pub use connector::client as connector_client;
+pub use connector::frames as connector_frames;
+pub use connector::service;
+pub use db::inbound as db_inbound;
+pub use db::outbound as db_outbound;
+pub use db::peers as db_peers;
+pub use db::verify_cache as db_verify_cache;
+pub use identity::config;
+pub use identity::did;
+pub use identity::signing;
+pub use pairing::peers;
+pub use pairing::qr;
+pub use providers as provider;
+pub use providers::nanobot as provider_nanobot;
+pub use providers::nanoclaw as provider_nanoclaw;
+pub use providers::openclaw as provider_openclaw;
+pub use providers::picoclaw as provider_picoclaw;
+pub use registry::admin;
+pub use registry::agent;
+pub use registry::api_key;
+pub use registry::crl;
+pub use registry::invite;
+pub use runtime::auth as runtime_auth;
+pub use runtime::openclaw as runtime_openclaw;
+pub use runtime::relay as runtime_relay;
+pub use runtime::replay as runtime_replay;
+pub use runtime::server as runtime_server;
+pub use runtime::trusted_receipts as runtime_trusted_receipts;
 
 pub use admin::{
     AdminApiKey, AdminBootstrapInput, AdminBootstrapResult, AdminHuman, AdminInternalService,
@@ -129,8 +137,10 @@ pub use peers::{
 };
 pub use provider::{
     DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
-    PlatformProvider, VerifyResult as ProviderVerifyResult, all_providers, detect_platform,
-    get_provider,
+    PlatformProvider, ProviderDoctorCheck, ProviderDoctorCheckStatus, ProviderDoctorOptions,
+    ProviderDoctorResult, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
+    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult,
+    VerifyResult as ProviderVerifyResult, all_providers, detect_platform, get_provider,
 };
 pub use qr::{
     PAIRING_QR_DIR_NAME, PAIRING_QR_MAX_AGE_SECONDS, decode_ticket_from_png, encode_ticket_qr_png,

@@ -9,14 +9,21 @@ use crate::error::Result;
 use crate::openclaw_doctor::{
     DoctorCheckStatus, DoctorStatus, OpenclawDoctorOptions, run_openclaw_doctor,
 };
+use crate::openclaw_relay_test::{
+    OpenclawRelayTestOptions, RelayCheckStatus, run_openclaw_relay_test,
+};
 use crate::openclaw_setup::{
     OpenclawRelayRuntimeConfig, load_relay_runtime_config, resolve_openclaw_base_url,
-    resolve_openclaw_hook_token, save_relay_runtime_config,
+    resolve_openclaw_hook_token, save_connector_assignment, save_relay_runtime_config,
+    write_selected_openclaw_agent,
 };
 use crate::provider::{
     DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
-    PlatformProvider, VerifyResult, command_exists, default_webhook_url, ensure_json_object_path,
-    join_url_path, read_json_or_default, resolve_home_dir_with_fallback, write_json,
+    PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
+    ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
+    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyResult,
+    command_exists, default_webhook_url, ensure_json_object_path, join_url_path, now_iso,
+    read_json_or_default, resolve_home_dir_with_fallback, write_json,
 };
 
 const PROVIDER_NAME: &str = "openclaw";
@@ -272,6 +279,191 @@ impl PlatformProvider for OpenclawProvider {
         Ok(VerifyResult {
             healthy: doctor.status == DoctorStatus::Healthy,
             checks,
+        })
+    }
+
+    fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
+        let state_options = ConfigPathOptions {
+            home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
+            registry_url_hint: None,
+        };
+        let state_dir = get_config_dir(&state_options)?;
+        let store = SqliteStore::open(&state_options)?;
+
+        let doctor = run_openclaw_doctor(
+            &state_dir,
+            &store,
+            OpenclawDoctorOptions {
+                home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
+                openclaw_dir: opts.platform_state_dir.clone(),
+                selected_agent: opts.selected_agent.clone(),
+                peer_alias: opts.peer_alias.clone(),
+                connector_base_url: opts.connector_base_url.clone(),
+                include_connector_runtime_check: opts.include_connector_runtime_check,
+            },
+        )?;
+
+        let checks = doctor
+            .checks
+            .into_iter()
+            .map(|check| crate::provider::ProviderDoctorCheck {
+                id: check.id,
+                label: check.label,
+                status: if check.status == DoctorCheckStatus::Pass {
+                    ProviderDoctorCheckStatus::Pass
+                } else {
+                    ProviderDoctorCheckStatus::Fail
+                },
+                message: check.message,
+                remediation_hint: check.remediation_hint,
+                details: check.details,
+            })
+            .collect();
+
+        Ok(ProviderDoctorResult {
+            platform: self.name().to_string(),
+            status: if doctor.status == DoctorStatus::Healthy {
+                ProviderDoctorStatus::Healthy
+            } else {
+                ProviderDoctorStatus::Unhealthy
+            },
+            checks,
+        })
+    }
+
+    fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult> {
+        let state_options = ConfigPathOptions {
+            home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
+            registry_url_hint: None,
+        };
+        let config_dir = get_config_dir(&state_options)?;
+        let agent_name = opts
+            .agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                crate::error::CoreError::InvalidInput("agent name is required".to_string())
+            })?;
+
+        let marker_path = write_selected_openclaw_agent(&config_dir, agent_name)?;
+        let resolved_base_url =
+            resolve_openclaw_base_url(&config_dir, opts.platform_base_url.as_deref())?;
+        let existing_runtime = load_relay_runtime_config(&config_dir)?;
+        let runtime_path = save_relay_runtime_config(
+            &config_dir,
+            OpenclawRelayRuntimeConfig {
+                openclaw_base_url: resolved_base_url,
+                openclaw_hook_token: opts.webhook_token.clone().or_else(|| {
+                    existing_runtime
+                        .as_ref()
+                        .and_then(|cfg| cfg.openclaw_hook_token.clone())
+                }),
+                relay_transform_peers_path: opts.relay_transform_peers_path.clone().or_else(|| {
+                    existing_runtime
+                        .as_ref()
+                        .and_then(|cfg| cfg.relay_transform_peers_path.clone())
+                }),
+                updated_at: Some(now_iso()),
+            },
+        )?;
+
+        let connector_assignment_path = if let Some(base_url) = opts.connector_base_url.as_deref() {
+            Some(save_connector_assignment(
+                &config_dir,
+                agent_name,
+                base_url,
+            )?)
+        } else {
+            None
+        };
+
+        let install_result = self.install(&InstallOptions {
+            home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
+            webhook_port: opts.webhook_port,
+            webhook_host: opts.webhook_host.clone(),
+            webhook_token: opts.webhook_token.clone(),
+            connector_url: opts
+                .connector_url
+                .clone()
+                .or(opts.connector_base_url.clone()),
+        })?;
+
+        let mut updated_paths = vec![
+            marker_path.display().to_string(),
+            runtime_path.display().to_string(),
+        ];
+        if let Some(path) = connector_assignment_path {
+            updated_paths.push(path.display().to_string());
+        }
+        let mut notes = install_result.notes;
+        notes.push(format!("selected agent marker saved for `{agent_name}`"));
+        Ok(ProviderSetupResult {
+            platform: self.name().to_string(),
+            notes,
+            updated_paths,
+        })
+    }
+
+    fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
+        let state_options = ConfigPathOptions {
+            home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
+            registry_url_hint: None,
+        };
+        let config_dir = get_config_dir(&state_options)?;
+        let store = SqliteStore::open(&state_options)?;
+        let result = run_openclaw_relay_test(
+            &config_dir,
+            &store,
+            OpenclawRelayTestOptions {
+                home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
+                openclaw_dir: opts.platform_state_dir.clone(),
+                peer_alias: opts.peer_alias.clone(),
+                openclaw_base_url: opts.platform_base_url.clone(),
+                hook_token: opts.webhook_token.clone(),
+                message: opts.message.clone(),
+                session_id: opts.session_id.clone(),
+                skip_preflight: opts.skip_preflight,
+            },
+        )?;
+        Ok(ProviderRelayTestResult {
+            platform: self.name().to_string(),
+            status: if result.status == RelayCheckStatus::Success {
+                ProviderRelayTestStatus::Success
+            } else {
+                ProviderRelayTestStatus::Failure
+            },
+            checked_at: result.checked_at,
+            endpoint: result.endpoint,
+            peer_alias: Some(result.peer_alias),
+            http_status: result.http_status,
+            message: result.message,
+            remediation_hint: result.remediation_hint,
+            preflight: result.preflight.map(|preflight| ProviderDoctorResult {
+                platform: self.name().to_string(),
+                status: if preflight.status == DoctorStatus::Healthy {
+                    ProviderDoctorStatus::Healthy
+                } else {
+                    ProviderDoctorStatus::Unhealthy
+                },
+                checks: preflight
+                    .checks
+                    .into_iter()
+                    .map(|check| crate::provider::ProviderDoctorCheck {
+                        id: check.id,
+                        label: check.label,
+                        status: if check.status == DoctorCheckStatus::Pass {
+                            ProviderDoctorCheckStatus::Pass
+                        } else {
+                            ProviderDoctorCheckStatus::Fail
+                        },
+                        message: check.message,
+                        remediation_hint: check.remediation_hint,
+                        details: check.details,
+                    })
+                    .collect(),
+            }),
+            details: None,
         })
     }
 }
