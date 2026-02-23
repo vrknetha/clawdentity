@@ -25,8 +25,12 @@ describe("agent inspect command", () => {
   it("displays all six decoded AIT fields", async () => {
     const result = await runAgentCommand(["inspect", DEFAULT_AGENT_NAME]);
 
-    expect(result.stdout).toContain("DID: did:claw:agent:abc");
-    expect(result.stdout).toContain("Owner: did:claw:human:def");
+    expect(result.stdout).toContain(
+      "DID: did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+    );
+    expect(result.stdout).toContain(
+      "Owner: did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    );
     expect(result.stdout).toContain("Expires: 2023-01-01T00:00:00.000Z");
     expect(result.stdout).toContain("Key ID: key-01");
     expect(result.stdout).toContain("Public Key: pub-key");

@@ -155,7 +155,8 @@ mod tests {
             &store,
             UpsertPeerInput {
                 alias: "alpha".to_string(),
-                did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+                did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                    .to_string(),
                 proxy_url: "https://proxy.example".to_string(),
                 agent_name: Some("Alpha".to_string()),
                 human_name: Some("Alice".to_string()),
@@ -167,7 +168,10 @@ mod tests {
         let fetched = get_peer_by_alias(&store, "alpha")
             .expect("get peer")
             .expect("peer");
-        assert_eq!(fetched.did, "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4");
+        assert_eq!(
+            fetched.did,
+            "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+        );
 
         let listed = list_peers(&store).expect("list peers");
         assert_eq!(listed.len(), 1);

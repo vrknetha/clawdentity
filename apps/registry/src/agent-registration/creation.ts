@@ -11,6 +11,7 @@ import {
   DEFAULT_AGENT_TTL_DAYS,
   MAX_AGENT_TTL_DAYS,
   MIN_AGENT_TTL_DAYS,
+  resolveDidAuthorityFromIssuer,
 } from "./constants.js";
 import { parseAgentRegistrationBody } from "./parsing.js";
 import type {
@@ -33,7 +34,8 @@ export function buildAgentRegistrationFromParsed(input: {
   const expiresAt = addSeconds(issuedAt, ttlSeconds);
 
   const agentId = generateUlid(issuedAtMs);
-  const agentDid = makeAgentDid(agentId);
+  const didAuthority = resolveDidAuthorityFromIssuer(input.issuer);
+  const agentDid = makeAgentDid(didAuthority, agentId);
   const currentJti = generateUlid(issuedAtMs + 1);
   const createdAt = issuedAt;
 

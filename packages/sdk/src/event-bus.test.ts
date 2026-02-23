@@ -9,9 +9,11 @@ describe("event bus", () => {
   it("creates a normalized event envelope", () => {
     const event = createEventEnvelope({
       type: "agent.auth.issued",
-      initiatedByAccountId: "did:claw:human:01HXYZ",
+      initiatedByAccountId:
+        "did:cdi:registry.clawdentity.dev:human:01HF7YAT4TXP6AW5QNXA2Y9K43",
       data: {
-        agentDid: "did:claw:agent:01HABC",
+        agentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       },
     });
 
@@ -19,9 +21,12 @@ describe("event bus", () => {
     expect(event.version).toBe("v1");
     expect(event.timestampUtc.length).toBeGreaterThan(0);
     expect(event.type).toBe("agent.auth.issued");
-    expect(event.initiatedByAccountId).toBe("did:claw:human:01HXYZ");
+    expect(event.initiatedByAccountId).toBe(
+      "did:cdi:registry.clawdentity.dev:human:01HF7YAT4TXP6AW5QNXA2Y9K43",
+    );
     expect(event.data).toEqual({
-      agentDid: "did:claw:agent:01HABC",
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
     });
   });
 
@@ -32,7 +37,8 @@ describe("event bus", () => {
     const event = createEventEnvelope({
       type: "agent.auth.refreshed",
       data: {
-        agentDid: "did:claw:agent:01HABC",
+        agentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       },
     });
 
@@ -51,7 +57,8 @@ describe("event bus", () => {
     const event = createEventEnvelope({
       type: "agent.auth.revoked",
       data: {
-        agentDid: "did:claw:agent:01HABC",
+        agentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       },
     });
 

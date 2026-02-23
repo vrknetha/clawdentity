@@ -122,8 +122,8 @@ const activeSigningKey = {
 
 const tokenClaims = {
   iss: "https://registry.clawdentity.com",
-  sub: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-  ownerDid: "did:claw:human:01HF7YAT00W6W7CM7N3W5FDXT5",
+  sub: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+  ownerDid: "did:cdi:registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT5",
   name: "agent-01",
   framework: "openclaw",
   cnf: {
@@ -147,7 +147,8 @@ const crlClaims = {
   revocations: [
     {
       jti: "01HF7YAT31JZHSMW1CG6Q6MHB7",
-      agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      agentDid:
+        "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
       revokedAt: 1_700_000_100,
     },
   ],

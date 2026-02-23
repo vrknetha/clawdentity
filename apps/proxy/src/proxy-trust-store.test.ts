@@ -62,8 +62,10 @@ describe("in-memory proxy trust store", () => {
     const store = createInMemoryProxyTrustStore();
     expect(
       await store.isPairAllowed({
-        initiatorAgentDid: "did:claw:agent:alice",
-        responderAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       }),
     ).toBe(true);
   });
@@ -71,37 +73,65 @@ describe("in-memory proxy trust store", () => {
   it("supports symmetric pair checks", async () => {
     const store = createInMemoryProxyTrustStore();
     await store.upsertPair({
-      initiatorAgentDid: "did:claw:agent:alice",
-      responderAgentDid: "did:claw:agent:bob",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
     });
 
     expect(
       await store.isPairAllowed({
-        initiatorAgentDid: "did:claw:agent:alice",
-        responderAgentDid: "did:claw:agent:bob",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       }),
     ).toBe(true);
     expect(
       await store.isPairAllowed({
-        initiatorAgentDid: "did:claw:agent:bob",
-        responderAgentDid: "did:claw:agent:alice",
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       }),
     ).toBe(true);
   });
 
   it("tracks known agents through pair index updates", async () => {
     const store = createInMemoryProxyTrustStore();
-    expect(await store.isAgentKnown("did:claw:agent:alice")).toBe(false);
-    expect(await store.isAgentKnown("did:claw:agent:bob")).toBe(false);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      ),
+    ).toBe(false);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
+      ),
+    ).toBe(false);
 
     await store.upsertPair({
-      initiatorAgentDid: "did:claw:agent:alice",
-      responderAgentDid: "did:claw:agent:bob",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
     });
 
-    expect(await store.isAgentKnown("did:claw:agent:alice")).toBe(true);
-    expect(await store.isAgentKnown("did:claw:agent:bob")).toBe(true);
-    expect(await store.isAgentKnown("did:claw:agent:charlie")).toBe(false);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      ),
+    ).toBe(true);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
+      ),
+    ).toBe(true);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT4TXP6AW5QNXA2Y9K43",
+      ),
+    ).toBe(false);
   });
 
   it("confirms one-time pairing tickets and establishes trust", async () => {
@@ -112,7 +142,8 @@ describe("in-memory proxy trust store", () => {
       expiresAtMs: 1_700_000_060_000,
     });
     const ticket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
@@ -123,15 +154,18 @@ describe("in-memory proxy trust store", () => {
 
     const confirmed = await store.confirmPairingTicket({
       ticket: ticket.ticket,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE,
       nowMs: 1_700_000_000_100,
     });
 
     expect(confirmed).toEqual({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
     });
@@ -139,7 +173,8 @@ describe("in-memory proxy trust store", () => {
     await expect(
       store.confirmPairingTicket({
         ticket: ticket.ticket,
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_000_200,
       }),
@@ -148,8 +183,16 @@ describe("in-memory proxy trust store", () => {
       status: 409,
     });
 
-    expect(await store.isAgentKnown("did:claw:agent:alice")).toBe(true);
-    expect(await store.isAgentKnown("did:claw:agent:bob")).toBe(true);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      ),
+    ).toBe(true);
+    expect(
+      await store.isAgentKnown(
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
+      ),
+    ).toBe(true);
   });
 
   it("returns pending and confirmed pairing ticket status for initiator polling", async () => {
@@ -160,7 +203,8 @@ describe("in-memory proxy trust store", () => {
       expiresAtMs: 1_700_000_060_000,
     });
     const ticket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
@@ -177,7 +221,8 @@ describe("in-memory proxy trust store", () => {
     ).resolves.toEqual({
       status: "pending",
       ticket: ticket.ticket,
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       expiresAtMs: 1_700_000_060_000,
@@ -185,7 +230,8 @@ describe("in-memory proxy trust store", () => {
 
     await store.confirmPairingTicket({
       ticket: ticket.ticket,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE,
       nowMs: 1_700_000_000_300,
     });
@@ -198,9 +244,11 @@ describe("in-memory proxy trust store", () => {
     ).resolves.toEqual({
       status: "confirmed",
       ticket: ticket.ticket,
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       expiresAtMs: 1_700_000_060_000,
@@ -217,7 +265,8 @@ describe("in-memory proxy trust store", () => {
     });
 
     const ticket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
@@ -237,7 +286,8 @@ describe("in-memory proxy trust store", () => {
       expiresAtMs: 1_700_000_060_000,
     });
     const ticket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
@@ -249,7 +299,8 @@ describe("in-memory proxy trust store", () => {
     await expect(
       store.confirmPairingTicket({
         ticket: tamperTicketNonce(ticket.ticket),
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_000_100,
       }),
@@ -267,7 +318,8 @@ describe("in-memory proxy trust store", () => {
       expiresAtMs: 1_700_000_001_000,
     });
     const ticket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: created.ticket,
@@ -279,7 +331,8 @@ describe("in-memory proxy trust store", () => {
     await expect(
       store.confirmPairingTicket({
         ticket: ticket.ticket,
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_002_000,
       }),
@@ -308,7 +361,8 @@ describe("in-memory proxy trust store", () => {
       expiresAtMs: 1_700_000_001_000,
     });
     const expiredTicket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: expired.ticket,
@@ -323,7 +377,8 @@ describe("in-memory proxy trust store", () => {
       expiresAtMs: 1_700_000_060_000,
     });
     const validTicket = await store.createPairingTicket({
-      initiatorAgentDid: "did:claw:agent:alice",
+      initiatorAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
       initiatorProfile: INITIATOR_PROFILE,
       issuerProxyUrl: "https://proxy-a.example.com",
       ticket: valid.ticket,
@@ -334,7 +389,8 @@ describe("in-memory proxy trust store", () => {
 
     await store.confirmPairingTicket({
       ticket: validTicket.ticket,
-      responderAgentDid: "did:claw:agent:bob",
+      responderAgentDid:
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE,
       nowMs: 1_700_000_002_000,
     });
@@ -342,7 +398,8 @@ describe("in-memory proxy trust store", () => {
     await expect(
       store.confirmPairingTicket({
         ticket: expiredTicket.ticket,
-        responderAgentDid: "did:claw:agent:bob",
+        responderAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
         responderProfile: RESPONDER_PROFILE,
         nowMs: 1_700_000_002_100,
       }),

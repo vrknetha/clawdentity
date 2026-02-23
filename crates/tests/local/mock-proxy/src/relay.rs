@@ -48,7 +48,7 @@ pub async fn relay_deliver_handler(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .or_else(|| parse_claw_token(&headers).and_then(|token| parse_agent_did_from_ait(&token)))
-        .unwrap_or_else(|| format!("did:claw:agent:{}", Ulid::new()));
+        .unwrap_or_else(|| format!("did:cdi:localhost:agent:{}", Ulid::new()));
 
     if body.to_agent_did.trim().is_empty() {
         return error_response(StatusCode::BAD_REQUEST, "toAgentDid is required");

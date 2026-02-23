@@ -177,7 +177,7 @@ CLI (operator's machine)              Registry
 
 | Claim | Purpose |
 |-------|---------|
-| `sub` | Agent DID (`did:claw:agent:<ulid>`) — unique identity |
+| `sub` | Agent DID (`did:cdi:<authority>:agent:<ulid>`) — unique identity |
 | `ownerDid` | Human DID — who owns this agent |
 | `cnf.jwk.x` | Agent's public key — for verifying PoP signatures |
 | `jti` | Token ID — for revocation tracking |
@@ -196,12 +196,12 @@ Alice's Operator                        Bob's Operator
   │                                        │
   │                                        │  clawdentity openclaw setup
   │                                        │    bob --peer-alias alice
-  │                                        │        --peer-did did:claw:agent:...
+  │                                        │        --peer-did did:cdi:<authority>:agent:...
   │                                        │        --peer-proxy-url https://alice-proxy/hooks/agent
   │                                        │
   │                                        │  Stores peer in peers.json:
   │                                        │  { "alice": {
-  │                                        │      "did": "did:claw:agent:...",
+  │                                        │      "did": "did:cdi:<authority>:agent:...",
   │                                        │      "proxyUrl": "https://..."
   │                                        │  }}
   │                                        │

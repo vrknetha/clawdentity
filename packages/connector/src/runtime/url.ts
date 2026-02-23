@@ -104,3 +104,18 @@ export function toHttpOriginFromWebSocketUrl(value: URL): string {
 
   return normalized.origin;
 }
+
+export function resolveRegistryUrlFromIssuer(issuer: string): string {
+  let parsedIssuer: URL;
+  try {
+    parsedIssuer = new URL(issuer);
+  } catch {
+    throw new Error("Connector AIT issuer is invalid");
+  }
+
+  if (parsedIssuer.protocol !== "https:" && parsedIssuer.protocol !== "http:") {
+    throw new Error("Connector AIT issuer must use http or https");
+  }
+
+  return parsedIssuer.origin;
+}

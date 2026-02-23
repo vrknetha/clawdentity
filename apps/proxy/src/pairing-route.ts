@@ -1,4 +1,4 @@
-import { parseDid } from "@clawdentity/protocol";
+import { parseAgentDid as parseProtocolAgentDid } from "@clawdentity/protocol";
 import {
   AppError,
   createRegistryIdentityClient,
@@ -252,10 +252,7 @@ function parseOptionalResponderAgentDid(value: unknown): string | undefined {
 
   const candidate = value.trim();
   try {
-    const parsed = parseDid(candidate);
-    if (parsed.kind !== "agent") {
-      throw new Error("invalid kind");
-    }
+    parseProtocolAgentDid(candidate);
   } catch {
     throw new AppError({
       code: "PROXY_PAIR_INVALID_BODY",

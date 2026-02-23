@@ -163,7 +163,7 @@ Use `--no-runtime-start` when the connector runs as a separate container or proc
 - `clawdentity pair start <agent-name> --qr --ttl-seconds <seconds>`
 - `clawdentity pair start <agent-name> --qr --wait`
 - `clawdentity pair start <agent-name> --qr --wait --wait-seconds <seconds> --poll-interval-seconds <seconds>`
-- `clawdentity pair start <agent-name> --qr --allow-responder <did:claw:agent:...>`
+- `clawdentity pair start <agent-name> --qr --allow-responder <did:cdi:<authority>:agent:...>`
 - `clawdentity pair start <agent-name> --qr --callback-url <https://...>`
 - `clawdentity pair confirm <agent-name> --qr-file <path>`
 - `clawdentity pair confirm <agent-name> --ticket <clwpair1_...>`

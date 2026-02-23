@@ -148,7 +148,7 @@ impl PlatformProvider for NanobotProvider {
             .map(|home_dir| Self::config_path_from_home(&home_dir))
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
         let home_dir = self.install_home_dir(opts)?;
         let config_path = Self::config_path_from_home(&home_dir);
@@ -217,7 +217,7 @@ impl PlatformProvider for NanobotProvider {
         })
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
         let mut checks = Vec::new();
         let state_dir =
@@ -405,7 +405,7 @@ impl PlatformProvider for NanobotProvider {
         })
     }
 
-#[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let checked_at = now_iso();
         let state_dir =
@@ -592,8 +592,10 @@ mod tests {
         let provider = NanobotProvider::default();
 
         let request = provider.format_inbound(&InboundMessage {
-            sender_did: "did:claw:sender".to_string(),
-            recipient_did: "did:claw:recipient".to_string(),
+            sender_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB"
+                .to_string(),
+            recipient_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTC"
+                .to_string(),
             content: "hello".to_string(),
             request_id: Some("req-123".to_string()),
             metadata: HashMap::new(),
@@ -602,7 +604,7 @@ mod tests {
         assert!(request.headers.is_empty());
         assert_eq!(
             request.body.get("userId").and_then(|value| value.as_str()),
-            Some("did:claw:sender")
+            Some("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB")
         );
         assert_eq!(
             request.body.get("content").and_then(|value| value.as_str()),

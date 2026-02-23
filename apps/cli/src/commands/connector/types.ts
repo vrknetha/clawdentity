@@ -33,7 +33,6 @@ export type ConnectorStartInput = {
   outboundBaseUrl: string;
   outboundPath: string;
   proxyWebsocketUrl?: string;
-  registryUrl: string;
 };
 
 export type ConnectorRuntime = {

@@ -3,7 +3,7 @@ import {
   decodeBase64url,
   RELAY_DELIVERY_RECEIPTS_PATH,
 } from "@clawdentity/protocol";
-import { createLogger } from "@clawdentity/sdk";
+import { createLogger, decodeAIT } from "@clawdentity/sdk";
 import { ConnectorClient } from "./client.js";
 import { createConnectorInboundInbox } from "./inbound-inbox.js";
 import { createRuntimeAuthController } from "./runtime/auth-lifecycle.js";
@@ -33,6 +33,7 @@ import {
   resolveOpenclawBaseUrl,
   resolveOpenclawHookPath,
   resolveOpenclawHookToken,
+  resolveRegistryUrlFromIssuer,
   toHttpOriginFromWebSocketUrl,
   toOpenclawHookUrl,
 } from "./runtime/url.js";
@@ -49,6 +50,8 @@ export async function startConnectorRuntime(
   const logger =
     input.logger ?? createLogger({ service: "connector", module: "runtime" });
   const fetchImpl = input.fetchImpl ?? fetch;
+  const decodedAit = decodeAIT(input.credentials.ait);
+  const registryUrl = resolveRegistryUrlFromIssuer(decodedAit.claims.iss);
 
   const secretKey = decodeBase64url(
     parseRequiredString(input.credentials.secretKey, "secretKey"),
@@ -61,7 +64,7 @@ export async function startConnectorRuntime(
     fetchImpl,
     initialAuth: toInitialAuthBundle(input.credentials),
     logger,
-    registryUrl: input.registryUrl,
+    registryUrl,
     secretKey,
   });
   await authController.refreshCurrentAuthIfNeeded();
@@ -133,7 +136,7 @@ export async function startConnectorRuntime(
   const relayService = createRelayService({
     configDir: input.configDir,
     agentName: input.agentName,
-    registryUrl: input.registryUrl,
+    registryUrl,
     fetchImpl,
     secretKey,
     ait: input.credentials.ait,

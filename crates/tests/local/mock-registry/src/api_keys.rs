@@ -135,7 +135,7 @@ pub(crate) async fn ensure_owner_for_api_token(state: &AppState, token: &str) ->
         return owner_did.clone();
     }
 
-    let owner_did = make_human_did();
+    let owner_did = make_human_did(&state.registry_url);
     let bootstrap_key =
         create_api_key_record(&owner_did, "bootstrap".to_string(), Some(token.to_string()));
     insert_api_key(&mut inner, bootstrap_key);

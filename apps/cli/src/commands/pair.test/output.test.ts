@@ -36,7 +36,8 @@ describe("pair command output", () => {
 
         return Response.json(
           {
-            initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+            initiatorAgentDid:
+              "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
             initiatorProfile: INITIATOR_PROFILE,
             ticket: "clwpair1_eyJ2IjoxfQ",
             expiresAt: "2026-02-18T00:00:00.000Z",
@@ -84,9 +85,11 @@ describe("pair command output", () => {
         return Response.json(
           {
             paired: true,
-            initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+            initiatorAgentDid:
+              "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
             initiatorProfile: INITIATOR_PROFILE,
-            responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+            responderAgentDid:
+              "did:cdi:registry.clawdentity.com:agent:01HBBB22222222222222222222",
             responderProfile: RESPONDER_PROFILE,
           },
           { status: 201 },
@@ -135,7 +138,8 @@ describe("pair command output", () => {
         return Response.json(
           {
             status: "pending",
-            initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+            initiatorAgentDid:
+              "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
             initiatorProfile: INITIATOR_PROFILE,
             expiresAt: "2026-02-18T00:00:00.000Z",
           },
@@ -159,7 +163,7 @@ describe("pair command output", () => {
     expect(result.exitCode).toBeUndefined();
     expect(result.stdout).toContain("Status: pending");
     expect(result.stdout).toContain(
-      "Initiator Agent DID: did:claw:agent:01HAAA11111111111111111111",
+      "Initiator Agent DID: did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
     );
   });
 });

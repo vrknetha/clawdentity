@@ -1,10 +1,35 @@
 import { z } from "zod";
-import { parseDid } from "./did.js";
+import { parseAgentDid } from "./did.js";
 import { ProtocolParseError } from "./errors.js";
 import { hasControlChars } from "./text.js";
 import { parseUlid } from "./ulid.js";
 
 const INVALID_CRL_CLAIMS = "INVALID_CRL_CLAIMS" as const;
+
+function parseIssuerHostname(issuer: string): string | null {
+  const match = /^https?:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(issuer);
+  if (match === null) {
+    return null;
+  }
+
+  const authoritySegment = match[1];
+  if (authoritySegment.includes("@") || authoritySegment.startsWith("[")) {
+    return null;
+  }
+
+  const [hostname, rawPort, ...rest] = authoritySegment.split(":");
+  if (
+    hostname.length === 0 ||
+    rest.length > 0 ||
+    (typeof rawPort === "string" &&
+      rawPort.length > 0 &&
+      !/^[0-9]+$/.test(rawPort))
+  ) {
+    return null;
+  }
+
+  return hostname.toLowerCase();
+}
 
 export const crlClaimsSchema = z
   .object({
@@ -36,6 +61,15 @@ export const crlClaimsSchema = z
   })
   .strict()
   .superRefine((claims, ctx) => {
+    const issuerAuthority = parseIssuerHostname(claims.iss);
+    if (issuerAuthority === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "iss must be a valid URL with a hostname",
+        path: ["iss"],
+      });
+    }
+
     if (claims.exp <= claims.iat) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -46,18 +80,21 @@ export const crlClaimsSchema = z
 
     for (const [index, revocation] of claims.revocations.entries()) {
       try {
-        const parsedAgentDid = parseDid(revocation.agentDid);
-        if (parsedAgentDid.kind !== "agent") {
+        const parsedAgentDid = parseAgentDid(revocation.agentDid);
+        if (
+          issuerAuthority !== null &&
+          parsedAgentDid.authority !== issuerAuthority
+        ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: "revocation.agentDid must refer to an agent DID",
+            message: "revocation.agentDid authority must match iss hostname",
             path: ["revocations", index, "agentDid"],
           });
         }
       } catch {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "revocation.agentDid must be a valid DID",
+          message: "revocation.agentDid must be a valid agent DID",
           path: ["revocations", index, "agentDid"],
         });
       }

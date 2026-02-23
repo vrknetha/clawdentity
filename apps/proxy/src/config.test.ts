@@ -8,7 +8,9 @@ import {
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
+  DEFAULT_NON_PRODUCTION_REGISTRY_URL,
   DEFAULT_OPENCLAW_BASE_URL,
+  DEFAULT_PRODUCTION_REGISTRY_URL,
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
   DEFAULT_REGISTRY_URL,
@@ -93,6 +95,18 @@ describe("proxy config", () => {
     expect(config.relayRetryJitterRatio).toBe(0.4);
     expect(config.relayMaxInFlightDeliveries).toBe(8);
     expect(config.relayMaxFrameBytes).toBe(2048);
+  });
+
+  it("derives registry URL by environment when override is not provided", () => {
+    const productionConfig = parseProxyConfig({
+      ENVIRONMENT: "production",
+    });
+    const localConfig = parseProxyConfig({
+      ENVIRONMENT: "local",
+    });
+
+    expect(productionConfig.registryUrl).toBe(DEFAULT_PRODUCTION_REGISTRY_URL);
+    expect(localConfig.registryUrl).toBe(DEFAULT_NON_PRODUCTION_REGISTRY_URL);
   });
 
   it("allows disabling identity injection via env override", () => {
@@ -199,7 +213,6 @@ describe("proxy config", () => {
     const config = parseProxyConfig(
       {
         ENVIRONMENT: "local",
-        REGISTRY_URL: "https://registry.example.test",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
         BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
       },
@@ -209,7 +222,7 @@ describe("proxy config", () => {
     );
 
     expect(config.environment).toBe("local");
-    expect(config.registryUrl).toBe("https://registry.example.test");
+    expect(config.registryUrl).toBe(DEFAULT_NON_PRODUCTION_REGISTRY_URL);
   });
 });
 

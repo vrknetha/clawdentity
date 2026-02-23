@@ -11,8 +11,13 @@ describe("buildTestAitClaims", () => {
     });
 
     expect(claims.iss).toBe("https://registry.clawdentity.com");
-    expect(parseDid(claims.sub).kind).toBe("agent");
-    expect(parseDid(claims.ownerDid).kind).toBe("human");
+    expect(parseDid(claims.sub).method).toBe("cdi");
+    expect(parseDid(claims.sub).authority).toBe("registry.clawdentity.com");
+    expect(parseDid(claims.sub).entity).toBe("agent");
+    expect(parseDid(claims.ownerDid).entity).toBe("human");
+    expect(parseDid(claims.ownerDid).authority).toBe(
+      "registry.clawdentity.com",
+    );
     expect(parseUlid(parseDid(claims.sub).ulid).timestampMs).toBe(
       1_700_000_000_010,
     );

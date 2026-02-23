@@ -4,6 +4,8 @@ import { RESOLVE_RATE_LIMIT_MAX_REQUESTS } from "../rate-limit.js";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe("GET /v1/resolve/:id", () => {
   it("returns public profile fields without requiring auth", async () => {
     const { authRow } = await makeValidPatContext();
@@ -13,7 +15,7 @@ describe("GET /v1/resolve/:id", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "resolve-me",
           framework: "openclaw",
@@ -45,7 +47,7 @@ describe("GET /v1/resolve/:id", () => {
       displayName?: string;
     };
     expect(body).toEqual({
-      did: makeAgentDid(agentId),
+      did: makeAgentDid(DID_AUTHORITY, agentId),
       name: "resolve-me",
       framework: "openclaw",
       status: "active",
@@ -63,7 +65,7 @@ describe("GET /v1/resolve/:id", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "legacy-framework-null",
           framework: null,
@@ -143,7 +145,7 @@ describe("GET /v1/resolve/:id", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "rate-limited-agent",
           framework: "openclaw",
@@ -288,7 +290,7 @@ describe("GET /v1/me", () => {
     };
     expect(body.human).toEqual({
       id: "human-1",
-      did: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      did: "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       displayName: "Ravi",
       role: "admin",
       apiKey: {

@@ -1,4 +1,5 @@
 import type { ProxyConfigLoadOptions } from "./defaults.js";
+import { resolveDefaultRegistryUrl } from "./defaults.js";
 import {
   assertNoDeprecatedAllowAllVerified,
   assertRequiredProxyRuntimeKeys,
@@ -45,7 +46,9 @@ export function parseProxyConfig(
   const candidateConfig: Record<string, unknown> = {
     listenPort: parsedRuntimeEnv.data.LISTEN_PORT,
     openclawBaseUrl: parsedRuntimeEnv.data.OPENCLAW_BASE_URL,
-    registryUrl: parsedRuntimeEnv.data.REGISTRY_URL,
+    registryUrl:
+      parsedRuntimeEnv.data.REGISTRY_URL ??
+      resolveDefaultRegistryUrl(parsedRuntimeEnv.data.ENVIRONMENT),
     environment: parsedRuntimeEnv.data.ENVIRONMENT,
     crlRefreshIntervalMs: parsedRuntimeEnv.data.CRL_REFRESH_INTERVAL_MS,
     crlMaxAgeMs: parsedRuntimeEnv.data.CRL_MAX_AGE_MS,

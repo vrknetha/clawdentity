@@ -25,7 +25,7 @@ Rules:
 {
   "peers": {
     "beta": {
-      "did": "did:claw:agent:01H...",
+      "did": "did:cdi:<authority>:agent:01H...",
       "proxyUrl": "https://beta-proxy.example.com/hooks/agent",
       "agentName": "beta",
       "humanName": "Ira"
@@ -36,7 +36,7 @@ Rules:
 
 Rules:
 - peer alias key uses `[a-zA-Z0-9._-]`
-- `did` required and must begin with `did:`
+- `did` required and must be a valid DID v2 agent identifier (`did:cdi:<authority>:agent:<ulid>`)
 - `proxyUrl` required and must be a valid absolute URL
 - `agentName` optional
 - `humanName` optional
@@ -147,7 +147,7 @@ Outbound JSON body sent by transform:
 ```json
 {
   "peer": "beta",
-  "peerDid": "did:claw:agent:01H...",
+  "peerDid": "did:cdi:<authority>:agent:01H...",
   "peerProxyUrl": "https://beta-proxy.example.com/hooks/agent",
   "payload": {
     "event": "agent.message"
@@ -204,8 +204,8 @@ When identity injection is enabled (proxy env `INJECT_IDENTITY_INTO_MESSAGE`, de
 
 ```
 [Clawdentity Identity]
-agentDid: did:claw:agent:01H...
-ownerDid: did:claw:human:01H...
+agentDid: did:cdi:<authority>:agent:01H...
+ownerDid: did:cdi:<authority>:human:01H...
 issuer: https://registry.clawdentity.com
 aitJti: 01H...
 ```
@@ -289,8 +289,8 @@ Cache is populated on first `verify` call and refreshed when TTL expires. Stale 
 
 When `pair confirm` saves a new peer, alias is derived automatically:
 
-1. Parse peer DID to extract ULID component.
-2. Take last 8 characters of ULID, lowercase: `peer-<last8>`.
+1. Parse peer DID with the protocol DID parser and extract the identifier component.
+2. Take last 8 characters of the identifier, lowercase: `peer-<last8>`.
 3. If alias already exists in `peers.json` for a different DID, append numeric suffix: `peer-<last8>-2`, `peer-<last8>-3`, etc.
 4. If peer DID already exists in `peers.json`, reuse existing alias (no duplicate entry).
 5. Fallback alias is `peer` if DID is not a valid agent DID.

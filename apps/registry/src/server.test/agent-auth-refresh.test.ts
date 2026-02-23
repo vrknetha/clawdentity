@@ -14,13 +14,15 @@ import {
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, createSignedAgentRefreshRequest } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
   async function buildRefreshFixture() {
     const signer = await generateEd25519Keypair();
     const agentKeypair = await generateEd25519Keypair();
     const nowSeconds = Math.floor(Date.now() / 1000);
     const agentId = generateUlid(Date.now());
-    const agentDid = makeAgentDid(agentId);
+    const agentDid = makeAgentDid(DID_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
     const refreshToken =
       "clw_rft_fixture_refresh_token_value_for_registry_tests";
@@ -29,7 +31,7 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
       claims: {
         iss: "https://dev.registry.clawdentity.com",
         sub: agentDid,
-        ownerDid: makeHumanDid(generateUlid(Date.now() + 2)),
+        ownerDid: makeHumanDid(DID_AUTHORITY, generateUlid(Date.now() + 2)),
         name: "agent-refresh-01",
         framework: "openclaw",
         cnf: {

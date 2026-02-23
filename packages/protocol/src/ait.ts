@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { decodeBase64url } from "./base64url.js";
-import { parseDid } from "./did.js";
+import { parseAgentDid, parseHumanDid } from "./did.js";
 import { ProtocolParseError } from "./errors.js";
 import { hasControlChars } from "./text.js";
 import { parseUlid } from "./ulid.js";
@@ -20,6 +20,31 @@ export type AitCnfJwk = {
 
 function invalidAitClaims(message: string): ProtocolParseError {
   return new ProtocolParseError("INVALID_AIT_CLAIMS", message);
+}
+
+function parseIssuerHostname(issuer: string): string | null {
+  const match = /^https?:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(issuer);
+  if (match === null) {
+    return null;
+  }
+
+  const authoritySegment = match[1];
+  if (authoritySegment.includes("@") || authoritySegment.startsWith("[")) {
+    return null;
+  }
+
+  const [hostname, rawPort, ...rest] = authoritySegment.split(":");
+  if (
+    hostname.length === 0 ||
+    rest.length > 0 ||
+    (typeof rawPort === "string" &&
+      rawPort.length > 0 &&
+      !/^[0-9]+$/.test(rawPort))
+  ) {
+    return null;
+  }
+
+  return hostname.toLowerCase();
 }
 
 export function validateAgentName(name: string): boolean {
@@ -68,36 +93,48 @@ export const aitClaimsSchema = z
   })
   .strict()
   .superRefine((claims, ctx) => {
+    const issuerAuthority = parseIssuerHostname(claims.iss);
+    if (issuerAuthority === null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "iss must be a valid URL with a hostname",
+        path: ["iss"],
+      });
+    }
+
     try {
-      const parsedSub = parseDid(claims.sub);
-      if (parsedSub.kind !== "agent") {
+      const parsedSub = parseAgentDid(claims.sub);
+      if (issuerAuthority !== null && parsedSub.authority !== issuerAuthority) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "sub must be an agent DID",
+          message: "sub DID authority must match iss hostname",
           path: ["sub"],
         });
       }
     } catch {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "sub must be a valid DID",
+        message: "sub must be a valid agent DID",
         path: ["sub"],
       });
     }
 
     try {
-      const parsedOwnerDid = parseDid(claims.ownerDid);
-      if (parsedOwnerDid.kind !== "human") {
+      const parsedOwnerDid = parseHumanDid(claims.ownerDid);
+      if (
+        issuerAuthority !== null &&
+        parsedOwnerDid.authority !== issuerAuthority
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "ownerDid must be a human DID",
+          message: "ownerDid authority must match iss hostname",
           path: ["ownerDid"],
         });
       }
     } catch {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "ownerDid must be a valid DID",
+        message: "ownerDid must be a valid human DID",
         path: ["ownerDid"],
       });
     }

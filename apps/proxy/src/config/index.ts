@@ -10,7 +10,9 @@ export {
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_CRL_STALE_BEHAVIOR,
   DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
+  DEFAULT_NON_PRODUCTION_REGISTRY_URL,
   DEFAULT_OPENCLAW_BASE_URL,
+  DEFAULT_PRODUCTION_REGISTRY_URL,
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
   DEFAULT_REGISTRY_URL,
@@ -23,6 +25,7 @@ export {
   DEFAULT_RELAY_RETRY_MAX_ATTEMPTS,
   DEFAULT_RELAY_RETRY_MAX_MS,
   proxyEnvironmentValues,
+  resolveDefaultRegistryUrl,
 } from "./defaults.js";
 export { ProxyConfigError } from "./errors.js";
 export type { ProxyConfig } from "./schema.js";

@@ -18,8 +18,14 @@ export {
 export { decodeBase64url, encodeBase64url } from "./base64url.js";
 export type { CrlClaims } from "./crl.js";
 export { crlClaimsSchema, parseCrlClaims } from "./crl.js";
-export type { ClawDidKind } from "./did.js";
-export { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
+export type { DidEntity, ParsedDid } from "./did.js";
+export {
+  makeAgentDid,
+  makeHumanDid,
+  parseAgentDid,
+  parseDid,
+  parseHumanDid,
+} from "./did.js";
 export {
   ADMIN_BOOTSTRAP_PATH,
   ADMIN_INTERNAL_SERVICES_PATH,

@@ -7,6 +7,10 @@ import {
   INTERNAL_SERVICE_SECRET_HEADER,
 } from "./registry-identity-client.js";
 
+const AUTHORITY = "registry.clawdentity.com";
+const OWNER_DID = makeHumanDid(AUTHORITY, "01HF7YAT31JZHSMW1CG6Q6MHB7");
+const AGENT_DID = makeAgentDid(AUTHORITY, "01HF7YAT31JZHSMW1CG6Q6MHB7");
+
 describe("registry identity client", () => {
   it("checks ownership with service credential headers", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async () =>
@@ -23,8 +27,8 @@ describe("registry identity client", () => {
     });
 
     const result = await client.checkAgentOwnership({
-      ownerDid: makeHumanDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
-      agentDid: makeAgentDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
+      ownerDid: OWNER_DID,
+      agentDid: AGENT_DID,
     });
 
     expect(result).toEqual({
@@ -59,8 +63,8 @@ describe("registry identity client", () => {
 
     await expect(
       client.checkAgentOwnership({
-        ownerDid: makeHumanDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
-        agentDid: makeAgentDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
+        ownerDid: OWNER_DID,
+        agentDid: AGENT_DID,
       }),
     ).rejects.toMatchObject({
       code: "IDENTITY_SERVICE_UNAUTHORIZED",
@@ -80,8 +84,8 @@ describe("registry identity client", () => {
 
     await expect(
       client.checkAgentOwnership({
-        ownerDid: makeHumanDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
-        agentDid: makeAgentDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
+        ownerDid: OWNER_DID,
+        agentDid: AGENT_DID,
       }),
     ).rejects.toMatchObject({
       code: "IDENTITY_SERVICE_UNAVAILABLE",
@@ -103,8 +107,8 @@ describe("registry identity client", () => {
 
     await expect(
       client.checkAgentOwnership({
-        ownerDid: makeHumanDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
-        agentDid: makeAgentDid("01HF7YAT31JZHSMW1CG6Q6MHB7"),
+        ownerDid: OWNER_DID,
+        agentDid: AGENT_DID,
       }),
     ).rejects.toMatchObject({
       code: "IDENTITY_SERVICE_INVALID_RESPONSE",

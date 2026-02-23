@@ -329,7 +329,9 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     };
 
     expect(body.human.id).toBe("00000000000000000000000000");
-    expect(body.human.did).toBe("did:claw:human:00000000000000000000000000");
+    expect(body.human.did).toBe(
+      "did:cdi:dev.registry.clawdentity.com:human:00000000000000000000000000",
+    );
     expect(body.human.displayName).toBe("Primary Admin");
     expect(body.human.role).toBe("admin");
     expect(body.human.status).toBe("active");

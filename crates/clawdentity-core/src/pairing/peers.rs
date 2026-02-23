@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::SqliteStore;
 use crate::db_peers::{PeerRecord, UpsertPeerInput, list_peers, upsert_peer};
-use crate::did::{ClawDidKind, parse_did};
+use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
 
 const OPENCLAW_RELAY_RUNTIME_FILE_NAME: &str = "openclaw-relay.json";
@@ -39,9 +39,7 @@ pub struct PersistPeerInput {
 
 /// TODO(clawdentity): document `derive_peer_alias_base`.
 pub fn derive_peer_alias_base(peer_did: &str) -> String {
-    if let Ok(parsed) = parse_did(peer_did)
-        && parsed.kind == ClawDidKind::Agent
-    {
+    if let Ok(parsed) = parse_agent_did(peer_did) {
         let suffix = parsed
             .ulid
             .chars()
@@ -201,7 +199,8 @@ mod tests {
             &store,
             PersistPeerInput {
                 alias: None,
-                did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+                did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                    .to_string(),
                 proxy_url: "https://proxy.example/hooks/agent".to_string(),
                 agent_name: Some("Alpha".to_string()),
                 human_name: Some("Alice".to_string()),
@@ -231,7 +230,8 @@ mod tests {
             peers: [(
                 "alpha".to_string(),
                 super::PeerEntry {
-                    did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+                    did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                        .to_string(),
                     proxy_url: "https://proxy.example/hooks/agent".to_string(),
                     agent_name: None,
                     human_name: None,

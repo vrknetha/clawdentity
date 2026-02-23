@@ -12,7 +12,7 @@ check_identity() {
 
   local did
   did="$(agent_did "${service}" "${agent_name}")"
-  if [[ ! "${did}" =~ ^did:claw:agent: ]]; then
+  if [[ ! "${did}" =~ ^did:cdi:[a-z0-9.-]+:agent:[0-9A-HJKMNP-TV-Z]{26}$ ]]; then
     fail "${service} did format invalid: ${did}"
   fi
   pass "${service} has valid agent DID"

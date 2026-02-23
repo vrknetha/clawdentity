@@ -316,6 +316,15 @@ export function createInboundReplayController(input: {
           }
         }),
       );
+    } catch (error) {
+      if (!input.isRuntimeStopping()) {
+        const reason = sanitizeErrorReason(error);
+        inboundReplayStatus.lastReplayError = reason;
+        inboundReplayStatus.lastAttemptStatus = "failed";
+        input.logger.warn("connector.inbound.replay_loop_failed", {
+          reason,
+        });
+      }
     } finally {
       replayInFlight = false;
       inboundReplayStatus.replayerActive = false;

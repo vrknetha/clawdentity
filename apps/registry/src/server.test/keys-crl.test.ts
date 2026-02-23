@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeAitClaims } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe("GET /.well-known/claw-keys.json", () => {
   it("returns configured registry signing keys with cache headers", async () => {
     const res = await createRegistryApp().request(
@@ -197,7 +199,7 @@ describe("GET /v1/crl", () => {
       [
         {
           id: agentIdOne,
-          did: makeAgentDid(agentIdOne),
+          did: makeAgentDid(DID_AUTHORITY, agentIdOne),
           ownerId: "human-1",
           name: "revoked-one",
           framework: "openclaw",
@@ -206,7 +208,7 @@ describe("GET /v1/crl", () => {
         },
         {
           id: agentIdTwo,
-          did: makeAgentDid(agentIdTwo),
+          did: makeAgentDid(DID_AUTHORITY, agentIdTwo),
           ownerId: "human-2",
           name: "revoked-two",
           framework: "langchain",
@@ -296,12 +298,12 @@ describe("GET /v1/crl", () => {
       expect.arrayContaining([
         {
           jti: revocationJtiOne,
-          agentDid: makeAgentDid(agentIdOne),
+          agentDid: makeAgentDid(DID_AUTHORITY, agentIdOne),
           revokedAt: Math.floor(Date.parse("2026-02-11T10:00:00.000Z") / 1000),
         },
         {
           jti: revocationJtiTwo,
-          agentDid: makeAgentDid(agentIdTwo),
+          agentDid: makeAgentDid(DID_AUTHORITY, agentIdTwo),
           reason: "manual revoke",
           revokedAt: Math.floor(Date.parse("2026-02-11T11:00:00.000Z") / 1000),
         },
@@ -390,7 +392,7 @@ describe("GET /v1/crl", () => {
       [
         {
           id: agentId,
-          did: makeAgentDid(agentId),
+          did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "revoked-agent",
           framework: "openclaw",

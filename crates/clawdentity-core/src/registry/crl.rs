@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::SqliteStore;
 use crate::db::now_utc_ms;
 use crate::db_verify_cache::{get_verify_cache_entry, upsert_verify_cache_entry};
-use crate::did::{ClawDidKind, parse_did};
+use crate::did::{did_authority_from_url, parse_agent_did};
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 
@@ -124,11 +124,14 @@ fn parse_crl_claims(payload: serde_json::Value) -> Result<CrlClaims> {
             "CRL claims exp must be greater than iat".to_string(),
         ));
     }
+    let issuer_authority = did_authority_from_url(&claims.iss, "iss")?;
     for revocation in &claims.revocations {
-        let parsed = parse_did(&revocation.agent_did)?;
-        if parsed.kind != ClawDidKind::Agent {
+        let parsed = parse_agent_did(&revocation.agent_did).map_err(|_| {
+            CoreError::InvalidInput("CRL revocation agentDid must be an agent DID".to_string())
+        })?;
+        if parsed.authority != issuer_authority {
             return Err(CoreError::InvalidInput(
-                "CRL revocation agentDid must be an agent DID".to_string(),
+                "CRL revocation agentDid authority must match issuer host".to_string(),
             ));
         }
     }
@@ -217,6 +220,10 @@ mod tests {
     use super::{CrlVerificationKey, load_crl_claims};
 
     fn sign_crl_token(registry_url: &str, signer: &SigningKey, kid: &str) -> String {
+        let authority = url::Url::parse(registry_url)
+            .ok()
+            .and_then(|value| value.host_str().map(ToOwned::to_owned))
+            .expect("registry host");
         let header = URL_SAFE_NO_PAD.encode(
             serde_json::to_vec(&serde_json::json!({
                 "alg":"EdDSA",
@@ -233,7 +240,7 @@ mod tests {
                 "exp": 2_208_988_800_i64,
                 "revocations": [{
                     "jti":"01HF7YAT00W6W7CM7N3W5FDXT5",
-                    "agentDid":"did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT6",
+                    "agentDid": format!("did:cdi:{authority}:agent:01HF7YAT00W6W7CM7N3W5FDXT6"),
                     "revokedAt": 1_700_000_010_i64
                 }]
             }))

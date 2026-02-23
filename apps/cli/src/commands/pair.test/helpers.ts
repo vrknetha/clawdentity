@@ -73,7 +73,7 @@ export const createPairFixture = async (): Promise<PairFixture> => {
     .trim();
   const payload = Buffer.from(
     JSON.stringify({
-      sub: "did:claw:agent:01HAAA11111111111111111111",
+      sub: "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
     }),
   )
     .toString("base64url")

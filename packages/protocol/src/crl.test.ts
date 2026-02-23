@@ -4,19 +4,21 @@ import { makeAgentDid, makeHumanDid } from "./did.js";
 import { ProtocolParseError } from "./errors.js";
 import { generateUlid } from "./ulid.js";
 
+const AUTHORITY = "registry.clawdentity.dev";
+
 function makeValidCrlClaims() {
   const now = 1700000000;
   const agentUlid = generateUlid(1700000000000);
 
   return {
-    iss: "https://registry.clawdentity.dev",
+    iss: `https://${AUTHORITY}`,
     jti: generateUlid(1700000100000),
     iat: now,
     exp: now + 3600,
     revocations: [
       {
         jti: generateUlid(1700000200000),
-        agentDid: makeAgentDid(agentUlid),
+        agentDid: makeAgentDid(AUTHORITY, agentUlid),
         reason: "key compromise",
         revokedAt: now + 1000,
       },
@@ -40,7 +42,9 @@ describe("CRL claims schema", () => {
   it("accepts valid CRL payloads", () => {
     const parsed = parseCrlClaims(makeValidCrlClaims());
     expect(parsed.revocations).toHaveLength(1);
-    expect(parsed.revocations[0].agentDid).toMatch(/^did:claw:agent:/);
+    expect(parsed.revocations[0].agentDid).toMatch(
+      /^did:cdi:registry\.clawdentity\.dev:agent:/,
+    );
   });
 
   it("rejects missing required fields", () => {
@@ -59,7 +63,20 @@ describe("CRL claims schema", () => {
 
   it("rejects non-agent DIDs for revocations", () => {
     const claims = makeValidCrlClaims();
-    claims.revocations[0].agentDid = makeHumanDid(generateUlid(1700000000000));
+    claims.revocations[0].agentDid = makeHumanDid(
+      AUTHORITY,
+      generateUlid(1700000000000),
+    );
+
+    expectInvalidCrl(claims);
+  });
+
+  it("rejects revocation DID authority mismatches against issuer hostname", () => {
+    const claims = makeValidCrlClaims();
+    claims.revocations[0].agentDid = makeAgentDid(
+      "alt-registry.clawdentity.dev",
+      generateUlid(1700000000400),
+    );
 
     expectInvalidCrl(claims);
   });

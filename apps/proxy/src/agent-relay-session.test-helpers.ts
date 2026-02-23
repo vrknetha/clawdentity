@@ -5,8 +5,10 @@ export type MockWebSocket = {
   close: ReturnType<typeof vi.fn>;
 };
 
-export const SENDER_AGENT_DID = "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7";
-export const RECIPIENT_AGENT_DID = "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB8";
+export const SENDER_AGENT_DID =
+  "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7";
+export const RECIPIENT_AGENT_DID =
+  "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB8";
 export const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
 
 export function createMockSocket(): MockWebSocket {

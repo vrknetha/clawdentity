@@ -11,6 +11,16 @@ Run from repository root:
 - `pnpm build`
 - `pnpm test`
 
+## DID Format Guidance
+- Keep all DID construction/parsing inside `packages/protocol/src/did.ts` so the switch to `did:cdi` stays centralized and tests update automatically.
+- Trust slices (AIT, CRL, registry ownership, proxy pairings, connectors) should call shared helpers (e.g., `parseDid`, `validateAgentDid`) instead of copying brittle string-prefix checks; this keeps role expectations tied to context when DID semantics depend on parsed entity and authority fields.
+- When new DID authorities appear (registry-owned vs self-hosted), track their identifiers in configuration and rely on parsed `authority` metadata for routing/trust checks rather than scattering hardcoded strings.
+
+## Execution Governance
+- GitHub issues are the source of truth for sequencing, blockers, and rollout updates.
+- Primary execution tracker: https://github.com/vrknetha/clawdentity/issues/74.
+- Do not use local execution-order files as governance source.
+
 Common quality checks:
 - `pnpm lint`
 - `pnpm -r typecheck`

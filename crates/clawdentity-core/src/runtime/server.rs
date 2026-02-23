@@ -12,7 +12,7 @@ use crate::connector_client::ConnectorClientSender;
 use crate::db::SqliteStore;
 use crate::db_inbound::{dead_letter_count, list_dead_letter, pending_count};
 use crate::db_outbound::{EnqueueOutboundInput, enqueue_outbound, outbound_count};
-use crate::did::{ClawDidKind, parse_did};
+use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
 use crate::runtime_relay::flush_outbound_queue_to_relay;
 use crate::runtime_replay::{purge_dead_letter_messages, replay_dead_letter_messages};
@@ -107,19 +107,16 @@ async fn outbound_handler(
     Json(request): Json<OutboundRequest>,
 ) -> impl IntoResponse {
     let normalized_to_agent_did = request.to_agent_did.trim().to_string();
-    match parse_did(&normalized_to_agent_did) {
-        Ok(parsed) if parsed.kind == ClawDidKind::Agent => {}
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": {
-                        "code": "INVALID_TO_AGENT_DID",
-                        "message": "toAgentDid must be a valid agent DID",
-                    }
-                })),
-            );
-        }
+    if parse_agent_did(&normalized_to_agent_did).is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": {
+                    "code": "INVALID_TO_AGENT_DID",
+                    "message": "toAgentDid must be a valid agent DID",
+                }
+            })),
+        );
     }
 
     let frame_id = ulid::Ulid::new().to_string();
@@ -308,7 +305,7 @@ mod tests {
                     .uri("/v1/outbound")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        "{\"toAgentDid\":\"did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"world\"}}",
+                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"world\"}}",
                     ))
                     .expect("request"),
             )

@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { isRecord } from "@clawdentity/common";
+import { parseAgentDid as parseProtocolAgentDid } from "@clawdentity/protocol";
 
 const CLAWDENTITY_DIR = ".clawdentity";
 const PEERS_FILENAME = "peers.json";
@@ -62,10 +63,12 @@ function parsePeerAlias(value: unknown): string {
   return alias;
 }
 
-function parseDid(value: unknown): string {
+function parseAgentDid(value: unknown): string {
   const did = parseNonEmptyString(value, "did");
-  if (!did.startsWith("did:")) {
-    throw new Error("did must start with 'did:'");
+  try {
+    parseProtocolAgentDid(did);
+  } catch {
+    throw new Error("did must be a valid agent DID");
   }
 
   return did;
@@ -97,7 +100,7 @@ function parsePeerEntry(value: unknown): PeerEntry {
     throw new Error("peer entry must be an object");
   }
 
-  const did = parseDid(value.did);
+  const did = parseAgentDid(value.did);
   const proxyUrl = parseProxyUrl(value.proxyUrl);
   const agentName = parseProfileName(value.agentName, "agentName");
   const humanName = parseProfileName(value.humanName, "humanName");

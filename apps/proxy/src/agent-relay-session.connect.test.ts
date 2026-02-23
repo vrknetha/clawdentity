@@ -25,7 +25,8 @@ describe("AgentRelaySession connect", () => {
           method: "GET",
           headers: {
             upgrade: "websocket",
-            "x-claw-connector-agent-did": "did:claw:agent:connector",
+            "x-claw-connector-agent-did":
+              "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
           },
         },
       );
@@ -40,7 +41,7 @@ describe("AgentRelaySession connect", () => {
 
       expect(harness.state.acceptWebSocket).toHaveBeenCalledTimes(1);
       expect(harness.state.acceptWebSocket).toHaveBeenCalledWith(pairServer, [
-        "did:claw:agent:connector",
+        "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
       ]);
       expect(harness.storage.setAlarm.mock.calls.length).toBeGreaterThanOrEqual(
         1,
@@ -96,7 +97,8 @@ describe("AgentRelaySession connect", () => {
               method: "GET",
               headers: {
                 upgrade: "websocket",
-                "x-claw-connector-agent-did": "did:claw:agent:connector",
+                "x-claw-connector-agent-did":
+                  "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
               },
             }),
           )
@@ -141,7 +143,8 @@ describe("AgentRelaySession connect", () => {
             method: "GET",
             headers: {
               upgrade: "websocket",
-              "x-claw-connector-agent-did": "did:claw:agent:connector",
+              "x-claw-connector-agent-did":
+                "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
             },
           }),
         );
@@ -159,7 +162,7 @@ describe("AgentRelaySession connect", () => {
       "superseded_by_new_connection",
     );
     expect(harness.state.acceptWebSocket).toHaveBeenCalledWith(pairServer, [
-      "did:claw:agent:connector",
+      "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
     ]);
     expect(oldSocket.close.mock.invocationCallOrder[0]).toBeLessThan(
       harness.state.acceptWebSocket.mock.invocationCallOrder[0],
@@ -211,7 +214,8 @@ describe("AgentRelaySession connect", () => {
             method: "GET",
             headers: {
               upgrade: "websocket",
-              "x-claw-connector-agent-did": "did:claw:agent:connector",
+              "x-claw-connector-agent-did":
+                "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
             },
           }),
         );

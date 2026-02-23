@@ -1,6 +1,51 @@
+import {
+  encodeBase64url,
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createConnectorCommand } from "./connector.js";
+
+const DID_AUTHORITY = "registry.example.test";
+const AGENT_DID = makeAgentDid(DID_AUTHORITY, generateUlid(1700000000000));
+const OWNER_DID = makeHumanDid(DID_AUTHORITY, generateUlid(1700000000001));
+
+function createMockAitToken(): string {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const header = {
+    alg: "EdDSA",
+    typ: "AIT",
+    kid: "test-registry-kid",
+  } as const;
+  const payload = {
+    iss: `https://${DID_AUTHORITY}`,
+    sub: AGENT_DID,
+    ownerDid: OWNER_DID,
+    name: "alpha-agent",
+    framework: "openclaw",
+    cnf: {
+      jwk: {
+        kty: "OKP" as const,
+        crv: "Ed25519" as const,
+        x: encodeBase64url(new Uint8Array(32)),
+      },
+    },
+    iat: nowSeconds,
+    nbf: nowSeconds,
+    exp: nowSeconds + 3600,
+    jti: generateUlid(nowSeconds * 1000),
+  };
+
+  return [
+    Buffer.from(JSON.stringify(header), "utf8").toString("base64url"),
+    Buffer.from(JSON.stringify(payload), "utf8").toString("base64url"),
+    "signature",
+  ].join(".");
+}
+
+const MOCK_AIT_TOKEN = createMockAitToken();
 
 function createErrnoError(code: string): NodeJS.ErrnoException {
   const error = new Error(code) as NodeJS.ErrnoException;
@@ -230,7 +275,7 @@ describe("connector command", () => {
     }));
     const readFileImpl = vi.fn(async (path: string): Promise<string> => {
       if (path.endsWith("/ait.jwt")) {
-        return "mock.ait.jwt\n";
+        return `${MOCK_AIT_TOKEN}\n`;
       }
 
       if (path.endsWith("/secret.key")) {
@@ -239,7 +284,7 @@ describe("connector command", () => {
 
       if (path.endsWith("/identity.json")) {
         return JSON.stringify({
-          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+          did: AGENT_DID,
         });
       }
 
@@ -272,14 +317,13 @@ describe("connector command", () => {
         configDir: "/mock-home/.clawdentity",
         credentials: {
           accessToken: "clw_agt_access",
-          agentDid: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
-          ait: "mock.ait.jwt",
+          agentDid: AGENT_DID,
+          ait: MOCK_AIT_TOKEN,
           refreshToken: "clw_rft_refresh",
           secretKey: "mock.secret.key",
         },
         outboundBaseUrl: "http://127.0.0.1:19400",
         outboundPath: "/v1/outbound",
-        registryUrl: "https://registry.clawdentity.com",
       }),
     );
     expect(result.stdout).toContain(
@@ -302,7 +346,7 @@ describe("connector command", () => {
     }));
     const readFileImpl = vi.fn(async (path: string): Promise<string> => {
       if (path.endsWith("/ait.jwt")) {
-        return "mock.ait.jwt\n";
+        return `${MOCK_AIT_TOKEN}\n`;
       }
 
       if (path.endsWith("/secret.key")) {
@@ -311,7 +355,7 @@ describe("connector command", () => {
 
       if (path.endsWith("/identity.json")) {
         return JSON.stringify({
-          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+          did: AGENT_DID,
         });
       }
 
@@ -381,7 +425,7 @@ describe("connector command", () => {
     const readFileImpl = vi.fn(async (path: string): Promise<string> => {
       if (path.endsWith(".json")) {
         return JSON.stringify({
-          did: "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+          did: AGENT_DID,
           refreshToken: "clw_rft_refresh",
         });
       }

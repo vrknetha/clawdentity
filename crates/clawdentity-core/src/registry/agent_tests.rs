@@ -43,7 +43,7 @@ fn test_ait(agent_did: &str) -> String {
     let payload = URL_SAFE_NO_PAD.encode(
         serde_json::to_vec(&serde_json::json!({
             "sub": agent_did,
-            "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            "ownerDid": "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
             "exp": 2_208_988_800_u64,
             "framework": "openclaw",
             "cnf": { "jwk": { "kty": "OKP", "crv": "Ed25519", "x": "public-key-b64url" } }
@@ -61,7 +61,7 @@ async fn create_and_inspect_agent_round_trip() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "challengeId": "01JCHALLENGEID1234567890ABC",
             "nonce": "nonce-b64url",
-            "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            "ownerDid": "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
             "expiresAt": "2030-01-01T00:00:00.000Z",
             "algorithm": "Ed25519",
             "messageTemplate": "clawdentity.register.v1",
@@ -72,12 +72,12 @@ async fn create_and_inspect_agent_round_trip() {
         .and(path("/v1/agents"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "agent": {
-                "did": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                "did": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "name": "alpha",
                 "framework": "openclaw",
                 "expiresAt": "2030-01-01T00:00:00.000Z"
             },
-            "ait": test_ait("did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
+            "ait": test_ait("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
             "agentAuth": {
                 "tokenType": "Bearer",
                 "accessToken": "clw_agt_access_token",
@@ -108,7 +108,10 @@ async fn create_and_inspect_agent_round_trip() {
     .expect("join")
     .expect("create");
     assert_eq!(created.name, "alpha");
-    assert_eq!(created.did, "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4");
+    assert_eq!(
+        created.did,
+        "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+    );
 
     let inspect_options = options.clone();
     let inspect = tokio::task::spawn_blocking(move || inspect_agent(&inspect_options, "alpha"))
@@ -119,7 +122,7 @@ async fn create_and_inspect_agent_round_trip() {
     assert_eq!(inspect.did, created.did);
     assert_eq!(
         inspect.owner_did,
-        "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7"
+        "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7"
     );
 
     let auth_path = tmp
@@ -138,7 +141,7 @@ async fn refresh_agent_auth_updates_registry_auth_bundle() {
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "challengeId": "01JCHALLENGEID1234567890ABC",
             "nonce": "nonce-b64url",
-            "ownerDid": "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            "ownerDid": "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
             "expiresAt": "2030-01-01T00:00:00.000Z",
         })))
         .mount(&server)
@@ -147,12 +150,12 @@ async fn refresh_agent_auth_updates_registry_auth_bundle() {
         .and(path("/v1/agents"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "agent": {
-                "did": "did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+                "did": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "name": "beta",
                 "framework": "openclaw",
                 "expiresAt": "2030-01-01T00:00:00.000Z"
             },
-            "ait": test_ait("did:claw:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
+            "ait": test_ait("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
             "agentAuth": {
                 "tokenType": "Bearer",
                 "accessToken": "clw_agt_old_access_token",

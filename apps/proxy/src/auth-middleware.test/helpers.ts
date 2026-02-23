@@ -18,7 +18,8 @@ export const NOW_MS = Date.now();
 export const NOW_SECONDS = Math.floor(NOW_MS / 1000);
 export const ISSUER = "https://registry.clawdentity.com";
 export const BODY_JSON = JSON.stringify({ message: "hello" });
-export const KNOWN_PEER_DID = "did:claw:agent:known-peer";
+export const KNOWN_PEER_DID =
+  "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT8";
 
 type SignedHeadersInput = {
   body?: string;
@@ -204,6 +205,7 @@ export async function createAuthHarness(
 
   const app = createProxyApp({
     config: parseProxyConfig({
+      REGISTRY_URL: ISSUER,
       ...(options.crlStaleBehavior
         ? { CRL_STALE_BEHAVIOR: options.crlStaleBehavior }
         : {}),

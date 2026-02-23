@@ -12,6 +12,7 @@
   - `config/files.ts` for dotenv merge + fallback loading.
   - `config/validation.ts` for `parseProxyConfig` and `loadProxyConfig` orchestration.
 - Keep startup fail-fast env validation in `config.ts` and enforce it from runtime boot (`startProxyServer` + worker runtime build) so missing registry/service credentials fail immediately.
+- Keep `REGISTRY_URL` override optional; default it from `ENVIRONMENT` (`production` => `https://registry.clawdentity.com`, `development`/`local` => `https://dev.registry.clawdentity.com`).
 - Keep agent DID rate-limit env parsing in `config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE`, `AGENT_RATE_LIMIT_WINDOW_MS`) and validate as positive integers.
 - Keep HTTP app composition in `server.ts`.
 - Keep Cloudflare Worker fetch startup in `worker.ts`.
@@ -42,6 +43,7 @@
 - Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state/` (Durable Object backed; `proxy-trust-state.ts` remains the facade export).
 - Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
 - Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
+- Enforce DID v2 only in proxy routes/state/store: accept only `did:cdi:<authority>:<agent|human>:<ulid>` via protocol parsers (`parseAgentDid`, `parseHumanDid`), never manual prefixes or legacy DID fields.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
@@ -51,6 +53,7 @@
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
+- Keep proxy expected issuer derivation based on `new URL(resolvedRegistryUrl).origin`; do not branch on hardcoded hostnames.
 - Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.
 - Keep `/pair/start` ownership validation against registry `/internal/v1/identity/agent-ownership` using internal service credentials (`x-claw-service-id` + `x-claw-service-secret`), and map dependency failures to `503`.
 - Keep `/pair/start` fail-closed: do not bypass registry ownership dependencies.

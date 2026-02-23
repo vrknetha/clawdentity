@@ -73,8 +73,10 @@ mod tests {
         InboundPendingItem {
             request_id: request_id.to_string(),
             frame_id: "frame-1".to_string(),
-            from_agent_did: "did:claw:agent:sender".to_string(),
-            to_agent_did: "did:claw:agent:receiver".to_string(),
+            from_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTD"
+                .to_string(),
+            to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTE"
+                .to_string(),
             payload_json: "{}".to_string(),
             payload_bytes: 2,
             received_at_ms: 1,

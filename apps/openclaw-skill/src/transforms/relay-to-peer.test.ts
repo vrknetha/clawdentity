@@ -23,7 +23,7 @@ function createRelaySandbox(): RelaySandbox {
       {
         peers: {
           beta: {
-            did: "did:claw:agent:01BETA",
+            did: "did:cdi:registry.example.test:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
             proxyUrl: "https://peer.example.com/hooks/agent?source=skill",
             agentName: "beta",
             humanName: "Ira",
@@ -76,7 +76,8 @@ describe("relay-to-peer transform", () => {
       expect(requestInit.body).toBe(
         JSON.stringify({
           peer: "beta",
-          peerDid: "did:claw:agent:01BETA",
+          peerDid:
+            "did:cdi:registry.example.test:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           peerProxyUrl: "https://peer.example.com/hooks/agent?source=skill",
           payload: {
             message: "hello",

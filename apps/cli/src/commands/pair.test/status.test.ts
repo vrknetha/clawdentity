@@ -41,7 +41,8 @@ describe("pair status helpers", () => {
       return Response.json(
         {
           status: "pending",
-          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
           expiresAt: "2026-02-18T00:00:00.000Z",
         },
@@ -89,7 +90,8 @@ describe("pair status helpers", () => {
       return Response.json(
         {
           status: "pending",
-          initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+          initiatorAgentDid:
+            "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
           initiatorProfile: INITIATOR_PROFILE,
           expiresAt: "2026-02-18T00:00:00.000Z",
         },
@@ -141,15 +143,18 @@ describe("pair status helpers", () => {
     const statusResponses = [
       {
         status: "pending",
-        initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+        initiatorAgentDid:
+          "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
         initiatorProfile: INITIATOR_PROFILE,
         expiresAt: "2026-02-18T00:00:00.000Z",
       },
       {
         status: "confirmed",
-        initiatorAgentDid: "did:claw:agent:01HAAA11111111111111111111",
+        initiatorAgentDid:
+          "did:cdi:registry.clawdentity.com:agent:01HAAA11111111111111111111",
         initiatorProfile: INITIATOR_PROFILE,
-        responderAgentDid: "did:claw:agent:01HBBB22222222222222222222",
+        responderAgentDid:
+          "did:cdi:registry.clawdentity.com:agent:01HBBB22222222222222222222",
         responderProfile: {
           ...RESPONDER_PROFILE,
           proxyOrigin: "https://beta.proxy.example",

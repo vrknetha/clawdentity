@@ -133,7 +133,8 @@ describe(`GET ${ME_API_KEYS_PATH}`, () => {
       apiKeyStatus: "active",
       apiKeyName: "primary",
       humanId: "human-1",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",
@@ -145,7 +146,8 @@ describe(`GET ${ME_API_KEYS_PATH}`, () => {
       apiKeyStatus: "revoked",
       apiKeyName: "old-laptop",
       humanId: "human-1",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",
@@ -157,7 +159,8 @@ describe(`GET ${ME_API_KEYS_PATH}`, () => {
       apiKeyStatus: "active",
       apiKeyName: "foreign",
       humanId: "human-2",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB8",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB8",
       humanDisplayName: "Ira",
       humanRole: "user",
       humanStatus: "active",
@@ -281,7 +284,8 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
       apiKeyStatus: "active",
       apiKeyName: "primary",
       humanId: "human-1",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",
@@ -293,7 +297,8 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
       apiKeyStatus: "active",
       apiKeyName: "rotate-me",
       humanId: "human-1",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",
@@ -369,7 +374,8 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
       apiKeyStatus: "active",
       apiKeyName: "primary",
       humanId: "human-1",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",
@@ -381,7 +387,8 @@ describe(`DELETE ${ME_API_KEYS_PATH}/:id`, () => {
       apiKeyStatus: "revoked",
       apiKeyName: "already-revoked",
       humanId: "human-1",
-      humanDid: "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid:
+        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",

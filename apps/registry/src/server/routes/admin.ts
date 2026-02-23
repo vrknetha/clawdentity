@@ -7,6 +7,10 @@ import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
 import { eq } from "drizzle-orm";
 import { parseAdminBootstrapPayload } from "../../admin-bootstrap.js";
 import {
+  resolveDidAuthorityFromIssuer,
+  resolveRegistryIssuer,
+} from "../../agent-registration.js";
+import {
   deriveApiKeyLookupPrefix,
   generateApiKeyToken,
   hashApiKeyToken,
@@ -72,8 +76,10 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
       throw adminBootstrapAlreadyCompletedError();
     }
 
+    const issuer = resolveRegistryIssuer(config);
+    const didAuthority = resolveDidAuthorityFromIssuer(issuer);
     const humanId = BOOTSTRAP_ADMIN_HUMAN_ID;
-    const humanDid = makeHumanDid(humanId);
+    const humanDid = makeHumanDid(didAuthority, humanId);
     const apiKeyToken = generateApiKeyToken();
     const apiKeyHash = await hashApiKeyToken(apiKeyToken);
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);

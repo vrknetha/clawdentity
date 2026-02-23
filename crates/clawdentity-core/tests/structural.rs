@@ -59,10 +59,10 @@ fn no_unwrap_outside_tests() {
 fn dependency_direction_enforced() {
     let workspace_root = workspace_root();
     let core_src = workspace_root.join("clawdentity-core").join("src");
-    let provider_files =
-        rust_files_under(&core_src.join("providers")).expect("failed to collect provider source files");
-    let connector_files =
-        rust_files_under(&core_src.join("connector")).expect("failed to collect connector source files");
+    let provider_files = rust_files_under(&core_src.join("providers"))
+        .expect("failed to collect provider source files");
+    let connector_files = rust_files_under(&core_src.join("connector"))
+        .expect("failed to collect connector source files");
 
     let mut violations = Vec::new();
     for file in provider_files {
@@ -308,7 +308,11 @@ fn find_non_test_unwraps(workspace_root: &Path, path: &Path, content: &str) -> V
     violations
 }
 
-fn find_commented_out_code_blocks(workspace_root: &Path, path: &Path, content: &str) -> Vec<String> {
+fn find_commented_out_code_blocks(
+    workspace_root: &Path,
+    path: &Path,
+    content: &str,
+) -> Vec<String> {
     let mut violations = Vec::new();
     let mut block_start_line: Option<usize> = None;
     let mut block_lines: Vec<String> = Vec::new();
@@ -418,7 +422,8 @@ fn collect_functions(content: &str) -> Vec<FunctionInfo> {
         };
 
         let is_public = is_public_signature(trimmed);
-        let is_test = name.starts_with("test_") || has_attribute(&lines, index, |attr| attr.contains("test"));
+        let is_test =
+            name.starts_with("test_") || has_attribute(&lines, index, |attr| attr.contains("test"));
         let has_doc_comment = has_doc_comment(&lines, index);
         let allow_long_function = has_attribute(&lines, index, |attr| {
             attr.contains("allow") && attr.contains("clippy::too_many_lines")

@@ -163,10 +163,6 @@ const REQUIRED_PROXY_RUNTIME_ENV_KEYS: readonly {
     aliases: ["ENVIRONMENT"],
   },
   {
-    key: "REGISTRY_URL",
-    aliases: ["REGISTRY_URL", "CLAWDENTITY_REGISTRY_URL"],
-  },
-  {
     key: "BOOTSTRAP_INTERNAL_SERVICE_ID",
     aliases: ["BOOTSTRAP_INTERNAL_SERVICE_ID", "REGISTRY_INTERNAL_SERVICE_ID"],
   },

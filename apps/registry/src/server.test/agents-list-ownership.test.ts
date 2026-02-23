@@ -9,6 +9,8 @@ import { DEFAULT_AGENT_LIST_LIMIT } from "../agent-list.js";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
+const DID_AUTHORITY = "dev.registry.clawdentity.com";
+
 describe("GET /v1/agents", () => {
   it("returns 401 when PAT is missing", async () => {
     const res = await createRegistryApp().request(
@@ -39,7 +41,7 @@ describe("GET /v1/agents", () => {
       [
         {
           id: ownerAgentNewId,
-          did: makeAgentDid(ownerAgentNewId),
+          did: makeAgentDid(DID_AUTHORITY, ownerAgentNewId),
           ownerId: "human-1",
           name: "owner-agent-new",
           framework: "openclaw",
@@ -48,7 +50,7 @@ describe("GET /v1/agents", () => {
         },
         {
           id: ownerAgentOldId,
-          did: makeAgentDid(ownerAgentOldId),
+          did: makeAgentDid(DID_AUTHORITY, ownerAgentOldId),
           ownerId: "human-1",
           name: "owner-agent-old",
           framework: "langchain",
@@ -57,7 +59,7 @@ describe("GET /v1/agents", () => {
         },
         {
           id: foreignAgentId,
-          did: makeAgentDid(foreignAgentId),
+          did: makeAgentDid(DID_AUTHORITY, foreignAgentId),
           ownerId: "human-2",
           name: "foreign-agent",
           framework: "openclaw",
@@ -98,14 +100,14 @@ describe("GET /v1/agents", () => {
     expect(body.agents).toEqual([
       {
         id: ownerAgentNewId,
-        did: makeAgentDid(ownerAgentNewId),
+        did: makeAgentDid(DID_AUTHORITY, ownerAgentNewId),
         name: "owner-agent-new",
         status: "active",
         expires: "2026-03-01T00:00:00.000Z",
       },
       {
         id: ownerAgentOldId,
-        did: makeAgentDid(ownerAgentOldId),
+        did: makeAgentDid(DID_AUTHORITY, ownerAgentOldId),
         name: "owner-agent-old",
         status: "revoked",
         expires: "2026-02-20T00:00:00.000Z",
@@ -128,7 +130,7 @@ describe("GET /v1/agents", () => {
       [
         {
           id: agentIdOne,
-          did: makeAgentDid(agentIdOne),
+          did: makeAgentDid(DID_AUTHORITY, agentIdOne),
           ownerId: "human-1",
           name: "owner-openclaw-active",
           framework: "openclaw",
@@ -137,7 +139,7 @@ describe("GET /v1/agents", () => {
         },
         {
           id: agentIdTwo,
-          did: makeAgentDid(agentIdTwo),
+          did: makeAgentDid(DID_AUTHORITY, agentIdTwo),
           ownerId: "human-1",
           name: "owner-langchain-revoked",
           framework: "langchain",
@@ -172,7 +174,7 @@ describe("GET /v1/agents", () => {
     expect(statusBody.agents).toEqual([
       {
         id: agentIdTwo,
-        did: makeAgentDid(agentIdTwo),
+        did: makeAgentDid(DID_AUTHORITY, agentIdTwo),
         name: "owner-langchain-revoked",
         status: "revoked",
         expires: "2026-03-05T00:00:00.000Z",
@@ -204,7 +206,7 @@ describe("GET /v1/agents", () => {
     expect(frameworkBody.agents).toEqual([
       {
         id: agentIdOne,
-        did: makeAgentDid(agentIdOne),
+        did: makeAgentDid(DID_AUTHORITY, agentIdOne),
         name: "owner-openclaw-active",
         status: "active",
         expires: "2026-03-01T00:00:00.000Z",
@@ -222,7 +224,7 @@ describe("GET /v1/agents", () => {
       [
         {
           id: newestId,
-          did: makeAgentDid(newestId),
+          did: makeAgentDid(DID_AUTHORITY, newestId),
           ownerId: "human-1",
           name: "newest",
           framework: "openclaw",
@@ -231,7 +233,7 @@ describe("GET /v1/agents", () => {
         },
         {
           id: olderId,
-          did: makeAgentDid(olderId),
+          did: makeAgentDid(DID_AUTHORITY, olderId),
           ownerId: "human-1",
           name: "older",
           framework: "openclaw",
@@ -240,7 +242,7 @@ describe("GET /v1/agents", () => {
         },
         {
           id: oldestId,
-          did: makeAgentDid(oldestId),
+          did: makeAgentDid(DID_AUTHORITY, oldestId),
           ownerId: "human-1",
           name: "oldest",
           framework: "openclaw",
@@ -277,7 +279,7 @@ describe("GET /v1/agents", () => {
     expect(firstBody.agents).toEqual([
       {
         id: newestId,
-        did: makeAgentDid(newestId),
+        did: makeAgentDid(DID_AUTHORITY, newestId),
         name: "newest",
         status: "active",
         expires: "2026-03-01T00:00:00.000Z",
@@ -315,7 +317,7 @@ describe("GET /v1/agents", () => {
     expect(secondBody.agents).toEqual([
       {
         id: olderId,
-        did: makeAgentDid(olderId),
+        did: makeAgentDid(DID_AUTHORITY, olderId),
         name: "older",
         status: "active",
         expires: "2026-02-28T00:00:00.000Z",
@@ -433,7 +435,7 @@ describe("GET /v1/agents/:id/ownership", () => {
       [
         {
           id: ownedAgentId,
-          did: makeAgentDid(ownedAgentId),
+          did: makeAgentDid(DID_AUTHORITY, ownedAgentId),
           ownerId: "human-1",
           name: "owned-agent",
           framework: "openclaw",
@@ -470,7 +472,7 @@ describe("GET /v1/agents/:id/ownership", () => {
       [
         {
           id: foreignAgentId,
-          did: makeAgentDid(foreignAgentId),
+          did: makeAgentDid(DID_AUTHORITY, foreignAgentId),
           ownerId: "human-2",
           name: "foreign-agent",
           framework: "openclaw",

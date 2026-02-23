@@ -283,7 +283,7 @@ export function parseAitAgentDid(ait: string): string {
   const candidate = payload.sub.trim();
   try {
     const parsed = parseDid(candidate);
-    if (parsed.kind !== "agent") {
+    if (parsed.entity !== "agent") {
       throw new Error("invalid kind");
     }
   } catch {
@@ -317,7 +317,7 @@ export function parsePeerAlias(value: string): string {
 export function derivePeerAliasBase(peerDid: string): string {
   try {
     const parsed = parseDid(peerDid);
-    if (parsed.kind === "agent") {
+    if (parsed.entity === "agent") {
       return parsePeerAlias(`peer-${parsed.ulid.slice(-8).toLowerCase()}`);
     }
   } catch {

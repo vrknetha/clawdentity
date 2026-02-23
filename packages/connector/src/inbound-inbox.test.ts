@@ -40,8 +40,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: "01HXYZTESTDELIVER000000000000",
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "hello" },
       });
       expect(first.accepted).toBe(true);
@@ -52,8 +54,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: "01HXYZTESTDELIVER000000000000",
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "hello" },
       });
       expect(second.accepted).toBe(true);
@@ -103,8 +107,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: "01HXYZTESTDELIVER000000000001",
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "small" },
       });
       expect(accepted.accepted).toBe(true);
@@ -114,8 +120,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: "01HXYZTESTDELIVER000000000002",
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "next" },
       });
       expect(rejectedByCount.accepted).toBe(false);
@@ -137,8 +145,10 @@ describe("ConnectorInboundInbox", () => {
           type: "deliver",
           id: "01HXYZTESTDELIVER000000000003",
           ts: "2026-01-01T00:00:00.000Z",
-          fromAgentDid: "did:claw:agent:sender",
-          toAgentDid: "did:claw:agent:receiver",
+          fromAgentDid:
+            "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          toAgentDid:
+            "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
           payload: { message: "this is too large" },
         });
         expect(rejectedByBytes.accepted).toBe(false);
@@ -162,8 +172,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: "01HXYZTESTDELIVER000000000004",
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "hello" },
       });
 
@@ -211,8 +223,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: firstId,
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "first" },
       });
       await inbox.enqueue({
@@ -220,8 +234,10 @@ describe("ConnectorInboundInbox", () => {
         type: "deliver",
         id: secondId,
         ts: "2026-01-01T00:00:00.000Z",
-        fromAgentDid: "did:claw:agent:sender",
-        toAgentDid: "did:claw:agent:receiver",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
         payload: { message: "second" },
       });
 

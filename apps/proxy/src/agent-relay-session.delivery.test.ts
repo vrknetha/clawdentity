@@ -168,7 +168,8 @@ describe("AgentRelaySession delivery", () => {
             method: "GET",
             headers: {
               upgrade: "websocket",
-              "x-claw-connector-agent-did": "did:claw:agent:connector",
+              "x-claw-connector-agent-did":
+                "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT9",
             },
           }),
         );

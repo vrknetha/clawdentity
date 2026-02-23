@@ -52,7 +52,7 @@ pub struct ConfigPathOptions {
 }
 
 impl ConfigPathOptions {
-/// TODO(clawdentity): document `with_registry_hint`.
+    /// TODO(clawdentity): document `with_registry_hint`.
     pub fn with_registry_hint(&self, registry_url_hint: impl Into<String>) -> Self {
         let mut next = self.clone();
         next.registry_url_hint = Some(registry_url_hint.into());
@@ -92,7 +92,7 @@ pub enum ConfigKey {
 }
 
 impl ConfigKey {
-/// TODO(clawdentity): document `parse`.
+    /// TODO(clawdentity): document `parse`.
     pub fn parse(value: &str) -> Result<Self> {
         match value {
             "registryUrl" => Ok(Self::RegistryUrl),
@@ -103,7 +103,7 @@ impl ConfigKey {
         }
     }
 
-/// TODO(clawdentity): document `as_str`.
+    /// TODO(clawdentity): document `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RegistryUrl => "registryUrl",

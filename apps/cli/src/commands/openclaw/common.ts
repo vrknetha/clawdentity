@@ -1,7 +1,7 @@
 import {
   decodeBase64url,
   encodeBase64url,
-  parseDid,
+  parseAgentDid as parseProtocolAgentDid,
 } from "@clawdentity/protocol";
 import { AppError, nowIso } from "@clawdentity/sdk";
 import { INVITE_CODE_PREFIX, PEER_ALIAS_PATTERN } from "./constants.js";
@@ -145,13 +145,7 @@ export function parseAgentDid(value: unknown, label: string): string {
   const did = parseNonEmptyString(value, label);
 
   try {
-    const parsed = parseDid(did);
-    if (parsed.kind !== "agent") {
-      throw createCliError(
-        "CLI_OPENCLAW_INVALID_DID",
-        "DID is not an agent DID",
-      );
-    }
+    parseProtocolAgentDid(did);
   } catch {
     throw createCliError("CLI_OPENCLAW_INVALID_DID", "Agent DID is invalid", {
       label,

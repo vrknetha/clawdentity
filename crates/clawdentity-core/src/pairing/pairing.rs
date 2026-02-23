@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::db::SqliteStore;
-use crate::did::{ClawDidKind, parse_did};
+use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 use crate::identity::decode_secret_key;
@@ -284,10 +284,8 @@ fn parse_ait_agent_did(ait: &str) -> Result<String> {
         .get("sub")
         .and_then(|entry| entry.as_str())
         .ok_or_else(|| CoreError::InvalidInput("agent AIT is invalid".to_string()))?;
-    let parsed = parse_did(sub)?;
-    if parsed.kind != ClawDidKind::Agent {
-        return Err(CoreError::InvalidInput("agent AIT is invalid".to_string()));
-    }
+    parse_agent_did(sub)
+        .map_err(|_| CoreError::InvalidInput("agent AIT is invalid".to_string()))?;
     Ok(sub.to_string())
 }
 

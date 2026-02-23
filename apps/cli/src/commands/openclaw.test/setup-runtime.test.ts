@@ -20,7 +20,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -56,7 +56,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -104,7 +104,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
       process.env.OPENCLAW_CONFIG_PATH = customConfigPath;
 
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -150,7 +150,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
       process.env.CLAWDBOT_CONFIG_PATH = customConfigPath;
 
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -201,7 +201,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
       delete process.env.CLAWDBOT_CONFIG_PATH;
 
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -233,12 +233,12 @@ describe("openclaw setup helpers (runtime + env)", () => {
 
     try {
       const alphaInvite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
       const betaInvite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
         proxyUrl: "https://alpha.example.com/hooks/agent",
         peerAlias: "alpha",
       });
@@ -278,7 +278,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });
@@ -336,7 +336,7 @@ describe("openclaw setup helpers (runtime + env)", () => {
 
     try {
       const invite = createOpenclawInviteCode({
-        did: "did:claw:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
         proxyUrl: "https://beta.example.com/hooks/agent",
         peerAlias: "beta",
       });

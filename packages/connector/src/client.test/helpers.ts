@@ -1,6 +1,8 @@
 import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
 import { afterEach, vi } from "vitest";
 
+const DID_AUTHORITY = "registry.clawdentity.com";
+
 export class MockWebSocket {
   readonly url: string;
   readyState = 0;
@@ -77,7 +79,7 @@ export class MockWebSocket {
 }
 
 export function createAgentDid(seedMs: number): string {
-  return makeAgentDid(generateUlid(seedMs));
+  return makeAgentDid(DID_AUTHORITY, generateUlid(seedMs));
 }
 
 export function createMockWebSocketFactory(): {

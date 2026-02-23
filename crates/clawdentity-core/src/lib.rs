@@ -92,7 +92,11 @@ pub use db_verify_cache::{
     VerifyCacheEntry, delete_verify_cache_entry, get_verify_cache_entry, purge_verify_cache_before,
     upsert_verify_cache_entry,
 };
-pub use did::{ClawDidKind, ParsedDid, make_agent_did, make_did, make_human_did, parse_did};
+pub use did::{
+    DidEntity, ParsedDid, did_authority_from_url, make_agent_did, make_did, make_human_did,
+    new_agent_did, new_human_did, normalize_did_authority, parse_agent_did, parse_did,
+    parse_human_did,
+};
 pub use error::{CoreError, Result};
 pub use identity::{
     LocalIdentity, PublicIdentityView, decode_secret_key, init_identity, read_identity,

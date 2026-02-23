@@ -105,7 +105,7 @@ pub(crate) async fn register_agent_handler(
     let expires_at = chrono::DateTime::<chrono::Utc>::from_timestamp(exp_ts, 0)
         .map(|dt| dt.to_rfc3339())
         .unwrap_or_else(|| (Utc::now() + Duration::days(30)).to_rfc3339());
-    let agent_did = make_agent_did();
+    let agent_did = make_agent_did(&state.registry_url);
 
     let ait_payload = json!({
         "iss": state.registry_url,

@@ -1,13 +1,33 @@
-import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
+import {
+  generateUlid,
+  makeAgentDid as protocolMakeAgentDid,
+  makeHumanDid as protocolMakeHumanDid,
+} from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   createPairingTicket,
   createPairingTicketSigningKey,
 } from "../pairing-ticket.js";
 
+const DEFAULT_TEST_DID_AUTHORITY = "dev.registry.clawdentity.com";
+
+function makeAgentDid(
+  id: string,
+  authority = DEFAULT_TEST_DID_AUTHORITY,
+): string {
+  return protocolMakeAgentDid(authority, id);
+}
+
+function makeHumanDid(
+  id: string,
+  authority = DEFAULT_TEST_DID_AUTHORITY,
+): string {
+  return protocolMakeHumanDid(authority, id);
+}
+
 const INITIATOR_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_000));
 const RESPONDER_AGENT_DID = makeAgentDid(generateUlid(1_700_000_000_100));
-const OWNER_DID = "did:claw:human:01HF7YAT31JZHSMW1CG6Q6MHB7";
+const OWNER_DID = makeHumanDid("01HF7YAT31JZHSMW1CG6Q6MHB7");
 const INITIATOR_PROFILE = {
   agentName: "alpha",
   humanName: "Ravi",
