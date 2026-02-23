@@ -172,10 +172,18 @@ async fn run(cli: Cli) -> Result<()> {
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(30))
                     .build()?;
-                if let Ok(metadata) = fetch_registry_metadata(&client, &config.registry_url).await {
-                    config.registry_url = metadata.registry_url;
-                    if !metadata.proxy_url.trim().is_empty() {
-                        config.proxy_url = Some(metadata.proxy_url);
+                match fetch_registry_metadata(&client, &config.registry_url).await {
+                    Ok(metadata) => {
+                        config.registry_url = metadata.registry_url;
+                        if !metadata.proxy_url.trim().is_empty() {
+                            config.proxy_url = Some(metadata.proxy_url);
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "Warning: failed to fetch registry metadata from {}: {}",
+                            config.registry_url, error
+                        );
                     }
                 }
                 let path = write_config(&config, &options)?;
@@ -203,7 +211,20 @@ async fn run(cli: Cli) -> Result<()> {
             ConfigCommand::Get { key } => {
                 let key = ConfigKey::parse(&key)?;
                 let value = get_config_value(key, &options)?;
-                if let Some(value) = value {
+                if cli.json {
+                    let masked_value = if key == ConfigKey::ApiKey {
+                        value.map(|_| "********".to_string())
+                    } else {
+                        value
+                    };
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&serde_json::json!({
+                            "key": key.as_str(),
+                            "value": masked_value,
+                        }))?
+                    );
+                } else if let Some(value) = value {
                     if key == ConfigKey::ApiKey {
                         println!("********");
                     } else {

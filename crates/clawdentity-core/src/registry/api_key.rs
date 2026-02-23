@@ -130,12 +130,12 @@ fn parse_non_empty(value: &str, field: &str) -> Result<String> {
 
 fn parse_api_key_status(status: &str) -> Result<String> {
     let normalized = status.trim();
-    if normalized == "active" || normalized == "revoked" {
-        return Ok(normalized.to_string());
+    if normalized.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "status in API key response is invalid".to_string(),
+        ));
     }
-    Err(CoreError::InvalidInput(
-        "status in API key response is invalid".to_string(),
-    ))
+    Ok(normalized.to_string())
 }
 
 fn normalize_registry_url(value: &str) -> Result<String> {
@@ -357,8 +357,8 @@ mod tests {
     use crate::config::{CliConfig, ConfigPathOptions, write_config};
 
     use super::{
-        ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, create_api_key, list_api_keys,
-        revoke_api_key,
+        ApiKeyCreateInput, ApiKeyListInput, ApiKeyMetadataPayload, ApiKeyRevokeInput,
+        create_api_key, list_api_keys, parse_api_key_metadata, revoke_api_key,
     };
 
     fn options(home: &Path) -> ConfigPathOptions {
@@ -480,5 +480,18 @@ mod tests {
         )
         .expect_err("invalid id");
         assert!(error.to_string().contains("valid ULID"));
+    }
+
+    #[test]
+    fn accepts_unknown_status_values_from_registry_payload() {
+        let parsed = parse_api_key_metadata(ApiKeyMetadataPayload {
+            id: "01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
+            name: "primary".to_string(),
+            status: "pending-review".to_string(),
+            created_at: "2030-01-01T00:00:00.000Z".to_string(),
+            last_used_at: None,
+        })
+        .expect("metadata parse");
+        assert_eq!(parsed.status, "pending-review");
     }
 }

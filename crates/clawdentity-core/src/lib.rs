@@ -81,8 +81,9 @@ pub use db_inbound::{
     replay_dead_letter, upsert_pending,
 };
 pub use db_outbound::{
-    EnqueueOutboundInput, OutboundQueueItem, delete_outbound, enqueue_outbound, list_outbound,
-    outbound_count, take_oldest_outbound,
+    EnqueueOutboundInput, OutboundDeadLetterItem, OutboundQueueItem, delete_outbound,
+    enqueue_outbound, list_outbound, list_outbound_dead_letter, move_outbound_to_dead_letter,
+    outbound_count, outbound_dead_letter_count, take_oldest_outbound,
 };
 pub use db_peers::{
     PeerRecord, UpsertPeerInput, delete_peer, get_peer_by_alias, list_peers, upsert_peer,
@@ -99,19 +100,6 @@ pub use identity::{
 pub use invite::{
     InviteCreateInput, InviteCreateResult, InviteRecord, InviteRedeemInput, InviteRedeemResult,
     create_invite, persist_redeem_config, redeem_invite,
-};
-pub use provider_openclaw::{
-    DoctorCheckStatus, DoctorStatus, OpenclawDoctorCheck, OpenclawDoctorOptions,
-    OpenclawDoctorResult, OpenclawRelayTestOptions, OpenclawRelayTestResult,
-    OpenclawRelayWebsocketTestOptions, OpenclawRelayWebsocketTestResult, RelayCheckStatus,
-    run_openclaw_doctor, run_openclaw_relay_test, run_openclaw_relay_websocket_test,
-    OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME, OPENCLAW_DEFAULT_BASE_URL,
-    OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment, OpenclawConnectorsConfig,
-    OpenclawRelayRuntimeConfig, load_connector_assignments, load_relay_runtime_config,
-    openclaw_agent_name_path, openclaw_connectors_path, openclaw_relay_runtime_path,
-    read_selected_openclaw_agent, resolve_connector_base_url, resolve_openclaw_base_url,
-    resolve_openclaw_hook_token, save_connector_assignment, save_relay_runtime_config,
-    write_selected_openclaw_agent,
 };
 pub use pairing::{
     DEFAULT_STATUS_POLL_INTERVAL_SECONDS, DEFAULT_STATUS_WAIT_SECONDS, PAIR_CONFIRM_PATH,
@@ -130,6 +118,18 @@ pub use provider::{
     ProviderDoctorResult, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
     ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult,
     VerifyResult as ProviderVerifyResult, all_providers, detect_platform, get_provider,
+};
+pub use provider_openclaw::{
+    DoctorCheckStatus, DoctorStatus, OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME,
+    OPENCLAW_DEFAULT_BASE_URL, OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment,
+    OpenclawConnectorsConfig, OpenclawDoctorCheck, OpenclawDoctorOptions, OpenclawDoctorResult,
+    OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions, OpenclawRelayTestResult,
+    OpenclawRelayWebsocketTestOptions, OpenclawRelayWebsocketTestResult, RelayCheckStatus,
+    load_connector_assignments, load_relay_runtime_config, openclaw_agent_name_path,
+    openclaw_connectors_path, openclaw_relay_runtime_path, read_selected_openclaw_agent,
+    resolve_connector_base_url, resolve_openclaw_base_url, resolve_openclaw_hook_token,
+    run_openclaw_doctor, run_openclaw_relay_test, run_openclaw_relay_websocket_test,
+    save_connector_assignment, save_relay_runtime_config, write_selected_openclaw_agent,
 };
 pub use qr::{
     PAIRING_QR_DIR_NAME, PAIRING_QR_MAX_AGE_SECONDS, decode_ticket_from_png, encode_ticket_qr_png,

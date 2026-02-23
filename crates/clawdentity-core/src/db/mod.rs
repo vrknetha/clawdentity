@@ -99,6 +99,24 @@ CREATE INDEX IF NOT EXISTS idx_inbound_dead_letter_dead_lettered_at
 CREATE INDEX IF NOT EXISTS idx_verify_cache_fetched_at_ms
     ON verify_cache(fetched_at_ms);
 "#;
+const MIGRATION_NAME_PHASE4: &str = "0002_outbound_dead_letter";
+const MIGRATION_SQL_PHASE4: &str = r#"
+CREATE TABLE IF NOT EXISTS outbound_dead_letter (
+    frame_id TEXT PRIMARY KEY,
+    frame_version INTEGER NOT NULL,
+    frame_type TEXT NOT NULL,
+    to_agent_did TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    conversation_id TEXT,
+    reply_to TEXT,
+    created_at_ms INTEGER NOT NULL,
+    dead_lettered_at_ms INTEGER NOT NULL,
+    dead_letter_reason TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbound_dead_letter_dead_lettered_at
+    ON outbound_dead_letter(dead_lettered_at_ms);
+"#;
 
 #[derive(Clone)]
 pub struct SqliteStore {
@@ -157,10 +175,7 @@ fn configure_connection(connection: &Connection) -> Result<()> {
 }
 
 fn apply_migrations(connection: &Connection) -> Result<()> {
-    tracing::info!(
-        migration = MIGRATION_NAME_PHASE3,
-        "checking database migrations"
-    );
+    tracing::info!("checking database migrations");
     connection.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             name TEXT PRIMARY KEY,
@@ -168,34 +183,31 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
         );",
     )?;
 
+    apply_migration_if_needed(connection, MIGRATION_NAME_PHASE3, MIGRATION_SQL_PHASE3)?;
+    apply_migration_if_needed(connection, MIGRATION_NAME_PHASE4, MIGRATION_SQL_PHASE4)?;
+    Ok(())
+}
+
+fn apply_migration_if_needed(connection: &Connection, name: &str, sql: &str) -> Result<()> {
     let already_applied: Option<String> = connection
         .query_row(
             "SELECT name FROM schema_migrations WHERE name = ?1",
-            [MIGRATION_NAME_PHASE3],
+            [name],
             |row| row.get(0),
         )
         .optional()?;
     if already_applied.is_some() {
-        tracing::info!(
-            migration = MIGRATION_NAME_PHASE3,
-            "database migration already applied"
-        );
+        tracing::info!(migration = name, "database migration already applied");
         return Ok(());
     }
 
-    tracing::info!(
-        migration = MIGRATION_NAME_PHASE3,
-        "applying database migration"
-    );
-    connection.execute_batch(MIGRATION_SQL_PHASE3)?;
+    tracing::info!(migration = name, "applying database migration");
+    connection.execute_batch(sql)?;
     connection.execute(
         "INSERT INTO schema_migrations (name, applied_at_ms) VALUES (?1, ?2)",
-        params![MIGRATION_NAME_PHASE3, now_utc_ms()],
+        params![name, now_utc_ms()],
     )?;
-    tracing::info!(
-        migration = MIGRATION_NAME_PHASE3,
-        "database migration applied"
-    );
+    tracing::info!(migration = name, "database migration applied");
     Ok(())
 }
 
@@ -215,6 +227,7 @@ mod tests {
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN (
                     'peers',
                     'outbound_queue',
+                    'outbound_dead_letter',
                     'inbound_pending',
                     'inbound_dead_letter',
                     'inbound_events',
@@ -224,7 +237,7 @@ mod tests {
                 [],
                 |row| row.get(0),
             )?;
-            assert_eq!(table_count, 7);
+            assert_eq!(table_count, 8);
             Ok(())
         })
         .expect("schema query");
