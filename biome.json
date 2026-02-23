@@ -70,6 +70,21 @@
           }
         }
       }
+    },
+    {
+      "includes": [
+        "**/logging.ts",
+        "**/logging.tsx",
+        "**/logging.mts",
+        "**/logging.cts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
     }
   ]
 }
