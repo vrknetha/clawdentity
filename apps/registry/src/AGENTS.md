@@ -27,6 +27,7 @@
 - Success response must include `{ human, apiKey, internalService }` with internal service metadata only (`id`, `name`); never return plaintext internal service secret from bootstrap.
 - Bootstrap must create a default internal service named `proxy-pairing` with scope `identity.read` in the same mutation unit as admin + PAT creation.
 - Bootstrap must seed `proxy-pairing` service credentials from `BOOTSTRAP_INTERNAL_SERVICE_ID` and `BOOTSTRAP_INTERNAL_SERVICE_SECRET` so fresh-DB recovery is deterministic.
+- `BOOTSTRAP_INTERNAL_SERVICE_SECRET` must use the internal-service marker format (`clw_srv_...`) so bootstrap-seeded credentials match service-auth validation.
 - Persist admin bootstrap atomically where supported (transaction). When falling back because transactions are unavailable, run manual compensation rollback so no partial bootstrap state survives.
 - Fallback path must be compensation-safe: if API key/internal-service insert fails after admin insert, delete inserted `internal_services` + `api_keys` rows before deleting the admin human so retry remains possible under FK constraints.
 

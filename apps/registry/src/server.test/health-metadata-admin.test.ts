@@ -11,6 +11,8 @@ import {
 import app, { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
+const TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET = "clw_srv_bootstrap-test-secret";
+
 describe("GET /health", () => {
   it("returns status ok with fallback version", async () => {
     const res = await app.request(
@@ -20,7 +22,8 @@ describe("GET /health", () => {
         DB: {},
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
       },
     );
     expect(res.status).toBe(200);
@@ -41,7 +44,8 @@ describe("GET /health", () => {
         DB: {},
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         APP_VERSION: "sha-1234567890",
       },
     );
@@ -63,7 +67,8 @@ describe("GET /health", () => {
         DB: {},
         ENVIRONMENT: "invalid",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
       },
     );
     expect(res.status).toBe(500);
@@ -85,7 +90,8 @@ describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
         DB: {} as D1Database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         APP_VERSION: "sha-meta-123",
         PROXY_URL: "https://dev.proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
@@ -139,7 +145,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
       },
     );
 
@@ -169,7 +176,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -195,7 +203,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -221,7 +230,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -249,7 +259,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -276,7 +287,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -287,7 +299,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   });
 
   it("creates admin human and PAT token once", async () => {
-    const { database, humanInserts, apiKeyInserts } = createFakeDb([]);
+    const { database, humanInserts, apiKeyInserts, internalServiceInserts } =
+      createFakeDb([]);
 
     const response = await createRegistryApp().request(
       ADMIN_BOOTSTRAP_PATH,
@@ -306,7 +319,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -326,6 +340,10 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         name: string;
         token: string;
       };
+      internalService: {
+        id: string;
+        name: string;
+      };
     };
 
     expect(body.human.id).toBe("00000000000000000000000000");
@@ -337,14 +355,22 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(body.human.status).toBe("active");
     expect(body.apiKey.name).toBe("prod-admin-key");
     expect(body.apiKey.token.startsWith("clw_pat_")).toBe(true);
+    expect(body.internalService.id).toBe("proxy-pairing");
+    expect(body.internalService.name).toBe("proxy-pairing");
 
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
+    expect(internalServiceInserts).toHaveLength(1);
     expect(apiKeyInserts[0]?.key_prefix).toBe(
       deriveApiKeyLookupPrefix(body.apiKey.token),
     );
     expect(apiKeyInserts[0]?.key_hash).toBe(
       await hashApiKeyToken(body.apiKey.token),
+    );
+    expect(internalServiceInserts[0]?.id).toBe("proxy-pairing");
+    expect(internalServiceInserts[0]?.name).toBe("proxy-pairing");
+    expect(internalServiceInserts[0]?.scopes_json).toBe(
+      JSON.stringify(["identity.read"]),
     );
   });
 
@@ -369,7 +395,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -387,6 +414,10 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         name: string;
         token: string;
       };
+      internalService: {
+        id: string;
+        name: string;
+      };
     };
 
     const meResponse = await appInstance.request(
@@ -400,7 +431,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
       },
     );
 
@@ -430,9 +462,10 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
   });
 
   it("falls back to manual mutation when transactions are unavailable", async () => {
-    const { database, humanInserts, apiKeyInserts } = createFakeDb([], [], {
-      failBeginTransaction: true,
-    });
+    const { database, humanInserts, apiKeyInserts, internalServiceInserts } =
+      createFakeDb([], [], {
+        failBeginTransaction: true,
+      });
 
     const response = await createRegistryApp().request(
       ADMIN_BOOTSTRAP_PATH,
@@ -451,7 +484,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -459,6 +493,7 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(response.status).toBe(201);
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
+    expect(internalServiceInserts).toHaveLength(1);
   });
 
   it("rolls back admin insert when fallback api key insert fails", async () => {
@@ -484,7 +519,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
@@ -509,12 +545,74 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
-        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
         BOOTSTRAP_SECRET: "bootstrap-secret",
       },
     );
 
     expect(secondResponse.status).toBe(201);
     expect(humanRows).toHaveLength(1);
+  });
+
+  it("rolls back admin and api key when fallback internal service insert fails", async () => {
+    const { database, humanRows, apiKeyRows } = createFakeDb([], [], {
+      failBeginTransaction: true,
+      failInternalServiceInsertCount: 1,
+    });
+
+    const firstResponse = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(firstResponse.status).toBe(500);
+    expect(humanRows).toHaveLength(0);
+    expect(apiKeyRows).toHaveLength(0);
+
+    const secondResponse = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(secondResponse.status).toBe(201);
+    expect(humanRows).toHaveLength(1);
+    expect(apiKeyRows).toHaveLength(1);
   });
 });

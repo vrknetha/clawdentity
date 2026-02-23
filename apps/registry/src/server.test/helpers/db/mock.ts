@@ -6,6 +6,7 @@ import {
   getApiKeySelectColumnValue,
   getCrlSelectColumnValue,
   getHumanSelectColumnValue,
+  getInternalServiceSelectColumnValue,
   getInviteSelectColumnValue,
   resolveAgentAuthSessionSelectRows,
   resolveAgentRegistrationChallengeSelectRows,
@@ -13,6 +14,7 @@ import {
   resolveApiKeySelectRows,
   resolveCrlSelectRows,
   resolveHumanSelectRows,
+  resolveInternalServiceSelectRows,
   resolveInviteSelectRows,
 } from "./resolvers.js";
 import { handleRunQuery } from "./run-handlers.js";
@@ -32,6 +34,8 @@ import type {
   FakeDbState,
   FakeHumanInsertRow,
   FakeHumanRow,
+  FakeInternalServiceInsertRow,
+  FakeInternalServiceRow,
   FakeInviteInsertRow,
   FakeInviteUpdateRow,
   FakeRevocationInsertRow,
@@ -55,6 +59,7 @@ export function createFakeDb(
   const agentAuthSessionInserts: FakeAgentAuthSessionInsertRow[] = [];
   const agentAuthSessionUpdates: FakeAgentAuthSessionUpdateRow[] = [];
   const agentAuthEventInserts: FakeAgentAuthEventInsertRow[] = [];
+  const internalServiceInserts: FakeInternalServiceInsertRow[] = [];
   const inviteInserts: FakeInviteInsertRow[] = [];
   const inviteUpdates: FakeInviteUpdateRow[] = [];
   const revocationRows = [...(options.revocationRows ?? [])];
@@ -89,6 +94,9 @@ export function createFakeDb(
     createdAt: "2026-01-01T00:00:00.000Z",
     lastUsedAt: null,
   }));
+  const internalServiceRows: FakeInternalServiceRow[] = [
+    ...(options.internalServiceRows ?? []),
+  ];
   const state: FakeDbState = {
     authRows: rows,
     agentRows,
@@ -96,6 +104,7 @@ export function createFakeDb(
     updates,
     humanInserts,
     apiKeyInserts,
+    internalServiceInserts,
     agentInserts,
     agentUpdates,
     revocationInserts,
@@ -112,9 +121,12 @@ export function createFakeDb(
     inviteRows,
     humanRows,
     apiKeyRows,
+    internalServiceRows,
     beforeFirstAgentUpdateApplied: false,
     beforeFirstAgentAuthSessionUpdateApplied: false,
     remainingApiKeyInsertFailures: options.failApiKeyInsertCount ?? 0,
+    remainingInternalServiceInsertFailures:
+      options.failInternalServiceInsertCount ?? 0,
   };
 
   const database: D1Database = {
@@ -344,6 +356,36 @@ export function createFakeDb(
             };
           }
           if (
+            (normalizedQuery.includes('from "internal_services"') ||
+              normalizedQuery.includes("from internal_services")) &&
+            normalizedQuery.includes("select")
+          ) {
+            const resultRows = resolveInternalServiceSelectRows({
+              query,
+              params,
+              internalServiceRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getInternalServiceSelectColumnValue(
+                      row,
+                      column,
+                    );
+                    return acc;
+                  },
+                  {},
+                );
+              }),
+            };
+          }
+          if (
             (normalizedQuery.includes('from "revocations"') ||
               normalizedQuery.includes("from revocations")) &&
             normalizedQuery.includes("select")
@@ -491,6 +533,22 @@ export function createFakeDb(
             );
           }
           if (
+            normalizedQuery.includes('from "internal_services"') ||
+            normalizedQuery.includes("from internal_services")
+          ) {
+            const resultRows = resolveInternalServiceSelectRows({
+              query,
+              params,
+              internalServiceRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getInternalServiceSelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
             normalizedQuery.includes('from "revocations"') ||
             normalizedQuery.includes("from revocations")
           ) {
@@ -523,8 +581,11 @@ export function createFakeDb(
     database,
     updates,
     humanRows,
+    apiKeyRows,
     humanInserts,
     apiKeyInserts,
+    internalServiceRows,
+    internalServiceInserts,
     agentAuthSessionRows,
     agentAuthSessionInserts,
     agentAuthSessionUpdates,

@@ -15,8 +15,12 @@ import {
   generateApiKeyToken,
   hashApiKeyToken,
 } from "../../auth/api-key-token.js";
+import {
+  deriveInternalServiceSecretPrefix,
+  hashInternalServiceSecret,
+} from "../../auth/service-auth.js";
 import { createDb } from "../../db/client.js";
-import { api_keys, humans } from "../../db/schema.js";
+import { api_keys, humans, internal_services } from "../../db/schema.js";
 import {
   BOOTSTRAP_ADMIN_HUMAN_ID,
   logger,
@@ -32,6 +36,9 @@ import {
   parseBootstrapSecretHeader,
   requireBootstrapSecret,
 } from "../helpers/parsers.js";
+
+const BOOTSTRAP_INTERNAL_SERVICE_NAME = "proxy-pairing";
+const BOOTSTRAP_INTERNAL_SERVICE_SCOPES = ["identity.read"] as const;
 
 export function registerAdminRoutes(input: RegistryRouteDependencies): void {
   const { app, getConfig } = input;
@@ -85,10 +92,99 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
     const apiKeyPrefix = deriveApiKeyLookupPrefix(apiKeyToken);
     const apiKeyId = generateUlid(nowUtcMs() + 1);
     const createdAt = nowIso();
+    const internalServiceId = config.BOOTSTRAP_INTERNAL_SERVICE_ID.trim();
+    const internalServiceSecret =
+      config.BOOTSTRAP_INTERNAL_SERVICE_SECRET.trim();
+
+    if (internalServiceId.length === 0 || internalServiceSecret.length === 0) {
+      throw new AppError({
+        code: "CONFIG_VALIDATION_FAILED",
+        message: "Registry configuration is invalid",
+        status: 500,
+        expose: true,
+        details: {
+          fieldErrors: {
+            BOOTSTRAP_INTERNAL_SERVICE_ID: [
+              "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
+            ],
+            BOOTSTRAP_INTERNAL_SERVICE_SECRET: [
+              "BOOTSTRAP_INTERNAL_SERVICE_ID and BOOTSTRAP_INTERNAL_SERVICE_SECRET must be set together.",
+            ],
+          },
+          formErrors: [],
+        },
+      });
+    }
+
+    let internalServiceSecretHash: string;
+    let internalServiceSecretPrefix: string;
+    try {
+      internalServiceSecretHash = await hashInternalServiceSecret(
+        internalServiceSecret,
+      );
+      internalServiceSecretPrefix = deriveInternalServiceSecretPrefix(
+        internalServiceSecret,
+      );
+    } catch {
+      throw new AppError({
+        code: "CONFIG_VALIDATION_FAILED",
+        message: "Registry configuration is invalid",
+        status: 500,
+        expose: true,
+        details: {
+          fieldErrors: {
+            BOOTSTRAP_INTERNAL_SERVICE_SECRET: [
+              "BOOTSTRAP_INTERNAL_SERVICE_SECRET must start with clw_srv_.",
+            ],
+          },
+          formErrors: [],
+        },
+      });
+    }
+
+    const rollbackBootstrapMutation = async (
+      executor: typeof db,
+      reason: "api_key_insert" | "internal_service_insert",
+    ): Promise<void> => {
+      try {
+        await executor
+          .delete(internal_services)
+          .where(eq(internal_services.id, internalServiceId));
+      } catch (rollbackError) {
+        logger.error("registry.admin_bootstrap_rollback_failed", {
+          reason,
+          target: "internal_services",
+          rollbackErrorName:
+            rollbackError instanceof Error ? rollbackError.name : "unknown",
+        });
+      }
+
+      try {
+        await executor.delete(api_keys).where(eq(api_keys.id, apiKeyId));
+      } catch (rollbackError) {
+        logger.error("registry.admin_bootstrap_rollback_failed", {
+          reason,
+          target: "api_keys",
+          rollbackErrorName:
+            rollbackError instanceof Error ? rollbackError.name : "unknown",
+        });
+      }
+
+      try {
+        await executor.delete(humans).where(eq(humans.id, humanId));
+      } catch (rollbackError) {
+        logger.error("registry.admin_bootstrap_rollback_failed", {
+          reason,
+          target: "humans",
+          rollbackErrorName:
+            rollbackError instanceof Error ? rollbackError.name : "unknown",
+        });
+      }
+    };
 
     const applyBootstrapMutation = async (
       executor: typeof db,
-      options: { rollbackOnApiKeyFailure: boolean },
+      options: { rollbackOnFailure: boolean },
     ): Promise<void> => {
       const insertAdminResult = await executor
         .insert(humans)
@@ -122,15 +218,30 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
           last_used_at: null,
         });
       } catch (error) {
-        if (options.rollbackOnApiKeyFailure) {
-          try {
-            await executor.delete(humans).where(eq(humans.id, humanId));
-          } catch (rollbackError) {
-            logger.error("registry.admin_bootstrap_rollback_failed", {
-              rollbackErrorName:
-                rollbackError instanceof Error ? rollbackError.name : "unknown",
-            });
-          }
+        if (options.rollbackOnFailure) {
+          await rollbackBootstrapMutation(executor, "api_key_insert");
+        }
+
+        throw error;
+      }
+
+      try {
+        await executor.insert(internal_services).values({
+          id: internalServiceId,
+          name: BOOTSTRAP_INTERNAL_SERVICE_NAME,
+          secret_hash: internalServiceSecretHash,
+          secret_prefix: internalServiceSecretPrefix,
+          scopes_json: JSON.stringify(BOOTSTRAP_INTERNAL_SERVICE_SCOPES),
+          status: "active",
+          created_by: humanId,
+          rotated_at: null,
+          last_used_at: null,
+          created_at: createdAt,
+          updated_at: createdAt,
+        });
+      } catch (error) {
+        if (options.rollbackOnFailure) {
+          await rollbackBootstrapMutation(executor, "internal_service_insert");
         }
 
         throw error;
@@ -140,7 +251,7 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
     try {
       await db.transaction(async (tx) => {
         await applyBootstrapMutation(tx as unknown as typeof db, {
-          rollbackOnApiKeyFailure: false,
+          rollbackOnFailure: false,
         });
       });
     } catch (error) {
@@ -149,7 +260,7 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
       }
 
       await applyBootstrapMutation(db, {
-        rollbackOnApiKeyFailure: true,
+        rollbackOnFailure: true,
       });
     }
 
@@ -166,6 +277,10 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
           id: apiKeyId,
           name: bootstrapPayload.apiKeyName,
           token: apiKeyToken,
+        },
+        internalService: {
+          id: internalServiceId,
+          name: BOOTSTRAP_INTERNAL_SERVICE_NAME,
         },
       },
       201,

@@ -33,6 +33,20 @@ export type FakeApiKeyRow = {
   lastUsedAt: string | null;
 };
 
+export type FakeInternalServiceRow = {
+  id: string;
+  name: string;
+  secretHash: string;
+  secretPrefix: string;
+  scopesJson: string;
+  status: "active" | "revoked";
+  createdBy: string;
+  rotatedAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type FakeAgentAuthSessionRow = {
   id: string;
   agentId: string;
@@ -69,6 +83,7 @@ export type FakeApiKeySelectRow = {
 export type FakeAgentInsertRow = Record<string, unknown>;
 export type FakeHumanInsertRow = Record<string, unknown>;
 export type FakeApiKeyInsertRow = Record<string, unknown>;
+export type FakeInternalServiceInsertRow = Record<string, unknown>;
 export type FakeAgentUpdateRow = Record<string, unknown>;
 export type FakeRevocationInsertRow = Record<string, unknown>;
 export type FakeAgentRegistrationChallengeInsertRow = Record<string, unknown>;
@@ -137,7 +152,9 @@ export type FakeDbOptions = {
     sessionRows: FakeAgentAuthSessionRow[],
   ) => void;
   failApiKeyInsertCount?: number;
+  failInternalServiceInsertCount?: number;
   failBeginTransaction?: boolean;
+  internalServiceRows?: FakeInternalServiceRow[];
   inviteRows?: FakeInviteRow[];
   revocationRows?: FakeRevocationRow[];
   registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
@@ -160,6 +177,7 @@ export type FakeDbState = {
   updates: Array<{ lastUsedAt: string; apiKeyId: string }>;
   humanInserts: FakeHumanInsertRow[];
   apiKeyInserts: FakeApiKeyInsertRow[];
+  internalServiceInserts: FakeInternalServiceInsertRow[];
   agentInserts: FakeAgentInsertRow[];
   agentUpdates: FakeAgentUpdateRow[];
   revocationInserts: FakeRevocationInsertRow[];
@@ -176,7 +194,9 @@ export type FakeDbState = {
   inviteRows: FakeInviteRow[];
   humanRows: FakeHumanRow[];
   apiKeyRows: FakeApiKeyRow[];
+  internalServiceRows: FakeInternalServiceRow[];
   beforeFirstAgentUpdateApplied: boolean;
   beforeFirstAgentAuthSessionUpdateApplied: boolean;
   remainingApiKeyInsertFailures: number;
+  remainingInternalServiceInsertFailures: number;
 };
