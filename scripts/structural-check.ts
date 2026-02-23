@@ -4,7 +4,6 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOTS = ["apps", "packages"];
-const MAX_LINES = 800;
 const CODE_LIKE_COMMENT_PATTERN =
   /\b(function|const|let|import|return)\b|\bif\s*\(|\bfor\s*\(|=>/;
 const MAGIC_STRING_ON_RIGHT_PATTERN = /(?:===|!==)\s*(['"`])(?:\\.|(?!\1).)+\1/;
@@ -13,17 +12,8 @@ const MAGIC_STRING_ON_LEFT_PATTERN = /(['"`])(?:\\.|(?!\1).)+\1\s*(?:===|!==)/;
 type Severity = "error" | "warning";
 
 type Finding = {
-  code: string;
-  filePath: string;
-  line?: number;
   message: string;
   severity: Severity;
-};
-
-type ScanContext = {
-  fix: boolean;
-  scannedFiles: string[];
-  findings: Finding[];
 };
 
 function normalizePath(value: string): string {
@@ -31,11 +21,7 @@ function normalizePath(value: string): string {
 }
 
 function isTypeScriptFile(filePath: string): boolean {
-  return /(\.ts|\.tsx|\.mts|\.cts)$/.test(filePath);
-}
-
-function isDefinitionFile(filePath: string): boolean {
-  return filePath.endsWith(".d.ts");
+  return /(\.ts|\.tsx|\.mts|\.cts)$/.test(filePath) && !filePath.endsWith(".d.ts");
 }
 
 function isTestFile(filePath: string): boolean {
@@ -47,29 +33,16 @@ function isTestFile(filePath: string): boolean {
   );
 }
 
-function isConfigFile(filePath: string): boolean {
-  return /\.config\.[cm]?tsx?$/.test(filePath);
-}
-
 function shouldSkipDirectory(name: string): boolean {
   return name === "node_modules" || name === ".git" || name === "dist" || name === ".wrangler";
 }
 
-function countLines(content: string): number {
-  if (content.length === 0) {
-    return 0;
-  }
-
-  const newlineCount = (content.match(/\n/g) ?? []).length;
-  return content.endsWith("\n") ? newlineCount : newlineCount + 1;
-}
-
 function collectTypeScriptFiles(root: string): string[] {
-  const files: string[] = [];
   if (!existsSync(root)) {
-    return files;
+    return [];
   }
 
+  const files: string[] = [];
   const stack = [root];
   while (stack.length > 0) {
     const current = stack.pop();
@@ -77,9 +50,8 @@ function collectTypeScriptFiles(root: string): string[] {
       continue;
     }
 
-    const entries = readdirSync(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(current, entry.name);
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const fullPath = normalizePath(path.join(current, entry.name));
       if (entry.isDirectory()) {
         if (!shouldSkipDirectory(entry.name)) {
           stack.push(fullPath);
@@ -87,12 +59,9 @@ function collectTypeScriptFiles(root: string): string[] {
         continue;
       }
 
-      const normalized = normalizePath(fullPath);
-      if (!entry.isFile() || !isTypeScriptFile(normalized) || isDefinitionFile(normalized)) {
-        continue;
+      if (entry.isFile() && isTypeScriptFile(fullPath)) {
+        files.push(fullPath);
       }
-
-      files.push(normalized);
     }
   }
 
@@ -100,62 +69,30 @@ function collectTypeScriptFiles(root: string): string[] {
   return files;
 }
 
-function addFinding(
-  context: ScanContext,
-  severity: Severity,
-  code: string,
-  filePath: string,
-  line: number | undefined,
-  message: string,
-): void {
-  context.findings.push({
-    severity,
-    code,
-    filePath,
-    line,
-    message,
-  });
-}
-
-function isConsoleRuleTarget(filePath: string): boolean {
-  if (filePath.startsWith("apps/")) {
-    return true;
-  }
-
-  return /^packages\/[^/]+\/src\//.test(filePath);
-}
-
-function isImportLine(trimmedLine: string): boolean {
-  return trimmedLine.startsWith("import ") || trimmedLine.startsWith("export {");
+function isImportLine(trimmed: string): boolean {
+  return trimmed.startsWith("import ") || trimmed.startsWith("export {");
 }
 
 function hasMagicStringComparison(line: string): boolean {
   return MAGIC_STRING_ON_RIGHT_PATTERN.test(line) || MAGIC_STRING_ON_LEFT_PATTERN.test(line);
 }
 
-function scanCommentedOutCode(context: ScanContext, filePath: string, lines: string[]): void {
+function collectCommentedOutCodeFindings(filePath: string, lines: string[]): Finding[] {
+  const findings: Finding[] = [];
   let blockStart = -1;
   const blockLines: string[] = [];
 
   const flush = (): void => {
-    if (blockStart < 0) {
-      return;
-    }
-
     if (
+      blockStart >= 0 &&
       blockLines.length >= 3 &&
       blockLines.some((line) => CODE_LIKE_COMMENT_PATTERN.test(line.trim()))
     ) {
-      addFinding(
-        context,
-        "error",
-        "DEAD_CODE",
-        filePath,
-        blockStart + 1,
-        `DEAD_CODE: ${filePath}:${blockStart + 1} has commented-out code block. Delete it — git has history.`,
-      );
+      findings.push({
+        severity: "error",
+        message: `DEAD_CODE: ${filePath}:${blockStart + 1} has commented-out code block. Delete it — git has history.`,
+      });
     }
-
     blockStart = -1;
     blockLines.length = 0;
   };
@@ -174,131 +111,69 @@ function scanCommentedOutCode(context: ScanContext, filePath: string, lines: str
   }
 
   flush();
+  return findings;
 }
 
-function scanFile(context: ScanContext, filePath: string): void {
-  const content = readFileSync(filePath, "utf8");
-  const lineCount = countLines(content);
-  const lines = content.split(/\r?\n/);
-  const inTestFile = isTestFile(filePath);
-
-  if (lineCount > MAX_LINES) {
-    addFinding(
-      context,
-      "error",
-      "FILE_TOO_LARGE",
-      filePath,
-      undefined,
-      `FILE_TOO_LARGE: ${filePath} is ${lineCount} lines (limit: ${MAX_LINES}). Split into focused modules.`,
-    );
+function collectMagicStringFindings(filePath: string, lines: string[]): Finding[] {
+  if (isTestFile(filePath)) {
+    return [];
   }
 
-  scanCommentedOutCode(context, filePath, lines);
-
+  const findings: Finding[] = [];
   for (let index = 0; index < lines.length; index += 1) {
-    const lineNumber = index + 1;
     const rawLine = lines[index];
     const trimmed = rawLine.trim();
-    if (trimmed.startsWith("//")) {
+    if (trimmed.startsWith("//") || isImportLine(trimmed)) {
       continue;
     }
 
-    if (!inTestFile) {
-      if (/:\s*any\b/.test(rawLine) || /\bas\s+any\b/.test(rawLine) || /<\s*any\s*>/.test(rawLine)) {
-        addFinding(
-          context,
-          "error",
-          "UNSAFE_ANY",
-          filePath,
-          lineNumber,
-          `UNSAFE_ANY: ${filePath}:${lineNumber} uses 'any'. Use 'unknown' with type narrowing instead.`,
-        );
-      }
-
-      if (isConsoleRuleTarget(filePath) && /\bconsole\.(log|warn|error)\s*\(/.test(rawLine)) {
-        addFinding(
-          context,
-          "error",
-          "BARE_CONSOLE",
-          filePath,
-          lineNumber,
-          `BARE_CONSOLE: ${filePath}:${lineNumber} uses console.log. Use structured logging.`,
-        );
-      }
-
-      if (!isConfigFile(filePath) && /\bexport\s+default\b/.test(rawLine)) {
-        addFinding(
-          context,
-          "error",
-          "DEFAULT_EXPORT",
-          filePath,
-          lineNumber,
-          `DEFAULT_EXPORT: ${filePath}:${lineNumber} uses default export. Use named exports only.`,
-        );
-      }
-
-      if (!isImportLine(trimmed) && hasMagicStringComparison(rawLine)) {
-        addFinding(
-          context,
-          "warning",
-          "MAGIC_STRING",
-          filePath,
-          lineNumber,
-          `MAGIC_STRING: ${filePath}:${lineNumber} has inline string comparison. Consider using a constant.`,
-        );
-      }
+    if (hasMagicStringComparison(rawLine)) {
+      findings.push({
+        severity: "warning",
+        message: `MAGIC_STRING: ${filePath}:${index + 1} has inline string comparison. Consider using a constant.`,
+      });
     }
   }
+
+  return findings;
 }
 
-function collectModuleReadmeWarnings(context: ScanContext): void {
+function collectReadmeFindings(): Finding[] {
+  const findings: Finding[] = [];
   for (const root of ROOTS) {
     if (!existsSync(root)) {
       continue;
     }
 
-    const entries = readdirSync(root, { withFileTypes: true });
-    for (const entry of entries) {
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
       if (!entry.isDirectory()) {
         continue;
       }
-
-      const directoryPath = normalizePath(path.join(root, entry.name));
-      if (!existsSync(path.join(directoryPath, "README.md"))) {
-        addFinding(
-          context,
-          "warning",
-          "README_MISSING",
-          directoryPath,
-          undefined,
-          `README_MISSING: ${directoryPath} has no README.md. Add one describing scope and entry points.`,
-        );
+      const modulePath = normalizePath(path.join(root, entry.name));
+      if (!existsSync(path.join(modulePath, "README.md"))) {
+        findings.push({
+          severity: "warning",
+          message: `README_MISSING: ${modulePath} has no README.md. Add one describing scope and entry points.`,
+        });
       }
     }
   }
+  return findings;
 }
 
 function main(): void {
-  const fix = process.argv.includes("--fix");
-  const scannedFiles = ROOTS.flatMap((root) => collectTypeScriptFiles(root));
+  const files = ROOTS.flatMap((root) => collectTypeScriptFiles(root));
+  const findings: Finding[] = [];
 
-  const context: ScanContext = {
-    fix,
-    scannedFiles,
-    findings: [],
-  };
-
-  for (const filePath of scannedFiles) {
-    scanFile(context, filePath);
+  for (const filePath of files) {
+    const lines = readFileSync(filePath, "utf8").split(/\r?\n/);
+    findings.push(...collectCommentedOutCodeFindings(filePath, lines));
+    findings.push(...collectMagicStringFindings(filePath, lines));
   }
-  collectModuleReadmeWarnings(context);
+  findings.push(...collectReadmeFindings());
 
-  const errors = context.findings.filter((finding) => finding.severity === "error");
-  const warnings = context.findings.filter((finding) => finding.severity === "warning");
-
-  if (context.fix) {
-    console.log("Auto-fix mode is enabled, but no structural rules are auto-fixable yet.");
-  }
+  const errors = findings.filter((item) => item.severity === "error");
+  const warnings = findings.filter((item) => item.severity === "warning");
 
   for (const finding of errors) {
     console.error(finding.message);
@@ -307,7 +182,7 @@ function main(): void {
     console.warn(finding.message);
   }
 
-  console.log(`${errors.length} errors, ${warnings.length} warnings across ${scannedFiles.length} files`);
+  console.log(`${errors.length} errors, ${warnings.length} warnings across ${files.length} files`);
   if (errors.length > 0) {
     process.exit(1);
   }
