@@ -96,6 +96,8 @@ fn map_dead_letter_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InboundDeadL
     })
 }
 
+/// TODO(clawdentity): document `upsert_pending`.
+#[allow(clippy::too_many_lines)]
 pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<()> {
     if item.request_id.trim().is_empty() {
         return Err(CoreError::InvalidInput(
@@ -161,6 +163,7 @@ pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<(
     })
 }
 
+/// TODO(clawdentity): document `list_pending_due`.
 pub fn list_pending_due(
     store: &SqliteStore,
     at_or_before_ms: i64,
@@ -183,6 +186,7 @@ pub fn list_pending_due(
     })
 }
 
+/// TODO(clawdentity): document `pending_count`.
 pub fn pending_count(store: &SqliteStore) -> Result<i64> {
     store.with_connection(|connection| {
         let count =
@@ -191,6 +195,7 @@ pub fn pending_count(store: &SqliteStore) -> Result<i64> {
     })
 }
 
+/// TODO(clawdentity): document `get_pending`.
 pub fn get_pending(store: &SqliteStore, request_id: &str) -> Result<Option<InboundPendingItem>> {
     let request_id = request_id.trim();
     if request_id.is_empty() {
@@ -209,6 +214,7 @@ pub fn get_pending(store: &SqliteStore, request_id: &str) -> Result<Option<Inbou
     })
 }
 
+/// TODO(clawdentity): document `mark_pending_attempt`.
 pub fn mark_pending_attempt(
     store: &SqliteStore,
     request_id: &str,
@@ -240,6 +246,8 @@ pub fn mark_pending_attempt(
     })
 }
 
+/// TODO(clawdentity): document `move_pending_to_dead_letter`.
+#[allow(clippy::too_many_lines)]
 pub fn move_pending_to_dead_letter(
     store: &SqliteStore,
     request_id: &str,
@@ -331,6 +339,7 @@ pub fn move_pending_to_dead_letter(
     })
 }
 
+/// TODO(clawdentity): document `list_dead_letter`.
 pub fn list_dead_letter(store: &SqliteStore, limit: usize) -> Result<Vec<InboundDeadLetterItem>> {
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {
@@ -348,6 +357,7 @@ pub fn list_dead_letter(store: &SqliteStore, limit: usize) -> Result<Vec<Inbound
     })
 }
 
+/// TODO(clawdentity): document `dead_letter_count`.
 pub fn dead_letter_count(store: &SqliteStore) -> Result<i64> {
     store.with_connection(|connection| {
         let count =
@@ -358,6 +368,8 @@ pub fn dead_letter_count(store: &SqliteStore) -> Result<i64> {
     })
 }
 
+/// TODO(clawdentity): document `replay_dead_letter`.
+#[allow(clippy::too_many_lines)]
 pub fn replay_dead_letter(
     store: &SqliteStore,
     request_id: &str,
@@ -431,6 +443,7 @@ pub fn replay_dead_letter(
     })
 }
 
+/// TODO(clawdentity): document `purge_dead_letter`.
 pub fn purge_dead_letter(store: &SqliteStore, request_id: Option<&str>) -> Result<usize> {
     store.with_connection(|connection| {
         let deleted = if let Some(request_id) = request_id {
@@ -450,6 +463,7 @@ pub fn purge_dead_letter(store: &SqliteStore, request_id: Option<&str>) -> Resul
     })
 }
 
+/// TODO(clawdentity): document `append_inbound_event`.
 pub fn append_inbound_event(
     store: &SqliteStore,
     event_type: &str,
@@ -492,6 +506,7 @@ fn append_inbound_event_with_connection(
     Ok(connection.last_insert_rowid())
 }
 
+/// TODO(clawdentity): document `list_inbound_events`.
 pub fn list_inbound_events(store: &SqliteStore, limit: usize) -> Result<Vec<InboundEvent>> {
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {

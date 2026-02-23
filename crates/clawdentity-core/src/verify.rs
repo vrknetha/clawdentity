@@ -64,6 +64,7 @@ fn normalize_registry_url(registry_url: &str) -> Result<String> {
         })
 }
 
+/// TODO(clawdentity): document `expected_issuer_for_registry`.
 pub fn expected_issuer_for_registry(registry_url: &str) -> Option<String> {
     let parsed = url::Url::parse(registry_url).ok()?;
     match parsed.host_str()? {
@@ -162,6 +163,7 @@ fn decode_base64url(value: &str, context: &str) -> Result<Vec<u8>> {
         .map_err(|_| CoreError::InvalidInput(format!("{context} is invalid base64url")))
 }
 
+#[allow(clippy::too_many_lines)]
 fn verify_ait_token(
     token: &str,
     keys: &[RegistryVerificationKey],
@@ -243,6 +245,7 @@ fn verify_ait_token(
     Ok(claims)
 }
 
+/// TODO(clawdentity): document `verify_ait_token_with_registry`.
 pub fn verify_ait_token_with_registry(
     store: &SqliteStore,
     registry_url: &str,

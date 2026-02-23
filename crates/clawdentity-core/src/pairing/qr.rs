@@ -15,6 +15,7 @@ fn parse_qr_issued_at_seconds(file_name: &str) -> Option<i64> {
     maybe_seconds.parse::<i64>().ok()
 }
 
+/// TODO(clawdentity): document `encode_ticket_qr_png`.
 pub fn encode_ticket_qr_png(ticket: &str) -> Result<Vec<u8>> {
     let ticket = ticket.trim();
     if ticket.is_empty() {
@@ -35,6 +36,7 @@ pub fn encode_ticket_qr_png(ticket: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// TODO(clawdentity): document `decode_ticket_from_png`.
 pub fn decode_ticket_from_png(image_bytes: &[u8]) -> Result<String> {
     let image = image::load_from_memory(image_bytes)
         .map_err(|error| CoreError::InvalidInput(error.to_string()))?;
@@ -62,6 +64,8 @@ pub fn decode_ticket_from_png(image_bytes: &[u8]) -> Result<String> {
     ))
 }
 
+/// TODO(clawdentity): document `persist_pairing_qr`.
+#[allow(clippy::too_many_lines)]
 pub fn persist_pairing_qr(
     config_dir: &Path,
     agent_name: &str,

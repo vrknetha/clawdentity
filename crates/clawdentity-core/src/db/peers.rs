@@ -50,6 +50,7 @@ fn map_peer_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PeerRecord> {
     })
 }
 
+/// TODO(clawdentity): document `upsert_peer`.
 pub fn upsert_peer(store: &SqliteStore, input: UpsertPeerInput) -> Result<PeerRecord> {
     let alias = input.alias.trim().to_string();
     let did = input.did.trim().to_string();
@@ -92,6 +93,7 @@ pub fn upsert_peer(store: &SqliteStore, input: UpsertPeerInput) -> Result<PeerRe
     })
 }
 
+/// TODO(clawdentity): document `get_peer_by_alias`.
 pub fn get_peer_by_alias(store: &SqliteStore, alias: &str) -> Result<Option<PeerRecord>> {
     let alias = alias.trim().to_string();
     if alias.is_empty() {
@@ -110,6 +112,7 @@ fn get_peer(connection: &rusqlite::Connection, alias: &str) -> Option<PeerRecord
     statement.query_row([alias], map_peer_row).ok()
 }
 
+/// TODO(clawdentity): document `list_peers`.
 pub fn list_peers(store: &SqliteStore) -> Result<Vec<PeerRecord>> {
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
@@ -123,6 +126,7 @@ pub fn list_peers(store: &SqliteStore) -> Result<Vec<PeerRecord>> {
     })
 }
 
+/// TODO(clawdentity): document `delete_peer`.
 pub fn delete_peer(store: &SqliteStore, alias: &str) -> Result<bool> {
     let alias = alias.trim().to_string();
     if alias.is_empty() {

@@ -31,6 +31,7 @@ pub struct ConnectorClientOptions {
 }
 
 impl ConnectorClientOptions {
+/// TODO(clawdentity): document `with_defaults`.
     pub fn with_defaults(
         relay_connect_url: impl Into<String>,
         headers: Vec<(String, String)>,
@@ -89,6 +90,7 @@ pub struct ConnectorClientSender {
 }
 
 impl ConnectorClientSender {
+/// TODO(clawdentity): document `send_frame`.
     pub async fn send_frame(&self, frame: ConnectorFrame) -> Result<()> {
         self.sender
             .send(frame)
@@ -96,14 +98,17 @@ impl ConnectorClientSender {
             .map_err(|_| CoreError::InvalidInput("connector client is not running".to_string()))
     }
 
+/// TODO(clawdentity): document `is_connected`.
     pub fn is_connected(&self) -> bool {
         self.metrics.connected.load(Ordering::SeqCst)
     }
 
+/// TODO(clawdentity): document `metrics_snapshot`.
     pub fn metrics_snapshot(&self) -> ConnectorClientMetricsSnapshot {
         self.metrics.snapshot()
     }
 
+/// TODO(clawdentity): document `shutdown`.
     pub fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
     }
@@ -115,15 +120,18 @@ pub struct ConnectorClient {
 }
 
 impl ConnectorClient {
+/// TODO(clawdentity): document `sender`.
     pub fn sender(&self) -> ConnectorClientSender {
         self.sender.clone()
     }
 
+/// TODO(clawdentity): document `recv_frame`.
     pub async fn recv_frame(&mut self) -> Option<ConnectorFrame> {
         self.inbound_rx.recv().await
     }
 }
 
+/// TODO(clawdentity): document `spawn_connector_client`.
 pub fn spawn_connector_client(options: ConnectorClientOptions) -> ConnectorClient {
     let (outbound_tx, outbound_rx) = mpsc::channel::<ConnectorFrame>(256);
     let (inbound_tx, inbound_rx) = mpsc::channel::<ConnectorFrame>(256);
@@ -153,6 +161,7 @@ enum SessionExit {
     Shutdown,
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_connector_loop(
     options: ConnectorClientOptions,
     mut outbound_rx: mpsc::Receiver<ConnectorFrame>,
@@ -272,6 +281,7 @@ async fn connect_socket(
     Ok(stream)
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run_socket_session(
     stream: tokio_tungstenite::WebSocketStream<
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,

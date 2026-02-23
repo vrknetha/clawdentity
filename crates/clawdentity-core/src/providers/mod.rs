@@ -215,6 +215,7 @@ pub struct ProviderRelayTestResult {
     pub details: Option<Value>,
 }
 
+/// TODO(clawdentity): document `all_providers`.
 pub fn all_providers() -> Vec<Box<dyn PlatformProvider>> {
     vec![
         Box::new(OpenclawProvider::default()),
@@ -224,6 +225,7 @@ pub fn all_providers() -> Vec<Box<dyn PlatformProvider>> {
     ]
 }
 
+/// TODO(clawdentity): document `detect_platform`.
 pub fn detect_platform() -> Option<Box<dyn PlatformProvider>> {
     let mut selected: Option<(f32, Box<dyn PlatformProvider>)> = None;
 
@@ -245,6 +247,7 @@ pub fn detect_platform() -> Option<Box<dyn PlatformProvider>> {
     selected.map(|(_, provider)| provider)
 }
 
+/// TODO(clawdentity): document `get_provider`.
 pub fn get_provider(name: &str) -> Option<Box<dyn PlatformProvider>> {
     let normalized = name.trim();
     if normalized.is_empty() {

@@ -9,6 +9,7 @@
   "scripts": {
     "prepare": "husky",
     "check:file-size": "node ./scripts/quality/check-file-size.mjs",
+    "check:structural": "tsx scripts/structural-check.ts",
     "format": "biome format .",
     "lint": "biome check .",
     "lint:staged": "lint-staged --concurrent false",
@@ -31,6 +32,7 @@
     "husky": "^9.1.0",
     "lint-staged": "^15.2.0",
     "nx": "22.5.0",
+    "tsx": "^4.20.6",
     "tsup": "^8.5.1",
     "typescript": "5.8.3",
     "vitest": "^4.0.18",

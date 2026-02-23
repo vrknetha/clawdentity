@@ -111,18 +111,22 @@ fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// TODO(clawdentity): document `openclaw_agent_name_path`.
 pub fn openclaw_agent_name_path(config_dir: &Path) -> PathBuf {
     config_dir.join(OPENCLAW_AGENT_FILE_NAME)
 }
 
+/// TODO(clawdentity): document `openclaw_relay_runtime_path`.
 pub fn openclaw_relay_runtime_path(config_dir: &Path) -> PathBuf {
     config_dir.join(OPENCLAW_RELAY_RUNTIME_FILE_NAME)
 }
 
+/// TODO(clawdentity): document `openclaw_connectors_path`.
 pub fn openclaw_connectors_path(config_dir: &Path) -> PathBuf {
     config_dir.join(OPENCLAW_CONNECTORS_FILE_NAME)
 }
 
+/// TODO(clawdentity): document `read_selected_openclaw_agent`.
 pub fn read_selected_openclaw_agent(config_dir: &Path) -> Result<Option<String>> {
     let path = openclaw_agent_name_path(config_dir);
     let value = match fs::read_to_string(&path) {
@@ -137,6 +141,7 @@ pub fn read_selected_openclaw_agent(config_dir: &Path) -> Result<Option<String>>
     Ok(Some(selected))
 }
 
+/// TODO(clawdentity): document `write_selected_openclaw_agent`.
 pub fn write_selected_openclaw_agent(config_dir: &Path, agent_name: &str) -> Result<PathBuf> {
     let selected = parse_non_empty(agent_name, "agentName")?;
     let path = openclaw_agent_name_path(config_dir);
@@ -144,10 +149,12 @@ pub fn write_selected_openclaw_agent(config_dir: &Path, agent_name: &str) -> Res
     Ok(path)
 }
 
+/// TODO(clawdentity): document `load_relay_runtime_config`.
 pub fn load_relay_runtime_config(config_dir: &Path) -> Result<Option<OpenclawRelayRuntimeConfig>> {
     read_json_if_exists::<OpenclawRelayRuntimeConfig>(&openclaw_relay_runtime_path(config_dir))
 }
 
+/// TODO(clawdentity): document `save_relay_runtime_config`.
 pub fn save_relay_runtime_config(
     config_dir: &Path,
     config: OpenclawRelayRuntimeConfig,
@@ -169,6 +176,7 @@ pub fn save_relay_runtime_config(
     Ok(path)
 }
 
+/// TODO(clawdentity): document `resolve_openclaw_base_url`.
 pub fn resolve_openclaw_base_url(config_dir: &Path, option_value: Option<&str>) -> Result<String> {
     if let Some(value) = option_value
         .map(str::trim)
@@ -188,6 +196,7 @@ pub fn resolve_openclaw_base_url(config_dir: &Path, option_value: Option<&str>) 
     Ok(OPENCLAW_DEFAULT_BASE_URL.to_string())
 }
 
+/// TODO(clawdentity): document `resolve_openclaw_hook_token`.
 pub fn resolve_openclaw_hook_token(
     config_dir: &Path,
     option_value: Option<&str>,
@@ -210,6 +219,7 @@ pub fn resolve_openclaw_hook_token(
         .filter(|value| !value.is_empty()))
 }
 
+/// TODO(clawdentity): document `load_connector_assignments`.
 pub fn load_connector_assignments(config_dir: &Path) -> Result<OpenclawConnectorsConfig> {
     Ok(
         read_json_if_exists::<OpenclawConnectorsConfig>(&openclaw_connectors_path(config_dir))?
@@ -217,6 +227,7 @@ pub fn load_connector_assignments(config_dir: &Path) -> Result<OpenclawConnector
     )
 }
 
+/// TODO(clawdentity): document `save_connector_assignment`.
 pub fn save_connector_assignment(
     config_dir: &Path,
     agent_name: &str,
@@ -237,6 +248,7 @@ pub fn save_connector_assignment(
     Ok(path)
 }
 
+/// TODO(clawdentity): document `resolve_connector_base_url`.
 pub fn resolve_connector_base_url(
     config_dir: &Path,
     agent_name: Option<&str>,

@@ -9,6 +9,7 @@ pub struct OpenclawRuntimeConfig {
 }
 
 impl OpenclawRuntimeConfig {
+/// TODO(clawdentity): document `hook_url`.
     pub fn hook_url(&self) -> Result<String> {
         let base = self.base_url.trim();
         if base.is_empty() {
@@ -33,6 +34,7 @@ impl OpenclawRuntimeConfig {
     }
 }
 
+/// TODO(clawdentity): document `check_openclaw_gateway_health`.
 pub async fn check_openclaw_gateway_health(base_url: &str) -> Result<bool> {
     let base = base_url.trim();
     if base.is_empty() {

@@ -18,6 +18,7 @@ pub enum ConnectorServicePlatform {
 }
 
 impl ConnectorServicePlatform {
+/// TODO(clawdentity): document `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Launchd => "launchd",
@@ -61,6 +62,7 @@ pub struct ConnectorServiceUninstallResult {
     pub service_file_path: PathBuf,
 }
 
+/// TODO(clawdentity): document `parse_connector_service_platform`.
 pub fn parse_connector_service_platform(value: Option<&str>) -> Result<ConnectorServicePlatform> {
     let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
         return detect_current_platform();
@@ -76,6 +78,7 @@ pub fn parse_connector_service_platform(value: Option<&str>) -> Result<Connector
     }
 }
 
+/// TODO(clawdentity): document `sanitize_service_segment`.
 pub fn sanitize_service_segment(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut previous_dash = false;
@@ -354,6 +357,8 @@ fn write_service_file(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
+/// TODO(clawdentity): document `install_connector_service`.
+#[allow(clippy::too_many_lines)]
 pub fn install_connector_service(
     options: &ConfigPathOptions,
     input: ConnectorServiceInstallInput,
@@ -453,6 +458,8 @@ pub fn install_connector_service(
     }
 }
 
+/// TODO(clawdentity): document `uninstall_connector_service`.
+#[allow(clippy::too_many_lines)]
 pub fn uninstall_connector_service(
     options: &ConfigPathOptions,
     input: ConnectorServiceUninstallInput,

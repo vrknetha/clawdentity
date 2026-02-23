@@ -79,6 +79,7 @@ fn map_dead_letter_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OutboundDead
     })
 }
 
+/// TODO(clawdentity): document `enqueue_outbound`.
 pub fn enqueue_outbound(store: &SqliteStore, input: EnqueueOutboundInput) -> Result<()> {
     let frame_id = input.frame_id.trim().to_string();
     let frame_type = input.frame_type.trim().to_string();
@@ -127,6 +128,7 @@ pub fn enqueue_outbound(store: &SqliteStore, input: EnqueueOutboundInput) -> Res
     })
 }
 
+/// TODO(clawdentity): document `list_outbound`.
 pub fn list_outbound(store: &SqliteStore, limit: usize) -> Result<Vec<OutboundQueueItem>> {
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {
@@ -142,6 +144,7 @@ pub fn list_outbound(store: &SqliteStore, limit: usize) -> Result<Vec<OutboundQu
     })
 }
 
+/// TODO(clawdentity): document `take_oldest_outbound`.
 pub fn take_oldest_outbound(store: &SqliteStore) -> Result<Option<OutboundQueueItem>> {
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
@@ -159,6 +162,7 @@ pub fn take_oldest_outbound(store: &SqliteStore) -> Result<Option<OutboundQueueI
     })
 }
 
+/// TODO(clawdentity): document `delete_outbound`.
 pub fn delete_outbound(store: &SqliteStore, frame_id: &str) -> Result<bool> {
     let frame_id = frame_id.trim();
     if frame_id.is_empty() {
@@ -171,6 +175,7 @@ pub fn delete_outbound(store: &SqliteStore, frame_id: &str) -> Result<bool> {
     })
 }
 
+/// TODO(clawdentity): document `move_outbound_to_dead_letter`.
 pub fn move_outbound_to_dead_letter(
     store: &SqliteStore,
     item: &OutboundQueueItem,
@@ -217,6 +222,7 @@ pub fn move_outbound_to_dead_letter(
     })
 }
 
+/// TODO(clawdentity): document `outbound_count`.
 pub fn outbound_count(store: &SqliteStore) -> Result<i64> {
     store.with_connection(|connection| {
         let count =
@@ -225,6 +231,7 @@ pub fn outbound_count(store: &SqliteStore) -> Result<i64> {
     })
 }
 
+/// TODO(clawdentity): document `list_outbound_dead_letter`.
 pub fn list_outbound_dead_letter(
     store: &SqliteStore,
     limit: usize,
@@ -244,6 +251,7 @@ pub fn list_outbound_dead_letter(
     })
 }
 
+/// TODO(clawdentity): document `outbound_dead_letter_count`.
 pub fn outbound_dead_letter_count(store: &SqliteStore) -> Result<i64> {
     store.with_connection(|connection| {
         let count =

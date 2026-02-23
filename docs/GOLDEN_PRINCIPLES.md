@@ -23,17 +23,47 @@ HOW ENFORCED:
 - Protocol-affecting changes must update shared protocol docs/packages and dependent implementations.
 - Cross-ecosystem tests and review check for compatibility impact.
 
-## 3) Keep files and modules small
+## 3) Structural limits are hard gates across TypeScript and Rust
 
 WHY:
-- Large files hide coupling, slow review, and increase regression risk.
-- Small modules force explicit boundaries and easier ownership.
+- Size limits force separation of concerns and improve reviewability.
+- Oversized files/functions hide risk and slow safe iteration.
 
 HOW ENFORCED:
-- TypeScript gate: `pnpm check:file-size` (apps/packages source files >800 lines fail).
-- Rust gate: `crates/clawdentity-core/tests/structural.rs` (`no_file_exceeds_800_lines`).
+- TypeScript hard gate: `pnpm check:structural` (`scripts/structural-check.ts`) enforces max 800 lines for source files under `apps/` and `packages/`.
+- Rust hard gates: `crates/clawdentity-core/tests/structural.rs` enforces max 800 lines per Rust file and max 50 lines per non-test function.
 
-## 4) No panic-path coding in production flows
+## 4) TypeScript production code must avoid unsafe shortcuts
+
+WHY:
+- `any`, default exports, and ad-hoc console output hide contract drift and runtime risk.
+- Inline string conditionals make policy and routing logic brittle.
+
+HOW ENFORCED:
+- `pnpm check:structural` fails production TypeScript on `UNSAFE_ANY`, `DEFAULT_EXPORT`, and `BARE_CONSOLE` violations.
+- `pnpm check:structural` emits warnings for `MAGIC_STRING` comparisons to drive constant extraction.
+
+## 5) Dead code is a defect
+
+WHY:
+- Commented-out logic creates ambiguity and stale behavior assumptions.
+- Version control already preserves history, so dead branches should not remain inline.
+
+HOW ENFORCED:
+- TypeScript hard gate: `pnpm check:structural` fails `DEAD_CODE` blocks.
+- Rust hard gate: `crates/clawdentity-core/tests/structural.rs` fails commented-out code blocks.
+
+## 6) Public APIs and module boundaries must be documented
+
+WHY:
+- Public APIs without docs are unsafe for operators and integrators.
+- Missing package/app READMEs slows onboarding and increases misuse risk.
+
+HOW ENFORCED:
+- Rust hard gate: `crates/clawdentity-core/tests/structural.rs` fails undocumented `pub fn` / `pub async fn` with `UNDOCUMENTED` violations.
+- TypeScript structural check emits warnings when app/package directories in `apps/` and `packages/` are missing `README.md`.
+
+## 7) No panic-path coding in production flows
 
 WHY:
 - Runtime panic paths are unacceptable for onboarding/relay operations.
@@ -43,7 +73,7 @@ HOW ENFORCED:
 - Rust hard gate: `no_unwrap_outside_tests` in structural tests.
 - TypeScript review/testing rule: avoid crash-prone error swallowing and implicit fatal paths.
 
-## 5) Dependency direction is intentional
+## 8) Dependency direction is intentional
 
 WHY:
 - Layer inversion causes brittle behavior and hidden coupling.
@@ -53,7 +83,7 @@ HOW ENFORCED:
 - Rust hard gate: dependency-direction checks in structural tests.
 - TypeScript enforcement via review, workspace boundaries, and package layering discipline.
 
-## 6) Errors must be actionable
+## 9) Errors must be actionable
 
 WHY:
 - Operators need context and remediation, not generic failure strings.
@@ -63,7 +93,7 @@ HOW ENFORCED:
 - Command/API outputs should include context fields and remediation hints where applicable.
 - Verified through tests, UX checks, and review.
 
-## 7) Machine-readable outputs are stable
+## 10) Machine-readable outputs are stable
 
 WHY:
 - Automation depends on predictable JSON envelopes and field names.
@@ -73,7 +103,7 @@ HOW ENFORCED:
 - CLI/API contracts must preserve stable JSON schemas.
 - Regressions are blocked in tests or review before merge.
 
-## 8) Test failure paths, not just happy paths
+## 11) Test failure paths, not just happy paths
 
 WHY:
 - Relay, pairing, registry auth, and provider operations are failure-heavy.
@@ -83,7 +113,7 @@ HOW ENFORCED:
 - TypeScript: Vitest suites include auth/network/validation negative cases.
 - Rust: unit/integration + structural tests include failure invariants.
 
-## 9) Documentation is part of the deliverable
+## 12) Documentation is part of the deliverable
 
 WHY:
 - Monorepo coordination fails when docs and code diverge.
@@ -93,7 +123,7 @@ HOW ENFORCED:
 - PRs that change behavior must update affected docs in `docs/`.
 - `AGENTS.md` points contributors to docs as system of record.
 
-## 10) Prefer boring, durable technology
+## 13) Prefer boring, durable technology
 
 WHY:
 - Reliability and operability matter more than novelty for trust infrastructure.

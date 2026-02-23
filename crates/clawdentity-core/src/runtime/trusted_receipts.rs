@@ -9,10 +9,12 @@ pub struct TrustedReceiptsStore {
 }
 
 impl TrustedReceiptsStore {
+/// TODO(clawdentity): document `new`.
     pub fn new() -> Self {
         Self::default()
     }
 
+/// TODO(clawdentity): document `mark_trusted`.
     pub fn mark_trusted(&self, frame_id: impl Into<String>) {
         let frame_id = frame_id.into();
         if frame_id.trim().is_empty() {
@@ -23,6 +25,7 @@ impl TrustedReceiptsStore {
         }
     }
 
+/// TODO(clawdentity): document `is_trusted`.
     pub fn is_trusted(&self, frame_id: &str) -> bool {
         if frame_id.trim().is_empty() {
             return false;
@@ -33,6 +36,7 @@ impl TrustedReceiptsStore {
         }
     }
 
+/// TODO(clawdentity): document `purge_before`.
     pub fn purge_before(&self, cutoff_ms: i64) -> usize {
         let Ok(mut guard) = self.inner.lock() else {
             return 0;

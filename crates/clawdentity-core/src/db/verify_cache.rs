@@ -11,6 +11,7 @@ pub struct VerifyCacheEntry {
     pub payload_json: String,
 }
 
+/// TODO(clawdentity): document `upsert_verify_cache_entry`.
 pub fn upsert_verify_cache_entry(
     store: &SqliteStore,
     cache_key: &str,
@@ -49,6 +50,7 @@ pub fn upsert_verify_cache_entry(
     })
 }
 
+/// TODO(clawdentity): document `get_verify_cache_entry`.
 pub fn get_verify_cache_entry(
     store: &SqliteStore,
     cache_key: &str,
@@ -78,6 +80,7 @@ pub fn get_verify_cache_entry(
     })
 }
 
+/// TODO(clawdentity): document `delete_verify_cache_entry`.
 pub fn delete_verify_cache_entry(store: &SqliteStore, cache_key: &str) -> Result<bool> {
     let cache_key = cache_key.trim();
     if cache_key.is_empty() {
@@ -90,6 +93,7 @@ pub fn delete_verify_cache_entry(store: &SqliteStore, cache_key: &str) -> Result
     })
 }
 
+/// TODO(clawdentity): document `purge_verify_cache_before`.
 pub fn purge_verify_cache_before(store: &SqliteStore, cutoff_ms: i64) -> Result<usize> {
     store.with_connection(|connection| {
         let deleted = connection.execute(

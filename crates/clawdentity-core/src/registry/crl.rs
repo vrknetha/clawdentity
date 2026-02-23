@@ -138,10 +138,13 @@ fn parse_crl_claims(payload: serde_json::Value) -> Result<CrlClaims> {
     Ok(claims)
 }
 
+/// TODO(clawdentity): document `is_jti_revoked`.
 pub fn is_jti_revoked(claims: &CrlClaims, jti: &str) -> bool {
     claims.revocations.iter().any(|entry| entry.jti == jti)
 }
 
+/// TODO(clawdentity): document `load_crl_claims`.
+#[allow(clippy::too_many_lines)]
 pub fn load_crl_claims(
     store: &SqliteStore,
     registry_url: &str,

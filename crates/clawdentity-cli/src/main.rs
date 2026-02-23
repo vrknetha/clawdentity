@@ -41,6 +41,7 @@ async fn main() -> Result<()> {
     run(cli).await
 }
 
+#[allow(clippy::too_many_lines)]
 async fn run(cli: Cli) -> Result<()> {
     let options = ConfigPathOptions {
         home_dir: cli.home_dir.clone(),

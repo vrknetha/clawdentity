@@ -125,11 +125,13 @@ pub struct SqliteStore {
 }
 
 impl SqliteStore {
+/// TODO(clawdentity): document `open`.
     pub fn open(options: &ConfigPathOptions) -> Result<Self> {
         let path = get_config_dir(options)?.join(SQLITE_FILE_NAME);
         Self::open_path(path)
     }
 
+/// TODO(clawdentity): document `open_path`.
     pub fn open_path(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         if let Some(parent) = path.parent() {
@@ -149,10 +151,12 @@ impl SqliteStore {
         })
     }
 
+/// TODO(clawdentity): document `path`.
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+/// TODO(clawdentity): document `with_connection`.
     pub fn with_connection<T>(
         &self,
         operation: impl FnOnce(&Connection) -> Result<T>,
@@ -164,6 +168,7 @@ impl SqliteStore {
     }
 }
 
+/// TODO(clawdentity): document `now_utc_ms`.
 pub fn now_utc_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }

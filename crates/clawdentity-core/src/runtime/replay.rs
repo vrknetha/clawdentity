@@ -13,6 +13,7 @@ pub struct PurgeResult {
     pub purged_count: usize,
 }
 
+/// TODO(clawdentity): document `replay_dead_letter_messages`.
 pub fn replay_dead_letter_messages(
     store: &SqliteStore,
     request_ids: Option<Vec<String>>,
@@ -40,6 +41,7 @@ pub fn replay_dead_letter_messages(
     Ok(ReplayResult { replayed_count })
 }
 
+/// TODO(clawdentity): document `purge_dead_letter_messages`.
 pub fn purge_dead_letter_messages(
     store: &SqliteStore,
     request_ids: Option<Vec<String>>,

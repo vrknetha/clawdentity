@@ -176,6 +176,7 @@ fn parse_pair_profile(profile: &PairProfile) -> Result<PairProfile> {
     })
 }
 
+/// TODO(clawdentity): document `parse_pairing_ticket`.
 pub fn parse_pairing_ticket(value: &str) -> Result<String> {
     let mut ticket = value.trim().trim_matches('`').to_string();
     ticket.retain(|character| !character.is_whitespace());
@@ -203,6 +204,7 @@ pub fn parse_pairing_ticket(value: &str) -> Result<String> {
     Ok(ticket)
 }
 
+/// TODO(clawdentity): document `parse_pairing_ticket_issuer_origin`.
 pub fn parse_pairing_ticket_issuer_origin(ticket: &str) -> Result<String> {
     let ticket = parse_pairing_ticket(ticket)?;
     let encoded_payload = &ticket[PAIRING_TICKET_PREFIX.len()..];
@@ -225,6 +227,7 @@ pub fn parse_pairing_ticket_issuer_origin(ticket: &str) -> Result<String> {
     Ok(issuer_url.origin().unicode_serialization())
 }
 
+/// TODO(clawdentity): document `assert_ticket_issuer_matches_proxy`.
 pub fn assert_ticket_issuer_matches_proxy(ticket: &str, proxy_url: &str) -> Result<()> {
     let issuer_origin = parse_pairing_ticket_issuer_origin(ticket)?;
     let proxy_origin = url::Url::parse(proxy_url)
@@ -420,6 +423,7 @@ fn persist_confirmed_peer(
     Ok(record.alias)
 }
 
+/// TODO(clawdentity): document `start_pairing`.
 pub fn start_pairing(
     config_dir: &Path,
     agent_name: &str,
@@ -450,6 +454,8 @@ pub fn start_pairing(
     })
 }
 
+/// TODO(clawdentity): document `confirm_pairing`.
+#[allow(clippy::too_many_lines)]
 pub fn confirm_pairing(
     config_dir: &Path,
     store: &SqliteStore,
@@ -506,6 +512,7 @@ pub fn confirm_pairing(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn get_pairing_status_once(
     config_dir: &Path,
     store: &SqliteStore,
@@ -581,6 +588,7 @@ fn get_pairing_status_once(
     })
 }
 
+/// TODO(clawdentity): document `get_pairing_status`.
 pub fn get_pairing_status(
     config_dir: &Path,
     store: &SqliteStore,

@@ -52,6 +52,7 @@ pub struct ConfigPathOptions {
 }
 
 impl ConfigPathOptions {
+/// TODO(clawdentity): document `with_registry_hint`.
     pub fn with_registry_hint(&self, registry_url_hint: impl Into<String>) -> Self {
         let mut next = self.clone();
         next.registry_url_hint = Some(registry_url_hint.into());
@@ -91,6 +92,7 @@ pub enum ConfigKey {
 }
 
 impl ConfigKey {
+/// TODO(clawdentity): document `parse`.
     pub fn parse(value: &str) -> Result<Self> {
         match value {
             "registryUrl" => Ok(Self::RegistryUrl),
@@ -101,6 +103,7 @@ impl ConfigKey {
         }
     }
 
+/// TODO(clawdentity): document `as_str`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::RegistryUrl => "registryUrl",
@@ -162,6 +165,7 @@ fn env_human_name_override() -> Option<String> {
     env_first_non_empty(&["CLAWDENTITY_HUMAN_NAME"])
 }
 
+/// TODO(clawdentity): document `resolve_state_kind_from_registry_url`.
 pub fn resolve_state_kind_from_registry_url(registry_url: &str) -> CliStateKind {
     let parsed = match url::Url::parse(registry_url) {
         Ok(parsed) => parsed,
@@ -203,6 +207,7 @@ fn resolve_home_dir(home_override: Option<&Path>) -> Result<PathBuf> {
     dirs::home_dir().ok_or(CoreError::HomeDirectoryUnavailable)
 }
 
+/// TODO(clawdentity): document `get_config_root_dir`.
 pub fn get_config_root_dir(options: &ConfigPathOptions) -> Result<PathBuf> {
     Ok(resolve_home_dir(options.home_dir.as_deref())?.join(CONFIG_ROOT_DIR))
 }
@@ -267,12 +272,14 @@ fn resolve_state_selection(
     (state, default_registry_url_for_state(state).to_string())
 }
 
+/// TODO(clawdentity): document `get_config_dir`.
 pub fn get_config_dir(options: &ConfigPathOptions) -> Result<PathBuf> {
     let router = read_router(options)?;
     let (state, _) = resolve_state_selection(options, &router);
     Ok(get_states_dir(options)?.join(state.as_str()))
 }
 
+/// TODO(clawdentity): document `get_config_file_path`.
 pub fn get_config_file_path(options: &ConfigPathOptions) -> Result<PathBuf> {
     Ok(get_config_dir(options)?.join(CONFIG_FILE))
 }
@@ -361,6 +368,7 @@ fn copy_recursively(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
 fn ensure_state_layout_migrated(options: &ConfigPathOptions) -> Result<()> {
     let router = read_router(options)?;
     if router.migrated_legacy_state == Some(true) {
@@ -423,12 +431,14 @@ fn ensure_state_layout_migrated(options: &ConfigPathOptions) -> Result<()> {
     Ok(())
 }
 
+/// TODO(clawdentity): document `read_config`.
 pub fn read_config(options: &ConfigPathOptions) -> Result<CliConfig> {
     ensure_state_layout_migrated(options)?;
     let path = get_config_file_path(options)?;
     load_config_file(&path)
 }
 
+/// TODO(clawdentity): document `resolve_config`.
 pub fn resolve_config(options: &ConfigPathOptions) -> Result<CliConfig> {
     let mut config = read_config(options)?;
     if let Some(registry_url) = env_registry_override() {
@@ -489,6 +499,7 @@ fn set_secure_permissions(_path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// TODO(clawdentity): document `write_config`.
 pub fn write_config(config: &CliConfig, options: &ConfigPathOptions) -> Result<PathBuf> {
     ensure_state_layout_migrated(options)?;
 
@@ -509,6 +520,7 @@ pub fn write_config(config: &CliConfig, options: &ConfigPathOptions) -> Result<P
     Ok(target_path)
 }
 
+/// TODO(clawdentity): document `set_config_value`.
 pub fn set_config_value(
     key: ConfigKey,
     value: String,
@@ -553,6 +565,7 @@ pub fn set_config_value(
     Ok(normalized)
 }
 
+/// TODO(clawdentity): document `get_config_value`.
 pub fn get_config_value(key: ConfigKey, options: &ConfigPathOptions) -> Result<Option<String>> {
     let config = resolve_config(options)?;
     Ok(match key {

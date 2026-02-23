@@ -41,6 +41,7 @@ struct DeadLetterMutationRequest {
     request_ids: Option<Vec<String>>,
 }
 
+/// TODO(clawdentity): document `create_runtime_router`.
 pub fn create_runtime_router(state: RuntimeServerState) -> Router {
     Router::new()
         .route("/v1/status", get(status_handler))
@@ -57,6 +58,7 @@ pub fn create_runtime_router(state: RuntimeServerState) -> Router {
         .with_state(state)
 }
 
+/// TODO(clawdentity): document `run_runtime_server`.
 pub async fn run_runtime_server(
     bind_addr: SocketAddr,
     state: RuntimeServerState,
@@ -99,6 +101,7 @@ async fn status_handler(State(state): State<RuntimeServerState>) -> impl IntoRes
     )
 }
 
+#[allow(clippy::too_many_lines)]
 async fn outbound_handler(
     State(state): State<RuntimeServerState>,
     Json(request): Json<OutboundRequest>,

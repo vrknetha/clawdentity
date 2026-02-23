@@ -426,6 +426,8 @@ fn parse_agent_auth_response(payload: serde_json::Value) -> Result<AgentAuthReco
     Ok(parsed)
 }
 
+/// TODO(clawdentity): document `create_agent`.
+#[allow(clippy::too_many_lines)]
 pub fn create_agent(
     options: &ConfigPathOptions,
     input: CreateAgentInput,
@@ -519,6 +521,8 @@ pub fn create_agent(
     })
 }
 
+/// TODO(clawdentity): document `inspect_agent`.
+#[allow(clippy::too_many_lines)]
 pub fn inspect_agent(options: &ConfigPathOptions, name: &str) -> Result<AgentInspectResult> {
     let name = parse_agent_name(name)?;
     let agent_directory = agent_dir(options, &name)?;
@@ -580,6 +584,8 @@ pub fn inspect_agent(options: &ConfigPathOptions, name: &str) -> Result<AgentIns
     })
 }
 
+/// TODO(clawdentity): document `refresh_agent_auth`.
+#[allow(clippy::too_many_lines)]
 pub fn refresh_agent_auth(
     options: &ConfigPathOptions,
     name: &str,
@@ -667,6 +673,7 @@ pub fn refresh_agent_auth(
     })
 }
 
+/// TODO(clawdentity): document `revoke_agent_auth`.
 pub fn revoke_agent_auth(options: &ConfigPathOptions, name: &str) -> Result<AgentAuthRevokeResult> {
     let name = parse_agent_name(name)?;
     let agent_directory = agent_dir(options, &name)?;

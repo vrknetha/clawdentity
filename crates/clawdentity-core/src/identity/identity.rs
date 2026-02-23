@@ -32,6 +32,7 @@ pub struct PublicIdentityView {
 }
 
 impl LocalIdentity {
+/// TODO(clawdentity): document `public_view`.
     pub fn public_view(&self) -> PublicIdentityView {
         PublicIdentityView {
             did: self.did.clone(),
@@ -74,6 +75,7 @@ fn write_secure_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     Ok(())
 }
 
+/// TODO(clawdentity): document `decode_secret_key`.
 pub fn decode_secret_key(value: &str) -> Result<SigningKey> {
     let raw = URL_SAFE_NO_PAD
         .decode(value)
@@ -84,6 +86,7 @@ pub fn decode_secret_key(value: &str) -> Result<SigningKey> {
     Ok(SigningKey::from_bytes(&bytes))
 }
 
+/// TODO(clawdentity): document `init_identity`.
 pub fn init_identity(
     options: &ConfigPathOptions,
     registry_url_override: Option<String>,
@@ -132,6 +135,7 @@ pub fn init_identity(
     Ok(identity)
 }
 
+/// TODO(clawdentity): document `read_identity`.
 pub fn read_identity(options: &ConfigPathOptions) -> Result<LocalIdentity> {
     let path = identity_path(options)?;
     let raw = fs::read_to_string(&path).map_err(|source| {

@@ -9,6 +9,7 @@ use clawdentity_core::{
 
 use crate::commands::ProviderCommand;
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn execute_provider_command(
     home_dir: Option<PathBuf>,
     json: bool,

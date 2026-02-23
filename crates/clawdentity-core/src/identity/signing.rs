@@ -29,6 +29,7 @@ pub struct SignedRequest {
     pub headers: Vec<(String, String)>,
 }
 
+/// TODO(clawdentity): document `canonicalize_request`.
 pub fn canonicalize_request(input: &SignHttpRequestInput<'_>, body_hash: &str) -> String {
     [
         CANONICAL_REQUEST_VERSION,
@@ -41,11 +42,13 @@ pub fn canonicalize_request(input: &SignHttpRequestInput<'_>, body_hash: &str) -
     .join("\n")
 }
 
+/// TODO(clawdentity): document `hash_body_sha256_base64url`.
 pub fn hash_body_sha256_base64url(body: &[u8]) -> String {
     let digest = Sha256::digest(body);
     URL_SAFE_NO_PAD.encode(digest)
 }
 
+/// TODO(clawdentity): document `sign_http_request`.
 pub fn sign_http_request(input: &SignHttpRequestInput<'_>) -> Result<SignedRequest> {
     if input.method.trim().is_empty() {
         return Err(CoreError::InvalidInput("method is required".to_string()));

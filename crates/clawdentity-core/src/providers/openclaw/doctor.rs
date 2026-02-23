@@ -162,6 +162,7 @@ fn parse_pending_approvals_count(path: &Path) -> Result<usize> {
     Ok(0)
 }
 
+#[allow(clippy::too_many_lines)]
 fn run_connector_checks(
     checks: &mut Vec<OpenclawDoctorCheck>,
     config_dir: &Path,
@@ -378,6 +379,8 @@ fn run_connector_checks(
     Ok(())
 }
 
+/// TODO(clawdentity): document `run_openclaw_doctor`.
+#[allow(clippy::too_many_lines)]
 pub fn run_openclaw_doctor(
     config_dir: &Path,
     store: &SqliteStore,

@@ -140,6 +140,7 @@ impl PlatformProvider for NanoclawProvider {
             .map(|project_root| project_root.join(".env"))
     }
 
+#[allow(clippy::too_many_lines)]
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
         let project_root = self.install_project_root(opts)?;
         let env_path = project_root.join(".env");
@@ -212,6 +213,7 @@ impl PlatformProvider for NanoclawProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
         let mut checks = Vec::new();
         let state_dir = resolve_state_dir(opts.home_dir.clone())?;
@@ -397,6 +399,7 @@ impl PlatformProvider for NanoclawProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let checked_at = now_iso();
         let state_dir = resolve_state_dir(opts.home_dir.clone())?;

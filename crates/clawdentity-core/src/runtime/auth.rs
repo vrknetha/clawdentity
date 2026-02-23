@@ -12,6 +12,7 @@ pub struct RelayConnectHeaders {
     pub signed_headers: Vec<(String, String)>,
 }
 
+/// TODO(clawdentity): document `build_relay_connect_headers`.
 pub fn build_relay_connect_headers(
     relay_connect_url: &str,
     ait: &str,

@@ -8,6 +8,7 @@ use crate::error::{CoreError, Result};
 pub const HTTP_TIMEOUT_SECONDS: u64 = 30;
 static BLOCKING_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
+/// TODO(clawdentity): document `blocking_client`.
 pub fn blocking_client() -> Result<reqwest::blocking::Client> {
     if let Some(client) = BLOCKING_CLIENT.get() {
         return Ok(client.clone());
@@ -21,6 +22,7 @@ pub fn blocking_client() -> Result<reqwest::blocking::Client> {
     Ok(client)
 }
 
+/// TODO(clawdentity): document `client`.
 pub fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(HTTP_TIMEOUT_SECONDS))

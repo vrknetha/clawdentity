@@ -244,6 +244,7 @@ fn parse_invite_record(envelope: InviteEnvelope) -> Result<InviteRecord> {
     })
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_redeem_result(
     registry_url: &str,
     payload: InviteRedeemResponse,
@@ -333,6 +334,7 @@ fn fetch_proxy_url_from_metadata(registry_url: &str) -> Result<Option<String>> {
         .filter(|value| !value.is_empty()))
 }
 
+/// TODO(clawdentity): document `create_invite`.
 pub fn create_invite(
     options: &ConfigPathOptions,
     input: InviteCreateInput,
@@ -371,6 +373,7 @@ pub fn create_invite(
     })
 }
 
+/// TODO(clawdentity): document `redeem_invite`.
 pub fn redeem_invite(
     options: &ConfigPathOptions,
     input: InviteRedeemInput,
@@ -410,6 +413,7 @@ pub fn redeem_invite(
     parse_redeem_result(&runtime.registry_url, payload, fallback_proxy)
 }
 
+/// TODO(clawdentity): document `persist_redeem_config`.
 pub fn persist_redeem_config(
     options: &ConfigPathOptions,
     redeem: &InviteRedeemResult,

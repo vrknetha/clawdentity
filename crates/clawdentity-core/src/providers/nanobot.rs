@@ -148,6 +148,7 @@ impl PlatformProvider for NanobotProvider {
             .map(|home_dir| Self::config_path_from_home(&home_dir))
     }
 
+#[allow(clippy::too_many_lines)]
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
         let home_dir = self.install_home_dir(opts)?;
         let config_path = Self::config_path_from_home(&home_dir);
@@ -216,6 +217,7 @@ impl PlatformProvider for NanobotProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
         let mut checks = Vec::new();
         let state_dir =
@@ -403,6 +405,7 @@ impl PlatformProvider for NanobotProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let checked_at = now_iso();
         let state_dir =

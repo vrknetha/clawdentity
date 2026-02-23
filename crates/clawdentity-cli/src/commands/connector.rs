@@ -95,7 +95,7 @@ struct ConnectorRuntimeConfig {
     port: u16,
     bind: IpAddr,
 }
-
+/// TODO(clawdentity): document `execute_connector_command`.
 pub async fn execute_connector_command(
     options: &ConfigPathOptions,
     command: ConnectorCommand,
@@ -131,7 +131,7 @@ pub async fn execute_connector_command(
         }
     }
 }
-
+#[allow(clippy::too_many_lines)]
 fn execute_connector_service_command(
     options: &ConfigPathOptions,
     command: ConnectorServiceCommand,
@@ -195,7 +195,7 @@ fn execute_connector_service_command(
 
     Ok(())
 }
-
+#[allow(clippy::too_many_lines)]
 async fn start_connector_runtime(
     options: &ConfigPathOptions,
     input: StartConnectorInput,
@@ -558,6 +558,7 @@ fn extract_content(payload: &Value) -> String {
     payload.to_string()
 }
 
+#[allow(clippy::too_many_lines)]
 async fn persist_inbound_delivery_result(
     store: &SqliteStore,
     deliver: &DeliverFrame,

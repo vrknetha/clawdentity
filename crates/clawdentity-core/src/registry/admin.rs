@@ -164,6 +164,7 @@ fn parse_bootstrap_payload(
     })
 }
 
+/// TODO(clawdentity): document `bootstrap_admin`.
 pub fn bootstrap_admin(
     options: &ConfigPathOptions,
     input: AdminBootstrapInput,
@@ -211,6 +212,7 @@ pub fn bootstrap_admin(
     parse_bootstrap_payload(payload, registry_url)
 }
 
+/// TODO(clawdentity): document `persist_bootstrap_config`.
 pub fn persist_bootstrap_config(
     options: &ConfigPathOptions,
     bootstrap: &AdminBootstrapResult,

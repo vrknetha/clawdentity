@@ -37,6 +37,7 @@ pub struct PersistPeerInput {
     pub human_name: Option<String>,
 }
 
+/// TODO(clawdentity): document `derive_peer_alias_base`.
 pub fn derive_peer_alias_base(peer_did: &str) -> String {
     if let Ok(parsed) = parse_did(peer_did)
         && parsed.kind == ClawDidKind::Agent
@@ -56,6 +57,7 @@ pub fn derive_peer_alias_base(peer_did: &str) -> String {
     "peer".to_string()
 }
 
+/// TODO(clawdentity): document `load_peers_config`.
 pub fn load_peers_config(store: &SqliteStore) -> Result<PeersConfig> {
     let peers = list_peers(store)?;
     let mut by_alias = BTreeMap::<String, PeerEntry>::new();
@@ -73,6 +75,7 @@ pub fn load_peers_config(store: &SqliteStore) -> Result<PeersConfig> {
     Ok(PeersConfig { peers: by_alias })
 }
 
+/// TODO(clawdentity): document `resolve_peer_alias`.
 pub fn resolve_peer_alias(store: &SqliteStore, peer_did: &str) -> Result<String> {
     let existing = list_peers(store)?;
     for peer in &existing {
@@ -96,6 +99,7 @@ pub fn resolve_peer_alias(store: &SqliteStore, peer_did: &str) -> Result<String>
     }
 }
 
+/// TODO(clawdentity): document `persist_peer`.
 pub fn persist_peer(store: &SqliteStore, input: PersistPeerInput) -> Result<PeerRecord> {
     let did = input.did.trim().to_string();
     if did.is_empty() {
@@ -145,6 +149,7 @@ fn parse_snapshot_path_from_runtime_config(raw: &str) -> Option<PathBuf> {
     }
 }
 
+/// TODO(clawdentity): document `sync_openclaw_relay_peers_snapshot`.
 pub fn sync_openclaw_relay_peers_snapshot(config_dir: &Path, peers: &PeersConfig) -> Result<()> {
     let runtime_config_path = config_dir.join(OPENCLAW_RELAY_RUNTIME_FILE_NAME);
     let runtime_raw = match fs::read_to_string(&runtime_config_path) {

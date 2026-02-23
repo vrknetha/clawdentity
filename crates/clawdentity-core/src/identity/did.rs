@@ -34,19 +34,23 @@ pub struct ParsedDid {
     pub ulid: String,
 }
 
+/// TODO(clawdentity): document `make_did`.
 pub fn make_did(kind: ClawDidKind) -> String {
     let ulid = Ulid::new();
     format!("{DID_SCHEME}:{DID_METHOD}:{}:{ulid}", kind.as_str())
 }
 
+/// TODO(clawdentity): document `make_human_did`.
 pub fn make_human_did() -> String {
     make_did(ClawDidKind::Human)
 }
 
+/// TODO(clawdentity): document `make_agent_did`.
 pub fn make_agent_did() -> String {
     make_did(ClawDidKind::Agent)
 }
 
+/// TODO(clawdentity): document `parse_did`.
 pub fn parse_did(value: &str) -> Result<ParsedDid> {
     let parts: Vec<&str> = value.split(':').collect();
     if parts.len() != 4 {

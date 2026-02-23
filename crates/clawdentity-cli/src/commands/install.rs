@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clawdentity_core::{InstallOptions, all_providers, detect_platform, get_provider};
 
+#[allow(clippy::too_many_lines)]
 pub(crate) fn execute_install_command(
     home_dir: Option<PathBuf>,
     json: bool,

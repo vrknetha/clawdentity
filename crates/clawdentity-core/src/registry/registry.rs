@@ -39,6 +39,7 @@ fn join_url(base: &str, path: &str) -> Result<String> {
     Ok(joined.to_string())
 }
 
+/// TODO(clawdentity): document `fetch_registry_metadata`.
 pub async fn fetch_registry_metadata(
     client: &reqwest::Client,
     registry_url: &str,
@@ -71,6 +72,7 @@ pub async fn fetch_registry_metadata(
     })
 }
 
+/// TODO(clawdentity): document `register_identity`.
 pub async fn register_identity(
     _client: &reqwest::Client,
     registry_url: &str,

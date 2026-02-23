@@ -115,6 +115,7 @@ fn validate_agent_did(value: &str, field_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// TODO(clawdentity): document `validate_frame`.
 pub fn validate_frame(frame: &ConnectorFrame) -> Result<()> {
     match frame {
         ConnectorFrame::Heartbeat(frame) => validate_frame_base(frame.v, &frame.id, &frame.ts),
@@ -153,6 +154,7 @@ pub fn validate_frame(frame: &ConnectorFrame) -> Result<()> {
     }
 }
 
+/// TODO(clawdentity): document `parse_frame`.
 pub fn parse_frame(input: impl AsRef<[u8]>) -> Result<ConnectorFrame> {
     let bytes = input.as_ref();
     let payload = std::str::from_utf8(bytes)
@@ -164,15 +166,18 @@ pub fn parse_frame(input: impl AsRef<[u8]>) -> Result<ConnectorFrame> {
     Ok(frame)
 }
 
+/// TODO(clawdentity): document `serialize_frame`.
 pub fn serialize_frame(frame: &ConnectorFrame) -> Result<String> {
     validate_frame(frame)?;
     serde_json::to_string(frame).map_err(CoreError::from)
 }
 
+/// TODO(clawdentity): document `now_iso`.
 pub fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// TODO(clawdentity): document `new_frame_id`.
 pub fn new_frame_id() -> String {
     Ulid::new().to_string()
 }

@@ -191,6 +191,7 @@ impl PlatformProvider for PicoclawProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult> {
         let mut checks = Vec::new();
         let state_dir =
@@ -378,6 +379,7 @@ impl PlatformProvider for PicoclawProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let checked_at = now_iso();
         let state_dir =

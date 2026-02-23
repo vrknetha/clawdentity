@@ -172,6 +172,7 @@ impl PlatformProvider for OpenclawProvider {
             .map(|home_dir| Self::openclaw_config_path_from_home(&home_dir))
     }
 
+#[allow(clippy::too_many_lines)]
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
         let home_dir = self.install_home_dir(opts)?;
         let config_path = Self::openclaw_config_path_from_home(&home_dir);
@@ -338,6 +339,7 @@ impl PlatformProvider for OpenclawProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult> {
         let state_options = ConfigPathOptions {
             home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
@@ -412,6 +414,7 @@ impl PlatformProvider for OpenclawProvider {
         })
     }
 
+#[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
         let state_options = ConfigPathOptions {
             home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),

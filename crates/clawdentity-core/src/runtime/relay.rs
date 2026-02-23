@@ -14,6 +14,8 @@ pub struct FlushOutboundResult {
     pub failed_count: usize,
 }
 
+/// TODO(clawdentity): document `flush_outbound_queue_to_relay`.
+#[allow(clippy::too_many_lines)]
 pub async fn flush_outbound_queue_to_relay(
     store: &SqliteStore,
     relay: &ConnectorClientSender,

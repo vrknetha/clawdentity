@@ -245,6 +245,7 @@ fn parse_api_key_id(value: &str) -> Result<String> {
         .map_err(|_| CoreError::InvalidInput("API key id must be a valid ULID".to_string()))
 }
 
+/// TODO(clawdentity): document `create_api_key`.
 pub fn create_api_key(
     options: &ConfigPathOptions,
     input: ApiKeyCreateInput,
@@ -282,6 +283,7 @@ pub fn create_api_key(
     })
 }
 
+/// TODO(clawdentity): document `list_api_keys`.
 pub fn list_api_keys(
     options: &ConfigPathOptions,
     input: ApiKeyListInput,
@@ -316,6 +318,7 @@ pub fn list_api_keys(
     })
 }
 
+/// TODO(clawdentity): document `revoke_api_key`.
 pub fn revoke_api_key(
     options: &ConfigPathOptions,
     input: ApiKeyRevokeInput,
