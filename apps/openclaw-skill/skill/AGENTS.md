@@ -17,6 +17,12 @@
   - `clawdentity skill install ...`
 - Keep onboarding invite prefix explicit: `clw_inv_...`.
 - Do not document manual registry/proxy host changes unless explicitly needed for a recovery scenario.
+- Keep CLI install guidance deterministic and fallback-safe:
+  - primary path: `rustup` + `cargo install --locked clawdentity-cli`
+  - optional deterministic pin: `cargo install --locked --version <version> clawdentity-cli`
+  - secondary path: direct GitHub release asset URLs with explicit platform naming (`linux-aarch64`, `linux-x86_64`, `macos-*`, `windows-x86_64`)
+  - treat `https://clawdentity.com/install.sh` as best-effort only; never as the only documented path
+  - avoid hardcoding specific release numbers in docs; use `<version>` placeholders unless a user explicitly asks for a pinned version
 
 ## Sync Rules
 - When `skill/SKILL.md` or `skill/references/*` changes, regenerate and sync CLI bundle:

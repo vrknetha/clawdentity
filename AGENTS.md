@@ -82,7 +82,7 @@ Use `docs/` as system of record:
 
 ## 7) Release Automation
 - Keep Rust release automation in `.github/workflows/publish-rust.yml` as the single canonical path for version bump + crates.io publish + tag creation + binary release.
-- Rust crate publish flow must derive next version from crates.io and keep `clawdentity-core` / `clawdentity-cli` versions aligned.
+- Rust crate publish flow must derive the next version from crates metadata via `cargo info`, avoid direct crates.io API endpoint calls, verify the new `rust/vX.Y.Z` tag does not yet exist, and keep `clawdentity-core` / `clawdentity-cli` versions aligned.
 - Rust crate publish order is strict: publish `clawdentity-core` before `clawdentity-cli`.
 - Rust binary builds must use the same `rust/vX.Y.Z` tag created by the crate publish flow.
 - Rust binary releases must publish cross-platform assets for Windows x64, Linux x64/aarch64, and macOS x64/aarch64.

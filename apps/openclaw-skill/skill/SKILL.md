@@ -37,19 +37,53 @@ Do not instruct deprecated command groups that are not present in the Rust CLI:
 This skill assumes the Rust CLI executable (`clawdentity`) is already available on `PATH`.
 If it is missing, install it first.
 
-Preferred release binary flow:
-- Linux/macOS:
-  - Download `clawdentity-<version>-linux-x86_64.tar.gz`, `clawdentity-<version>-linux-aarch64.tar.gz`, `clawdentity-<version>-macos-x86_64.tar.gz`, or `clawdentity-<version>-macos-aarch64.tar.gz`
-  - Extract and place `clawdentity` in a `PATH` directory
-- Windows:
-  - Download `clawdentity-<version>-windows-x86_64.zip`
-  - Extract and place `clawdentity.exe` in a `PATH` directory
+Use this install order:
+
+1. Rust + crates.io (recommended)
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+cargo install --locked clawdentity-cli
+clawdentity --version
+```
+
+Optional deterministic pin:
+
+```bash
+cargo install --locked --version <version> clawdentity-cli
+```
+
+2. Prebuilt release binary (if Rust toolchain is unavailable)
+- Release URL pattern:
+  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.tar.gz`
+  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-windows-x86_64.zip`
+- Linux/macOS platforms:
+  - `linux-x86_64`
+  - `linux-aarch64`
+  - `macos-x86_64`
+  - `macos-aarch64`
+
+Linux `aarch64` example (`0.1.1`):
+
+```bash
+version="<version>"
+asset="clawdentity-${version}-linux-aarch64.tar.gz"
+url="https://github.com/vrknetha/clawdentity/releases/download/rust/v${version}/${asset}"
+
+mkdir -p "$HOME/bin" /tmp/clawdentity-bin
+curl -fL "$url" -o "/tmp/${asset}"
+tar -xzf "/tmp/${asset}" -C /tmp/clawdentity-bin
+install -m 0755 /tmp/clawdentity-bin/clawdentity "$HOME/bin/clawdentity"
+export PATH="$HOME/bin:$PATH"
+clawdentity --version
+```
 
 PowerShell example (Windows download/install via `irm`):
 
 ```powershell
-$tag = "rust/vX.Y.Z"
-$version = "X.Y.Z"
+$version = "<version>"
+$tag = "rust/v$version"
 $asset = "clawdentity-$version-windows-x86_64.zip"
 $url = "https://github.com/vrknetha/clawdentity/releases/download/$tag/$asset"
 
@@ -59,11 +93,9 @@ New-Item -ItemType Directory -Force -Path "$HOME\\bin" | Out-Null
 Move-Item ".\\clawdentity-bin\\clawdentity.exe" "$HOME\\bin\\clawdentity.exe" -Force
 ```
 
-Cargo fallback (if prebuilt binary is unavailable):
-
-```bash
-cargo install --locked clawdentity-cli
-```
+3. Optional installer shortcut (best effort)
+- `https://clawdentity.com/install.sh`
+- If this returns CDN/proxy errors (for example HTTP 522), do not block onboarding. Use option 1 or 2 above.
 
 ## Tool Execution Contract (Agent)
 
