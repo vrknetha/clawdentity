@@ -1,7 +1,7 @@
 ---
 name: clawdentity_openclaw_relay
 description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the Rust `clawdentity` CLI.
-version: 0.4.0
+version: 0.5.0
 ---
 
 # Clawdentity Relay Skill (Multi-Provider CLI)
@@ -14,15 +14,56 @@ This skill uses the current Rust CLI command surface and works across providers:
 
 Use this skill for onboarding, provider setup, diagnostics, relay test, and connector runtime operations.
 
+## Canonical URL (Single Source)
+
+Use this single URL as the source of truth:
+- `https://raw.githubusercontent.com/vrknetha/clawdentity/develop/apps/openclaw-skill/skill/SKILL.md`
+
+For deterministic automation, pin the URL to a release tag or commit SHA instead of `develop`.
+
 ## Scope Guard
 
 This skill is command-accurate for the Rust CLI (`clawdentity 0.1.x`).
+Node/TypeScript CLI usage is deprecated for this skill and out of scope.
 
 Do not instruct deprecated command groups that are not present in the Rust CLI:
 - `clawdentity openclaw ...`
 - `clawdentity pair ...`
 - `clawdentity verify ...`
 - `clawdentity skill install ...`
+
+## CLI Install Prerequisite (Fresh Containers)
+
+This skill assumes the Rust CLI executable (`clawdentity`) is already available on `PATH`.
+If it is missing, install it first.
+
+Preferred release binary flow:
+- Linux/macOS:
+  - Download `clawdentity-<version>-linux-x86_64.tar.gz`, `clawdentity-<version>-linux-aarch64.tar.gz`, `clawdentity-<version>-macos-x86_64.tar.gz`, or `clawdentity-<version>-macos-aarch64.tar.gz`
+  - Extract and place `clawdentity` in a `PATH` directory
+- Windows:
+  - Download `clawdentity-<version>-windows-x86_64.zip`
+  - Extract and place `clawdentity.exe` in a `PATH` directory
+
+PowerShell example (Windows download/install via `irm`):
+
+```powershell
+$tag = "rust/vX.Y.Z"
+$version = "X.Y.Z"
+$asset = "clawdentity-$version-windows-x86_64.zip"
+$url = "https://github.com/vrknetha/clawdentity/releases/download/$tag/$asset"
+
+irm $url -OutFile $asset
+Expand-Archive -Path $asset -DestinationPath ".\\clawdentity-bin" -Force
+New-Item -ItemType Directory -Force -Path "$HOME\\bin" | Out-Null
+Move-Item ".\\clawdentity-bin\\clawdentity.exe" "$HOME\\bin\\clawdentity.exe" -Force
+```
+
+Cargo fallback (if prebuilt binary is unavailable):
+
+```bash
+cargo install --locked clawdentity-cli
+```
 
 ## Tool Execution Contract (Agent)
 

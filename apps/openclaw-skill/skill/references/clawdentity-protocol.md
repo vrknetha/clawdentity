@@ -4,7 +4,7 @@
 
 Define the exact runtime contract used by `relay-to-peer.mjs`.
 
-> Rust CLI note: executable multi-provider commands live in `SKILL.md` (`clawdentity install`, `clawdentity provider ...`, `clawdentity connector ...`). Pairing commands in this reference describe proxy protocol behavior and legacy CLI flows that may not be exposed in the current Rust CLI.
+> Rust CLI note: executable multi-provider commands live in `SKILL.md` (`clawdentity install`, `clawdentity provider ...`, `clawdentity connector ...`). Node/TypeScript CLI command surfaces are deprecated for this skill. Pairing examples here describe proxy protocol behavior; do not treat legacy `pair/openclaw/verify/skill install` commands as executable guidance.
 
 ## Filesystem Paths
 
