@@ -13,6 +13,8 @@
   - `x86_64-apple-darwin`
   - `aarch64-apple-darwin`
   - `x86_64-pc-windows-msvc`
+- Smoke-test binaries only on native runner/target pairs.
+- Do not execute cross-built `linux-aarch64` artifacts on `ubuntu-latest` x86 runners; this must be skipped (exec format mismatch).
 - Keep binary naming stable in packaged archives:
   - Unix: `clawdentity`
   - Windows: `clawdentity.exe`

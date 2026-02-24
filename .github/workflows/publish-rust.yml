@@ -324,8 +324,9 @@ jobs:
               --target "${{ matrix.target }}"
           fi
 
+      # cross-compiled linux-aarch64 binary cannot execute on the x86 GitHub runner
       - name: Smoke test binary (Unix)
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.platform != 'linux-aarch64'
         shell: bash
         run: |
           set -euo pipefail
