@@ -44,8 +44,14 @@ Use this install order:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
-cargo install --locked --version 0.1.1 clawdentity-cli
+cargo install --locked clawdentity-cli
 clawdentity --version
+```
+
+Optional deterministic pin:
+
+```bash
+cargo install --locked --version <version> clawdentity-cli
 ```
 
 2. Prebuilt release binary (if Rust toolchain is unavailable)
@@ -61,7 +67,7 @@ clawdentity --version
 Linux `aarch64` example (`0.1.1`):
 
 ```bash
-version="0.1.1"
+version="<version>"
 asset="clawdentity-${version}-linux-aarch64.tar.gz"
 url="https://github.com/vrknetha/clawdentity/releases/download/rust/v${version}/${asset}"
 
@@ -76,8 +82,8 @@ clawdentity --version
 PowerShell example (Windows download/install via `irm`):
 
 ```powershell
-$tag = "rust/v0.1.1"
-$version = "0.1.1"
+$version = "<version>"
+$tag = "rust/v$version"
 $asset = "clawdentity-$version-windows-x86_64.zip"
 $url = "https://github.com/vrknetha/clawdentity/releases/download/$tag/$asset"
 
