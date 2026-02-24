@@ -27,9 +27,10 @@
 - Keep release uploads idempotent (`overwrite_files` / clobber-safe behavior) so reruns replace assets cleanly.
 
 ## Rust Crate Publish Rules
-- Resolve next version from crates.io and bump both crate manifests consistently:
+- Resolve next version from crates metadata using `cargo info` and bump both crate manifests consistently:
   - `crates/clawdentity-core/Cargo.toml`
   - `crates/clawdentity-cli/Cargo.toml`
+- Do not call crates.io API endpoints directly from release automation; use Cargo registry/index access paths.
 - Keep `clawdentity-cli` dependency on `clawdentity-core` version-locked to the same release version before publish.
 - Publish order is strict:
   - first `clawdentity-core`

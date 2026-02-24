@@ -47,6 +47,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Validate required secrets
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -60,15 +63,21 @@ jobs:
           set -euo pipefail
 
           RELEASE_TYPE="${{ inputs.release_type }}"
-          STATUS_CODE="$(curl -sS -o /tmp/core-crate.json -w '%{http_code}' https://crates.io/api/v1/crates/clawdentity-core)"
-          if [[ "${STATUS_CODE}" == "200" ]]; then
-            CURRENT_VERSION="$(jq -r '.crate.max_version // empty' /tmp/core-crate.json)"
-          elif [[ "${STATUS_CODE}" == "404" ]]; then
-            CURRENT_VERSION="0.0.0"
+          if cargo info clawdentity-core --registry crates-io >/tmp/core-info.out 2>/tmp/core-info.err; then
+            CURRENT_VERSION="$(awk -F': ' '/^version: / {print $2; exit}' /tmp/core-info.out)"
+            if [[ -z "${CURRENT_VERSION}" ]]; then
+              echo "Unable to parse version from cargo info output."
+              cat /tmp/core-info.out
+              exit 1
+            fi
           else
-            echo "Failed to resolve current version from crates.io (status: ${STATUS_CODE})"
-            cat /tmp/core-crate.json
-            exit 1
+            if grep -Fq 'could not find `clawdentity-core`' /tmp/core-info.err; then
+              CURRENT_VERSION="0.0.0"
+            else
+              echo "Failed to resolve current version from crates.io registry index."
+              cat /tmp/core-info.err
+              exit 1
+            fi
           fi
 
           if [[ ! "${CURRENT_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
@@ -121,15 +130,18 @@ jobs:
           NEXT_VERSION="${{ steps.version.outputs.next_version }}"
 
           for CRATE in clawdentity-core clawdentity-cli; do
-            STATUS_CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/${CRATE}/${NEXT_VERSION}")"
-            if [[ "${STATUS_CODE}" == "200" ]]; then
+            if cargo info "${CRATE}@${NEXT_VERSION}" --registry crates-io >/tmp/"${CRATE}".out 2>/tmp/"${CRATE}".err; then
               echo "${CRATE} ${NEXT_VERSION} already exists on crates.io"
               exit 1
             fi
-            if [[ "${STATUS_CODE}" != "404" ]]; then
-              echo "Unexpected crates.io status for ${CRATE} ${NEXT_VERSION}: ${STATUS_CODE}"
-              exit 1
+
+            if grep -Fq "could not find \`${CRATE}@${NEXT_VERSION}\`" /tmp/"${CRATE}".err; then
+              continue
             fi
+
+            echo "Unexpected error while checking ${CRATE}@${NEXT_VERSION}."
+            cat /tmp/"${CRATE}".err
+            exit 1
           done
 
   publish:
@@ -218,10 +230,15 @@ jobs:
           SLEEP_SECONDS=10
 
           for ((i = 1; i <= ATTEMPTS; i++)); do
-            STATUS_CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/clawdentity-core/${VERSION}")"
-            if [[ "${STATUS_CODE}" == "200" ]]; then
+            if cargo info "clawdentity-core@${VERSION}" --registry crates-io >/tmp/core-propagation.out 2>/tmp/core-propagation.err; then
               echo "clawdentity-core ${VERSION} is available on crates.io"
               exit 0
+            fi
+
+            if ! grep -Fq "could not find \`clawdentity-core@${VERSION}\`" /tmp/core-propagation.err; then
+              echo "Unexpected error while waiting for clawdentity-core ${VERSION}."
+              cat /tmp/core-propagation.err
+              exit 1
             fi
 
             echo "Waiting for clawdentity-core ${VERSION} propagation (${i}/${ATTEMPTS})"

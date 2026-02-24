@@ -159,6 +159,7 @@ tmux new-session -d -s codex-fix -c ../clawdentity-wt-fix/crates
 4. **Next week:** Phase 4 (agent-to-agent review)
 5. **Next week:** Phase 5 (garbage collection crons)
 6. **Ongoing:** Phase 6 (parallel worktrees as needed)
+7. **Release practice:** Keep `.github/workflows/publish-rust.yml` as the single source for Rust release automation, derive versions using `cargo info` metadata (not direct crates.io API calls), and verify duplicate tag creation before publishing.
 
 ## Success Metrics
 
