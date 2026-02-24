@@ -79,3 +79,20 @@ Use `docs/` as system of record:
 - Favor actionable errors and stable machine-readable outputs.
 - Run relevant TypeScript and Rust checks before commit (`pnpm build` and `cargo check` are baseline gates).
 - Keep docs synchronized with implementation changes, especially when changing CLI flows or skill behavior.
+
+## 7) Release Automation
+- Keep Rust binary release automation in `.github/workflows/release-rust-binaries.yml` manual-only (`workflow_dispatch`) so maintainers control release timing.
+- Rust binary release tag input must stay strict: `rust/vX.Y.Z`.
+- Rust binary releases must publish cross-platform assets for Windows x64, Linux x64/aarch64, and macOS x64/aarch64.
+- Keep release asset names stable:
+  - `clawdentity-<version>-linux-x86_64.tar.gz`
+  - `clawdentity-<version>-linux-aarch64.tar.gz`
+  - `clawdentity-<version>-macos-x86_64.tar.gz`
+  - `clawdentity-<version>-macos-aarch64.tar.gz`
+  - `clawdentity-<version>-windows-x86_64.zip`
+  - `clawdentity-<version>-checksums.txt`
+- Binary naming contract for release artifacts:
+  - Unix binary is `clawdentity`
+  - Windows binary is `clawdentity.exe`
+- `irm`/PowerShell is a download/install path only; do not treat it as a runtime binary format.
+- Every release run must publish SHA256 checksums for all archives.
