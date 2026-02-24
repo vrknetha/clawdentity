@@ -235,12 +235,218 @@ jobs:
         working-directory: crates
         run: cargo publish -p clawdentity-cli --locked
 
-  release-binaries:
-    name: Publish Rust binaries
+  build-binaries:
+    name: Build ${{ matrix.platform }}
     needs: publish
-    uses: ./.github/workflows/release-rust-binaries.yml
-    with:
-      tag: ${{ needs.publish.outputs.tag }}
-      draft: ${{ inputs.draft }}
-      prerelease: ${{ inputs.prerelease }}
-    secrets: inherit
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            target: x86_64-unknown-linux-gnu
+            archive_ext: tar.gz
+            use_cross: "false"
+          - os: ubuntu-latest
+            platform: linux-aarch64
+            target: aarch64-unknown-linux-gnu
+            archive_ext: tar.gz
+            use_cross: "true"
+          - os: macos-13
+            platform: macos-x86_64
+            target: x86_64-apple-darwin
+            archive_ext: tar.gz
+            use_cross: "false"
+          - os: macos-14
+            platform: macos-aarch64
+            target: aarch64-apple-darwin
+            archive_ext: tar.gz
+            use_cross: "false"
+          - os: windows-latest
+            platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            archive_ext: zip
+            use_cross: "false"
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64 build)
+        if: matrix.use_cross == 'true'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build clawdentity-cli
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            cross build \
+              --manifest-path crates/Cargo.toml \
+              --release \
+              -p clawdentity-cli \
+              --target "${{ matrix.target }}"
+          else
+            cargo build \
+              --manifest-path crates/Cargo.toml \
+              --release \
+              -p clawdentity-cli \
+              --target "${{ matrix.target }}"
+          fi
+
+      - name: Smoke test binary (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN="crates/target/${{ matrix.target }}/release/clawdentity-cli"
+          "${BIN}" --version
+
+      - name: Smoke test binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = "crates/target/${{ matrix.target }}/release/clawdentity-cli.exe"
+          & $bin --version
+
+      - name: Package archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.publish.outputs.next_version }}"
+          PLATFORM="${{ matrix.platform }}"
+          ASSET_BASE="clawdentity-${VERSION}-${PLATFORM}"
+          STAGE_DIR="dist/${ASSET_BASE}"
+          ARCHIVE_PATH="dist/${ASSET_BASE}.tar.gz"
+
+          mkdir -p "${STAGE_DIR}"
+          install -m 0755 "crates/target/${{ matrix.target }}/release/clawdentity-cli" "${STAGE_DIR}/clawdentity"
+          cp README.md LICENSE "${STAGE_DIR}/"
+          tar -C "${STAGE_DIR}" -czf "${ARCHIVE_PATH}" .
+
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ needs.publish.outputs.next_version }}"
+          $platform = "${{ matrix.platform }}"
+          $assetBase = "clawdentity-$version-$platform"
+          $stageDir = "dist/$assetBase"
+          $archivePath = "dist/$assetBase.zip"
+
+          New-Item -ItemType Directory -Force -Path $stageDir | Out-Null
+          Copy-Item "crates/target/${{ matrix.target }}/release/clawdentity-cli.exe" "$stageDir/clawdentity.exe"
+          Copy-Item "README.md", "LICENSE" $stageDir
+          if (Test-Path $archivePath) {
+            Remove-Item $archivePath -Force
+          }
+          Compress-Archive -Path "$stageDir/*" -DestinationPath $archivePath
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/clawdentity-${{ needs.publish.outputs.next_version }}-${{ matrix.platform }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release assets
+    needs:
+      - publish
+      - build-binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify assets and generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.publish.outputs.next_version }}"
+          CHECKSUM_PATH="dist/clawdentity-${VERSION}-checksums.txt"
+
+          mapfile -t ARCHIVES < <(find dist -maxdepth 1 -type f \
+            \( -name "clawdentity-${VERSION}-*.tar.gz" -o -name "clawdentity-${VERSION}-*.zip" \) \
+            | sort)
+
+          if [[ "${#ARCHIVES[@]}" -ne 5 ]]; then
+            echo "Expected 5 release archives, found ${#ARCHIVES[@]}"
+            ls -lah dist
+            exit 1
+          fi
+
+          sha256sum "${ARCHIVES[@]}" > "${CHECKSUM_PATH}"
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES_PATH="dist/release-notes.md"
+          cat > "${NOTES_PATH}" <<'EOF'
+          ## Clawdentity Rust CLI binaries
+
+          Assets in this release:
+          - Linux: x86_64 and aarch64
+          - macOS: x86_64 and aarch64
+          - Windows: x86_64 (`clawdentity.exe`)
+          - SHA256 checksums: `clawdentity-<version>-checksums.txt`
+
+          Windows install example (PowerShell + `irm`):
+
+          ```powershell
+          $tag = "rust/vX.Y.Z"
+          $version = "X.Y.Z"
+          $asset = "clawdentity-$version-windows-x86_64.zip"
+          $url = "https://github.com/vrknetha/clawdentity/releases/download/$tag/$asset"
+
+          irm $url -OutFile $asset
+          Expand-Archive -Path $asset -DestinationPath ".\\clawdentity-bin" -Force
+
+          # Move clawdentity.exe to a folder on PATH (example)
+          New-Item -ItemType Directory -Force -Path "$HOME\\bin" | Out-Null
+          Move-Item ".\\clawdentity-bin\\clawdentity.exe" "$HOME\\bin\\clawdentity.exe" -Force
+          ```
+          EOF
+
+      - name: Upload checksums artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-checksums
+          path: dist/clawdentity-${{ needs.publish.outputs.next_version }}-checksums.txt
+          if-no-files-found: error
+
+      - name: Create or update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.publish.outputs.tag }}
+          name: Clawdentity Rust CLI v${{ needs.publish.outputs.next_version }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          body_path: dist/release-notes.md
+          overwrite_files: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-linux-x86_64.tar.gz
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-linux-aarch64.tar.gz
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-macos-x86_64.tar.gz
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-macos-aarch64.tar.gz
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-windows-x86_64.zip
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-checksums.txt
