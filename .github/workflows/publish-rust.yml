@@ -63,8 +63,11 @@ jobs:
           set -euo pipefail
 
           RELEASE_TYPE="${{ inputs.release_type }}"
-          if cargo info clawdentity-core --registry crates-io >/tmp/core-info.out 2>/tmp/core-info.err; then
-            CURRENT_VERSION="$(awk -F': ' '/^version: / {print $2; exit}' /tmp/core-info.out)"
+          if CARGO_TERM_COLOR=never cargo info clawdentity-core --registry crates-io >/tmp/core-info.out 2>/tmp/core-info.err; then
+            CURRENT_VERSION="$(
+              sed -E 's/\x1B\[[0-9;]*[mK]//g' /tmp/core-info.out \
+                | awk -F': ' '/^version: / {print $2; exit}'
+            )"
             if [[ -z "${CURRENT_VERSION}" ]]; then
               echo "Unable to parse version from cargo info output."
               cat /tmp/core-info.out
@@ -130,7 +133,7 @@ jobs:
           NEXT_VERSION="${{ steps.version.outputs.next_version }}"
 
           for CRATE in clawdentity-core clawdentity-cli; do
-            if cargo info "${CRATE}@${NEXT_VERSION}" --registry crates-io >/tmp/"${CRATE}".out 2>/tmp/"${CRATE}".err; then
+            if CARGO_TERM_COLOR=never cargo info "${CRATE}@${NEXT_VERSION}" --registry crates-io >/tmp/"${CRATE}".out 2>/tmp/"${CRATE}".err; then
               echo "${CRATE} ${NEXT_VERSION} already exists on crates.io"
               exit 1
             fi
@@ -230,7 +233,7 @@ jobs:
           SLEEP_SECONDS=10
 
           for ((i = 1; i <= ATTEMPTS; i++)); do
-            if cargo info "clawdentity-core@${VERSION}" --registry crates-io >/tmp/core-propagation.out 2>/tmp/core-propagation.err; then
+            if CARGO_TERM_COLOR=never cargo info "clawdentity-core@${VERSION}" --registry crates-io >/tmp/core-propagation.out 2>/tmp/core-propagation.err; then
               echo "clawdentity-core ${VERSION} is available on crates.io"
               exit 0
             fi
