@@ -11,6 +11,8 @@ import type {
   FakeAgentAuthSessionRow,
   FakeApiKeyInsertRow,
   FakeHumanInsertRow,
+  FakeInternalServiceInsertRow,
+  FakeInternalServiceRow,
 } from "./types.js";
 
 export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
@@ -22,6 +24,8 @@ export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
     humanInserts,
     humanRows,
     apiKeyInserts,
+    internalServiceInserts,
+    internalServiceRows,
     agentAuthSessionInserts,
     agentAuthSessionRows,
     agentAuthEventInserts,
@@ -170,6 +174,63 @@ export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
         lastUsedAt:
           typeof row.last_used_at === "string" ? row.last_used_at : null,
       });
+    }
+
+    changes = 1;
+  }
+  if (
+    normalizedQuery.includes('insert into "internal_services"') ||
+    normalizedQuery.includes("insert into internal_services")
+  ) {
+    if (state.remainingInternalServiceInsertFailures > 0) {
+      state.remainingInternalServiceInsertFailures -= 1;
+      throw new Error("internal service insert failed");
+    }
+
+    const columns = parseInsertColumns(query, "internal_services");
+    const row = columns.reduce<FakeInternalServiceInsertRow>(
+      (acc, column, index) => {
+        acc[column] = params[index];
+        return acc;
+      },
+      {},
+    );
+    internalServiceInserts.push(row);
+
+    if (
+      typeof row.id === "string" &&
+      typeof row.name === "string" &&
+      typeof row.secret_hash === "string" &&
+      typeof row.secret_prefix === "string" &&
+      typeof row.scopes_json === "string" &&
+      (row.status === "active" || row.status === "revoked") &&
+      typeof row.created_by === "string" &&
+      typeof row.created_at === "string" &&
+      typeof row.updated_at === "string"
+    ) {
+      const existingIndex = internalServiceRows.findIndex(
+        (serviceRow) =>
+          serviceRow.id === row.id || serviceRow.name === row.name,
+      );
+      const nextService: FakeInternalServiceRow = {
+        id: row.id,
+        name: row.name,
+        secretHash: row.secret_hash,
+        secretPrefix: row.secret_prefix,
+        scopesJson: row.scopes_json,
+        status: row.status,
+        createdBy: row.created_by,
+        rotatedAt: typeof row.rotated_at === "string" ? row.rotated_at : null,
+        lastUsedAt:
+          typeof row.last_used_at === "string" ? row.last_used_at : null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+      if (existingIndex >= 0) {
+        internalServiceRows.splice(existingIndex, 1, nextService);
+      } else {
+        internalServiceRows.push(nextService);
+      }
     }
 
     changes = 1;
@@ -404,6 +465,105 @@ export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
       ) {
         if (agentAuthSessionRows[index]?.id === idFilter) {
           agentAuthSessionRows.splice(index, 1);
+          changes += 1;
+        }
+      }
+    }
+  }
+  if (
+    normalizedQuery.includes('update "internal_services"') ||
+    normalizedQuery.includes("update internal_services")
+  ) {
+    const setColumns = parseUpdateSetColumns(query, "internal_services");
+    const nextValues = setColumns.reduce<Record<string, unknown>>(
+      (acc, column, index) => {
+        acc[column] = params[index];
+        return acc;
+      },
+      {},
+    );
+    const whereClause = extractWhereClause(query);
+    const whereParams = params.slice(setColumns.length);
+    const equalityParams = parseWhereEqualityParams({
+      whereClause,
+      params: whereParams,
+    });
+
+    const idFilter =
+      typeof equalityParams.values.id?.[0] === "string"
+        ? String(equalityParams.values.id[0])
+        : undefined;
+    const statusFilter =
+      typeof equalityParams.values.status?.[0] === "string"
+        ? String(equalityParams.values.status[0])
+        : undefined;
+    const secretPrefixFilter =
+      typeof equalityParams.values.secret_prefix?.[0] === "string"
+        ? String(equalityParams.values.secret_prefix[0])
+        : undefined;
+
+    let matchedRows = 0;
+    for (const row of internalServiceRows) {
+      if (idFilter && row.id !== idFilter) {
+        continue;
+      }
+      if (statusFilter && row.status !== statusFilter) {
+        continue;
+      }
+      if (secretPrefixFilter && row.secretPrefix !== secretPrefixFilter) {
+        continue;
+      }
+
+      matchedRows += 1;
+      if (typeof nextValues.secret_hash === "string") {
+        row.secretHash = nextValues.secret_hash;
+      }
+      if (typeof nextValues.secret_prefix === "string") {
+        row.secretPrefix = nextValues.secret_prefix;
+      }
+      if (typeof nextValues.scopes_json === "string") {
+        row.scopesJson = nextValues.scopes_json;
+      }
+      if (nextValues.status === "active" || nextValues.status === "revoked") {
+        row.status = nextValues.status;
+      }
+      if (
+        typeof nextValues.rotated_at === "string" ||
+        nextValues.rotated_at === null
+      ) {
+        row.rotatedAt = nextValues.rotated_at;
+      }
+      if (
+        typeof nextValues.last_used_at === "string" ||
+        nextValues.last_used_at === null
+      ) {
+        row.lastUsedAt = nextValues.last_used_at;
+      }
+      if (typeof nextValues.updated_at === "string") {
+        row.updatedAt = nextValues.updated_at;
+      }
+    }
+
+    changes = matchedRows;
+  }
+  if (
+    normalizedQuery.includes('delete from "internal_services"') ||
+    normalizedQuery.includes("delete from internal_services")
+  ) {
+    const whereClause = extractWhereClause(query);
+    const equalityParams = parseWhereEqualityParams({
+      whereClause,
+      params,
+    });
+    const idFilter =
+      typeof equalityParams.values.id?.[0] === "string"
+        ? String(equalityParams.values.id[0])
+        : undefined;
+
+    if (idFilter) {
+      for (let index = internalServiceRows.length - 1; index >= 0; index -= 1) {
+        if (internalServiceRows[index]?.id === idFilter) {
+          internalServiceRows.splice(index, 1);
           changes += 1;
         }
       }

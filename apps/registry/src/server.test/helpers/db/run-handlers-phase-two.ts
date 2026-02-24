@@ -22,6 +22,7 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
     inviteUpdates,
     humanRows,
     apiKeyRows,
+    internalServiceRows,
     agentInserts,
     agentRegistrationChallengeInserts,
     registrationChallengeRows,
@@ -151,6 +152,12 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
       for (let index = apiKeyRows.length - 1; index >= 0; index -= 1) {
         if (apiKeyRows[index]?.humanId === idFilter) {
           apiKeyRows.splice(index, 1);
+        }
+      }
+
+      for (let index = internalServiceRows.length - 1; index >= 0; index -= 1) {
+        if (internalServiceRows[index]?.createdBy === idFilter) {
+          internalServiceRows.splice(index, 1);
         }
       }
     }

@@ -107,7 +107,7 @@ Revokes an API key by ID. The key becomes immediately unusable.
 ### Command
 
 ```
-clawdentity agent revoke <agent-name>
+clawdentity agent auth revoke <agent-name>
 ```
 
 Revokes a local agent identity via the registry. The agent's AIT will appear on the certificate revocation list (CRL).

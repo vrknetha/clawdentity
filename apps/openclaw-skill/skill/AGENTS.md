@@ -1,17 +1,25 @@
 # AGENTS.md (apps/openclaw-skill/skill)
 
 ## Purpose
-- Keep user-facing skill guidance aligned with current CLI/proxy/registry behavior.
+- Keep user-facing skill guidance aligned with the current Rust CLI command surface and provider runtime behavior.
 
 ## Documentation Rules
-- `SKILL.md` and `references/*.md` must use command-first remediation with executable `clawdentity` commands.
-- Pairing error guidance must include `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` and explain proxy internal-service credential recovery.
-- Keep invite/ticket prefixes explicit:
-  - `clw_inv_...` for onboarding invite redeem
-  - `clwpair1_...` for pairing tickets
+- `SKILL.md` and `references/*.md` must use command-first remediation with executable Rust CLI commands.
+- Treat Node/TypeScript CLI command surfaces as deprecated for this skill. Do not add npm or legacy TS-only execution steps.
+- Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor|relay-test}`.
+- When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
+- Keep a single canonical `SKILL.md` URL path:
+  - `https://raw.githubusercontent.com/vrknetha/clawdentity/develop/apps/openclaw-skill/skill/SKILL.md`
+- Do not document deprecated command groups that are absent from Rust CLI:
+  - `clawdentity openclaw ...`
+  - `clawdentity pair ...`
+  - `clawdentity verify ...`
+  - `clawdentity skill install ...`
+- Keep onboarding invite prefix explicit: `clw_inv_...`.
 - Do not document manual registry/proxy host changes unless explicitly needed for a recovery scenario.
 
 ## Sync Rules
 - When `skill/SKILL.md` or `skill/references/*` changes, regenerate and sync CLI bundle:
   - `pnpm -F @clawdentity/openclaw-skill build`
   - `pnpm -F clawdentity run sync:skill-bundle`
+  - `pnpm -F clawdentity run verify:skill-bundle`
