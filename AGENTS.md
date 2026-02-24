@@ -81,8 +81,12 @@ Use `docs/` as system of record:
 - Keep docs synchronized with implementation changes, especially when changing CLI flows or skill behavior.
 
 ## 7) Release Automation
-- Keep Rust binary release automation in `.github/workflows/release-rust-binaries.yml` manual-only (`workflow_dispatch`) so maintainers control release timing.
+- Keep Rust binary release automation in `.github/workflows/release-rust-binaries.yml` available for direct manual runs and workflow reuse by Rust publish automation.
+- Keep Rust crate publish automation in `.github/workflows/publish-rust.yml` as the canonical path for version bump + crates.io publish + tag creation.
 - Rust binary release tag input must stay strict: `rust/vX.Y.Z`.
+- Rust crate publish flow must derive next version from crates.io and keep `clawdentity-core` / `clawdentity-cli` versions aligned.
+- Rust crate publish order is strict: publish `clawdentity-core` before `clawdentity-cli`.
+- Rust crate publish must invoke binary release for the same `rust/vX.Y.Z` tag.
 - Rust binary releases must publish cross-platform assets for Windows x64, Linux x64/aarch64, and macOS x64/aarch64.
 - Keep release asset names stable:
   - `clawdentity-<version>-linux-x86_64.tar.gz`
