@@ -268,26 +268,31 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive_ext: tar.gz
             use_cross: "false"
+            smoke_test: "true"
           - os: ubuntu-latest
             platform: linux-aarch64
             target: aarch64-unknown-linux-gnu
             archive_ext: tar.gz
             use_cross: "true"
-          - os: macos-13
+            smoke_test: "false"
+          - os: macos-14
             platform: macos-x86_64
             target: x86_64-apple-darwin
             archive_ext: tar.gz
             use_cross: "false"
+            smoke_test: "false"
           - os: macos-14
             platform: macos-aarch64
             target: aarch64-apple-darwin
             archive_ext: tar.gz
             use_cross: "false"
+            smoke_test: "true"
           - os: windows-latest
             platform: windows-x86_64
             target: x86_64-pc-windows-msvc
             archive_ext: zip
             use_cross: "false"
+            smoke_test: "true"
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -324,9 +329,9 @@ jobs:
               --target "${{ matrix.target }}"
           fi
 
-      # cross-compiled linux-aarch64 binary cannot execute on the x86 GitHub runner
+      # only execute smoke tests when runner architecture matches target architecture
       - name: Smoke test binary (Unix)
-        if: runner.os != 'Windows' && matrix.platform != 'linux-aarch64'
+        if: runner.os != 'Windows' && matrix.smoke_test == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -334,7 +339,7 @@ jobs:
           "${BIN}" --version
 
       - name: Smoke test binary (Windows)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.smoke_test == 'true'
         shell: pwsh
         run: |
           $bin = "crates/target/${{ matrix.target }}/release/clawdentity-cli.exe"

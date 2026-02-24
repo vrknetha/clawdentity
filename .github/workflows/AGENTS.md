@@ -13,8 +13,10 @@
   - `x86_64-apple-darwin`
   - `aarch64-apple-darwin`
   - `x86_64-pc-windows-msvc`
+- Use only supported runner labels; avoid deprecated/unsupported macOS labels (for example `macos-13` if unavailable in project settings).
 - Smoke-test binaries only on native runner/target pairs.
 - Do not execute cross-built `linux-aarch64` artifacts on `ubuntu-latest` x86 runners; this must be skipped (exec format mismatch).
+- When `x86_64-apple-darwin` is built on Apple Silicon runners, skip smoke execution unless a native Intel runner is configured.
 - Keep binary naming stable in packaged archives:
   - Unix: `clawdentity`
   - Windows: `clawdentity.exe`
