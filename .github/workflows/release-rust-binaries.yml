@@ -17,6 +17,22 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      tag:
+        description: "Git tag to release (format: rust/vX.Y.Z)"
+        required: true
+        type: string
+      draft:
+        description: "Create as draft release"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark release as prerelease"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-rust-binaries-${{ inputs.tag }}

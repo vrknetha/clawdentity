@@ -1,0 +1,246 @@
+name: Publish Rust
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Semantic version bump type"
+        required: true
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      draft:
+        description: "Create GitHub release as draft"
+        required: false
+        default: false
+        type: boolean
+      prerelease:
+        description: "Mark GitHub release as prerelease"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: publish-rust-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare:
+    name: Resolve next Rust version
+    runs-on: ubuntu-latest
+    outputs:
+      current_version: ${{ steps.version.outputs.current_version }}
+      next_version: ${{ steps.version.outputs.next_version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate required secrets
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          test -n "${CARGO_REGISTRY_TOKEN}"
+
+      - name: Resolve current and next crate version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          RELEASE_TYPE="${{ inputs.release_type }}"
+          STATUS_CODE="$(curl -sS -o /tmp/core-crate.json -w '%{http_code}' https://crates.io/api/v1/crates/clawdentity-core)"
+          if [[ "${STATUS_CODE}" == "200" ]]; then
+            CURRENT_VERSION="$(jq -r '.crate.max_version // empty' /tmp/core-crate.json)"
+          elif [[ "${STATUS_CODE}" == "404" ]]; then
+            CURRENT_VERSION="0.0.0"
+          else
+            echo "Failed to resolve current version from crates.io (status: ${STATUS_CODE})"
+            cat /tmp/core-crate.json
+            exit 1
+          fi
+
+          if [[ ! "${CURRENT_VERSION}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "Unable to parse crates.io semver: ${CURRENT_VERSION}"
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+
+          case "${RELEASE_TYPE}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+            *)
+              echo "Unsupported release_type: ${RELEASE_TYPE}"
+              exit 1
+              ;;
+          esac
+
+          NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          TAG="rust/v${NEXT_VERSION}"
+
+          git fetch --tags --force origin
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag already exists: ${TAG}"
+            exit 1
+          fi
+
+          echo "current_version=${CURRENT_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "next_version=${NEXT_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved Rust release: ${CURRENT_VERSION} -> ${NEXT_VERSION} (${RELEASE_TYPE})"
+
+      - name: Assert target versions are unpublished
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NEXT_VERSION="${{ steps.version.outputs.next_version }}"
+
+          for CRATE in clawdentity-core clawdentity-cli; do
+            STATUS_CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/${CRATE}/${NEXT_VERSION}")"
+            if [[ "${STATUS_CODE}" == "200" ]]; then
+              echo "${CRATE} ${NEXT_VERSION} already exists on crates.io"
+              exit 1
+            fi
+            if [[ "${STATUS_CODE}" != "404" ]]; then
+              echo "Unexpected crates.io status for ${CRATE} ${NEXT_VERSION}: ${STATUS_CODE}"
+              exit 1
+            fi
+          done
+
+  publish:
+    name: Publish Rust crates
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ needs.prepare.outputs.tag }}
+      next_version: ${{ needs.prepare.outputs.next_version }}
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate branch context
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.ref_type }}" != "branch" ]]; then
+            echo "Publish workflow must run from a branch ref. Current ref: ${{ github.ref }}"
+            exit 1
+          fi
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update Cargo versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NEXT_VERSION="${{ needs.prepare.outputs.next_version }}"
+
+          sed -i '0,/^version = "[0-9]\+\.[0-9]\+\.[0-9]\+"/s//version = "'"${NEXT_VERSION}"'"/' crates/clawdentity-core/Cargo.toml
+          sed -i '0,/^version = "[0-9]\+\.[0-9]\+\.[0-9]\+"/s//version = "'"${NEXT_VERSION}"'"/' crates/clawdentity-cli/Cargo.toml
+          sed -i 's|^clawdentity-core = { version = "[0-9]\+\.[0-9]\+\.[0-9]\+", path = "../clawdentity-core" }|clawdentity-core = { version = "'"${NEXT_VERSION}"'", path = "../clawdentity-core" }|' crates/clawdentity-cli/Cargo.toml
+
+          grep -n '^version = "' crates/clawdentity-core/Cargo.toml | head -n 1
+          grep -n '^version = "' crates/clawdentity-cli/Cargo.toml | head -n 1
+          grep -n '^clawdentity-core = { version = "' crates/clawdentity-cli/Cargo.toml
+
+      - name: Cargo check
+        working-directory: crates
+        run: cargo check -p clawdentity-core -p clawdentity-cli
+
+      - name: Commit release version and create tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NEXT_VERSION="${{ needs.prepare.outputs.next_version }}"
+          TAG="${{ needs.prepare.outputs.tag }}"
+
+          git add crates/clawdentity-core/Cargo.toml crates/clawdentity-cli/Cargo.toml
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit."
+            exit 1
+          fi
+
+          git commit -m "chore(rust): release v${NEXT_VERSION}"
+          git tag -a "${TAG}" -m "Rust release ${TAG}"
+
+      - name: Push commit and tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:${{ github.ref_name }}"
+          git push origin "refs/tags/${{ needs.prepare.outputs.tag }}"
+
+      - name: Publish clawdentity-core
+        working-directory: crates
+        run: cargo publish -p clawdentity-core --locked
+
+      - name: Wait for clawdentity-core index propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${{ needs.prepare.outputs.next_version }}"
+          ATTEMPTS=40
+          SLEEP_SECONDS=10
+
+          for ((i = 1; i <= ATTEMPTS; i++)); do
+            STATUS_CODE="$(curl -s -o /dev/null -w '%{http_code}' "https://crates.io/api/v1/crates/clawdentity-core/${VERSION}")"
+            if [[ "${STATUS_CODE}" == "200" ]]; then
+              echo "clawdentity-core ${VERSION} is available on crates.io"
+              exit 0
+            fi
+
+            echo "Waiting for clawdentity-core ${VERSION} propagation (${i}/${ATTEMPTS})"
+            sleep "${SLEEP_SECONDS}"
+          done
+
+          echo "Timed out waiting for clawdentity-core ${VERSION} on crates.io"
+          exit 1
+
+      - name: Publish clawdentity-cli
+        working-directory: crates
+        run: cargo publish -p clawdentity-cli --locked
+
+  release-binaries:
+    name: Publish Rust binaries
+    needs: publish
+    uses: ./.github/workflows/release-rust-binaries.yml
+    with:
+      tag: ${{ needs.publish.outputs.tag }}
+      draft: ${{ inputs.draft }}
+      prerelease: ${{ inputs.prerelease }}
+    secrets: inherit
