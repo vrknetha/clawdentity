@@ -1,14 +1,38 @@
+import { spawnSync } from "node:child_process";
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import d2 from "astro-d2";
 import starlightLinksValidator from "starlight-links-validator";
+
+function isD2Enabled() {
+  const override =
+    process.env.CLAWDENTITY_LANDING_ENABLE_D2?.trim().toLowerCase();
+
+  if (override === "1" || override === "true") {
+    return true;
+  }
+
+  if (override === "0" || override === "false") {
+    return false;
+  }
+
+  const probe = spawnSync("d2", ["--version"], { stdio: "ignore" });
+  return probe.status === 0;
+}
+
+const d2Enabled = isD2Enabled();
+if (!d2Enabled) {
+  console.warn(
+    "[landing] D2 binary not found; skipping astro-d2 integration. Set CLAWDENTITY_LANDING_ENABLE_D2=true to force-enable.",
+  );
+}
 
 export default defineConfig({
   output: "static",
   outDir: "./dist",
   site: "https://clawdentity.com",
   integrations: [
-    d2(),
+    ...(d2Enabled ? [d2()] : []),
     starlight({
       title: "Clawdentity",
       description: "Verified identity and revocation for AI agents",

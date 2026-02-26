@@ -37,6 +37,18 @@
 - Keep `build:skill-md` as the single helper for generation.
 - `dev`, `build`, `preview`, and `check` must run `build:skill-md` first.
 - If source skill files or generator logic changes, regenerate `public/skill.md` before shipping.
+- Nx landing targets must invoke package scripts (`pnpm run build|dev|preview|check`) instead of calling `astro` directly, so pre-steps always run.
+- Include the skill source files (`apps/openclaw-skill/skill/**`) and `scripts/build-skill-md.mjs` in Nx target inputs so cache invalidation remains correct.
+
+## D2 Integration
+- Do not make `astro-d2` a hard runtime requirement for every build environment.
+- Gate D2 integration by environment/binary availability in `astro.config.mjs`.
+- Keep non-D2 CI/build environments green by skipping D2 integration when the binary is unavailable.
+
+## Navigation UX Guardrails
+- Mobile menu logic must centralize open/close state updates in one helper.
+- Body scroll locking must be cleared when leaving mobile viewport widths (for example, resizing to desktop while menu is open).
+- Avoid duplicated DOM state mutations for `aria-expanded`, `nav--open`, and body overflow handling.
 
 ## Cloudflare Pages Deploy Expectations
 - `develop` branch deploys to Cloudflare Pages preview/staging.

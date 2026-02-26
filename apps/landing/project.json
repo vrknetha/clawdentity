@@ -7,17 +7,25 @@
     "build": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "astro build",
+        "command": "pnpm run build",
         "cwd": "apps/landing"
       },
       "cache": true,
-      "inputs": ["production", "^production"],
+      "inputs": [
+        "production",
+        "^production",
+        "{projectRoot}/scripts/build-skill-md.mjs",
+        "{workspaceRoot}/apps/openclaw-skill/skill/SKILL.md",
+        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-protocol.md",
+        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-registry.md",
+        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-environment.md"
+      ],
       "outputs": ["{projectRoot}/dist"]
     },
     "dev": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "astro dev",
+        "command": "pnpm run dev",
         "cwd": "apps/landing"
       }
     },
@@ -25,17 +33,26 @@
       "executor": "nx:run-commands",
       "dependsOn": ["build"],
       "options": {
-        "command": "astro preview",
+        "command": "pnpm run preview",
         "cwd": "apps/landing"
       }
     },
     "check": {
       "executor": "nx:run-commands",
       "options": {
-        "command": "astro check",
+        "command": "pnpm run check",
         "cwd": "apps/landing"
       },
-      "cache": true
+      "cache": true,
+      "inputs": [
+        "default",
+        "^default",
+        "{projectRoot}/scripts/build-skill-md.mjs",
+        "{workspaceRoot}/apps/openclaw-skill/skill/SKILL.md",
+        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-protocol.md",
+        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-registry.md",
+        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-environment.md"
+      ]
     }
   },
   "tags": []

@@ -55,10 +55,23 @@ import logoPng from "../../assets/landing/clawdentity_primary_logo_2048x512.png"
     const nav = document.getElementById('nav');
     const navToggle = document.getElementById('nav-toggle');
     const navLinks = document.getElementById('nav-links');
+    const MOBILE_BREAKPOINT = 768;
     
     let lastScrollY = window.scrollY;
     let ticking = false;
     let isMenuOpen = false;
+
+    function syncBodyScrollLock() {
+      const shouldLock = isMenuOpen && window.innerWidth <= MOBILE_BREAKPOINT;
+      document.body.style.overflow = shouldLock ? 'hidden' : '';
+    }
+
+    function setMenuOpen(nextOpen: boolean) {
+      isMenuOpen = nextOpen;
+      navToggle?.setAttribute('aria-expanded', isMenuOpen.toString());
+      nav?.classList.toggle('nav--open', isMenuOpen);
+      syncBodyScrollLock();
+    }
 
     // Scroll-based nav behavior
     function updateNav() {
@@ -72,7 +85,7 @@ import logoPng from "../../assets/landing/clawdentity_primary_logo_2048x512.png"
       }
       
       // Hide/show on scroll direction (only on desktop)
-      if (window.innerWidth > 768) {
+      if (window.innerWidth > MOBILE_BREAKPOINT) {
         if (currentScrollY > lastScrollY && currentScrollY > 100) {
           nav?.classList.add('nav--hidden');
         } else {
@@ -93,22 +106,14 @@ import logoPng from "../../assets/landing/clawdentity_primary_logo_2048x512.png"
 
     // Mobile menu toggle
     navToggle?.addEventListener('click', function() {
-      isMenuOpen = !isMenuOpen;
-      navToggle.setAttribute('aria-expanded', isMenuOpen.toString());
-      nav?.classList.toggle('nav--open', isMenuOpen);
-      
-      // Prevent body scroll when menu is open
-      document.body.style.overflow = isMenuOpen ? 'hidden' : '';
+      setMenuOpen(!isMenuOpen);
     });
 
     // Close menu on link click (mobile)
     navLinks?.querySelectorAll('a').forEach(link => {
       link.addEventListener('click', () => {
         if (isMenuOpen) {
-          isMenuOpen = false;
-          navToggle?.setAttribute('aria-expanded', 'false');
-          nav?.classList.remove('nav--open');
-          document.body.style.overflow = '';
+          setMenuOpen(false);
         }
       });
     });
@@ -116,12 +121,21 @@ import logoPng from "../../assets/landing/clawdentity_primary_logo_2048x512.png"
     // Close menu on escape key
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && isMenuOpen) {
-        isMenuOpen = false;
-        navToggle?.setAttribute('aria-expanded', 'false');
-        nav?.classList.remove('nav--open');
-        document.body.style.overflow = '';
+        setMenuOpen(false);
       }
     });
+
+    // Ensure desktop viewport never keeps mobile body scroll lock.
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > MOBILE_BREAKPOINT && isMenuOpen) {
+        setMenuOpen(false);
+        return;
+      }
+
+      syncBodyScrollLock();
+    });
+
+    syncBodyScrollLock();
   })();
 </script>
 
