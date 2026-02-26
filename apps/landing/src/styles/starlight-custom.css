@@ -1,4 +1,4 @@
-@import './tokens.css';
+@import "./tokens.css";
 
 /* ── Font + base variables ── */
 
@@ -12,7 +12,7 @@
 /* ── Dark mode color mapping ── */
 
 :root,
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   /* Accent = teal */
   --sl-color-accent-low: #0d3d38;
   --sl-color-accent: #0d9488;
@@ -54,7 +54,7 @@
 
 /* ── Light mode color mapping ── */
 
-:root[data-theme='light'] {
+:root[data-theme="light"] {
   --sl-color-accent-low: #ccfbf1;
   --sl-color-accent: #0d9488;
   --sl-color-accent-high: #0f766e;
@@ -117,8 +117,8 @@ header.header {
 
 /* ── Sidebar refinements ── */
 
-nav.sidebar a[aria-current='page'],
-nav.sidebar a[aria-current='true'] {
+nav.sidebar a[aria-current="page"],
+nav.sidebar a[aria-current="true"] {
   border-inline-start: 2px solid var(--sl-color-accent);
   padding-inline-start: calc(var(--sl-sidebar-pad-x) - 2px);
   color: var(--sl-color-text-accent);
@@ -195,13 +195,19 @@ nav.sidebar .top-level > li > a {
 
 /* Teal accent line across top of code blocks */
 .sl-markdown-content pre::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--cl-teal), var(--cl-amber), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--cl-teal),
+    var(--cl-amber),
+    transparent
+  );
   opacity: 0.4;
   border-radius: 0.5rem 0.5rem 0 0;
 }
@@ -250,8 +256,9 @@ nav.sidebar .top-level > li > a {
   background-size: 0% 1px;
   background-position: 0 100%;
   background-repeat: no-repeat;
-  transition: background-size 0.3s cubic-bezier(0.16, 1, 0.3, 1),
-              color 0.2s ease;
+  transition:
+    background-size 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.2s ease;
 }
 
 .sl-markdown-content a:not(.sl-anchor-link):hover {
@@ -285,7 +292,7 @@ nav.sidebar .top-level > li > a {
 
 /* ── Right sidebar (TOC) active state ── */
 
-starlight-toc a[aria-current='true'] {
+starlight-toc a[aria-current="true"] {
   color: var(--sl-color-text-accent);
   font-weight: var(--fw-ui);
 }
@@ -328,7 +335,7 @@ starlight-toc a[aria-current='true'] {
 /* ── Noise texture overlay ── */
 
 body::after {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;

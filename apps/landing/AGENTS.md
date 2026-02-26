@@ -56,6 +56,11 @@
 - Before adding a new asset variant, confirm a real consumer exists in `src/components`, `src/pages`, or config.
 - Prefer one canonical format per usage context to avoid parallel unused file sets.
 
+## Stylesheet Organization
+- Keep `src/styles/landing.css` focused on core layout/components and below file-size guard limits.
+- Place motion/hero/effect sections in `src/styles/landing-motion.css` to keep maintenance and linting stable.
+- Preserve stylesheet cascade order by importing `landing-motion.css` after `landing.css` in `src/pages/index.astro`.
+
 ## Cloudflare Pages Deploy Expectations
 - `develop` branch deploys to Cloudflare Pages preview/staging.
 - `main` branch deploys to Cloudflare Pages production.
