@@ -1,24 +1,25 @@
 ---
+// Privacy — Section 05
 const highlights = [
   {
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><circle cx="12" cy="16" r="1"/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
     title: "No Shared Secrets",
-    description: "Each agent holds its own private key. Nothing sensitive is shared between parties.",
+    description: "Each agent holds its own private key. Nothing sensitive is shared between parties or stored in a central database.",
   },
   {
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>`,
     title: "Offline Verification",
-    description: "Proxies verify AITs locally using cached public keys and CRLs. No call home required.",
+    description: "Relay proxies verify tokens locally using cached public keys and CRLs. No call home to a central authority required at request time.",
   },
   {
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
     title: "Decentralized by Design",
-    description: "No central authority needed at request time. Registry only involved at registration and revocation.",
+    description: "No central authority needed at request time. The registry is only involved at registration and revocation — not on the critical path.",
   },
   {
-    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
     title: "Instant Revocation",
-    description: "Compromised agent? Revoke it in the registry. All proxies pick up the CRL update within seconds.",
+    description: "Compromised agent? Revoke it in the registry. All relay proxies pick up the CRL update within seconds — no manual rotation required.",
   },
 ];
 ---
@@ -26,270 +27,97 @@ const highlights = [
 <section class="section privacy-section animate-on-scroll" id="privacy">
   <div class="container">
     <div class="section-header">
-      <span class="section-label">Security</span>
-      <h2>Privacy & Security First</h2>
-      <p>Built for zero-trust environments where every request must prove its origin.</p>
+      <span class="section-number">05 —</span>
+      <h2>Zero-trust from the ground up.</h2>
     </div>
 
-    <div class="privacy-grid">
+    <div class="privacy-grid animate-children">
       {highlights.map((item, index) => (
-        <div class="privacy-card stagger-child" style={`transition-delay: ${index * 100}ms`}>
-          <div class="privacy-card__border"></div>
-          <div class="privacy-card__glow"></div>
-          <div class="privacy-card__inner">
-            <div class="privacy-icon-wrapper">
-              <div class="privacy-icon" set:html={item.icon} />
-              <div class="privacy-icon__ring"></div>
-            </div>
-            <h3>{item.title}</h3>
-            <p>{item.description}</p>
-          </div>
+        <div class="privacy-card stagger-child" style={`transition-delay: ${index * 80}ms`}>
+          <div class="privacy-icon" set:html={item.icon} />
+          <h3>{item.title}</h3>
+          <p>{item.description}</p>
         </div>
       ))}
     </div>
 
-    <!-- Trust badge -->
-    <div class="trust-badge stagger-child" style="transition-delay: 400ms;">
-      <div class="trust-badge__inner">
-        <div class="trust-badge__icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <path d="m9 12 2 2 4-4"/>
-          </svg>
-        </div>
-        <div class="trust-badge__content">
-          <span class="trust-badge__label">Open Source Security</span>
-          <span class="trust-badge__text">Auditable. Transparent. Community-verified.</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Background decoration -->
-  <div class="privacy-bg">
-    <div class="privacy-bg__shield"></div>
+    <p class="trust-note">
+      Open source. Auditable. MIT licensed. —
+      <a href="https://github.com/vrknetha/clawdentity" target="_blank" rel="noopener noreferrer">github.com/vrknetha/clawdentity</a>
+    </p>
   </div>
 </section>
 
 <style>
-  .privacy-section {
-    position: relative;
-    overflow: hidden;
-  }
-
-  .privacy-section::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, transparent, rgba(13, 148, 136, 0.02), transparent);
-    pointer-events: none;
-  }
-
-  .section-label {
-    display: inline-block;
-    padding: 0.375rem 1rem;
-    background: rgba(13, 148, 136, 0.1);
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 2rem;
-    color: var(--cl-teal-light);
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: var(--space-sm);
-  }
-
   .privacy-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: var(--space-md);
-    position: relative;
-    z-index: 1;
   }
 
   .privacy-card {
-    position: relative;
-    background: var(--cl-bg);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    transition: all var(--duration-normal) var(--ease-smooth);
-  }
-
-  .privacy-card__border {
-    position: absolute;
-    inset: 0;
-    border-radius: var(--radius-lg);
-    padding: 1px;
-    background: linear-gradient(135deg, rgba(13, 148, 136, 0.3), rgba(245, 158, 11, 0.2), rgba(13, 148, 136, 0.1));
-    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-    -webkit-mask-composite: xor;
-    mask-composite: exclude;
-    opacity: 0;
-    transition: opacity var(--duration-normal);
-  }
-
-  .privacy-card:hover .privacy-card__border {
-    opacity: 1;
-  }
-
-  .privacy-card__glow {
-    position: absolute;
-    inset: -10px;
-    background: radial-gradient(circle at 50% 0%, rgba(13, 148, 136, 0.1) 0%, transparent 60%);
-    opacity: 0;
-    transition: opacity var(--duration-normal);
-    pointer-events: none;
-  }
-
-  .privacy-card:hover .privacy-card__glow {
-    opacity: 1;
-  }
-
-  .privacy-card__inner {
-    position: relative;
-    z-index: 1;
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
     padding: var(--space-lg);
-    background: var(--cl-bg);
-    border-radius: calc(var(--radius-lg) - 1px);
-    height: 100%;
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
   }
 
-  .privacy-icon-wrapper {
-    position: relative;
-    display: inline-block;
-    margin-bottom: var(--space-sm);
+  .privacy-card:hover {
+    border-color: var(--cl-border-3);
+    border-left-color: var(--cl-accent);
+    transform: translateY(-2px);
   }
 
   .privacy-icon {
-    position: relative;
-    width: 2.75rem;
-    height: 2.75rem;
-    color: var(--cl-teal);
-    z-index: 1;
+    width: 1.75rem;
+    height: 1.75rem;
+    color: var(--cl-accent);
+    margin-bottom: 0.875rem;
   }
 
   .privacy-icon :global(svg) {
     width: 100%;
     height: 100%;
-    stroke-width: 1.5;
-  }
-
-  .privacy-icon__ring {
-    position: absolute;
-    inset: -8px;
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 50%;
-    opacity: 0;
-    transform: scale(0.8);
-    transition: all var(--duration-normal);
-  }
-
-  .privacy-card:hover .privacy-icon__ring {
-    opacity: 1;
-    transform: scale(1);
   }
 
   .privacy-card h3 {
-    margin-bottom: var(--space-xs);
-    font-size: 1.125rem;
+    font-size: 1rem;
+    font-weight: 600;
     color: var(--cl-text);
+    margin-bottom: 0.5rem;
   }
 
   .privacy-card p {
-    color: var(--cl-text-muted);
+    color: var(--cl-text-2);
     font-size: 0.9375rem;
     line-height: 1.7;
   }
 
-  /* Trust badge */
-  .trust-badge {
+  .trust-note {
     margin-top: var(--space-xl);
-    display: flex;
-    justify-content: center;
-    position: relative;
-    z-index: 1;
-  }
-
-  .trust-badge__inner {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: 0.875rem 1.5rem;
-    background: linear-gradient(135deg, rgba(13, 148, 136, 0.1), rgba(245, 158, 11, 0.05));
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 2rem;
-    transition: all var(--duration-normal);
-  }
-
-  .trust-badge__inner:hover {
-    border-color: rgba(13, 148, 136, 0.4);
-    box-shadow: 0 0 30px rgba(13, 148, 136, 0.15);
-  }
-
-  .trust-badge__icon {
-    width: 1.5rem;
-    height: 1.5rem;
-    color: var(--cl-teal);
-  }
-
-  .trust-badge__icon svg {
-    width: 100%;
-    height: 100%;
-  }
-
-  .trust-badge__content {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .trust-badge__label {
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--cl-rule);
+    font-family: var(--font-mono);
     font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--cl-teal-light);
+    color: var(--cl-text-3);
   }
 
-  .trust-badge__text {
-    font-size: 0.75rem;
-    color: var(--cl-text-muted);
+  .trust-note a {
+    color: var(--cl-accent);
+    text-decoration: none;
   }
 
-  /* Background decoration */
-  .privacy-bg {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    opacity: 0.03;
+  .trust-note a:hover {
+    text-decoration: underline;
   }
 
-  .privacy-bg__shield {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 600px;
-    height: 600px;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230D9488' stroke-width='1'%3E%3Cpath d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E") center/contain no-repeat;
-  }
-
-  /* Responsive */
-  @media (max-width: 768px) {
+  @media (max-width: 640px) {
     .privacy-grid {
       grid-template-columns: 1fr;
-    }
-
-    .privacy-card__inner {
-      padding: var(--space-md);
-    }
-
-    .trust-badge__inner {
-      padding: 0.75rem 1.25rem;
-    }
-
-    .privacy-bg__shield {
-      width: 300px;
-      height: 300px;
     }
   }
 </style>

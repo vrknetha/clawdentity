@@ -1,101 +1,15 @@
 /* ============================================
-   Animations
+   Iron Ledger — Micro-animations
+   Subtle only. No bounce, no glow.
    ============================================ */
 
-/* Fade in up */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fade-up {
-  animation: fadeInUp 0.6s var(--ease-out-expo) forwards;
-}
-
-/* Scale in */
-@keyframes scaleIn {
-  from {
-    opacity: 0;
-    transform: scale(0.9);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.animate-scale-in {
-  animation: scaleIn 0.5s var(--ease-out-back) forwards;
-}
-
-/* Float animation */
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
-}
-
-.animate-float {
-  animation: float 6s ease-in-out infinite;
-}
-
-/* Pulse glow */
-@keyframes pulseGlow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 20px rgba(13, 148, 136, 0.3),
-      0 4px 15px rgba(13, 148, 136, 0.2);
-  }
-  50% {
-    box-shadow:
-      0 0 35px rgba(13, 148, 136, 0.5),
-      0 4px 15px rgba(13, 148, 136, 0.3);
-  }
-}
-
-.animate-pulse-glow {
-  animation: pulseGlow 2s ease-in-out infinite;
-}
-
-/* Shimmer effect */
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.animate-shimmer {
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.1),
-    transparent
-  );
-  background-size: 200% 100%;
-  animation: shimmer 2s infinite;
-}
-
-/* Scroll-triggered animation base */
+/* ── Scroll reveal ── */
 .animate-on-scroll {
   opacity: 0;
-  transform: translateY(24px);
+  transform: translateY(16px);
   transition:
-    opacity 0.6s var(--ease-out-expo),
-    transform 0.6s var(--ease-out-expo);
+    opacity 0.5s cubic-bezier(0.25, 0, 0, 1),
+    transform 0.5s cubic-bezier(0.25, 0, 0, 1);
 }
 
 .animate-on-scroll.animate {
@@ -104,295 +18,114 @@
 }
 
 /* Stagger children */
-.stagger-1 {
-  transition-delay: 0.1s;
-}
-.stagger-2 {
-  transition-delay: 0.2s;
-}
-.stagger-3 {
-  transition-delay: 0.3s;
-}
-.stagger-4 {
-  transition-delay: 0.4s;
-}
-.stagger-5 {
-  transition-delay: 0.5s;
-}
-.stagger-6 {
-  transition-delay: 0.6s;
-}
-
-/* ============================================
-   Hero Background Effects
-   ============================================ */
-
-.hero-gradient-bg {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.hero-gradient-bg::before {
-  content: "";
-  position: absolute;
-  inset: -50%;
-  background:
-    radial-gradient(
-      ellipse 80% 50% at 50% -20%,
-      rgba(13, 148, 136, 0.12),
-      transparent
-    ),
-    radial-gradient(
-      ellipse 60% 40% at 80% 50%,
-      rgba(245, 158, 11, 0.08),
-      transparent
-    ),
-    radial-gradient(
-      ellipse 50% 30% at 20% 80%,
-      rgba(13, 148, 136, 0.06),
-      transparent
-    );
-  animation: gradientDrift 20s ease-in-out infinite;
-}
-
-@keyframes gradientDrift {
-  0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-  25% {
-    transform: translate(2%, -2%) rotate(1deg);
-  }
-  50% {
-    transform: translate(-1%, 2%) rotate(-1deg);
-  }
-  75% {
-    transform: translate(-2%, -1%) rotate(0.5deg);
-  }
-}
-
-/* Floating particles */
-.particles {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
-
-.particle {
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  background: var(--cl-teal);
-  border-radius: 50%;
-  opacity: 0.3;
-  animation: particleFloat 15s ease-in-out infinite;
-}
-
-.particle--amber {
-  background: var(--cl-amber);
-}
-
-@keyframes particleFloat {
-  0%,
-  100% {
-    transform: translateY(0) translateX(0);
-    opacity: 0.3;
-  }
-  25% {
-    transform: translateY(-30px) translateX(20px);
-    opacity: 0.5;
-  }
-  50% {
-    transform: translateY(-20px) translateX(-10px);
-    opacity: 0.2;
-  }
-  75% {
-    transform: translateY(-40px) translateX(15px);
-    opacity: 0.4;
-  }
-}
-
-/* ============================================
-   Scroll Indicator
-   ============================================ */
-
-.scroll-indicator {
-  position: absolute;
-  bottom: 2rem;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--cl-text-muted);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  opacity: 0.7;
-  animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-  0%,
-  20%,
-  50%,
-  80%,
-  100% {
-    transform: translateX(-50%) translateY(0);
-  }
-  40% {
-    transform: translateX(-50%) translateY(-10px);
-  }
-  60% {
-    transform: translateX(-50%) translateY(-5px);
-  }
-}
-
-.scroll-indicator svg {
-  width: 24px;
-  height: 24px;
-}
-
-/* ============================================
-   Warning/Problem Card Style
-   ============================================ */
-
-.card-warning {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.05), transparent);
-  border-left: 3px solid var(--cl-amber);
-}
-
-.card-warning::after {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(
-    circle,
-    rgba(245, 158, 11, 0.08) 0%,
-    transparent 70%
-  );
+.stagger-child {
   opacity: 0;
-  transition: opacity var(--duration-normal);
-  pointer-events: none;
+  transform: translateY(16px);
+  transition:
+    opacity 0.5s cubic-bezier(0.25, 0, 0, 1),
+    transform 0.5s cubic-bezier(0.25, 0, 0, 1);
 }
 
-.card-warning:hover::after {
+.stagger-child.animate {
   opacity: 1;
+  transform: translateY(0);
 }
 
-/* ============================================
-   SVG Icon Sizing
-   ============================================ */
+/* Stagger delays — 60ms between */
+.stagger-child:nth-child(1) { transition-delay: 0ms; }
+.stagger-child:nth-child(2) { transition-delay: 60ms; }
+.stagger-child:nth-child(3) { transition-delay: 120ms; }
+.stagger-child:nth-child(4) { transition-delay: 180ms; }
+.stagger-child:nth-child(5) { transition-delay: 240ms; }
+.stagger-child:nth-child(6) { transition-delay: 300ms; }
+.stagger-child:nth-child(7) { transition-delay: 360ms; }
+.stagger-child:nth-child(8) { transition-delay: 420ms; }
 
-.icon-sm {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-.icon-md {
-  width: 1.5rem;
-  height: 1.5rem;
-}
-.icon-lg {
-  width: 2.5rem;
-  height: 2.5rem;
-}
-.icon-xl {
-  width: 4rem;
-  height: 4rem;
-}
+/* Manual stagger delays (used inline or via data attrs) */
+.stagger-1 { transition-delay: 60ms; }
+.stagger-2 { transition-delay: 120ms; }
+.stagger-3 { transition-delay: 180ms; }
+.stagger-4 { transition-delay: 240ms; }
+.stagger-5 { transition-delay: 300ms; }
+.stagger-6 { transition-delay: 360ms; }
 
-.icon-sm svg,
-.icon-md svg,
-.icon-lg svg,
-.icon-xl svg {
-  width: 100%;
-  height: 100%;
-}
-
-/* ============================================
-   Reduced Motion
-   ============================================ */
-
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
+/* ── Float animation — Agent Identity Card ── */
+@keyframes float-card {
+  0%, 100% {
+    transform: translateY(0);
   }
+  50% {
+    transform: translateY(-4px);
+  }
+}
 
-  .animate-on-scroll {
+.animate-float {
+  animation: float-card 6s ease-in-out infinite;
+}
+
+/* ── SVG line draw-on (applied via JS when entering viewport) ── */
+.svg-draw {
+  stroke-dasharray: var(--path-length, 400);
+  stroke-dashoffset: var(--path-length, 400);
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.25, 0, 0, 1);
+}
+
+.svg-draw.drawn {
+  stroke-dashoffset: 0;
+}
+
+/* Staggered draw */
+.svg-draw-1 { transition-delay: 0ms; }
+.svg-draw-2 { transition-delay: 200ms; }
+.svg-draw-3 { transition-delay: 400ms; }
+.svg-draw-4 { transition-delay: 600ms; }
+
+/* ── Nav underline slide ── */
+.nav-link-underline {
+  position: relative;
+}
+
+.nav-link-underline::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 100%;
+  height: 1px;
+  background: var(--cl-accent);
+  transition: right 0.2s linear;
+}
+
+.nav-link-underline:hover::after {
+  right: 0;
+}
+
+/* ── Reduced motion: disable everything ── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-on-scroll,
+  .stagger-child {
     opacity: 1;
     transform: none;
+    transition: none;
   }
 
-  .animate-on-scroll.animate {
+  .animate-float {
     animation: none;
   }
 
-  .animate-fade-up,
-  .animate-scale-in,
-  .animate-float,
-  .animate-pulse-glow,
-  .animate-shimmer {
-    animation: none;
+  .svg-draw {
+    stroke-dashoffset: 0;
+    transition: none;
   }
 
-  .hero-gradient-bg::before {
-    animation: none;
-  }
-
-  .particle {
-    animation: none;
-  }
-
-  .scroll-indicator {
-    animation: none;
-  }
-
-  *,
-  *::before,
-  *::after {
-    /* biome-ignore lint/complexity/noImportantStyles: Necessary for reduced motion accessibility */
-    animation-duration: 0.01ms !important;
-    /* biome-ignore lint/complexity/noImportantStyles: Necessary for reduced motion accessibility */
-    animation-iteration-count: 1 !important;
-    /* biome-ignore lint/complexity/noImportantStyles: Necessary for reduced motion accessibility */
-    transition-duration: 0.01ms !important;
+  .nav-link-underline::after {
+    transition: none;
   }
 }
 
-/* ============================================
-   Mobile Optimizations
-   ============================================ */
-
+/* ── Mobile: disable hover transforms ── */
 @media (max-width: 768px) {
-  .section {
-    padding: var(--space-2xl) 0;
-  }
-
-  .hover-lift:hover {
-    transform: none;
-  }
-
-  .card:hover {
-    transform: none;
-  }
-
-  .btn-primary:hover,
-  .btn-secondary:hover {
-    transform: none;
-  }
-
-  .hero-gradient-bg::before {
-    opacity: 0.5;
-  }
-
-  .particle {
-    display: none;
+  .animate-float {
+    animation: none;
   }
 }

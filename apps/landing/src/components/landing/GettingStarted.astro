@@ -1,94 +1,41 @@
 ---
-const commands = [
-  {
-    label: "Install the CLI",
-    command: "npm install -g @clawdentity/cli",
-    output: ["added 42 packages in 3s"],
-  },
-  {
-    label: "Register your first agent",
-    command: "clawdentity agent register --name my-agent",
-    output: [
-      "✓ Generated Ed25519 keypair",
-      "✓ Agent registered with registry",
-      "✓ AIT saved to ~/.clawdentity/agents/my-agent.ait",
-    ],
-  },
-  {
-    label: "Start the proxy",
-    command: "clawdentity proxy start --upstream http://localhost:3000",
-    output: [
-      "✓ Proxy listening on :4000",
-      "✓ Upstream: http://localhost:3000",
-      "✓ Ready to accept verified requests",
-    ],
-  },
-];
+// GettingStarted — Section 07
+// Agent-first: give your AI agent one URL
+
+const agentPrompt = `Read the instructions from https://clawdentity.com/skill.md and follow the instructions`;
 ---
 
 <section class="section getting-started-section animate-on-scroll" id="getting-started">
   <div class="container">
     <div class="section-header">
-      <span class="section-label">Quick Start</span>
-      <h2>Get Started in Minutes</h2>
-      <p>Three commands to verified agent identity.</p>
+      <span class="section-number">07 —</span>
+      <h2>Give your agent this prompt.</h2>
     </div>
 
-    <div class="terminal-wrapper">
-      <div class="terminal">
-        <div class="terminal__header">
-          <div class="terminal__dots">
-            <span class="terminal__dot terminal__dot--red"></span>
-            <span class="terminal__dot terminal__dot--yellow"></span>
-            <span class="terminal__dot terminal__dot--green"></span>
-          </div>
-          <span class="terminal__title">clawdentity — setup</span>
-          <button class="terminal__copy-all" id="copy-all" aria-label="Copy all commands">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-            <span>Copy all</span>
-          </button>
-        </div>
-        <div class="terminal__content">
-          {commands.map((cmd, index) => (
-            <div class="command-block stagger-child" style={`transition-delay: ${index * 200}ms`}>
-              <div class="command-block__header">
-                <span class="command-step">{index + 1}</span>
-                <span class="command-label">{cmd.label}</span>
-              </div>
-              <div class="command-line">
-                <span class="prompt">$</span>
-                <code class="command-text">{cmd.command}</code>
-                <button class="command-copy" data-command={cmd.command} aria-label={`Copy: ${cmd.command}`}>
-                  <svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                  </svg>
-                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M20 6L9 17l-5-5"></path>
-                  </svg>
-                </button>
-              </div>
-              <div class="command-output">
-                {cmd.output.map(line => (
-                  <div class="output-line">{line}</div>
-                ))}
-              </div>
-            </div>
-          ))}
-          <div class="terminal__ready stagger-child" style="transition-delay: 600ms;">
-            <span class="ready-badge">Ready to secure your agents!</span>
-          </div>
-        </div>
+    <div class="agent-block stagger-child">
+      <div class="agent-block__header">
+        <span class="agent-block__label">AGENT-FIRST SETUP</span>
+        <button class="agent-block__copy" id="prompt-copy" aria-label="Copy agent prompt" type="button">
+          <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="9" width="13" height="13" rx="2"/>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+          </svg>
+          <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 6L9 17l-5-5"/>
+          </svg>
+          <span>Copy</span>
+        </button>
       </div>
+      <div class="agent-block__content">
+        <code class="agent-prompt">{agentPrompt}</code>
+      </div>
+      <p class="agent-block__note">Your agent handles install, config, and identity setup.</p>
     </div>
 
-    <div class="cta-row stagger-child" style="transition-delay: 700ms;">
+    <div class="cta-row stagger-child" style="transition-delay: 300ms">
       <a href="/getting-started/quickstart/" class="btn btn-primary">
         Read the Quick Start Guide
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
         </svg>
       </a>
@@ -96,301 +43,125 @@ const commands = [
   </div>
 </section>
 
-<script>
-  // Individual command copy
-  document.querySelectorAll('.command-copy').forEach(button => {
-    button.addEventListener('click', async () => {
-      const command = button.getAttribute('data-command');
-      if (!command) return;
-
-      try {
-        await navigator.clipboard.writeText(command);
-        button.classList.add('copied');
-        setTimeout(() => button.classList.remove('copied'), 2000);
-      } catch {
-        // Fallback: silently fail
-      }
-    });
-  });
-
-  // Copy all commands
-  document.getElementById('copy-all')?.addEventListener('click', async () => {
-    const commands = Array.from(document.querySelectorAll('.command-text'))
-      .map(el => el.textContent)
-      .join('\n');
-    
+<script define:vars={{ agentPrompt }}>
+  document.getElementById('prompt-copy')?.addEventListener('click', async () => {
     try {
-      await navigator.clipboard.writeText(commands);
-      const btn = document.getElementById('copy-all');
+      await navigator.clipboard.writeText(agentPrompt);
+      const btn = document.getElementById('prompt-copy');
       btn?.classList.add('copied');
       setTimeout(() => btn?.classList.remove('copied'), 2000);
-    } catch {
-      // Fallback: silently fail
-    }
+    } catch { /* silently fail */ }
   });
 </script>
 
 <style>
-  .getting-started-section {
-    position: relative;
+  /* Tighten gap between heading and block */
+  .getting-started-section .section-header {
+    margin-bottom: var(--space-lg);
   }
 
-  .section-label {
-    display: inline-block;
-    padding: 0.375rem 1rem;
-    background: rgba(13, 148, 136, 0.1);
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 2rem;
-    color: var(--cl-teal-light);
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: var(--space-sm);
-  }
-
-  .terminal-wrapper {
-    max-width: 600px;
-    margin: 0 auto var(--space-2xl);
-  }
-
-  .terminal {
-    background: #0d1117;
-    border-radius: var(--radius-xl);
-    box-shadow: 
-      0 25px 50px -12px rgba(0, 0, 0, 0.5),
-      0 0 0 1px rgba(255, 255, 255, 0.05);
+  /* Outer wrapper — uses surface-2 so it contrasts against page bg in both themes */
+  .agent-block {
+    max-width: 640px;
+    background: var(--cl-surface-2);
+    border: 1px solid var(--cl-border-3);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
     overflow: hidden;
+    margin-bottom: var(--space-xl);
   }
 
-  .terminal__header {
+  /* Header bar — slightly darker strip inside the card */
+  .agent-block__header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 1rem 1.25rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 0.625rem 1rem;
+    background: var(--cl-surface-3);
+    border-bottom: 1px solid var(--cl-border-2);
   }
 
-  .terminal__dots {
-    display: flex;
-    gap: 0.5rem;
+  .agent-block__label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-variant: small-caps;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cl-accent);
   }
 
-  .terminal__dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-  }
-
-  .terminal__dot--red { background: #ff5f56; }
-  .terminal__dot--yellow { background: #ffbd2e; }
-  .terminal__dot--green { background: #27c93f; }
-
-  .terminal__title {
-    font-size: 0.8125rem;
-    color: var(--cl-text-muted);
-    font-family: ui-monospace, "JetBrains Mono", monospace;
-  }
-
-  .terminal__copy-all {
+  .agent-block__copy {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.375rem 0.75rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: var(--radius-sm);
-    color: var(--cl-text-muted);
-    font-size: 0.75rem;
-    cursor: pointer;
-    transition: all var(--duration-fast);
-  }
-
-  .terminal__copy-all:hover {
-    background: rgba(13, 148, 136, 0.1);
-    border-color: rgba(13, 148, 136, 0.3);
-    color: var(--cl-text);
-  }
-
-  .terminal__copy-all.copied {
-    background: rgba(13, 148, 136, 0.2);
-    border-color: var(--cl-teal);
-    color: var(--cl-teal-light);
-  }
-
-  .terminal__content {
-    padding: var(--space-lg);
-  }
-
-  .command-block {
-    margin-bottom: var(--space-md);
-    padding-bottom: var(--space-md);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  }
-
-  .command-block:last-of-type {
-    border-bottom: none;
-    margin-bottom: 0;
-  }
-
-  .command-block__header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .command-step {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    background: var(--cl-teal);
-    color: white;
-    border-radius: 50%;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-
-  .command-label {
-    color: var(--cl-text-muted);
-    font-size: 0.8125rem;
-  }
-
-  .command-line {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    background: rgba(0, 0, 0, 0.3);
-    border-radius: var(--radius-sm);
-    font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
-    font-size: 0.8125rem;
-  }
-
-  .prompt {
-    color: var(--cl-teal);
-    font-weight: 600;
-    user-select: none;
-  }
-
-  .command-text {
-    flex: 1;
-    color: var(--cl-text);
-    word-break: break-all;
-  }
-
-  .command-copy {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
+    gap: 0.375rem;
+    padding: 0.3rem 0.625rem;
     background: transparent;
-    border: none;
-    color: var(--cl-text-muted);
+    border: 1px solid var(--cl-border-3);
+    border-radius: 2px;
+    color: var(--cl-text-2);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
     cursor: pointer;
-    border-radius: var(--radius-sm);
-    transition: all var(--duration-fast);
-    flex-shrink: 0;
+    transition: color 0.15s ease, border-color 0.15s ease;
   }
 
-  .command-copy:hover {
+  .agent-block__copy:hover {
     color: var(--cl-text);
-    background: rgba(255, 255, 255, 0.05);
+    border-color: var(--cl-accent);
   }
 
-  .command-copy .check-icon {
-    display: none;
+  .agent-block__copy.copied {
+    color: #6A9955;
+    border-color: #6A9955;
   }
 
-  .command-copy.copied .check-icon {
-    display: block;
-    color: var(--cl-teal);
+  .agent-block__copy .check-icon { display: none; }
+  .agent-block__copy.copied .check-icon { display: block; }
+  .agent-block__copy.copied .copy-icon { display: none; }
+
+  /* Inner code area — always dark, like a code block */
+  .agent-block__content {
+    padding: 1.25rem 1rem;
+    background: var(--cl-code-bg);
+    border-bottom: 1px solid var(--cl-border-2);
   }
 
-  .command-copy.copied svg:not(.check-icon) {
-    display: none;
-  }
-
-  .command-output {
-    margin-top: 0.75rem;
-    padding-left: 1.75rem;
-    font-family: ui-monospace, "JetBrains Mono", monospace;
-    font-size: 0.75rem;
-  }
-
-  .output-line {
-    color: var(--cl-teal-light);
-    opacity: 0.8;
-    line-height: 1.6;
-  }
-
-  .terminal__ready {
-    text-align: center;
-    padding-top: var(--space-md);
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
-  }
-
-  .ready-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 1rem;
-    background: linear-gradient(135deg, rgba(13, 148, 136, 0.15), rgba(13, 148, 136, 0.05));
-    border: 1px solid rgba(13, 148, 136, 0.3);
-    border-radius: 2rem;
-    color: var(--cl-teal-light);
+  .agent-prompt {
+    font-family: var(--font-mono);
     font-size: 0.875rem;
-    font-weight: 500;
+    color: #E6EDF3;
+    line-height: 1.6;
+    display: block;
+    word-break: break-word;
   }
 
-  .ready-badge::before {
-    content: '';
-    width: 8px;
-    height: 8px;
-    background: var(--cl-teal);
-    border-radius: 50%;
-    box-shadow: 0 0 10px var(--cl-teal);
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(1.1); }
+  /* Footer note — back in the surface-2 card bg */
+  .agent-block__note {
+    padding: 0.75rem 1rem;
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    color: var(--cl-text-2);
+    margin: 0;
   }
 
   .cta-row {
-    text-align: center;
+    margin-top: var(--space-md);
   }
 
-  .cta-row .btn {
-    padding: 1rem 2rem;
-  }
-
-  /* Responsive */
   @media (max-width: 640px) {
-    .terminal__header {
-      padding: 0.875rem 1rem;
+    .agent-block__header {
+      padding: 0.5rem 0.75rem;
     }
 
-    .terminal__content {
-      padding: var(--space-md);
+    .agent-block__content {
+      padding: 1rem 0.75rem;
     }
 
-    .command-line {
-      padding: 0.75rem;
-      font-size: 0.75rem;
+    .agent-prompt {
+      font-size: 0.8125rem;
     }
 
-    .command-output {
-      padding-left: 1.25rem;
-    }
-
-    .terminal__copy-all span {
+    .agent-block__copy span {
       display: none;
     }
   }

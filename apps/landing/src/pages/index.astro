@@ -31,27 +31,23 @@ import Footer from "../components/landing/Footer.astro";
 </LandingLayout>
 
 <style is:global>
-  /* Ensure smooth page transitions */
   html {
     scroll-behavior: smooth;
   }
 
-  /* Selection styling */
   ::selection {
-    background: rgba(13, 148, 136, 0.3);
+    background: rgba(212, 82, 42, 0.25);
     color: var(--cl-text);
   }
 
-  /* Focus visible styling */
   :focus-visible {
-    outline: 2px solid var(--cl-teal);
+    outline: 1px solid var(--cl-accent);
     outline-offset: 2px;
   }
 
-  /* Scrollbar styling */
   ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -59,12 +55,11 @@ import Footer from "../components/landing/Footer.astro";
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--cl-border-light);
-    border-radius: 5px;
-    border: 2px solid var(--cl-bg);
+    background: var(--cl-border-3);
+    border-radius: 0;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--cl-text-dim);
+    background: var(--cl-text-3);
   }
 </style>

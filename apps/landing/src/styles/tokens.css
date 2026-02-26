@@ -1,40 +1,57 @@
+/* ── Iron Ledger Design Tokens ── */
+
 :root {
-  /* ── Brand palette ── */
-  --cl-teal: #0d9488;
-  --cl-teal-light: #14b8a6;
-  --cl-teal-dim: #0d3d38;
-  --cl-amber: #f59e0b;
-  --cl-amber-light: #fbbf24;
-  --cl-amber-dim: #78350f;
+  /* Dark mode (default) */
+  --cl-bg:           #0C0B09;
+  --cl-surface:      #141210;
+  --cl-surface-2:    #1C1916;
+  --cl-surface-3:    #252018;
+  --cl-text:         #F0EBE3;
+  --cl-text-2:       #A09488;
+  --cl-text-3:       #6B5F55;
+  --cl-accent:       #D4522A;
+  --cl-accent-2:     #C09B3E;
+  --cl-accent-hover: #E05C30;
+  --cl-border:       #252018;
+  --cl-border-2:     #3A3028;
+  --cl-border-3:     #504540;
+  --cl-rule:         #2E2720;
+  --cl-code-bg:      #0D1117;
 
-  /* ── Dark surfaces ── */
-  --cl-bg: #0b1220;
-  --cl-surface: #0f172a;
-  --cl-surface-raised: #1e293b;
+  /* Typography */
+  --font-serif:  "Instrument Serif", Georgia, serif;
+  --font-sans:   "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:   "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
 
-  /* ── Text ── */
-  --cl-text: #e2e8f0;
-  --cl-text-muted: #94a3b8;
-  --cl-text-dim: #64748b;
-
-  /* ── Borders ── */
-  --cl-border: #1e293b;
-  --cl-border-light: #334155;
-
-  /* ── Glow ── */
-  --cl-glow-teal: rgba(13, 148, 136, 0.4);
-  --cl-glow-amber: rgba(245, 158, 11, 0.4);
-
-  /* ── Typography ── */
-  --font-sans:
-    "Space Grotesk", ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono:
-    ui-monospace, "JetBrains Mono", "Fira Code", SFMono-Regular, Menlo, Monaco,
-    Consolas, "Liberation Mono", "Courier New", monospace;
-  --fw-display: 800;
-  --fw-h2: 700;
-  --fw-h3: 600;
+  /* Font weights */
+  --fw-serif: 400;
   --fw-body: 400;
+  --fw-medium: 500;
   --fw-ui: 600;
+}
+
+/* Light mode overrides */
+:root[data-theme="light"] {
+  --cl-bg:           #F5F0E8;
+  --cl-surface:      #EDE8DC;
+  --cl-surface-2:    #FFFFFF;
+  --cl-surface-3:    #F0EBE1;
+  --cl-text:         #1E1710;
+  --cl-text-2:       #5C5048;
+  --cl-text-3:       #9C9088;
+  --cl-accent:       #B83E1A;
+  --cl-accent-2:     #8A6C1E;
+  --cl-accent-hover: #C94420;
+  --cl-border:       #D4CCBF;
+  --cl-border-2:     #BEB5A5;
+  --cl-border-3:     #A89E8E;
+  --cl-rule:         #D0C8BC;
+  /* --cl-code-bg stays dark: #0D1117 */
+}
+
+/* Smooth theme transitions */
+:root {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
 }

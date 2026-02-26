@@ -1,38 +1,25 @@
 ---
-import { Image } from "astro:assets";
-import identityIcon from "../../assets/landing/clawdentity_feature_identity_256.png";
-import communicationIcon from "../../assets/landing/clawdentity_feature_communication_256.png";
-import pairingIcon from "../../assets/landing/clawdentity_feature_pairing_256.png";
-import trustIcon from "../../assets/landing/clawdentity_feature_trust_256.png";
-
+// UseCases — Section 06
 const useCases = [
   {
-    icon: communicationIcon,
-    title: "Multi-Agent Orchestration",
-    description: "Verify which agent is calling before executing sensitive workflows. Enforce per-caller policy by agent DID, with rate limits per agent.",
-    tags: ["Orchestration", "Security"],
-    featured: true,
+    tag: "OpenClaw → NanoBot",
+    title: "Orchestrate across platforms",
+    description: "OpenClaw orchestrator delegates tasks to NanoBot workers using signed requests. Per-caller policy enforced at the relay — no shared tokens needed.",
   },
   {
-    icon: identityIcon,
-    title: "Webhook Authentication",
-    description: "Replace shared webhook tokens with per-agent identities. Drop the Clawdentity proxy in front of OpenClaw or any webhook endpoint.",
-    tags: ["Integration"],
-    featured: false,
+    tag: "Any platform",
+    title: "Replace webhook tokens",
+    description: "Drop the Clawdentity connector sidecar in front of any agent endpoint. Signed per-agent identity replaces every shared webhook secret immediately.",
   },
   {
-    icon: pairingIcon,
-    title: "Agent-to-Agent Trust",
-    description: "Two agents verify each other's identity before exchanging data. Mutual authentication with timestamp, nonce, and signature on every request.",
-    tags: ["Trust"],
-    featured: false,
+    tag: "Agent ↔ Agent",
+    title: "Agent-to-agent trust",
+    description: "Mutual authentication before any data exchange. AIT + PoP signature on every request — timestamp, nonce, and body hash prevent replay attacks.",
   },
   {
-    icon: trustIcon,
-    title: "Compliance & Audit",
-    description: "Every request is signed and traceable to a specific agent and owner. Body hash + PoP signature means any modification is detectable.",
-    tags: ["Compliance", "Audit"],
-    featured: false,
+    tag: "All platforms",
+    title: "Compliance and audit trail",
+    description: "Every cross-agent message is signed and traceable to a specific agent and owner. Body hash plus PoP signature means any modification is detectable.",
   },
 ];
 ---
@@ -40,40 +27,16 @@ const useCases = [
 <section class="section use-cases-section animate-on-scroll" id="use-cases">
   <div class="container">
     <div class="section-header">
-      <span class="section-label">Use Cases</span>
-      <h2>Anywhere agents need to prove who they are</h2>
-      <p>Secure agent-to-agent communication across any platform or framework.</p>
+      <span class="section-number">06 —</span>
+      <h2>Built for what agents actually do.</h2>
     </div>
 
-    <div class="bento-grid">
+    <div class="use-cases-grid animate-children">
       {useCases.map((uc, index) => (
-        <div 
-          class={`bento-card ${uc.featured ? 'bento-card--featured' : ''} stagger-child`}
-          style={`transition-delay: ${index * 100}ms`}
-        >
-          <div class="bento-card__glow"></div>
-          <div class="bento-card__content">
-            <div class="bento-card__header">
-              <div class="bento-card__icon">
-                <Image
-                  src={uc.icon}
-                  alt=""
-                  width={uc.featured ? 64 : 48}
-                  height={uc.featured ? 64 : 48}
-                  format="webp"
-                  quality={90}
-                />
-              </div>
-              <div class="bento-card__tags">
-                {uc.tags.map(tag => (
-                  <span class="tag">{tag}</span>
-                ))}
-              </div>
-            </div>
-            <h3 class="bento-card__title">{uc.title}</h3>
-            <p class="bento-card__desc">{uc.description}</p>
-          </div>
-          <div class="bento-card__shine"></div>
+        <div class="use-case-card stagger-child" style={`transition-delay: ${index * 80}ms`}>
+          <span class="uc-tag">{uc.tag}</span>
+          <h3>{uc.title}</h3>
+          <p>{uc.description}</p>
         </div>
       ))}
     </div>
@@ -81,223 +44,60 @@ const useCases = [
 </section>
 
 <style>
-  .use-cases-section {
-    position: relative;
-  }
-
-  .use-cases-section::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: 
-      radial-gradient(ellipse 60% 40% at 30% 20%, rgba(13, 148, 136, 0.04), transparent),
-      radial-gradient(ellipse 40% 50% at 70% 80%, rgba(245, 158, 11, 0.03), transparent);
-    pointer-events: none;
-  }
-
-  .section-label {
-    display: inline-block;
-    padding: 0.375rem 1rem;
-    background: rgba(13, 148, 136, 0.1);
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 2rem;
-    color: var(--cl-teal-light);
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: var(--space-sm);
-  }
-
-  /* Bento Grid Layout */
-  .bento-grid {
+  .use-cases-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    grid-template-rows: repeat(2, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: var(--space-md);
-    max-width: 1000px;
-    margin: 0 auto;
   }
 
-  .bento-card {
-    position: relative;
-    background: linear-gradient(145deg, var(--cl-surface), rgba(30, 41, 59, 0.5));
-    border: 1px solid var(--cl-border);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    transition: all var(--duration-normal) var(--ease-smooth);
-    cursor: pointer;
-  }
-
-  .bento-card:hover {
-    transform: translateY(-6px);
-    border-color: var(--cl-border-light);
-    box-shadow: 
-      0 20px 40px rgba(0, 0, 0, 0.3),
-      0 0 40px rgba(13, 148, 136, 0.1);
-  }
-
-  .bento-card--featured {
-    grid-column: span 2;
-    grid-row: span 2;
-  }
-
-  .bento-card:nth-child(2) {
-    grid-column: span 2;
-  }
-
-  .bento-card__glow {
-    position: absolute;
-    inset: -50%;
-    background: radial-gradient(circle, rgba(13, 148, 136, 0.1) 0%, transparent 70%);
-    opacity: 0;
-    transition: opacity var(--duration-normal);
-    pointer-events: none;
-  }
-
-  .bento-card:hover .bento-card__glow {
-    opacity: 1;
-  }
-
-  .bento-card__content {
-    position: relative;
-    z-index: 1;
+  .use-case-card {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
     padding: var(--space-lg);
-    height: 100%;
-    display: flex;
-    flex-direction: column;
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
   }
 
-  .bento-card__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: var(--space-sm);
-    gap: var(--space-xs);
+  .use-case-card:hover {
+    border-color: var(--cl-border-3);
+    border-left-color: var(--cl-accent);
+    transform: translateY(-2px);
   }
 
-  .bento-card__icon {
-    flex-shrink: 0;
-  }
-
-  .bento-card__icon :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-    transition: transform var(--duration-normal);
-  }
-
-  .bento-card:hover .bento-card__icon :global(img) {
-    transform: scale(1.1);
-  }
-
-  .bento-card__tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-    justify-content: flex-end;
-  }
-
-  .tag {
-    display: inline-flex;
-    padding: 0.25rem 0.625rem;
-    background: rgba(13, 148, 136, 0.1);
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 1rem;
-    font-size: 0.6875rem;
-    font-weight: 500;
-    color: var(--cl-teal-light);
+  .uc-tag {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-variant: small-caps;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    color: var(--cl-accent-2);
+    display: inline-block;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--cl-border-2);
+    padding: 0.2rem 0.5rem;
+    border-radius: 2px;
   }
 
-  .bento-card:nth-child(2) .tag,
-  .bento-card:nth-child(3) .tag {
-    background: rgba(245, 158, 11, 0.1);
-    border-color: rgba(245, 158, 11, 0.2);
-    color: var(--cl-amber-light);
-  }
-
-  .bento-card__title {
-    font-size: 1.125rem;
+  .use-case-card h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
     color: var(--cl-text);
     margin-bottom: 0.5rem;
-    line-height: 1.3;
+    margin-top: 0.5rem;
   }
 
-  .bento-card--featured .bento-card__title {
-    font-size: 1.5rem;
-    margin-bottom: var(--space-xs);
-  }
-
-  .bento-card__desc {
-    color: var(--cl-text-muted);
-    font-size: 0.875rem;
-    line-height: 1.6;
-    margin: 0;
-  }
-
-  .bento-card--featured .bento-card__desc {
-    font-size: 1rem;
+  .use-case-card p {
+    color: var(--cl-text-2);
+    font-size: 0.9375rem;
     line-height: 1.7;
   }
 
-  /* Shine effect on hover */
-  .bento-card__shine {
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.03),
-      transparent
-    );
-    transition: left 0.6s ease;
-    pointer-events: none;
-  }
-
-  .bento-card:hover .bento-card__shine {
-    left: 100%;
-  }
-
-  /* Responsive */
-  @media (max-width: 1024px) {
-    .bento-grid {
-      grid-template-columns: repeat(2, 1fr);
-      grid-template-rows: auto;
-    }
-
-    .bento-card--featured {
-      grid-column: span 2;
-      grid-row: span 1;
-    }
-
-    .bento-card:nth-child(2) {
-      grid-column: span 1;
-    }
-  }
-
   @media (max-width: 640px) {
-    .bento-grid {
+    .use-cases-grid {
       grid-template-columns: 1fr;
-    }
-
-    .bento-card--featured,
-    .bento-card:nth-child(2) {
-      grid-column: span 1;
-    }
-
-    .bento-card__header {
-      flex-direction: row;
-      align-items: center;
-    }
-
-    .bento-card__tags {
-      justify-content: flex-end;
     }
   }
 </style>

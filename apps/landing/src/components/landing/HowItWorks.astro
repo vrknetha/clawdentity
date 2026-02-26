@@ -1,316 +1,245 @@
 ---
-import { Image } from "astro:assets";
-import type { ImageMetadata } from "astro";
-import identityIcon from "../../assets/landing/clawdentity_feature_identity_256.png";
-import pairingIcon from "../../assets/landing/clawdentity_feature_pairing_256.png";
-import communicationIcon from "../../assets/landing/clawdentity_feature_communication_256.png";
+// HowItWorks — Section 04
+// No emojis, no macOS dots, clean terminals
 
-type BaseStep = {
-  number: string;
-  icon: ImageMetadata;
-  title: string;
-  description: string;
-};
-
-type CliStep = BaseStep & {
-  type: "cli";
-  code: string;
-};
-
-type VisualStep = BaseStep & {
-  type: "visual";
-};
-
-type Step = CliStep | VisualStep;
-
-const steps: Step[] = [
+const steps = [
   {
-    number: "01",
-    icon: identityIcon,
-    title: "Register an Agent",
-    description: "Generate a key pair and register with the identity registry. The agent receives a signed AIT (Agent Identity Token) — a registry-signed passport using JWT and EdDSA.",
-    type: "cli",
-    code: `clawdentity agent register \\
-  --name my-agent \\
-  --owner operator@example.com`,
+    num: "01",
+    title: "Create each agent",
+    description: "Generate an Ed25519 keypair and create the agent identity. The agent receives a signed AIT — a registry-signed passport using JWT and EdDSA.",
+    type: "cli" as const,
+    code: `clawdentity agent create my-agent --framework openclaw`,
+    output: [
+      "Generated Ed25519 keypair",
+      "Agent identity created",
+      "AIT saved to ~/.clawdentity/agents/my-agent.ait",
+    ],
   },
   {
-    number: "02",
-    icon: pairingIcon,
-    title: "Sign Every Request",
-    description: "The SDK attaches the AIT and signs each request with the agent's private key (Proof-of-Possession). The private key never leaves the agent's machine.",
-    type: "visual",
+    num: "02",
+    title: "Connect the sidecar",
+    description: "A lightweight connector runs alongside each agent, opening an outbound WebSocket to the relay. The private key never leaves the machine.",
+    type: "cli" as const,
+    code: `clawdentity connector start my-agent`,
+    output: [
+      "Connector listening on :19400",
+      "WebSocket established to relay",
+      "Outbound queue ready",
+    ],
   },
   {
-    number: "03",
-    icon: communicationIcon,
-    title: "Proxy Verifies & Delivers",
-    description: "The Clawdentity proxy validates the AIT signature, checks the CRL for revocation, and enforces per-agent policy (allowlist, rate limits, replay protection) before forwarding.",
-    type: "cli",
-    code: `clawdentity proxy start \\
-  --upstream http://localhost:3000 \\
-  --port 4000 \\
-  --policy allowlist.yaml`,
+    num: "03",
+    title: "Agents talk — relay verifies",
+    description: "Every message is signed with AIT + private key before leaving. The relay verifies the signature, checks the CRL, and delivers to the remote connector's webhook.",
+    type: "signing" as const,
   },
 ];
-
-function highlightCode(code: string) {
-  return code
-    .replace(/(clawdentity|agent|register|proxy|start)/g, '<span class="token-command">$1</span>')
-    .replace(/(--\w+)/g, '<span class="token-flag">$1</span>')
-    .replace(/('[^']*')/g, '<span class="token-string">$1</span>');
-}
 ---
 
 <section class="section how-it-works-section animate-on-scroll" id="how-it-works">
   <div class="container">
     <div class="section-header">
-      <span class="section-label">How It Works</span>
-      <h2>Three Building Blocks</h2>
-      <p>No shared secrets. Instant revocation. Cryptographic trust.</p>
+      <span class="section-number">04 —</span>
+      <h2>Three steps to secure cross-platform messaging.</h2>
     </div>
 
-    <!-- Timeline connector -->
-    <div class="timeline">
-      <div class="timeline__line"></div>
-      
-      <div class="steps">
-        {steps.map((step, index) => (
-          <div class="step stagger-child" style={`transition-delay: ${index * 150}ms`}>
-            <div class="step__connector">
-              <div class="step__number">{step.number}</div>
-            </div>
-            
-            <div class="step__content">
-              <div class="step__header">
-                <div class="step__icon">
-                  <Image
-                    src={step.icon}
-                    alt=""
-                    width={48}
-                    height={48}
-                    format="webp"
-                    quality={90}
-                  />
-                </div>
-                <h3>{step.title}</h3>
-              </div>
-              
-              <p class="step__desc">{step.description}</p>
-              
-              {step.type === 'cli' ? (
-                <div class="terminal">
-                  <div class="terminal__header">
-                    <div class="terminal__dots">
-                      <span class="terminal__dot terminal__dot--red"></span>
-                      <span class="terminal__dot terminal__dot--yellow"></span>
-                      <span class="terminal__dot terminal__dot--green"></span>
-                    </div>
-                    <span class="terminal__title">bash</span>
-                    <button class="terminal__copy" data-code={step.code} aria-label="Copy code">
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                      <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 6L9 17l-5-5"></path>
-                      </svg>
-                    </button>
-                  </div>
-                  <div class="terminal__content">
-                    <pre><code set:html={highlightCode(step.code)} /></pre>
-                  </div>
-                </div>
-              ) : (
-                <div class="signing-visual">
-                  <div class="signing-flow">
-                    <div class="signing-item">
-                      <div class="signing-box signing-box--ait">
-                        <span class="signing-icon">🛂</span>
-                        <span class="signing-label">AIT</span>
-                      </div>
-                    </div>
-                    <div class="signing-plus">+</div>
-                    <div class="signing-item">
-                      <div class="signing-box signing-box--key">
-                        <span class="signing-icon">🔑</span>
-                        <span class="signing-label">Private Key</span>
-                        <span class="signing-note">stays local</span>
-                      </div>
-                    </div>
-                    <div class="signing-arrow">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-                      </svg>
-                    </div>
-                    <div class="signing-item">
-                      <div class="signing-box signing-box--output">
-                        <span class="signing-icon">🔏</span>
-                        <span class="signing-label">Signed Request</span>
-                        <span class="signing-badge">PoP</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="signing-caption">
-                    <span class="signing-pill">Ed25519 Signature</span>
-                    <span class="signing-pill signing-pill--amber">Timestamp + Nonce</span>
-                  </div>
-                </div>
-              )}
-            </div>
+    <div class="steps-list">
+      <div class="steps-ruler" aria-hidden="true"></div>
+      {steps.map((step, index) => (
+        <div class="step stagger-child" style={`transition-delay: ${index * 120}ms`}>
+          <div class="step-marker">
+            <span class="step-num">{step.num}</span>
           </div>
-        ))}
-      </div>
+          <div class="step-body">
+            <h3>{step.title}</h3>
+            <p class="step-desc">{step.description}</p>
+
+            {step.type === 'cli' && (
+              <div class="terminal">
+                <div class="terminal__header">
+                  <span class="terminal__path">~/</span>
+                  <button
+                    class="terminal__copy"
+                    data-code={step.code}
+                    aria-label="Copy code"
+                    type="button"
+                  >
+                    <svg class="copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="terminal__content">
+                  <div class="command-line">
+                    <span class="prompt">$</span>
+                    <code class="command-text">{step.code}</code>
+                  </div>
+                  <div class="output-block">
+                    {step.output?.map(line => (
+                      <div class="output-line">{line}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {step.type === 'signing' && (
+              <div class="signing-visual">
+                <svg viewBox="0 0 520 80" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Signing process: AIT plus private key produces signed request with PoP" class="signing-svg">
+                  <!-- AIT box -->
+                  <rect x="2" y="16" width="100" height="48" rx="2"
+                    fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+                  <text x="52" y="36" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="12" font-weight="500"
+                    fill="var(--cl-accent)">AIT</text>
+                  <text x="52" y="52" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="7.5"
+                    fill="var(--cl-text-3)">JWT / EdDSA</text>
+
+                  <!-- Plus -->
+                  <text x="120" y="44" text-anchor="middle"
+                    font-family="'DM Sans', sans-serif" font-size="20" font-weight="300"
+                    fill="var(--cl-text-3)">+</text>
+
+                  <!-- Private Key box -->
+                  <rect x="138" y="16" width="120" height="48" rx="2"
+                    fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+                  <text x="198" y="36" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500"
+                    fill="var(--cl-text)">Private Key</text>
+                  <text x="198" y="52" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="7.5"
+                    fill="var(--cl-accent-2)">stays local</text>
+
+                  <!-- Arrow -->
+                  <path d="M 260 40 L 290 40" stroke="var(--cl-text-3)" stroke-width="1" stroke-linecap="round"/>
+                  <polygon points="287,36 295,40 287,44" fill="var(--cl-text-3)"/>
+
+                  <!-- Signed Request box -->
+                  <rect x="296" y="8" width="140" height="64" rx="2"
+                    fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1.5"/>
+                  <text x="366" y="32" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500"
+                    fill="var(--cl-text)">Signed Request</text>
+                  <line x1="296" y1="40" x2="436" y2="40" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+                  <text x="366" y="56" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="8"
+                    fill="var(--cl-accent-2)">PoP · Ed25519</text>
+                  <text x="366" y="66" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="7.5"
+                    fill="var(--cl-text-3)">timestamp + nonce</text>
+
+                  <!-- Arrow to relay -->
+                  <path d="M 436 40 L 466 40" stroke="var(--cl-text-3)" stroke-width="1" stroke-linecap="round"/>
+                  <polygon points="463,36 471,40 463,44" fill="var(--cl-text-3)"/>
+
+                  <!-- Relay verify box -->
+                  <rect x="472" y="16" width="46" height="48" rx="2"
+                    fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1"/>
+                  <text x="495" y="36" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="7.5"
+                    fill="var(--cl-accent)">Relay</text>
+                  <text x="495" y="48" text-anchor="middle"
+                    font-family="'JetBrains Mono', monospace" font-size="7"
+                    fill="var(--cl-text-3)">verify</text>
+                </svg>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   </div>
 </section>
 
 <script>
-  // Copy button functionality
   document.querySelectorAll('.terminal__copy').forEach(button => {
     button.addEventListener('click', async () => {
       const code = button.getAttribute('data-code');
       if (!code) return;
-
       try {
         await navigator.clipboard.writeText(code);
         button.classList.add('copied');
         setTimeout(() => button.classList.remove('copied'), 2000);
-      } catch {
-        // Fallback: silently fail
-      }
+      } catch { /* silently fail */ }
     });
   });
 </script>
 
 <style>
-  .how-it-works-section {
+  /* Step layout */
+  .steps-list {
     position: relative;
-  }
-
-  .section-label {
-    display: inline-block;
-    padding: 0.375rem 1rem;
-    background: rgba(13, 148, 136, 0.1);
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    border-radius: 2rem;
-    color: var(--cl-teal-light);
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: var(--space-sm);
-  }
-
-  /* Timeline layout */
-  .timeline {
-    position: relative;
-    max-width: 900px;
-    margin: 0 auto;
-  }
-
-  .timeline__line {
-    position: absolute;
-    left: 2rem;
-    top: 0;
-    bottom: 0;
-    width: 2px;
-    background: linear-gradient(to bottom, var(--cl-teal), var(--cl-amber));
-    opacity: 0.3;
-  }
-
-  @media (max-width: 768px) {
-    .timeline__line {
-      left: 1.5rem;
-    }
-  }
-
-  .steps {
     display: flex;
     flex-direction: column;
     gap: var(--space-xl);
+    max-width: 800px;
+  }
+
+  .steps-ruler {
+    position: absolute;
+    left: 1.25rem;
+    top: 3rem;
+    bottom: 3rem;
+    width: 1px;
+    background: var(--cl-rule);
   }
 
   .step {
     display: flex;
     gap: var(--space-lg);
-    position: relative;
+    align-items: flex-start;
   }
 
-  .step__connector {
+  .step-marker {
     flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--cl-surface-2);
+    border: 1px solid var(--cl-border-3);
+    border-radius: 2px;
     position: relative;
     z-index: 1;
   }
 
-  .step__number {
-    width: 4rem;
-    height: 4rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--cl-surface);
-    border: 2px solid var(--cl-teal);
-    border-radius: 50%;
-    font-size: 1.25rem;
-    font-weight: 800;
-    color: var(--cl-teal);
-    font-family: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
-    box-shadow: 0 0 20px rgba(13, 148, 136, 0.2);
+  .step-num {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--cl-accent);
+    letter-spacing: 0.04em;
   }
 
-  .step__content {
+  .step-body {
     flex: 1;
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-lg);
-    transition: all var(--duration-normal) var(--ease-smooth);
+    padding-bottom: var(--space-md);
   }
 
-  .step__content:hover {
-    border-color: var(--cl-border-light);
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-  }
-
-  .step__header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
-    margin-bottom: var(--space-xs);
-  }
-
-  .step__icon {
-    width: 2.5rem;
-    height: 2.5rem;
-    flex-shrink: 0;
-  }
-
-  .step__icon :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-  }
-
-  .step__header h3 {
-    font-size: 1.25rem;
+  .step-body h3 {
+    font-size: 1.125rem;
     color: var(--cl-text);
+    margin-bottom: 0.5rem;
   }
 
-  .step__desc {
-    color: var(--cl-text-muted);
+  .step-desc {
+    color: var(--cl-text-2);
     font-size: 0.9375rem;
     line-height: 1.7;
     margin-bottom: var(--space-md);
   }
 
-  /* Terminal styling */
+  /* Terminal — no macOS dots */
   .terminal {
-    background: #0d1117;
-    border-radius: var(--radius-md);
-    box-shadow: 
-      0 10px 30px rgba(0, 0, 0, 0.4),
-      0 0 0 1px rgba(255, 255, 255, 0.05);
+    background: var(--cl-code-bg);
+    border: 1px solid var(--cl-border-2);
+    border-radius: 4px;
     overflow: hidden;
   }
 
@@ -318,32 +247,16 @@ function highlightCode(code: string) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
-    background: rgba(255, 255, 255, 0.03);
+    padding: 0.5rem 0.875rem;
+    background: rgba(255, 255, 255, 0.025);
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .terminal__dots {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .terminal__dot {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-  }
-
-  .terminal__dot--red { background: #ff5f56; }
-  .terminal__dot--yellow { background: #ffbd2e; }
-  .terminal__dot--green { background: #27c93f; }
-
-  .terminal__title {
+  .terminal__path {
+    font-family: var(--font-mono);
     font-size: 0.75rem;
-    color: var(--cl-text-muted);
-    font-family: ui-monospace, "JetBrains Mono", monospace;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: #6B5F55;
+    letter-spacing: 0.03em;
   }
 
   .terminal__copy {
@@ -354,222 +267,76 @@ function highlightCode(code: string) {
     height: 28px;
     background: transparent;
     border: none;
-    color: var(--cl-text-muted);
+    color: #6B5F55;
     cursor: pointer;
-    border-radius: var(--radius-sm);
-    transition: all var(--duration-fast);
+    border-radius: 2px;
+    transition: color 0.15s ease;
   }
 
-  .terminal__copy:hover {
-    color: var(--cl-text);
-    background: rgba(255, 255, 255, 0.05);
-  }
+  .terminal__copy:hover { color: #A09488; }
 
-  .terminal__copy .check-icon {
-    display: none;
-  }
-
-  .terminal__copy.copied .check-icon {
-    display: block;
-    color: var(--cl-teal);
-  }
-
-  .terminal__copy.copied svg:not(.check-icon) {
-    display: none;
-  }
+  .terminal__copy .check-icon { display: none; }
+  .terminal__copy.copied .check-icon { display: block; color: #6A9955; }
+  .terminal__copy.copied .copy-icon { display: none; }
 
   .terminal__content {
-    padding: 1rem;
+    padding: 0.875rem;
+  }
+
+  .command-line {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .prompt {
+    color: var(--cl-accent);
+    font-weight: 600;
+    user-select: none;
+  }
+
+  .command-text {
+    color: #E6EDF3;
+    font-family: var(--font-mono);
+  }
+
+  .output-block {
+    padding-left: 1.25rem;
+  }
+
+  .output-line {
+    color: #6A9955;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+  }
+
+  /* Signing visual */
+  .signing-visual {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-radius: 4px;
+    padding: var(--space-md);
     overflow-x: auto;
   }
 
-  .terminal__content pre {
-    margin: 0;
-    font-family: ui-monospace, "JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, Consolas, monospace;
-    font-size: 0.8125rem;
-    line-height: 1.6;
+  .signing-svg {
+    width: 100%;
+    min-width: 440px;
+    height: auto;
+    display: block;
   }
 
-  .terminal__content code {
-    color: var(--cl-text);
-  }
-
-  /* Syntax highlighting */
-  .token-command { color: #7ee787; }
-  .token-flag { color: #79c0ff; }
-  .token-string { color: #a5d6ff; }
-
-  /* Signing Visual */
-  .signing-visual {
-    background: linear-gradient(135deg, rgba(13, 148, 136, 0.05), rgba(245, 158, 11, 0.03));
-    border: 1px solid var(--cl-border);
-    border-radius: var(--radius-md);
-    padding: var(--space-md);
-  }
-
-  .signing-flow {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-bottom: var(--space-sm);
-  }
-
-  .signing-item {
-    flex-shrink: 0;
-  }
-
-  .signing-box {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 0.875rem 1rem;
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border);
-    border-radius: var(--radius-md);
-    min-width: 90px;
-    transition: all var(--duration-normal);
-  }
-
-  .signing-box:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-  }
-
-  .signing-box--ait {
-    border-color: rgba(13, 148, 136, 0.4);
-    box-shadow: 0 0 20px rgba(13, 148, 136, 0.1);
-  }
-
-  .signing-box--key {
-    border-color: rgba(245, 158, 11, 0.4);
-    box-shadow: 0 0 20px rgba(245, 158, 11, 0.1);
-  }
-
-  .signing-box--output {
-    border-color: rgba(13, 148, 136, 0.5);
-    background: linear-gradient(135deg, rgba(13, 148, 136, 0.1), var(--cl-surface));
-    box-shadow: 0 0 25px rgba(13, 148, 136, 0.15);
-  }
-
-  .signing-icon {
-    font-size: 1.5rem;
-    line-height: 1;
-    margin-bottom: 0.375rem;
-  }
-
-  .signing-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--cl-text);
-    text-align: center;
-  }
-
-  .signing-note {
-    font-size: 0.625rem;
-    color: var(--cl-amber);
-    margin-top: 0.25rem;
-  }
-
-  .signing-badge {
-    font-size: 0.625rem;
-    font-weight: 700;
-    color: var(--cl-teal-light);
-    background: rgba(13, 148, 136, 0.15);
-    padding: 0.125rem 0.375rem;
-    border-radius: 1rem;
-    margin-top: 0.375rem;
-  }
-
-  .signing-plus {
-    font-size: 1.25rem;
-    color: var(--cl-text-muted);
-    font-weight: 300;
-  }
-
-  .signing-arrow {
-    color: var(--cl-teal);
-    display: flex;
-    align-items: center;
-  }
-
-  .signing-caption {
-    display: flex;
-    justify-content: center;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-  }
-
-  .signing-pill {
-    font-size: 0.6875rem;
-    color: var(--cl-teal-light);
-    background: rgba(13, 148, 136, 0.1);
-    border: 1px solid rgba(13, 148, 136, 0.2);
-    padding: 0.25rem 0.625rem;
-    border-radius: 1rem;
-  }
-
-  .signing-pill--amber {
-    color: var(--cl-amber-light);
-    background: rgba(245, 158, 11, 0.1);
-    border-color: rgba(245, 158, 11, 0.2);
-  }
-
-  /* Responsive */
   @media (max-width: 768px) {
     .step {
       gap: var(--space-md);
     }
 
-    .step__number {
-      width: 3rem;
-      height: 3rem;
-      font-size: 1rem;
-    }
-
-    .timeline__line {
-      left: 1.5rem;
-    }
-
-    .step__content {
-      padding: var(--space-md);
-    }
-
-    .step__header h3 {
-      font-size: 1.125rem;
-    }
-
-    .terminal__content pre {
-      font-size: 0.75rem;
-    }
-
-    .signing-flow {
-      gap: 0.5rem;
-    }
-
-    .signing-box {
-      padding: 0.625rem 0.75rem;
-      min-width: 75px;
-    }
-
-    .signing-icon {
-      font-size: 1.25rem;
-    }
-
-    .signing-label {
-      font-size: 0.6875rem;
-    }
-
-    .signing-plus,
-    .signing-arrow {
-      font-size: 1rem;
-    }
-
-    .signing-arrow svg {
-      width: 20px;
-      height: 20px;
+    .steps-ruler {
+      left: 1.1rem;
     }
   }
 </style>
