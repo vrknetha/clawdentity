@@ -32,26 +32,55 @@
 }
 
 /* Stagger delays — 60ms between */
-.stagger-child:nth-child(1) { transition-delay: 0ms; }
-.stagger-child:nth-child(2) { transition-delay: 60ms; }
-.stagger-child:nth-child(3) { transition-delay: 120ms; }
-.stagger-child:nth-child(4) { transition-delay: 180ms; }
-.stagger-child:nth-child(5) { transition-delay: 240ms; }
-.stagger-child:nth-child(6) { transition-delay: 300ms; }
-.stagger-child:nth-child(7) { transition-delay: 360ms; }
-.stagger-child:nth-child(8) { transition-delay: 420ms; }
+.stagger-child:nth-child(1) {
+  transition-delay: 0ms;
+}
+.stagger-child:nth-child(2) {
+  transition-delay: 60ms;
+}
+.stagger-child:nth-child(3) {
+  transition-delay: 120ms;
+}
+.stagger-child:nth-child(4) {
+  transition-delay: 180ms;
+}
+.stagger-child:nth-child(5) {
+  transition-delay: 240ms;
+}
+.stagger-child:nth-child(6) {
+  transition-delay: 300ms;
+}
+.stagger-child:nth-child(7) {
+  transition-delay: 360ms;
+}
+.stagger-child:nth-child(8) {
+  transition-delay: 420ms;
+}
 
 /* Manual stagger delays (used inline or via data attrs) */
-.stagger-1 { transition-delay: 60ms; }
-.stagger-2 { transition-delay: 120ms; }
-.stagger-3 { transition-delay: 180ms; }
-.stagger-4 { transition-delay: 240ms; }
-.stagger-5 { transition-delay: 300ms; }
-.stagger-6 { transition-delay: 360ms; }
+.stagger-1 {
+  transition-delay: 60ms;
+}
+.stagger-2 {
+  transition-delay: 120ms;
+}
+.stagger-3 {
+  transition-delay: 180ms;
+}
+.stagger-4 {
+  transition-delay: 240ms;
+}
+.stagger-5 {
+  transition-delay: 300ms;
+}
+.stagger-6 {
+  transition-delay: 360ms;
+}
 
 /* ── Float animation — Agent Identity Card ── */
 @keyframes float-card {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0);
   }
   50% {
@@ -75,10 +104,18 @@
 }
 
 /* Staggered draw */
-.svg-draw-1 { transition-delay: 0ms; }
-.svg-draw-2 { transition-delay: 200ms; }
-.svg-draw-3 { transition-delay: 400ms; }
-.svg-draw-4 { transition-delay: 600ms; }
+.svg-draw-1 {
+  transition-delay: 0ms;
+}
+.svg-draw-2 {
+  transition-delay: 200ms;
+}
+.svg-draw-3 {
+  transition-delay: 400ms;
+}
+.svg-draw-4 {
+  transition-delay: 600ms;
+}
 
 /* ── Nav underline slide ── */
 .nav-link-underline {
@@ -86,7 +123,7 @@
 }
 
 .nav-link-underline::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -2px;
   left: 0;

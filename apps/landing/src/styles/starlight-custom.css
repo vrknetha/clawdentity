@@ -14,22 +14,22 @@
 :root,
 :root[data-theme="dark"] {
   /* Accent = copper */
-  --sl-color-accent-low: #3A1A0A;
-  --sl-color-accent: #D4522A;
-  --sl-color-accent-high: #E8886A;
+  --sl-color-accent-low: #3a1a0a;
+  --sl-color-accent: #d4522a;
+  --sl-color-accent-high: #e8886a;
 
   /* Gray scale = warm slate */
-  --sl-color-white: #F0EBE3;
-  --sl-color-gray-1: #D8D0C6;
-  --sl-color-gray-2: #B8AFA5;
-  --sl-color-gray-3: #A09488;
-  --sl-color-gray-4: #6B5F55;
-  --sl-color-gray-5: #3A3028;
+  --sl-color-white: #f0ebe3;
+  --sl-color-gray-1: #d8d0c6;
+  --sl-color-gray-2: #b8afa5;
+  --sl-color-gray-3: #a09488;
+  --sl-color-gray-4: #6b5f55;
+  --sl-color-gray-5: #3a3028;
   --sl-color-gray-6: #252018;
-  --sl-color-black: #0C0B09;
+  --sl-color-black: #0c0b09;
 
   /* Semantic surfaces */
-  --sl-color-bg: #0C0B09;
+  --sl-color-bg: #0c0b09;
   --sl-color-bg-nav: rgba(12, 11, 9, 0.92);
   --sl-color-bg-sidebar: #141210;
   --sl-color-bg-inline-code: rgba(37, 32, 24, 0.8);
@@ -37,12 +37,12 @@
 
   /* Borders */
   --sl-color-hairline: #252018;
-  --sl-color-hairline-light: #3A3028;
-  --sl-color-hairline-shade: #0C0B09;
+  --sl-color-hairline-light: #3a3028;
+  --sl-color-hairline-shade: #0c0b09;
 
   /* Text */
-  --sl-color-text: #C8C0B6;
-  --sl-color-text-accent: #E8886A;
+  --sl-color-text: #c8c0b6;
+  --sl-color-text-accent: #e8886a;
 
   /* Hue overrides */
   --sl-hue-orange: 20;
@@ -55,28 +55,28 @@
 /* ── Light mode color mapping ── */
 
 :root[data-theme="light"] {
-  --sl-color-accent-low: #FDEBD0;
-  --sl-color-accent: #B83E1A;
-  --sl-color-accent-high: #8A2E10;
+  --sl-color-accent-low: #fdebd0;
+  --sl-color-accent: #b83e1a;
+  --sl-color-accent-high: #8a2e10;
 
-  --sl-color-white: #1E1710;
-  --sl-color-gray-1: #3A2E24;
-  --sl-color-gray-2: #5C5048;
-  --sl-color-gray-3: #9C9088;
-  --sl-color-gray-4: #BEB5A5;
-  --sl-color-gray-5: #D4CCBF;
-  --sl-color-gray-6: #EDE8DC;
-  --sl-color-gray-7: #F5F0E8;
-  --sl-color-black: #FFFFFF;
+  --sl-color-white: #1e1710;
+  --sl-color-gray-1: #3a2e24;
+  --sl-color-gray-2: #5c5048;
+  --sl-color-gray-3: #9c9088;
+  --sl-color-gray-4: #beb5a5;
+  --sl-color-gray-5: #d4ccbf;
+  --sl-color-gray-6: #ede8dc;
+  --sl-color-gray-7: #f5f0e8;
+  --sl-color-black: #ffffff;
 
-  --sl-color-bg: #F5F0E8;
+  --sl-color-bg: #f5f0e8;
   --sl-color-bg-nav: rgba(245, 240, 232, 0.92);
-  --sl-color-bg-sidebar: #EDE8DC;
+  --sl-color-bg-sidebar: #ede8dc;
   --sl-color-bg-inline-code: rgba(212, 204, 191, 0.4);
-  --sl-color-text: #362A20;
-  --sl-color-text-accent: #8A2E10;
-  --sl-color-hairline: #D4CCBF;
-  --sl-color-hairline-light: #BEB5A5;
+  --sl-color-text: #362a20;
+  --sl-color-text-accent: #8a2e10;
+  --sl-color-hairline: #d4ccbf;
+  --sl-color-hairline-light: #beb5a5;
 }
 
 /* ── Heading weights ── */
@@ -186,7 +186,7 @@ nav.sidebar .top-level > li > a {
 /* ── Code blocks — always dark ── */
 
 .sl-markdown-content pre {
-  background: #0D1117;
+  background: #0d1117;
   border: 1px solid var(--cl-border-2);
   border-radius: 2px;
   position: relative;
