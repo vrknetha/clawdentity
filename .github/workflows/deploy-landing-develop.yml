@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          PROJECT_NAME="clawdentity-site"
+          PROJECT_NAME="clawdentity-site-dev"
 
           PROJECTS_JSON="$(pnpm dlx wrangler@4 pages project list --json)"
           if PROJECTS_JSON="${PROJECTS_JSON}" node - "${PROJECT_NAME}" <<'NODE'
@@ -73,8 +73,8 @@ jobs:
           then
             echo "Cloudflare Pages project '${PROJECT_NAME}' already exists"
           else
-            echo "Creating Cloudflare Pages project '${PROJECT_NAME}' with production branch 'main'"
-            pnpm dlx wrangler@4 pages project create "${PROJECT_NAME}" --production-branch main
+            echo "Creating Cloudflare Pages project '${PROJECT_NAME}' with production branch 'develop'"
+            pnpm dlx wrangler@4 pages project create "${PROJECT_NAME}" --production-branch develop
           fi
 
       - run: pnpm --filter @clawdentity/landing build
@@ -91,4 +91,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/landing/dist --project-name=clawdentity-site --branch=develop
+          command: pages deploy apps/landing/dist --project-name=clawdentity-site-dev --branch=develop
