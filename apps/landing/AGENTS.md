@@ -50,6 +50,12 @@
 - Body scroll locking must be cleared when leaving mobile viewport widths (for example, resizing to desktop while menu is open).
 - Avoid duplicated DOM state mutations for `aria-expanded`, `nav--open`, and body overflow handling.
 
+## Asset Hygiene
+- Keep only assets that are referenced by landing source code or Astro config.
+- Remove unused duplicates (for example mono/source variants) when they are not imported or referenced.
+- Before adding a new asset variant, confirm a real consumer exists in `src/components`, `src/pages`, or config.
+- Prefer one canonical format per usage context to avoid parallel unused file sets.
+
 ## Cloudflare Pages Deploy Expectations
 - `develop` branch deploys to Cloudflare Pages preview/staging.
 - `main` branch deploys to Cloudflare Pages production.
