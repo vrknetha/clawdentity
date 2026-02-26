@@ -67,7 +67,16 @@ jobs:
           if PROJECTS_JSON="${PROJECTS_JSON}" node - "${PROJECT_NAME}" <<'NODE'
           const projectName = process.argv[2];
           const projects = JSON.parse(process.env.PROJECTS_JSON ?? "[]");
-          const exists = Array.isArray(projects) && projects.some((project) => project?.name === projectName);
+          const exists =
+            Array.isArray(projects) &&
+            projects.some((project) => {
+              const name =
+                project?.name ??
+                project?.["Project Name"] ??
+                project?.project_name ??
+                null;
+              return name === projectName;
+            });
           process.exit(exists ? 0 : 1);
           NODE
           then
