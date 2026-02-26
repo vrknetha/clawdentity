@@ -1,0 +1,40 @@
+:root {
+  /* ── Brand palette ── */
+  --cl-teal: #0d9488;
+  --cl-teal-light: #14b8a6;
+  --cl-teal-dim: #0d3d38;
+  --cl-amber: #f59e0b;
+  --cl-amber-light: #fbbf24;
+  --cl-amber-dim: #78350f;
+
+  /* ── Dark surfaces ── */
+  --cl-bg: #0b1220;
+  --cl-surface: #0f172a;
+  --cl-surface-raised: #1e293b;
+
+  /* ── Text ── */
+  --cl-text: #e2e8f0;
+  --cl-text-muted: #94a3b8;
+  --cl-text-dim: #64748b;
+
+  /* ── Borders ── */
+  --cl-border: #1e293b;
+  --cl-border-light: #334155;
+
+  /* ── Glow ── */
+  --cl-glow-teal: rgba(13, 148, 136, 0.4);
+  --cl-glow-amber: rgba(245, 158, 11, 0.4);
+
+  /* ── Typography ── */
+  --font-sans:
+    "Space Grotesk", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, "JetBrains Mono", "Fira Code", SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+  --fw-display: 800;
+  --fw-h2: 700;
+  --fw-h3: 600;
+  --fw-body: 400;
+  --fw-ui: 600;
+}

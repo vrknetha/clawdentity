@@ -1,0 +1,94 @@
+name: Deploy Landing Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/landing/**"
+      - "apps/openclaw-skill/skill/**"
+      - "apps/landing/scripts/**"
+      - ".github/workflows/deploy-landing*.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-landing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install D2 CLI
+        run: curl -fsSL https://d2lang.com/install.sh | sh -s --
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Verify Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "Missing required secret: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "Missing required secret: CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+
+      - name: Bootstrap Cloudflare Pages project
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          PROJECT_NAME="clawdentity-site"
+
+          PROJECTS_JSON="$(pnpm dlx wrangler@4 pages project list --json)"
+          if PROJECTS_JSON="${PROJECTS_JSON}" node - "${PROJECT_NAME}" <<'NODE'
+          const projectName = process.argv[2];
+          const projects = JSON.parse(process.env.PROJECTS_JSON ?? "[]");
+          const exists = Array.isArray(projects) && projects.some((project) => project?.name === projectName);
+          process.exit(exists ? 0 : 1);
+          NODE
+          then
+            echo "Cloudflare Pages project '${PROJECT_NAME}' already exists"
+          else
+            echo "Creating Cloudflare Pages project '${PROJECT_NAME}' with production branch 'main'"
+            pnpm dlx wrangler@4 pages project create "${PROJECT_NAME}" --production-branch main
+          fi
+
+      - run: pnpm --filter @clawdentity/landing build
+
+      - name: Assert landing artifacts exist
+        run: |
+          set -euo pipefail
+          test -f apps/landing/dist/skill.md
+          test -f apps/landing/dist/install.sh
+          test -f apps/landing/dist/install.ps1
+
+      - name: Deploy to Cloudflare Pages (main)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/landing/dist --project-name=clawdentity-site --branch=main

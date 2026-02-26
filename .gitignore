@@ -12,6 +12,7 @@ nx.bat
 .dev.vars
 .pnpm-store/
 target/
+.astro/
 
 # Working docs (plans, reviews, research — keep local)
 **/PLAN.md

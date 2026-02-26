@@ -1,0 +1,278 @@
+---
+title: Proxy API
+description: HTTP API reference for the Clawdentity verification proxy.
+---
+
+The proxy is a Cloudflare Worker that verifies Clawdentity identity headers and forwards authenticated requests to OpenClaw. It also supports WebSocket relay connections for real-time agent-to-agent message delivery.
+
+## Rate limits
+
+The proxy enforces per-agent rate limiting. The default is **60 requests/minute per agent** with a 60-second sliding window. Configure via `AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE` and `AGENT_RATE_LIMIT_WINDOW_MS` environment variables.
+
+## Endpoints
+
+### Health check
+
+```http
+GET /health
+```
+
+Returns proxy status, version, and environment. This endpoint bypasses authentication.
+
+### Agent hook (relay delivery)
+
+```http
+POST /hooks/agent
+```
+
+The primary proxy route. Accepts requests from authenticated agents and delivers them to the recipient agent's relay session via Durable Object.
+
+**Required headers:**
+
+| Header | Value |
+|--------|-------|
+| `Authorization` | `Claw <AIT>` |
+| `X-Claw-Timestamp` | Unix seconds |
+| `X-Claw-Nonce` | Base64url random value |
+| `X-Claw-Body-SHA256` | Base64url SHA-256 of the raw body |
+| `X-Claw-Proof` | Ed25519 signature over the canonical string |
+| `X-Claw-Agent-Access` | Agent session access token |
+| `X-Claw-Recipient-Agent-Did` | DID of the target agent (e.g., `did:cdi:registry.clawdentity.com:agent:01HXYZ...`) |
+| `Content-Type` | Must be `application/json` |
+
+#### Verification pipeline
+
+1. Verify AIT signature against registry EdDSA keys
+2. Check AIT expiry
+3. Verify timestamp skew (max +/-300 seconds)
+4. Verify PoP signature against AIT `cnf` public key
+5. Reject nonce replay (per-agent, 5-minute cache)
+6. Check CRL for revoked `jti`
+7. Enforce trust policy
+8. Validate agent access token via registry
+9. Apply per-agent rate limits
+
+**Identity injection:**
+
+When `INJECT_IDENTITY_INTO_MESSAGE=true` (default), the proxy prepends an identity block to the `message` field of the JSON payload before delivery. The block is formatted as:
+
+```
+[Clawdentity Identity]
+agentDid: did:cdi:registry.clawdentity.com:agent:01HXYZ...
+ownerDid: did:cdi:registry.clawdentity.com:human:01HABC...
+issuer: https://api.clawdentity.com
+aitJti: 01HJKL...
+```
+
+Sanitization rules:
+- Control characters (ASCII 0--31 and 127) are stripped from all fields
+- Consecutive whitespace is collapsed to a single space
+- Fields are truncated to maximum lengths: `agentDid` (160), `ownerDid` (160), `issuer` (200), `aitJti` (64)
+- Empty fields after sanitization are replaced with `"unknown"`
+
+Identity injection only applies when the payload is a JSON object containing a `message` field of type `string`.
+
+**Response (202):**
+
+```json
+{
+  "accepted": true,
+  "delivered": true,
+  "connectedSockets": 1
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `accepted` | `boolean` | Always `true` on success |
+| `delivered` | `boolean` | Whether the message was delivered to a connected connector |
+| `connectedSockets` | `number` | Number of WebSocket connections for the recipient agent |
+
+### Relay connect (WebSocket)
+
+```http
+GET /v1/relay/connect
+```
+
+Upgrades to a WebSocket connection for real-time relay message delivery. Used by the connector runtime to maintain a persistent link between the local agent and the proxy.
+
+Requires the same Claw authentication headers as `/hooks/agent` (including `Authorization`, `X-Claw-Agent-Access`, and all PoP headers). Must include the `Upgrade: websocket` header.
+
+**Session model:** Each agent DID maps to a Durable Object (`AgentRelaySession`). When a connector connects via WebSocket, the Durable Object accepts the socket and schedules heartbeat alarms at 30-second intervals. Incoming delivery requests from `/hooks/agent` are forwarded to the Durable Object, which sends a `deliver` frame over the WebSocket and waits for a `deliver_ack` response from the connector.
+
+### Pairing: Start (`POST /pair/start`)
+
+Initiator starts a pairing session. Requires `Authorization: Claw <AIT>` with PoP headers. Ownership is verified internally via proxy-to-registry service auth.
+
+**Request body:**
+
+```json
+{
+  "ttlSeconds": 300,
+  "initiatorProfile": {
+    "agentName": "alpha",
+    "humanName": "Ravi"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ttlSeconds` | number | No | Ticket TTL (default 300, max 900) |
+| `initiatorProfile.agentName` | string | Yes | Initiator agent name |
+| `initiatorProfile.humanName` | string | Yes | Initiator human name |
+
+**Response (200):** Returns pairing ticket (`clwpair1_...`) and metadata.
+
+### Pairing: Confirm (`POST /pair/confirm`)
+
+Responder confirms pairing with a ticket. Creates a bidirectional trust pair. Requires `Authorization: Claw <AIT>` with PoP headers.
+
+**Request body:**
+
+```json
+{
+  "ticket": "clwpair1_...",
+  "responderProfile": {
+    "agentName": "beta",
+    "humanName": "Ira"
+  }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ticket` | string | Yes | Pairing ticket from initiator |
+| `responderProfile.agentName` | string | Yes | Responder agent name |
+| `responderProfile.humanName` | string | Yes | Responder human name |
+
+### Pairing: Status (`POST /pair/status`)
+
+Check pairing ticket status. Returns `pending` or `confirmed`. Only participants can check.
+
+### Delivery receipts
+
+#### `POST /v1/relay/delivery-receipts`
+
+Connector sends a receipt after processing a relayed message. Requires Claw authentication headers.
+
+**Request body:**
+
+```json
+{
+  "requestId": "<original-relay-request-id>",
+  "recipientAgentDid": "did:cdi:<authority>:agent:<ulid>",
+  "status": "processed_by_openclaw",
+  "timestamp": "2025-01-15T10:30:00.000Z"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `requestId` | string | Yes | The `x-request-id` from the original relay request |
+| `recipientAgentDid` | string | Yes | DID of the agent that received the message |
+| `status` | string | Yes | `processed_by_openclaw` or `dead_lettered` |
+| `timestamp` | string | Yes | ISO-8601 timestamp of when the message was processed |
+
+**Response (201):** Receipt stored.
+
+#### `GET /v1/relay/delivery-receipts`
+
+Query receipt status by request ID and recipient. Requires Claw authentication headers.
+
+**Query parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `requestId` | string | Yes | The original relay request ID |
+| `recipientAgentDid` | string | Yes | The recipient agent DID |
+
+**Response (200):**
+
+```json
+{
+  "receipts": [
+    {
+      "requestId": "<id>",
+      "recipientAgentDid": "did:cdi:<authority>:agent:<ulid>",
+      "status": "processed_by_openclaw",
+      "receivedAt": "2025-01-15T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `receipts` | array | List of matching delivery receipts |
+| `receipts[].requestId` | string | Original relay request ID |
+| `receipts[].recipientAgentDid` | string | Recipient agent DID |
+| `receipts[].status` | string | `processed_by_openclaw` or `dead_lettered` |
+| `receipts[].receivedAt` | string | ISO-8601 timestamp when the receipt was recorded |
+
+## Error responses
+
+All error responses follow a consistent envelope format:
+
+```json
+{
+  "error": {
+    "code": "PROXY_AUTH_INVALID_AIT",
+    "message": "Human-readable error description"
+  }
+}
+```
+
+Each response includes an `x-request-id` header for tracing.
+
+### Authentication errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `PROXY_AUTH_MISSING_TOKEN` | 401 | Authorization header is missing |
+| `PROXY_AUTH_INVALID_SCHEME` | 401 | Authorization is not in `Claw <ait>` format |
+| `PROXY_AUTH_INVALID_AIT` | 401 | AIT signature is invalid or token is malformed |
+| `PROXY_AUTH_INVALID_TIMESTAMP` | 401 | X-Claw-Timestamp is missing or not a valid unix seconds integer |
+| `PROXY_AUTH_TIMESTAMP_SKEW` | 401 | Request timestamp exceeds allowed +/-300 second skew |
+| `PROXY_AUTH_INVALID_PROOF` | 401 | PoP signature verification failed |
+| `PROXY_AUTH_INVALID_NONCE` | 401 | Nonce validation failed |
+| `PROXY_AUTH_REPLAY` | 401 | Nonce has been seen before (replay detected) |
+| `PROXY_AUTH_REVOKED` | 401 | Agent AIT has been revoked via CRL |
+| `PROXY_AUTH_FORBIDDEN` | 403 | Agent DID is not in a confirmed trust pair |
+| `PROXY_AGENT_ACCESS_REQUIRED` | 401 | X-Claw-Agent-Access header is missing |
+| `PROXY_AGENT_ACCESS_INVALID` | 401 | Agent session access token is expired or invalid |
+
+### Relay delivery errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `PROXY_HOOK_UNSUPPORTED_MEDIA_TYPE` | 415 | Content-Type is not `application/json` |
+| `PROXY_HOOK_INVALID_JSON` | 400 | Request body is not valid JSON |
+| `PROXY_HOOK_RECIPIENT_REQUIRED` | 400 | `X-Claw-Recipient-Agent-Did` header is missing |
+| `PROXY_HOOK_RECIPIENT_INVALID` | 400 | Recipient header is not a valid agent DID |
+| `PROXY_RELAY_UNAVAILABLE` | 503 | Relay session Durable Object namespace is not available |
+| `PROXY_RELAY_DELIVERY_FAILED` | 502 | Delivery to the relay session failed (internal error or timeout) |
+| `PROXY_RELAY_CONNECTOR_OFFLINE` | 502 | No connector is currently connected for the target agent |
+
+### WebSocket relay errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `PROXY_RELAY_UPGRADE_REQUIRED` | 426 | Request did not include WebSocket upgrade header |
+| `PROXY_RELAY_AUTH_CONTEXT_MISSING` | 500 | Internal error: auth context was not set |
+
+### Infrastructure errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `PROXY_AUTH_DEPENDENCY_UNAVAILABLE` | 503 | Registry keys, CRL, or agent auth validation is unreachable |
+| `PROXY_RATE_LIMIT_EXCEEDED` | 429 | Per-agent rate limit exceeded (default: 60/minute) |
+
+### Pairing errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `PROXY_PAIR_OWNERSHIP_FORBIDDEN` | 403 | Initiator ownership check failed |
+| `PROXY_PAIR_OWNERSHIP_UNAVAILABLE` | 503 | Registry ownership lookup unavailable |
+| `PROXY_PAIR_TICKET_NOT_FOUND` | 404 | Pairing ticket is invalid or expired |
+| `PROXY_PAIR_TICKET_EXPIRED` | 410 | Pairing ticket has expired |

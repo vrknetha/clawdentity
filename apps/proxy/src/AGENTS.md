@@ -43,7 +43,7 @@
 - Keep trust/pairing state centralized in `proxy-trust-store.ts` and `proxy-trust-state/` (Durable Object backed; `proxy-trust-state.ts` remains the facade export).
 - Keep shared trust key/expiry helpers in `proxy-trust-keys.ts`; do not duplicate pair-key or expiry-normalization logic across store/state runtimes.
 - Keep pairing route logic isolated in `pairing-route.ts`; `server.ts` should compose it, not implement policy details.
-- Enforce DID v2 only in proxy routes/state/store: accept only `did:cdi:<authority>:<agent|human>:<ulid>` via protocol parsers (`parseAgentDid`, `parseHumanDid`), never manual prefixes or legacy DID fields.
+- Enforce DID v2 only in proxy routes/state/store: accept only `did:cdi:<authority>:<agent|human>:<ulid>` via protocol parsers (`parseAgentDid`, `parseHumanDid`), never manual prefixes or older DID fields.
 - Keep `ALLOW_ALL_VERIFIED` removed; fail fast when deprecated bypass flags are provided.
 - Keep server middleware composable and single-responsibility to reduce churn in later T27-T31 auth/forwarding work.
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
@@ -69,7 +69,7 @@
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
 - Keep `/pair/confirm` ticket checks strict and deterministic:
   - verify ticket signature using stored `publicKeyX` before confirming,
-  - preserve rollout compatibility for legacy pending tickets created before `publicKeyX` persistence (missing key must not make ticket unreadable),
+  - preserve rollout compatibility for older pending tickets created before `publicKeyX` persistence (missing key must not make ticket unreadable),
   - reject replayed confirmed tickets with `409 PROXY_PAIR_TICKET_ALREADY_CONFIRMED`,
   - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
 - Keep `/pair/confirm` callbacks best-effort: if `callbackUrl` is present, POST completion payload and log a warning on callback failure without failing the confirm response.

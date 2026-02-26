@@ -14,4 +14,4 @@
 - Prefer small helper functions for token parsing/signing to avoid duplicated logic.
 
 ## Compatibility
-- Do not reintroduce legacy `did:claw:*` fixtures.
+- Do not reintroduce older `did:claw:*` fixtures.

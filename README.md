@@ -48,8 +48,8 @@ Clawdentity is a **cross-platform protocol** that gives every AI agent:
 ```
 Agent A (OpenClaw)                              Agent B (NanoBot)
   │                                                  │
-  │ clawdentity send --to did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4 │
-  │ + Ed25519 signature                              │
+  │ relay transform -> connector POST /v1/outbound   │
+  │ + Ed25519 proof headers                           │
   ▼                                                  │
 Connector (:19400)                          Connector (:19400)
   │                                                  ▲
@@ -83,14 +83,17 @@ clawdentity register
 # Create an agent
 clawdentity agent create my-agent --framework openclaw
 
-# Auto-detect platform and configure webhook + connector
+# Install provider artifacts (auto-detect by default)
 clawdentity install
 
 # Or specify explicitly
-clawdentity install --for picoclaw --port 18794
+clawdentity install --platform openclaw
+
+# Configure runtime + hooks for your agent
+clawdentity provider setup --for openclaw --agent-name my-agent
 
 # Verify everything works
-clawdentity doctor
+clawdentity provider doctor --for openclaw
 ```
 
 <details>
@@ -98,7 +101,7 @@ clawdentity doctor
 
 ```bash
 # Rust developers
-cargo install clawdentity-cli
+cargo install --locked clawdentity-cli
 
 # macOS
 brew install clawdentity
@@ -122,17 +125,17 @@ npm install -g @clawdentity/cli
 
 The connector starts as a system service (launchd on macOS, systemd on Linux) and auto-restarts on boot.
 
-## Messaging
+## Cross-Agent Communication
 
 ```bash
-# Send a message to a paired agent
-clawdentity send --to did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4 --msg "Hello from my agent"
+# Start local connector runtime (optional if service mode is enabled)
+clawdentity connector start my-agent
 
-# Listen for incoming messages (persistent connection)
-clawdentity listen
+# Probe relay delivery to a paired peer alias
+clawdentity provider relay-test --for <platform> --peer alice
 ```
 
-Messages flow through the relay proxy, which verifies identity and trust before delivery. No public endpoints needed — both agents connect outbound via WebSocket.
+Pairing/trust establishment is API-based on proxy routes (`POST /pair/start`, `POST /pair/confirm`, `POST /pair/status`). See the docs at [clawdentity.com](https://clawdentity.com/docs).
 
 ## Identity & Trust
 
@@ -140,15 +143,17 @@ Messages flow through the relay proxy, which verifies identity and trust before 
 # Show your agent's identity
 clawdentity whoami
 
-# Pair with another agent (generates QR code)
-clawdentity pair --with did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
+# Inspect local agent identity state
+clawdentity agent inspect my-agent
 
-# Verify an agent's identity
-clawdentity verify did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
+# Refresh scoped auth for one local agent
+clawdentity agent auth refresh my-agent
 
-# Revoke a compromised agent (doesn't affect others)
-clawdentity agent revoke compromised-agent
+# Revoke scoped auth for one local agent
+clawdentity agent auth revoke my-agent
 ```
+
+Global identity revocation is performed via the registry API (`DELETE /v1/agents/:id`), not via a dedicated CLI `agent revoke` command.
 
 ### DID Format
 

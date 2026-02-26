@@ -13,13 +13,13 @@ Complete reference for CLI environment variable overrides. When env overrides ar
 | `CLAWDENTITY_REGISTRY_URL` | Override registry URL | config |
 | `CLAWDENTITY_CONNECTOR_BASE_URL` | Override connector bind URL | connector |
 | `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH` | Override outbound path | relay transform |
-| `CLAWDENTITY_AGENT_NAME` | Override agent name resolution | openclaw, transform |
-| `OPENCLAW_BASE_URL` | Override OpenClaw upstream URL | openclaw setup |
-| `OPENCLAW_HOOK_TOKEN` | Override hook auth token | openclaw setup |
-| `OPENCLAW_GATEWAY_TOKEN` | Override gateway auth token | openclaw setup |
-| `OPENCLAW_CONFIG_PATH` | Override OpenClaw config file path | openclaw |
-| `OPENCLAW_STATE_DIR` | Override OpenClaw state directory | openclaw |
-| `OPENCLAW_HOME` | Override OpenClaw home directory (used when explicit config/state overrides are unset) | openclaw |
+| `CLAWDENTITY_AGENT_NAME` | Override agent name resolution | provider (`--for openclaw`), transform |
+| `OPENCLAW_BASE_URL` | Override OpenClaw upstream URL | provider setup (`--for openclaw`) |
+| `OPENCLAW_HOOK_TOKEN` | Override hook auth token | provider setup (`--for openclaw`) |
+| `OPENCLAW_GATEWAY_TOKEN` | Override gateway auth token | provider setup (`--for openclaw`) |
+| `OPENCLAW_CONFIG_PATH` | Override OpenClaw config file path | provider (`--for openclaw`) |
+| `OPENCLAW_STATE_DIR` | Override OpenClaw state directory | provider (`--for openclaw`) |
+| `OPENCLAW_HOME` | Override OpenClaw home directory (used when explicit config/state overrides are unset) | provider (`--for openclaw`) |
 
 ## Profile-Local State Resolution
 
@@ -33,13 +33,6 @@ If `~/.clawdentity` is missing but `<openclaw-state>/.clawdentity` exists, run C
 - `HOME=<openclaw-state>`
 
 This makes `clawdentity` resolve the correct profile-local state root.
-
-## Legacy Environment Variables
-
-| Variable | Replaced By |
-|---|---|
-| `CLAWDBOT_CONFIG_PATH` | `OPENCLAW_CONFIG_PATH` |
-| `CLAWDBOT_STATE_DIR` | `OPENCLAW_STATE_DIR` |
 
 ## Proxy Server Environment Variables
 

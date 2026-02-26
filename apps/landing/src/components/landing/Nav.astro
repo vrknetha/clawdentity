@@ -1,0 +1,374 @@
+---
+import { Image } from "astro:assets";
+import logoPng from "../../assets/landing/clawdentity_primary_logo_2048x512.png";
+---
+
+<nav class="nav" id="nav">
+  <div class="nav-inner container">
+    <a href="/" class="nav-logo" aria-label="Clawdentity home">
+      <Image
+        src={logoPng}
+        alt="Clawdentity"
+        height={36}
+        format="webp"
+        quality={90}
+        loading="eager"
+      />
+    </a>
+
+    <div class="nav-links" id="nav-links">
+      <a href="/getting-started/introduction/" class="nav-link">
+        <span>Documentation</span>
+      </a>
+      <a href="/getting-started/quickstart/" class="nav-link nav-link--highlight">
+        <span>Quick Start</span>
+      </a>
+      <a
+        href="https://github.com/vrknetha/clawdentity"
+        class="nav-link nav-link--icon"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="GitHub repository"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+      </a>
+    </div>
+
+    <button 
+      class="nav-toggle" 
+      id="nav-toggle" 
+      aria-label="Toggle navigation"
+      aria-expanded="false"
+    >
+      <span class="nav-toggle__line"></span>
+      <span class="nav-toggle__line"></span>
+      <span class="nav-toggle__line"></span>
+    </button>
+  </div>
+</nav>
+
+<script>
+  // Navigation scroll behavior
+  (function() {
+    const nav = document.getElementById('nav');
+    const navToggle = document.getElementById('nav-toggle');
+    const navLinks = document.getElementById('nav-links');
+    const MOBILE_BREAKPOINT = 768;
+    
+    let lastScrollY = window.scrollY;
+    let ticking = false;
+    let isMenuOpen = false;
+
+    function syncBodyScrollLock() {
+      const shouldLock = isMenuOpen && window.innerWidth <= MOBILE_BREAKPOINT;
+      document.body.style.overflow = shouldLock ? 'hidden' : '';
+    }
+
+    function setMenuOpen(nextOpen: boolean) {
+      isMenuOpen = nextOpen;
+      navToggle?.setAttribute('aria-expanded', isMenuOpen.toString());
+      nav?.classList.toggle('nav--open', isMenuOpen);
+      syncBodyScrollLock();
+    }
+
+    // Scroll-based nav behavior
+    function updateNav() {
+      const currentScrollY = window.scrollY;
+      
+      // Add/remove scrolled class
+      if (currentScrollY > 50) {
+        nav?.classList.add('nav--scrolled');
+      } else {
+        nav?.classList.remove('nav--scrolled');
+      }
+      
+      // Hide/show on scroll direction (only on desktop)
+      if (window.innerWidth > MOBILE_BREAKPOINT) {
+        if (currentScrollY > lastScrollY && currentScrollY > 100) {
+          nav?.classList.add('nav--hidden');
+        } else {
+          nav?.classList.remove('nav--hidden');
+        }
+      }
+      
+      lastScrollY = currentScrollY;
+      ticking = false;
+    }
+
+    window.addEventListener('scroll', function() {
+      if (!ticking) {
+        requestAnimationFrame(updateNav);
+        ticking = true;
+      }
+    }, { passive: true });
+
+    // Mobile menu toggle
+    navToggle?.addEventListener('click', function() {
+      setMenuOpen(!isMenuOpen);
+    });
+
+    // Close menu on link click (mobile)
+    navLinks?.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        if (isMenuOpen) {
+          setMenuOpen(false);
+        }
+      });
+    });
+
+    // Close menu on escape key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isMenuOpen) {
+        setMenuOpen(false);
+      }
+    });
+
+    // Ensure desktop viewport never keeps mobile body scroll lock.
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > MOBILE_BREAKPOINT && isMenuOpen) {
+        setMenuOpen(false);
+        return;
+      }
+
+      syncBodyScrollLock();
+    });
+
+    syncBodyScrollLock();
+  })();
+</script>
+
+<style>
+  .nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    height: var(--nav-height);
+    background: rgba(11, 18, 32, 0.7);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid rgba(30, 41, 59, 0.5);
+    transition: transform 0.4s var(--ease-out-expo), 
+                background 0.3s var(--ease-smooth),
+                box-shadow 0.3s var(--ease-smooth);
+  }
+
+  .nav--scrolled {
+    background: rgba(11, 18, 32, 0.9);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+    border-bottom-color: rgba(30, 41, 59, 0.8);
+  }
+
+  .nav--hidden {
+    transform: translateY(-100%);
+  }
+
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+  }
+
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    position: relative;
+    transition: transform 0.2s var(--ease-smooth);
+  }
+
+  .nav-logo:hover {
+    transform: scale(1.02);
+  }
+
+  .nav-logo::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    background: radial-gradient(circle, rgba(13, 148, 136, 0.2) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+
+  .nav-logo:hover::after {
+    opacity: 1;
+  }
+
+  .nav-logo :global(img) {
+    height: 2.25rem;
+    width: auto;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+
+  .nav-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    color: var(--cl-text-muted);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    transition: color 0.2s var(--ease-smooth);
+    border-radius: var(--radius-sm);
+  }
+
+  .nav-link::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(13, 148, 136, 0.1);
+    border-radius: var(--radius-sm);
+    opacity: 0;
+    transform: scale(0.9);
+    transition: all 0.2s var(--ease-smooth);
+  }
+
+  .nav-link:hover {
+    color: var(--cl-text);
+  }
+
+  .nav-link:hover::before {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .nav-link span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .nav-link--highlight {
+    color: var(--cl-teal-light);
+  }
+
+  .nav-link--highlight::before {
+    background: rgba(13, 148, 136, 0.15);
+    border: 1px solid rgba(13, 148, 136, 0.3);
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .nav-link--highlight:hover {
+    color: var(--cl-teal-light);
+  }
+
+  .nav-link--highlight:hover::before {
+    background: rgba(13, 148, 136, 0.2);
+    border-color: rgba(13, 148, 136, 0.5);
+  }
+
+  .nav-link--icon {
+    padding: 0.5rem;
+  }
+
+  /* Mobile toggle button */
+  .nav-toggle {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    gap: 6px;
+    position: relative;
+    z-index: 101;
+  }
+
+  .nav-toggle__line {
+    display: block;
+    width: 24px;
+    height: 2px;
+    background: var(--cl-text);
+    border-radius: 2px;
+    transition: all 0.3s var(--ease-out-expo);
+    transform-origin: center;
+  }
+
+  .nav--open .nav-toggle__line:nth-child(1) {
+    transform: translateY(8px) rotate(45deg);
+  }
+
+  .nav--open .nav-toggle__line:nth-child(2) {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+
+  .nav--open .nav-toggle__line:nth-child(3) {
+    transform: translateY(-8px) rotate(-45deg);
+  }
+
+  /* Mobile styles */
+  @media (max-width: 768px) {
+    .nav-toggle {
+      display: flex;
+    }
+
+    .nav-links {
+      position: fixed;
+      top: var(--nav-height);
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(11, 18, 32, 0.98);
+      backdrop-filter: blur(20px);
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      padding-top: var(--space-2xl);
+      gap: var(--space-sm);
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-10px);
+      transition: all 0.3s var(--ease-out-expo);
+    }
+
+    .nav--open .nav-links {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+
+    .nav-link {
+      font-size: 1.25rem;
+      padding: 0.75rem 1.5rem;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.3s var(--ease-out-expo);
+    }
+
+    .nav--open .nav-link {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .nav--open .nav-link:nth-child(1) { transition-delay: 0.1s; }
+    .nav--open .nav-link:nth-child(2) { transition-delay: 0.15s; }
+    .nav--open .nav-link:nth-child(3) { transition-delay: 0.2s; }
+
+    .nav-link--icon svg {
+      width: 28px;
+      height: 28px;
+    }
+  }
+
+  /* Focus states for accessibility */
+  .nav-link:focus-visible,
+  .nav-toggle:focus-visible {
+    outline: 2px solid var(--cl-teal);
+    outline-offset: 2px;
+  }
+</style>

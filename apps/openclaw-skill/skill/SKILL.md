@@ -1,6 +1,6 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the Rust `clawdentity` CLI.
+description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
 version: 0.5.0
 ---
 
@@ -17,29 +17,111 @@ Use this skill for onboarding, provider setup, diagnostics, relay test, and conn
 ## Canonical URL (Single Source)
 
 Use this single URL as the source of truth:
+- `https://clawdentity.com/skill.md`
+
+Fallback mirror (not canonical):
 - `https://raw.githubusercontent.com/vrknetha/clawdentity/develop/apps/openclaw-skill/skill/SKILL.md`
 
-For deterministic automation, pin the URL to a release tag or commit SHA instead of `develop`.
+For deterministic automation, pin the fallback mirror to a release tag or commit SHA instead of `develop`.
 
 ## Scope Guard
 
-This skill is command-accurate for the Rust CLI (`clawdentity 0.1.x`).
-Node/TypeScript CLI usage is deprecated for this skill and out of scope.
+This skill is command-accurate for the current `clawdentity` CLI (`0.1.x`).
+Use current Rust CLI command groups only.
 
-Do not instruct deprecated command groups that are not present in the Rust CLI:
-- `clawdentity openclaw ...`
-- `clawdentity pair ...`
-- `clawdentity verify ...`
-- `clawdentity skill install ...`
+## Quick Prompt (Prompt-first)
+
+Copy/paste this into your provider runtime to run prompt-first onboarding:
+
+```text
+Set up Clawdentity relay using https://clawdentity.com/skill.md as the source of truth.
+Run required onboarding end-to-end and execute commands directly.
+Auto-detect provider when possible; ask me only for missing required inputs: invite code (clw_inv_...), display name, agent name, and provider only if detection is ambiguous.
+```
 
 ## CLI Install Prerequisite (Fresh Containers)
 
-This skill assumes the Rust CLI executable (`clawdentity`) is already available on `PATH`.
-If it is missing, install it first.
+This skill requires the `clawdentity` executable on `PATH`.
+Rust toolchain is not required for the recommended installer path.
 
 Use this install order:
 
-1. Rust + crates.io (recommended)
+1. Hosted installer scripts (recommended)
+
+Unix (Linux/macOS):
+
+```bash
+curl -fsSL https://clawdentity.com/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://clawdentity.com/install.ps1 | iex
+```
+
+Installer environment controls:
+
+- `CLAWDENTITY_VERSION` (optional, defaults to latest `rust/v*` release)
+- `CLAWDENTITY_INSTALL_DIR` (optional custom install path)
+- `CLAWDENTITY_INSTALL_DRY_RUN=1`
+- `CLAWDENTITY_NO_VERIFY=1` (skip checksum verification; use only when required)
+
+2. Prebuilt release binary (advanced fallback)
+
+- Release URL pattern:
+  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.tar.gz`
+  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.zip`
+  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-checksums.txt`
+- Linux/macOS archive platforms:
+  - `linux-x86_64`
+  - `linux-aarch64`
+  - `macos-x86_64`
+  - `macos-aarch64`
+- Windows archive platforms:
+  - `windows-x86_64`
+  - `windows-aarch64`
+
+Linux `aarch64` example:
+
+```bash
+version="<version>"
+asset="clawdentity-${version}-linux-aarch64.tar.gz"
+tag="rust/v${version}"
+base="https://github.com/vrknetha/clawdentity/releases/download/${tag}"
+checksums="clawdentity-${version}-checksums.txt"
+
+mkdir -p "$HOME/bin" /tmp/clawdentity-bin
+curl -fL "${base}/${asset}" -o "/tmp/${asset}"
+curl -fL "${base}/${checksums}" -o "/tmp/${checksums}"
+grep " ${asset}\$" "/tmp/${checksums}" | sha256sum -c -
+tar -xzf "/tmp/${asset}" -C /tmp/clawdentity-bin
+install -m 0755 /tmp/clawdentity-bin/clawdentity "$HOME/bin/clawdentity"
+export PATH="$HOME/bin:$PATH"
+clawdentity --version
+```
+
+PowerShell example (Windows download/install via `irm`):
+
+```powershell
+$version = "<version>"
+$tag = "rust/v$version"
+$platform = "windows-x86_64" # use windows-aarch64 on Arm64
+$asset = "clawdentity-$version-$platform.zip"
+$checksums = "clawdentity-$version-checksums.txt"
+$base = "https://github.com/vrknetha/clawdentity/releases/download/$tag"
+
+irm "$base/$asset" -OutFile $asset
+irm "$base/$checksums" -OutFile $checksums
+$expected = (Get-Content $checksums | Where-Object { $_ -match [regex]::Escape($asset) } | Select-Object -First 1).Split(" ", [System.StringSplitOptions]::RemoveEmptyEntries)[0]
+$actual = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
+if ($actual -ne $expected.ToLower()) { throw "Checksum mismatch for $asset" }
+Expand-Archive -Path $asset -DestinationPath ".\\clawdentity-bin" -Force
+New-Item -ItemType Directory -Force -Path "$HOME\\bin" | Out-Null
+Move-Item ".\\clawdentity-bin\\clawdentity.exe" "$HOME\\bin\\clawdentity.exe" -Force
+```
+
+3. Build from source with Rust toolchain (advanced fallback)
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -53,49 +135,6 @@ Optional deterministic pin:
 ```bash
 cargo install --locked --version <version> clawdentity-cli
 ```
-
-2. Prebuilt release binary (if Rust toolchain is unavailable)
-- Release URL pattern:
-  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.tar.gz`
-  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-windows-x86_64.zip`
-- Linux/macOS platforms:
-  - `linux-x86_64`
-  - `linux-aarch64`
-  - `macos-x86_64`
-  - `macos-aarch64`
-
-Linux `aarch64` example (`0.1.1`):
-
-```bash
-version="<version>"
-asset="clawdentity-${version}-linux-aarch64.tar.gz"
-url="https://github.com/vrknetha/clawdentity/releases/download/rust/v${version}/${asset}"
-
-mkdir -p "$HOME/bin" /tmp/clawdentity-bin
-curl -fL "$url" -o "/tmp/${asset}"
-tar -xzf "/tmp/${asset}" -C /tmp/clawdentity-bin
-install -m 0755 /tmp/clawdentity-bin/clawdentity "$HOME/bin/clawdentity"
-export PATH="$HOME/bin:$PATH"
-clawdentity --version
-```
-
-PowerShell example (Windows download/install via `irm`):
-
-```powershell
-$version = "<version>"
-$tag = "rust/v$version"
-$asset = "clawdentity-$version-windows-x86_64.zip"
-$url = "https://github.com/vrknetha/clawdentity/releases/download/$tag/$asset"
-
-irm $url -OutFile $asset
-Expand-Archive -Path $asset -DestinationPath ".\\clawdentity-bin" -Force
-New-Item -ItemType Directory -Force -Path "$HOME\\bin" | Out-Null
-Move-Item ".\\clawdentity-bin\\clawdentity.exe" "$HOME\\bin\\clawdentity.exe" -Force
-```
-
-3. Optional installer shortcut (best effort)
-- `https://clawdentity.com/install.sh`
-- If this returns CDN/proxy errors (for example HTTP 522), do not block onboarding. Use option 1 or 2 above.
 
 ## Tool Execution Contract (Agent)
 
@@ -263,7 +302,7 @@ Ask only when missing:
 - Non-default provider/webhook/connector overrides.
 
 Do not ask for:
-- Deprecated command paths (`openclaw`, `pair`, `verify`, `skill install`).
+- Command groups outside the current Rust CLI surface.
 - Manual proxy URL unless diagnosing connector runtime overrides.
 
 ## Failure Handling

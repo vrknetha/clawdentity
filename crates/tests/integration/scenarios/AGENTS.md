@@ -6,7 +6,7 @@
 ## DID Assertions
 - Validate `did:cdi:<authority>:agent:<ulid>` format in scenario scripts.
 - Keep regex checks authority-agnostic for local/dev/prod environments.
-- Do not hardcode legacy `did:claw` expectations.
+- Do not hardcode older `did:claw` expectations.
 
 ## Script Quality
 - Keep scripts POSIX-safe where practical and fail fast (`set -euo pipefail`).

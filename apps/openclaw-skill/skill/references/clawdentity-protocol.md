@@ -4,7 +4,7 @@
 
 Define the exact runtime contract used by `relay-to-peer.mjs`.
 
-> Rust CLI note: executable multi-provider commands live in `SKILL.md` (`clawdentity install`, `clawdentity provider ...`, `clawdentity connector ...`). Node/TypeScript CLI command surfaces are deprecated for this skill. Pairing examples here describe proxy protocol behavior; do not treat legacy `pair/openclaw/verify/skill install` commands as executable guidance.
+> Rust CLI note: executable commands for this skill live in `SKILL.md` (`clawdentity install`, `clawdentity provider ...`, `clawdentity connector ...`). Pairing is documented here as a proxy API flow.
 
 ## Filesystem Paths
 
@@ -47,10 +47,9 @@ Rules:
 
 Relay delivery policy is trust-pair based on proxy side. Pairing must be completed before first cross-agent delivery.
 
-Current pairing contract is ticket-based at proxy API level. Legacy CLI examples:
+Current pairing contract is ticket-based at proxy API level:
 
 1. Initiator owner starts pairing:
-   - Legacy CLI: `clawdentity pair start <agent-name> --qr`
    - proxy route: `POST /pair/start`
    - headers:
      - `Authorization: Claw <AIT>`
@@ -67,10 +66,9 @@ Current pairing contract is ticket-based at proxy API level. Legacy CLI examples
 }
 ```
 
-> **Agent note:** `initiatorProfile` is auto-constructed by CLI from `config.humanName` and the `<agent-name>` argument. Do not pass or ask for this value.
+> **Agent note:** `initiatorProfile` should be derived by the pairing client from local identity/config state when available.
 
 2. Responder confirms pairing:
-   - Legacy CLI: `clawdentity pair confirm <agent-name> --qr-file <path>`
    - proxy route: `POST /pair/confirm`
    - headers:
      - `Authorization: Claw <AIT>`
@@ -86,7 +84,7 @@ Current pairing contract is ticket-based at proxy API level. Legacy CLI examples
 }
 ```
 
-> **Agent note:** `responderProfile` is auto-constructed by CLI from `config.humanName` and the `<agent-name>` argument. Do not pass or ask for this value.
+> **Agent note:** `responderProfile` should be derived by the pairing client from local identity/config state when available.
 
 Rules:
 - `ticket` is one-time and expires (default 5 minutes, max 15 minutes).
@@ -265,7 +263,7 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | HTTP Status | Error Code | Meaning | Recovery |
 |---|---|---|---|
 | — | `CLI_PAIR_STATUS_FAILED` | Generic pair status failure | Retry |
-| — | `CLI_PAIR_STATUS_WAIT_TIMEOUT` | Wait polling timed out | Generate new ticket via `pair start` |
+| — | `CLI_PAIR_STATUS_WAIT_TIMEOUT` | Wait polling timed out | Generate a new ticket via `POST /pair/start` |
 | — | `CLI_PAIR_STATUS_FORBIDDEN` | 403 on status check — ownership mismatch | Verify correct agent |
 | — | `CLI_PAIR_STATUS_TICKET_REQUIRED` | Missing ticket argument | Provide `--ticket <clwpair1_...>` |
 | — | `CLI_PAIR_STATUS_WAIT_INVALID` | Wait/poll option is not a positive integer | Use a valid positive integer for `--wait-seconds` or `--poll-interval-seconds` |
@@ -322,7 +320,7 @@ Run `clawdentity provider doctor --for openclaw --json` for machine-readable dia
 | `config.registry` | `registryUrl`, `apiKey`, and `proxyUrl` in config (or proxy env override) | `clawdentity config init` or `invite redeem` |
 | `state.selectedAgent` | Agent marker at `~/.clawdentity/openclaw-agent-name` | `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
 | `state.credentials` | `ait.jwt` and `secret.key` exist and non-empty | `clawdentity agent create <agent-name>` or `agent auth refresh <agent-name>` |
-| `state.peers` | Peers config valid; requested `--peer` alias exists | Populate peers via pairing API or legacy pairing CLI flow |
+| `state.peers` | Peers config valid; requested `--peer` alias exists | Populate peers via pairing API flow |
 | `state.transform` | Relay transform artifacts in OpenClaw hooks dir | Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
 | `state.hookMapping` | `send-to-peer` hook mapping in OpenClaw config | `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
 | `state.hookToken` | Hooks enabled with token in OpenClaw config | `clawdentity provider setup --for openclaw --agent-name <agent-name>` then restart OpenClaw |

@@ -1,0 +1,465 @@
+---
+title: Registry API
+description: HTTP API reference for the Clawdentity identity registry.
+---
+
+The registry is a Cloudflare Worker that issues agent identities, manages revocation, and handles onboarding. All routes use JSON request/response bodies.
+
+## Public endpoints (no auth required)
+
+### Health check
+
+```http
+GET /health
+```
+
+Returns registry status, version, and environment.
+
+### Registry signing keys
+
+```http
+GET /.well-known/claw-keys.json
+```
+
+Returns the registry's Ed25519 public keys used to verify AIT and CRL signatures. Clients should cache these keys for offline verification.
+
+### Certificate Revocation List
+
+```http
+GET /v1/crl
+```
+
+Returns a signed JWT (`typ=CRL`) containing the list of revoked AIT `jti` values. Clients should cache this and refresh at the configured interval (default: 300 seconds). Rate-limited to 30 requests/minute per IP.
+
+### Resolve agent
+
+```http
+GET /v1/resolve/:id
+```
+
+Resolves an agent by ULID and returns public metadata. Rate-limited to 10 requests/minute per IP.
+
+**Response schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `did` | `string` | Agent DID |
+| `name` | `string` | Agent display name |
+| `framework` | `string` | Agent framework (defaults to `"openclaw"`) |
+| `status` | `string` | `"active"` or `"revoked"` |
+| `ownerDid` | `string` | Owner human DID |
+
+### Registry metadata
+
+```http
+GET /v1/metadata
+```
+
+Returns registry metadata including service URLs and environment information.
+
+**Response:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `registryUrl` | string | Registry base URL |
+| `proxyUrl` | string | Proxy base URL |
+| `environment` | string | Current environment (`local`, `dev`, `production`) |
+| `version` | string | Registry version |
+
+### Redeem invite
+
+```http
+POST /v1/invites/redeem
+```
+
+Redeems a registry onboarding invite code. Creates a human account and returns an API key. No authentication required — the invite code itself is the credential.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `code` | `string` | Yes | Invite code (max 128 characters) |
+| `displayName` | `string` | No | Human display name (max 64 characters, defaults to `"User"`) |
+| `apiKeyName` | `string` | No | Name for the created API key (max 64 characters, defaults to `"invite"`) |
+
+**Response (201):**
+
+```json
+{
+  "human": {
+    "id": "...",
+    "did": "did:cdi:<authority>:human:...",
+    "displayName": "User",
+    "role": "user",
+    "status": "active"
+  },
+  "apiKey": {
+    "id": "...",
+    "name": "invite",
+    "token": "clw_pat_..."
+  }
+}
+```
+
+### Agent auth refresh
+
+```http
+POST /v1/agents/auth/refresh
+```
+
+Refreshes agent auth tokens. Requires `Authorization: Claw <AIT>` with PoP headers. Rate-limited to 20 requests/minute per IP.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `refreshToken` | `string` | Yes | Current refresh token |
+
+**Response schema:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agentAuth.tokenType` | `string` | Always `"Bearer"` |
+| `agentAuth.accessToken` | `string` | New access token |
+| `agentAuth.accessExpiresAt` | `string` | Access token expiry (ISO-8601) |
+| `agentAuth.refreshToken` | `string` | New refresh token (rotated) |
+| `agentAuth.refreshExpiresAt` | `string` | Refresh token expiry (ISO-8601) |
+
+Token defaults: access tokens expire after 15 minutes, refresh tokens expire after 30 days.
+
+### Agent auth validate
+
+```http
+POST /v1/agents/auth/validate
+```
+
+Validates an agent's access token. Used by the proxy to verify agent session tokens. Rate-limited to 120 requests/minute per IP.
+
+**Required headers:**
+
+| Header | Description |
+|--------|-------------|
+| `X-Claw-Agent-Access` | Agent session access token |
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `agentDid` | `string` | Yes | Agent DID to validate |
+| `aitJti` | `string` | Yes | AIT `jti` claim to match |
+
+**Response:** `204 No Content` on success.
+
+## Authenticated endpoints (PAT required)
+
+All endpoints below require `Authorization: Bearer <api-key>` header.
+
+### Current user
+
+```http
+GET /v1/me
+```
+
+Returns the authenticated human's profile.
+
+### Invite management
+
+```http
+POST /v1/invites
+```
+
+Creates a new onboarding invite code with optional expiry. Admin only.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `expiresAt` | `string \| null` | No | ISO-8601 expiry datetime (must be in the future, or `null` for no expiry) |
+
+### API key lifecycle
+
+```http
+POST /v1/me/api-keys
+```
+
+Creates a new PAT. The plaintext token is returned once in the response and cannot be retrieved later.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | `string` | No | Key name (max 64 characters, defaults to `"api-key"`) |
+
+```http
+GET /v1/me/api-keys
+```
+
+Lists PAT metadata (`id`, `name`, `status`, `createdAt`, `lastUsedAt`). Never returns token values.
+
+```http
+DELETE /v1/me/api-keys/:id
+```
+
+Revokes a specific PAT. Unrelated active PATs continue to work. Returns `204 No Content`.
+
+### Agent management
+
+#### List agents
+
+```http
+GET /v1/agents
+```
+
+Lists all agents owned by the authenticated human.
+
+**Query parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `status` | `string` | No | Filter by `"active"` or `"revoked"` |
+| `framework` | `string` | No | Filter by framework name (max 32 characters) |
+| `limit` | `integer` | No | Page size, 1--100 (default: 20) |
+| `cursor` | `string` | No | ULID cursor from previous page's `pagination.nextCursor` |
+
+**Response schema:**
+
+```json
+{
+  "agents": [
+    {
+      "id": "...",
+      "did": "did:cdi:<authority>:agent:...",
+      "name": "my-agent",
+      "status": "active",
+      "expires": "2025-04-01T00:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "limit": 20,
+    "nextCursor": "01HXYZ..." // null when no more pages
+  }
+}
+```
+
+Pagination uses descending ULID order. Pass `nextCursor` as the `cursor` parameter to fetch the next page.
+
+#### Create registration challenge
+
+```http
+POST /v1/agents/challenge
+```
+
+Initiates agent registration. Accepts a public key and returns a `challengeId`, `nonce`, and `ownerDid`. The challenge expires after 5 minutes.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `publicKey` | `string` | Yes | Base64url-encoded Ed25519 public key (must decode to exactly 32 bytes) |
+
+**Response (201):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `challengeId` | `string` | ULID identifying this challenge |
+| `nonce` | `string` | Base64url-encoded 24-byte random nonce |
+| `ownerDid` | `string` | Owner DID to include in the proof message |
+| `expiresAt` | `string` | ISO-8601 challenge expiry (5 minutes from creation) |
+| `algorithm` | `string` | Always `"Ed25519"` |
+| `messageTemplate` | `string` | Template for the canonical proof message |
+
+#### Register agent
+
+```http
+POST /v1/agents
+```
+
+Completes agent registration. Requires the challenge signature proving ownership of the public key. Returns the agent record, signed AIT, and initial auth tokens.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | `string` | Yes | Agent name (validated via `validateAgentName`) |
+| `publicKey` | `string` | Yes | Base64url-encoded Ed25519 public key (32 bytes decoded) |
+| `challengeId` | `string` | Yes | ULID from the challenge response |
+| `challengeSignature` | `string` | Yes | Base64url-encoded Ed25519 signature (64 bytes decoded) over the canonical proof message |
+| `framework` | `string` | No | Agent framework (max 32 characters, defaults to `"openclaw"`) |
+| `ttlDays` | `integer` | No | AIT time-to-live in days, 1--90 (defaults to 30) |
+
+**Response (201):**
+
+```json
+{
+  "agent": {
+    "id": "...",
+    "did": "did:cdi:<authority>:agent:...",
+    "ownerDid": "did:cdi:<authority>:human:...",
+    "name": "my-agent",
+    "framework": "openclaw",
+    "publicKey": "...",
+    "currentJti": "...",
+    "ttlDays": 30,
+    "status": "active",
+    "expiresAt": "...",
+    "createdAt": "...",
+    "updatedAt": "..."
+  },
+  "ait": "<signed-jwt>",
+  "agentAuth": {
+    "tokenType": "Bearer",
+    "accessToken": "...",
+    "accessExpiresAt": "...",
+    "refreshToken": "...",
+    "refreshExpiresAt": "..."
+  }
+}
+```
+
+#### Reissue agent AIT
+
+```http
+POST /v1/agents/:id/reissue
+```
+
+Reissues an agent's AIT. The previous AIT `jti` is automatically added to the CRL with reason `"reissued"`. Only active agents can be reissued; revoked agents return a `409` error.
+
+**Response:**
+
+```json
+{
+  "agent": { ... },
+  "ait": "<signed-jwt>"
+}
+```
+
+#### Revoke agent auth session
+
+```http
+DELETE /v1/agents/:id/auth/revoke
+```
+
+Revokes an agent's auth session without deleting the agent. Returns `204 No Content`.
+
+#### Delete agent
+
+```http
+DELETE /v1/agents/:id
+```
+
+Deletes an agent identity, revokes its AIT, and revokes its auth session. Returns `204 No Content`.
+
+## Admin endpoints
+
+### Bootstrap
+
+```http
+POST /v1/admin/bootstrap
+```
+
+Creates the first admin account and PAT. Requires `x-bootstrap-secret` header. Can only be called once.
+
+### Internal services
+
+```http
+POST /v1/admin/internal-services
+```
+
+Manages internal service authentication between proxy and registry. Admin only.
+
+## Internal endpoints
+
+### Agent ownership verification
+
+```http
+POST /internal/v1/identity/agent-ownership
+```
+
+Verifies that an agent is owned by the authenticated caller. Used internally by the proxy during pairing to validate initiator ownership.
+
+## Error codes
+
+All error responses follow a consistent envelope format:
+
+```json
+{
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable description"
+  }
+}
+```
+
+In development environments, errors may include a `details` object with `fieldErrors` and `formErrors` for validation failures.
+
+### Invite errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `INVITE_CREATE_INVALID` | 400 | Invite create payload failed validation |
+| `INVITE_CREATE_FORBIDDEN` | 403 | Caller does not have admin role |
+| `INVITE_REDEEM_INVALID` | 400 | Invite redeem payload failed validation |
+| `INVITE_REDEEM_CODE_INVALID` | 400 | Invite code does not exist |
+| `INVITE_REDEEM_EXPIRED` | 400 | Invite code has expired |
+| `INVITE_REDEEM_ALREADY_USED` | 409 | Invite code has already been redeemed |
+
+### Agent registration errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `AGENT_REGISTRATION_CHALLENGE_INVALID` | 400 | Challenge request payload failed validation |
+| `AGENT_REGISTRATION_CHALLENGE_NOT_FOUND` | 400 | Challenge ID not found for this owner |
+| `AGENT_REGISTRATION_CHALLENGE_EXPIRED` | 400 | Challenge has expired (5-minute TTL) |
+| `AGENT_REGISTRATION_CHALLENGE_REPLAYED` | 400 | Challenge has already been used |
+| `AGENT_REGISTRATION_INVALID` | 400 | Registration payload failed validation |
+| `AGENT_REGISTRATION_PROOF_MISMATCH` | 400 | Public key in registration does not match the challenge |
+| `AGENT_REGISTRATION_PROOF_INVALID` | 400 | Ed25519 signature verification failed |
+
+### Agent lifecycle errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `AGENT_NOT_FOUND` | 404 | Agent does not exist or is not owned by caller |
+| `AGENT_REVOKE_INVALID_PATH` | 400 | Agent ID in URL path is not a valid ULID |
+| `AGENT_REVOKE_INVALID_STATE` | 409 | Agent cannot be revoked in its current state |
+| `AGENT_REISSUE_INVALID_STATE` | 409 | Agent cannot be reissued (e.g., already revoked) |
+| `AGENT_RESOLVE_INVALID_PATH` | 400 | Resolve ID in URL path is not a valid ULID |
+| `AGENT_LIST_INVALID_QUERY` | 400 | Agent list query parameters failed validation |
+
+### Agent auth errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `AGENT_AUTH_VALIDATE_INVALID` | 400 | Validate payload is missing or malformed |
+| `AGENT_AUTH_VALIDATE_UNAUTHORIZED` | 401 | Access token is invalid or does not match |
+| `AGENT_AUTH_VALIDATE_EXPIRED` | 401 | Access token has expired |
+| `AGENT_AUTH_REFRESH_INVALID` | 400/401 | Refresh payload is invalid or token does not match |
+| `AGENT_AUTH_REFRESH_UNAUTHORIZED` | 401 | Refresh request is unauthorized |
+| `AGENT_AUTH_REFRESH_REVOKED` | 401 | Refresh token session has been revoked |
+| `AGENT_AUTH_REFRESH_EXPIRED` | 401 | Refresh token has expired |
+| `AGENT_AUTH_REFRESH_CONFLICT` | 409 | Session state changed during refresh (retry) |
+
+### API key errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `API_KEY_CREATE_INVALID` | 400 | API key create payload failed validation |
+| `API_KEY_REVOKE_INVALID_PATH` | 400 | API key ID in URL path is not a valid ULID |
+| `API_KEY_NOT_FOUND` | 404 | API key does not exist or is not owned by caller |
+
+### Admin errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `ADMIN_BOOTSTRAP_DISABLED` | 503 | Bootstrap secret is not configured |
+| `ADMIN_BOOTSTRAP_UNAUTHORIZED` | 401 | Bootstrap secret is missing or incorrect |
+| `ADMIN_BOOTSTRAP_INVALID` | 400 | Bootstrap payload failed validation |
+| `ADMIN_BOOTSTRAP_ALREADY_COMPLETED` | 409 | An admin account already exists |
+
+### General errors
+
+| Code | HTTP | Meaning |
+|------|------|---------|
+| `RATE_LIMIT_EXCEEDED` | 429 | Too many requests for this endpoint |
+| `CRL_NOT_FOUND` | 404 | No revocations exist yet (CRL snapshot unavailable) |
+| `CRL_BUILD_FAILED` | 500 | Internal CRL generation error |

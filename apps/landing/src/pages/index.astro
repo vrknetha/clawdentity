@@ -1,0 +1,70 @@
+---
+import LandingLayout from "../layouts/LandingLayout.astro";
+import "../styles/landing.css";
+import "../styles/landing-motion.css";
+
+import Nav from "../components/landing/Nav.astro";
+import Hero from "../components/landing/Hero.astro";
+import Problem from "../components/landing/Problem.astro";
+import TheFix from "../components/landing/TheFix.astro";
+import Comparison from "../components/landing/Comparison.astro";
+import HowItWorks from "../components/landing/HowItWorks.astro";
+import Privacy from "../components/landing/Privacy.astro";
+import UseCases from "../components/landing/UseCases.astro";
+import GettingStarted from "../components/landing/GettingStarted.astro";
+import Footer from "../components/landing/Footer.astro";
+---
+
+<LandingLayout>
+  <Nav />
+  <main>
+    <Hero />
+    <Problem />
+    <TheFix />
+    <Comparison />
+    <HowItWorks />
+    <Privacy />
+    <UseCases />
+    <GettingStarted />
+  </main>
+  <Footer />
+</LandingLayout>
+
+<style is:global>
+  /* Ensure smooth page transitions */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Selection styling */
+  ::selection {
+    background: rgba(13, 148, 136, 0.3);
+    color: var(--cl-text);
+  }
+
+  /* Focus visible styling */
+  :focus-visible {
+    outline: 2px solid var(--cl-teal);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--cl-bg);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--cl-border-light);
+    border-radius: 5px;
+    border: 2px solid var(--cl-bg);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--cl-text-dim);
+  }
+</style>

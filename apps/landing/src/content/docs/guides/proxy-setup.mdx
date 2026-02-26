@@ -1,0 +1,193 @@
+---
+title: Proxy Setup
+description: Deploy and configure the Clawdentity verification proxy.
+---
+
+The Clawdentity Proxy is a Cloudflare Worker that sits in front of OpenClaw. It verifies identity, checks revocation, enforces trust policy, and only forwards authenticated requests.
+
+## How the proxy works
+
+```d2
+direction: down
+
+caller: Caller's Connector {
+  style.fill: "#fff4e8"
+  label: |md
+    **Caller's Connector**
+    Signs HTTP request
+    with Ed25519 PoP headers
+  |
+}
+
+proxy: Clawdentity Proxy {
+  style.fill: "#e8f4f8"
+  pipeline: |md
+    1. Verify AIT signature
+    2. Check timestamp + nonce replay
+    3. Verify PoP signature
+    4. Check CRL revocation
+    5. Enforce trust policy
+    6. Apply rate limits
+  |
+}
+
+recipient: Recipient's Connector {
+  style.fill: "#fff4e8"
+  label: |md
+    **Recipient's Connector**
+    Persists to inbox
+    Delivers locally with retry
+  |
+}
+
+openclaw: OpenClaw Gateway {
+  style.fill: "#f8e8f8"
+  label: |md
+    **OpenClaw Gateway**
+    /hooks/agent
+  |
+}
+
+caller -> proxy: "Authorization: Claw <AIT>\nX-Claw-Proof / Nonce / Timestamp" {
+  style.stroke: "#1976d2"
+}
+proxy -> recipient: "WebSocket deliver frame" {
+  style.stroke: "#388e3c"
+}
+recipient -> openclaw: "POST /hooks/agent\n(with retry)" {
+  style.stroke: "#388e3c"
+}
+```
+
+## Deployment
+
+### Local development
+
+```bash
+# Local env (ENVIRONMENT=local)
+pnpm dev:proxy
+
+# Development env (ENVIRONMENT=dev)
+pnpm dev:proxy:development
+
+# Fresh deploy-like env
+pnpm dev:proxy:fresh
+```
+
+### Production deployment
+
+```bash
+pnpm -F @clawdentity/proxy run deploy:production
+```
+
+## Configuration
+
+The proxy is configured through Cloudflare Worker environment variables in `apps/proxy/wrangler.jsonc`.
+
+### Identity injection
+
+By default, `INJECT_IDENTITY_INTO_MESSAGE=true` prepends a sanitized identity block into `/hooks/agent` payload messages:
+
+- `agentDid` — the caller's agent DID
+- `ownerDid` — the caller's owner DID
+- `issuer` — the registry URL
+- `aitJti` — the AIT token ID
+
+Set `INJECT_IDENTITY_INTO_MESSAGE=false` to keep payloads unchanged.
+
+## Verification pipeline
+
+The proxy runs these checks in order on every request (see the [Proxy API reference](/api-reference/proxy/#verification-pipeline) for the authoritative list):
+
+1. **AIT signature** — validates against registry EdDSA keys from `/.well-known/claw-keys.json`
+2. **AIT expiry** — rejects expired tokens
+3. **Timestamp skew** — rejects requests older than 300 seconds (default)
+4. **PoP signature** — verifies Ed25519 signature against the public key in the AIT `cnf` claim
+5. **Nonce replay** — tracks nonces per-agent for 5 minutes
+6. **CRL revocation** — checks the cached CRL for revoked `jti` values
+7. **Trust policy** — verifies the caller's agent DID is in a confirmed trust pair
+8. **Agent access token** — validates the session token via `POST /v1/agents/auth/validate` on the registry
+9. **Rate limiting** — per-agent rate limits at the proxy boundary
+
+## Trust store
+
+Trust pairs established via QR pairing replace simple allowlists. The proxy uses a Durable Object-based trust store for production and development environments.
+
+### Backends
+
+| Backend | Environment | Details |
+|---------|-------------|---------|
+| Durable Object (`global-trust`) | `dev`, `production` | Persistent, distributed trust state |
+| In-memory | `local` | Ephemeral, for local development only |
+
+### `ProxyTrustStore` interface
+
+| Method | Purpose |
+|--------|---------|
+| `isAgentKnown(agentDid)` | Check if an agent has any trust pair |
+| `isPairAllowed(senderDid, recipientDid)` | Check if a specific pair is trusted |
+| `upsertPair(pair)` | Create or update a trust pair |
+| Pairing ticket operations | Create, confirm, and query pairing tickets |
+
+Trust pairs are **bidirectional** — once pairing is confirmed, both sides can send to each other. Same-agent delivery (sender DID equals recipient DID) is allowed without an explicit trust pair.
+
+## Pairing routes
+
+The proxy exposes pairing endpoints for establishing trust between agents.
+
+### `POST /pair/start`
+
+Initiator starts a pairing session. Requires agent ownership verification via internal proxy-to-registry service auth.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ttlSeconds` | number | No | Ticket TTL in seconds (default 300, max 900) |
+| `initiatorProfile.agentName` | string | Yes | Initiator's agent name |
+| `initiatorProfile.humanName` | string | Yes | Initiator's human display name |
+
+**Response (200):** Returns a `clwpair1_` pairing ticket and ticket metadata.
+
+### `POST /pair/confirm`
+
+Responder confirms pairing with a ticket. Creates a bidirectional trust pair.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `ticket` | string | Yes | Pairing ticket (`clwpair1_...`) |
+| `responderProfile.agentName` | string | Yes | Responder's agent name |
+| `responderProfile.humanName` | string | Yes | Responder's human display name |
+
+### `POST /pair/status`
+
+Check ticket status. Returns `pending` or `confirmed`. Only participants can check: initiator for pending tickets, either side for confirmed tickets.
+
+## Delivery receipts
+
+The proxy supports delivery receipt tracking for relay messages.
+
+### `POST /v1/relay/delivery-receipts`
+
+Connector sends a receipt after processing a relayed message.
+
+### `GET /v1/relay/delivery-receipts`
+
+Query receipt status.
+
+**Query parameters:**
+- `requestId` — the original relay request ID
+- `recipientAgentDid` — the recipient agent DID
+
+## Node.js deployment
+
+For `local` environment only, the proxy can run as a standalone Node.js server via `apps/proxy/src/node-server.ts`.
+
+- Trust store: **in-memory only** (no Durable Objects in Node.js)
+- Suitable for local development and testing
+
+## Relay connector
+
+The proxy also supports WebSocket-based relay connections at `/v1/relay/connect` for real-time message delivery between agents through the connector runtime.

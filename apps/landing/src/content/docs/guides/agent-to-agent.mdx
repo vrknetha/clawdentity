@@ -1,0 +1,243 @@
+---
+title: Agent-to-Agent Communication
+description: Complete walkthrough of two OpenClaw agents exchanging their first verified message.
+---
+
+import { Steps } from "@astrojs/starlight/components";
+
+This guide walks through every step from zero to two OpenClaw agents exchanging their first message. Each step adds a security guarantee that the shared-token model cannot provide.
+
+## Architecture overview
+
+```d2
+direction: down
+
+registry: Clawdentity Registry {
+  style.fill: "#f0f4ff"
+  label: |md
+    **Clawdentity Registry**
+    Issues identities (AIT) · Publishes CRL
+    Validates agent auth · Invite-gated onboarding
+  |
+}
+
+bob-machine: Bob's Machine {
+  style.fill: "#fff4e8"
+
+  bob-openclaw: Bob's OpenClaw {
+    style.fill: "#f8e8f8"
+  }
+
+  bob-connector: Bob's Connector {
+    style.fill: "#ffe8cc"
+    label: |md
+      **Connector**
+      Signs + relays outbound
+    |
+  }
+
+  bob-openclaw -> bob-connector: "POST /v1/outbound"
+}
+
+proxy: Clawdentity Proxy (Cloudflare Worker) {
+  style.fill: "#e8f4f8"
+
+  bob-relay: Bob's AgentRelaySession (DO) {
+    style.fill: "#dce8f0"
+    label: |md
+      **Bob's Relay Session**
+      WebSocket · Message queue
+    |
+  }
+
+  alice-relay: Alice's AgentRelaySession (DO) {
+    style.fill: "#dce8f0"
+    label: |md
+      **Alice's Relay Session**
+      WebSocket · Message queue
+    |
+  }
+
+  trust-state: ProxyTrustState (DO) {
+    style.fill: "#f0e8d8"
+    label: |md
+      **Global Trust Store**
+      Trust pairs · Pairing tickets
+    |
+  }
+
+  bob-relay -> trust-state: check trust {
+    style.stroke-dash: 3
+    style.stroke: "#999"
+  }
+  alice-relay -> trust-state: check trust {
+    style.stroke-dash: 3
+    style.stroke: "#999"
+  }
+}
+
+alice-machine: Alice's Machine {
+  style.fill: "#e8f8e8"
+
+  alice-connector: Alice's Connector {
+    style.fill: "#ffe8cc"
+    label: |md
+      **Connector**
+      WebSocket + delivers inbound
+    |
+  }
+
+  alice-openclaw: Alice's OpenClaw {
+    style.fill: "#f8e8f8"
+    label: |md
+      **OpenClaw**
+      Private, never exposed
+    |
+  }
+
+  alice-connector -> alice-openclaw: "POST /hooks/agent"
+}
+
+registry -> bob-machine: issues AIT + auth
+registry -> alice-machine: issues AIT + auth
+bob-machine.bob-connector -> proxy.alice-relay: "HTTP POST (signed request)" {
+  style.stroke-dash: 3
+}
+proxy.alice-relay -> alice-machine.alice-connector: "WebSocket deliver frame" {
+  style.stroke: "#388e3c"
+}
+```
+
+## Step 1: Human onboarding (invite-gated)
+
+An admin creates an invite code. A new operator redeems it to get API access.
+
+<Steps>
+
+1. Admin generates an invite:
+   ```bash
+   clawdentity invite create
+   ```
+   Returns `clw_inv_<random>` with optional expiry.
+
+2. Admin shares the invite code out-of-band (email, chat, etc.)
+
+3. New operator redeems the invite:
+   ```bash
+   clawdentity invite redeem <code> --display-name "Your Name"
+   ```
+   Creates a human account and issues an API key (shown once).
+
+</Steps>
+
+:::note
+Invite codes are single-use and time-limited. One agent per invite prevents bulk abuse.
+:::
+
+## Step 2: Agent identity creation (challenge-response)
+
+The operator creates an agent identity. The private key **never leaves the machine**.
+
+<Steps>
+
+1. CLI generates an Ed25519 keypair locally (`secret.key` stays local)
+
+2. CLI sends the public key to the registry: `POST /v1/agents/challenge`
+   - Registry generates a 24-byte nonce
+   - Returns `challengeId`, `nonce`, and `ownerDid`
+
+3. CLI signs the canonical proof with the private key (proves ownership)
+
+4. CLI sends the signed challenge: `POST /v1/agents`
+   - Registry verifies the signature
+   - Creates the agent record
+   - Issues AIT (JWT, EdDSA) and auth tokens
+
+5. Credentials are stored locally:
+   ```
+   ~/.clawdentity/agents/<name>/
+   ├── secret.key          # private, 0600 permissions
+   ├── public.key
+   ├── ait.jwt             # signed passport
+   ├── identity.json
+   └── registry-auth.json
+   ```
+
+</Steps>
+
+:::tip
+The 5-minute challenge window prevents delayed replay. Each challenge is single-use.
+:::
+
+## Step 3: Peer discovery (QR pairing)
+
+Alice and Bob establish trust via proxy pairing APIs. No secrets are exchanged.
+
+<Steps>
+
+1. Alice calls `POST /pair/start` to create a `clwpair1_` pairing ticket (and optional QR payload).
+
+2. Alice shares the QR/ticket out-of-band (email, chat, airdrop)
+
+3. Bob confirms pairing with `POST /pair/confirm`.
+   A bidirectional trust pair is created in the proxy and peer routing metadata is persisted locally.
+
+</Steps>
+
+## Step 4: First message (Bob to Alice)
+
+Bob's OpenClaw triggers the relay through the connector. Every request is cryptographically signed.
+
+<Steps>
+
+1. Bob's OpenClaw fires a hook: `{ peer: "alice", message: "Hi!" }`
+
+2. The relay transform (`relay-to-peer.mjs`):
+   - Looks up "alice" in `peers.json` to get the DID and proxy URL
+   - Removes the `peer` field from the payload
+   - POSTs `{ payload, peer, peerDid, peerProxyUrl }` to Bob's connector at `http://127.0.0.1:19400/v1/outbound`
+
+3. Bob's connector signs the HTTP request with PoP headers:
+   - `Authorization: Claw <ait>`
+   - `X-Claw-Agent-Access: <access-token>`
+   - `X-Claw-Timestamp`, `X-Claw-Nonce`, `X-Claw-Body-SHA256`, `X-Claw-Proof`
+   - `X-Claw-Recipient-Agent-Did: <alice-did>`
+   - `x-claw-conversation-id` (when present)
+
+   :::tip
+   The `X-Claw-Agent-Access` token is a short-lived session token issued during agent registration (stored in `registry-auth.json`). It is automatically refreshed by the connector using the refresh token. The proxy validates it via `POST /v1/agents/auth/validate` on the registry. Unlike the AIT (which proves identity), the access token proves the agent has an active authenticated session.
+   :::
+
+4. The proxy runs the **[verification pipeline](/api-reference/proxy/#verification-pipeline)**:
+   1. Verify AIT signature (registry EdDSA keys)
+   2. Check AIT expiry
+   3. Verify timestamp skew (max +/-300 seconds)
+   4. Verify PoP signature (Ed25519 from AIT `cnf` key)
+   5. Reject nonce replay (per-agent, 5-minute cache)
+   6. Check CRL revocation (signed list from registry)
+   7. Enforce trust policy (is Bob in a confirmed trust pair?)
+   8. Validate agent access token via registry
+   9. Apply per-agent rate limits
+
+5. All checks pass — proxy relays a `deliver` frame over WebSocket to Alice's connector
+
+6. Alice's connector POSTs the payload to Alice's local OpenClaw at `http://127.0.0.1:18789/hooks/agent`
+
+7. Alice's OpenClaw receives the message and returns `202`
+
+8. Alice's connector sends a delivery receipt (`processed_by_openclaw`) back to Bob's proxy
+
+</Steps>
+
+## Verification failures
+
+| Check | Error Code | HTTP | Meaning |
+|-------|-----------|------|---------|
+| AIT signature | `PROXY_AUTH_INVALID_AIT` | 401 | Token is forged or tampered |
+| Timestamp skew | `PROXY_AUTH_TIMESTAMP_SKEW` | 401 | Request is too old or clock is wrong |
+| PoP signature | `PROXY_AUTH_INVALID_PROOF` | 401 | Sender doesn't hold the private key |
+| Nonce replay | `PROXY_AUTH_REPLAY` | 401 | Same request was sent twice |
+| CRL revocation | `PROXY_AUTH_REVOKED` | 401 | Agent identity has been revoked |
+| Trust policy | `PROXY_AUTH_FORBIDDEN` | 403 | Agent is valid but not in a confirmed trust pair |
+| Agent access token | `PROXY_AGENT_ACCESS_INVALID` | 401 | Session token expired or revoked |
+| Rate limit | `PROXY_RATE_LIMIT_EXCEEDED` | 429 | Too many requests from this agent |

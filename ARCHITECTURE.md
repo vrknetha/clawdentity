@@ -191,22 +191,17 @@ Operators exchange peer metadata out-of-band (alias, DID, proxy URL). No relay i
 ```
 Alice's Operator                        Bob's Operator
   │                                        │
-  │  Shares metadata out-of-band ─────────►│
-  │  alias, DID, proxy URL                 │
+  │  POST /pair/start (proxy API)          │
+  │  receives clwpair1_... ticket          │
+  │────────────────────────────────────────►│
   │                                        │
-  │                                        │  clawdentity openclaw setup
-  │                                        │    bob --peer-alias alice
-  │                                        │        --peer-did did:cdi:<authority>:agent:...
-  │                                        │        --peer-proxy-url https://alice-proxy/hooks/agent
+  │                                        │  POST /pair/confirm (proxy API)
+  │                                        │    ticket + responder metadata
   │                                        │
-  │                                        │  Stores peer in peers.json:
-  │                                        │  { "alice": {
-  │                                        │      "did": "did:cdi:<authority>:agent:...",
-  │                                        │      "proxyUrl": "https://..."
-  │                                        │  }}
+  │                                        │  Persists trusted peer metadata:
+  │                                        │  alias + DID + proxy URL
   │                                        │
-  │                                        │  Installs relay transform
-  │                                        │  Configures OpenClaw hooks
+  │                                        │  Relay transform reads paired peers
 ```
 
 **Security:** Setup uses only public peer metadata (DID + proxy URL + alias). No keys, tokens, or secrets are exchanged. Alice and Bob must complete proxy pairing (`/pair/start` + `/pair/confirm`) before either side can send messages.
@@ -300,7 +295,7 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 
 ### Sender Side Operator (Owner/Admin)
 
-- Action: `clawdentity agent revoke <agent>`
+- Action: registry API revoke (`DELETE /v1/agents/:id`)
 - Scope: **global** (registry-level identity revocation)
 - Effect: every receiving proxy rejects that revoked token once CRL refreshes.
 - Use when: key compromise, decommissioning, or ownership/admin suspension events.
@@ -369,18 +364,16 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 
 ### 4) Operator Lifecycle Tooling (CLI)
 
-- Handled by: `apps/cli`
-- `clawdentity agent create` for local keypair + registry registration.
-- `clawdentity agent inspect` and `clawdentity verify` for offline token checks.
-- `clawdentity agent revoke` for kill switch workflows.
-- `clawdentity api-key create` to mint a new PAT (token shown once).
-- `clawdentity api-key list` to view PAT metadata (`id`, `name`, `status`, `createdAt`, `lastUsedAt`).
-- `clawdentity api-key revoke <id>` to invalidate a PAT without rotating unrelated keys.
-- `clawdentity share` for contact-card exchange (DID, verify URL, endpoint).
-- `clawdentity connector start <agentName>` to run local relay connector runtime.
-- `clawdentity connector service install <agentName>` to configure connector autostart after reboot/login (`launchd` on macOS, `systemd --user` on Linux).
-- `clawdentity connector service uninstall <agentName>` to remove connector autostart service.
-- `clawdentity skill install` to install/update OpenClaw relay skill artifacts under `~/.openclaw`.
+- Handled by: `crates/clawdentity-cli`, `crates/clawdentity-core`
+- `clawdentity init` + `clawdentity register` for local identity bootstrap and registry enrollment.
+- `clawdentity agent create <name>` for local keypair + agent registration.
+- `clawdentity agent inspect <name>` for local identity/auth state inspection.
+- `clawdentity agent auth refresh <name>` / `clawdentity agent auth revoke <name>` for per-agent auth lifecycle.
+- `clawdentity api-key create|list|revoke` for PAT lifecycle.
+- `clawdentity install --platform <platform>` for provider artifact install/bootstrap.
+- `clawdentity provider setup --for <platform> --agent-name <name>` for runtime/hook setup.
+- `clawdentity provider doctor --for <platform>` and `provider relay-test --for <platform> --peer <alias>` for readiness and relay diagnostics.
+- `clawdentity connector start <agentName>` and `connector service install|uninstall <agentName>` for runtime operations.
 
 #### Connector Local OpenClaw Resilience
 
@@ -421,7 +414,8 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 Expected operator flow starts from the CLI command:
 
 ```bash
-clawdentity skill install
+clawdentity install --platform openclaw
+clawdentity provider setup --for openclaw --agent-name <agent-name>
 ```
 
 Installer logic prepares OpenClaw runtime artifacts automatically:

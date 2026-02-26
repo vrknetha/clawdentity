@@ -2,6 +2,7 @@
 
 ## Purpose
 - Define conventions for the `clawdentity` CLI package.
+- This package is compatibility surface; canonical operator UX is the Rust CLI in `crates/clawdentity-cli`.
 - Keep command behavior predictable, testable, and safe for local credential storage.
 
 ## Command Architecture

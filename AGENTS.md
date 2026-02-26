@@ -38,7 +38,7 @@ Run from `crates/`:
 ### Apps (deployable services)
 - `apps/registry` - Cloudflare Worker HTTP API for humans, agents, invites, API keys, and revocation data.
 - `apps/proxy` - Cloudflare Worker relay/proxy that verifies Clawdentity auth headers and enforces trust policy.
-- `apps/cli` - TypeScript CLI package (`clawdentity`) for onboarding, identity ops, provider setup, and skill install.
+- `apps/cli` - TypeScript CLI compatibility package (`clawdentity`); Rust CLI is the canonical operator surface.
 - `apps/openclaw-skill` - OpenClaw skill package and relay transform artifacts used by CLI install flow.
 
 ### Packages (shared libraries)
@@ -49,7 +49,7 @@ Run from `crates/`:
 
 ### Rust workspace crates
 - `crates/clawdentity-core` - Core Rust library for identity, registry clients, connector/runtime, providers, pairing, and persistence.
-- `crates/clawdentity-cli` - Rust CLI binary and command surface replacing the legacy TypeScript CLI over time.
+- `crates/clawdentity-cli` - Rust CLI binary and command surface for current operator workflows.
 
 ### Rust local test services
 - `crates/tests/local/mock-registry` - Local mock registry used for integration and harness-style flows.
@@ -59,11 +59,11 @@ Run from `crates/`:
 
 ### TypeScript CLI (`apps/cli`)
 - Build/package: `pnpm -F clawdentity build`
-- Common ops: `clawdentity config init`, `clawdentity invite redeem <code>`, `clawdentity agent create <name>`, `clawdentity openclaw setup <name>`, `clawdentity skill install`, `clawdentity connector start <name>`
+- Treat command docs here as compatibility guidance, not canonical runtime surface.
 
 ### Rust CLI (`crates/clawdentity-cli`)
 - Help: `cargo run -p clawdentity-cli -- --help`
-- Common ops: `cargo run -p clawdentity-cli -- init`, `whoami`, `agent create <name>`, `invite redeem <code> --display-name <name>`, `connector start <agent>`, `provider doctor --for openclaw`
+- Common ops: `cargo run -p clawdentity-cli -- init`, `register`, `whoami`, `agent create <name>`, `agent auth revoke <name>`, `provider setup --for <platform> --agent-name <name>`, `provider doctor --for <platform>`, `connector start <agent>`
 
 ## 5) Deeper Docs
 Use `docs/` as system of record:
@@ -79,6 +79,7 @@ Use `docs/` as system of record:
 - Favor actionable errors and stable machine-readable outputs.
 - Run relevant TypeScript and Rust checks before commit (`pnpm build` and `cargo check` are baseline gates).
 - Keep docs synchronized with implementation changes, especially when changing CLI flows or skill behavior.
+- Keep user onboarding docs prompt-first (`/skill.md` canonical); treat command-by-command and Rust toolchain flows as advanced fallback guidance only.
 
 ## 7) Release Automation
 - Keep Rust release automation in `.github/workflows/publish-rust.yml` as the single canonical path for version bump + crates.io publish + tag creation + binary release.
@@ -92,6 +93,7 @@ Use `docs/` as system of record:
   - `clawdentity-<version>-macos-x86_64.tar.gz`
   - `clawdentity-<version>-macos-aarch64.tar.gz`
   - `clawdentity-<version>-windows-x86_64.zip`
+  - `clawdentity-<version>-windows-aarch64.zip`
   - `clawdentity-<version>-checksums.txt`
 - Binary naming contract for release artifacts:
   - Unix binary is `clawdentity`

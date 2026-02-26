@@ -13,8 +13,10 @@
   - `x86_64-apple-darwin`
   - `aarch64-apple-darwin`
   - `x86_64-pc-windows-msvc`
+  - `aarch64-pc-windows-msvc`
 - Use only supported runner labels; avoid deprecated/unsupported macOS labels (for example `macos-13` if unavailable in project settings).
 - Smoke-test binaries only on native runner/target pairs.
+- Skip smoke execution for `aarch64-pc-windows-msvc` on `windows-latest` because the hosted runner is x64.
 - Do not execute cross-built `linux-aarch64` artifacts on `ubuntu-latest` x86 runners; this must be skipped (exec format mismatch).
 - When `x86_64-apple-darwin` is built on Apple Silicon runners, skip smoke execution unless a native Intel runner is configured.
 - Keep binary naming stable in packaged archives:
@@ -26,9 +28,20 @@
   - `clawdentity-<version>-macos-x86_64.tar.gz`
   - `clawdentity-<version>-macos-aarch64.tar.gz`
   - `clawdentity-<version>-windows-x86_64.zip`
+  - `clawdentity-<version>-windows-aarch64.zip`
+  - `install.sh`
+  - `install.ps1`
   - `clawdentity-<version>-checksums.txt`
+- Installer script assets in Rust releases must be sourced from `apps/landing/public/install.sh` and `apps/landing/public/install.ps1`.
 - Always generate and publish SHA256 checksums.
 - Keep release uploads idempotent (`overwrite_files` / clobber-safe behavior) so reruns replace assets cleanly.
+
+## Landing Deploy Rules
+- `deploy-landing-develop.yml` and `deploy-landing.yml` must keep Cloudflare Pages bootstrap behavior before deploy.
+- Both landing deploy workflows must assert these built artifacts before running `pages deploy`:
+  - `apps/landing/dist/skill.md`
+  - `apps/landing/dist/install.sh`
+  - `apps/landing/dist/install.ps1`
 
 ## Rust Crate Publish Rules
 - Resolve next version from crates metadata using `cargo info` and bump both crate manifests consistently:

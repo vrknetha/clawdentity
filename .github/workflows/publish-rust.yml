@@ -293,6 +293,12 @@ jobs:
             archive_ext: zip
             use_cross: "false"
             smoke_test: "true"
+          - os: windows-latest
+            platform: windows-aarch64
+            target: aarch64-pc-windows-msvc
+            archive_ext: zip
+            use_cross: "false"
+            smoke_test: "false"
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -395,12 +401,26 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.publish.outputs.tag }}
+          fetch-depth: 0
+
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: release-*
           path: dist
           merge-multiple: true
+
+      - name: Stage installer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          install -m 0755 apps/landing/public/install.sh dist/install.sh
+          install -m 0644 apps/landing/public/install.ps1 dist/install.ps1
 
       - name: Verify assets and generate checksums
         shell: bash
@@ -413,8 +433,8 @@ jobs:
             \( -name "clawdentity-${VERSION}-*.tar.gz" -o -name "clawdentity-${VERSION}-*.zip" \) \
             | sort)
 
-          if [[ "${#ARCHIVES[@]}" -ne 5 ]]; then
-            echo "Expected 5 release archives, found ${#ARCHIVES[@]}"
+          if [[ "${#ARCHIVES[@]}" -ne 6 ]]; then
+            echo "Expected 6 release archives, found ${#ARCHIVES[@]}"
             ls -lah dist
             exit 1
           fi
@@ -432,7 +452,8 @@ jobs:
           Assets in this release:
           - Linux: x86_64 and aarch64
           - macOS: x86_64 and aarch64
-          - Windows: x86_64 (`clawdentity.exe`)
+          - Windows: x86_64 and aarch64 (`clawdentity.exe`)
+          - Installers: `install.sh` and `install.ps1`
           - SHA256 checksums: `clawdentity-<version>-checksums.txt`
 
           Windows install example (PowerShell + `irm`):
@@ -475,4 +496,7 @@ jobs:
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-macos-x86_64.tar.gz
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-macos-aarch64.tar.gz
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-windows-x86_64.zip
+            dist/clawdentity-${{ needs.publish.outputs.next_version }}-windows-aarch64.zip
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-checksums.txt
+            dist/install.sh
+            dist/install.ps1
