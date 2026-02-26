@@ -1,0 +1,196 @@
+---
+title: SDK Reference
+description: TypeScript SDK for signing, verifying, and managing Clawdentity identities.
+---
+
+The `@clawdentity/sdk` package provides the core TypeScript SDK for working with Clawdentity identities, signatures, and revocation.
+
+## Installation
+
+```bash
+pnpm add @clawdentity/sdk
+```
+
+## Core modules
+
+### Signing and verification
+
+The SDK handles AIT verification and PoP request signing:
+
+- **AIT verification** — verify registry-signed JWTs offline using cached public keys
+- **PoP signing** — generate `X-Claw-*` headers for outbound requests
+- **PoP verification** — validate inbound PoP signatures against AIT `cnf` keys
+- **CRL verification** — verify signed CRL JWTs
+
+### CRL cache
+
+Manages local caching and refresh of the Certificate Revocation List:
+
+- Configurable refresh interval (default: `DEFAULT_CRL_REFRESH_INTERVAL_MS = 300000`, 5 min)
+- Maximum age before considered stale (default: `DEFAULT_CRL_MAX_AGE_MS = 900000`, 15 min)
+- Staleness policy via `staleBehavior`:
+  - `fail-open` (default) — when stale, returns warnings but allows `isRevoked()` to return `false` (treats as not revoked)
+  - `fail-closed` — when stale, throws `AppError` with code `CRL_CACHE_STALE` (status 503)
+
+```typescript
+import { createCrlCache } from "@clawdentity/sdk";
+
+const cache = createCrlCache({
+  fetchLatest: () => fetchCrlFromRegistry(),
+  staleBehavior: "fail-closed",
+});
+
+await cache.refreshIfStale();
+const revoked = await cache.isRevoked(jti);
+```
+
+### Nonce cache
+
+Tracks nonces for replay protection:
+
+- Default TTL: 5 minutes (`DEFAULT_NONCE_TTL_MS = 300000`)
+- Per-agent nonce tracking
+- Automatic expiry purge on each `tryAcceptNonce` call
+
+### Agent auth client
+
+Manages agent authentication tokens:
+
+- Token refresh using Claw + PoP headers
+- Automatic refresh decisions based on expiry metadata
+- Single-flight deduplication for concurrent refresh attempts
+
+#### Functions
+
+**`refreshAgentAuthWithClawProof(input)`** — Sends a PoP-signed refresh request to the registry and returns a new `AgentAuthBundle`.
+
+```typescript
+const bundle = await refreshAgentAuthWithClawProof({
+  registryUrl: "https://registry.example.com",
+  ait: "<current-ait>",
+  secretKey: agentSecretKey,
+  refreshToken: currentBundle.refreshToken,
+});
+```
+
+**`executeWithAgentAuthRefreshRetry(input)`** — Executes an operation with automatic auth refresh on 401 errors. Uses single-flight deduplication for the refresh call.
+
+```typescript
+const result = await executeWithAgentAuthRefreshRetry({
+  key: "my-agent",
+  getAuth: () => loadBundle(),
+  refreshAuth: (auth) => refreshAgentAuthWithClawProof({ ... }),
+  persistAuth: (auth) => saveBundle(auth),
+  perform: (auth) => callApi(auth),
+});
+```
+
+**`isRetryableAuthExpiryError(error)`** — Returns `true` if the error is an `AppError` with status 401.
+
+#### Error codes
+
+| Code | Status | Description |
+|------|--------|-------------|
+| `AGENT_AUTH_REFRESH_INVALID` | 400 | Refresh request is invalid |
+| `AGENT_AUTH_REFRESH_UNAUTHORIZED` | 401 | Credentials invalid, revoked, or expired |
+| `AGENT_AUTH_REFRESH_CONFLICT` | 409 | Refresh conflict, retry request |
+| `AGENT_AUTH_REFRESH_SERVER_ERROR` | 503 | Registry server error |
+| `AGENT_AUTH_REFRESH_FAILED` | varies | Generic refresh failure |
+| `AGENT_AUTH_REFRESH_NETWORK` | 503 | Network connectivity failure |
+| `AGENT_AUTH_REFRESH_INVALID_RESPONSE` | 502 | Registry returned invalid payload |
+
+## Key types
+
+### `AppError`
+
+Structured error class with stable `code` values for deterministic error handling. Constructor takes a single options object.
+
+```typescript
+import { AppError } from "@clawdentity/sdk";
+
+throw new AppError({
+  code: "AGENT_NOT_FOUND",
+  message: "Agent does not exist",
+  status: 404,
+});
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | string | Stable error code for programmatic handling |
+| `message` | string | Human-readable error message |
+| `status` | number | HTTP status code |
+| `details` | `Record<string, unknown>?` | Optional structured details |
+| `expose` | boolean | Whether to expose details in responses (defaults to `true` for status < 500) |
+
+### `Logger`
+
+Structured logging interface used across all Clawdentity services.
+
+```typescript
+import { createLogger } from "@clawdentity/sdk";
+
+const logger = createLogger({ service: "my-service" });
+```
+
+### `NonceCache`
+
+Interface for nonce replay detection:
+
+```typescript
+import { createNonceCache } from "@clawdentity/sdk";
+
+const cache = createNonceCache({ ttlMs: 5 * 60 * 1000 });
+```
+
+Options:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ttlMs` | number | `300000` (5 min) | Time-to-live for each nonce entry |
+| `clock` | `() => number` | `Date.now` | Custom clock function for testing |
+
+Methods:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `tryAcceptNonce({ agentDid, nonce })` | `NonceCacheResult` | Accept or reject a nonce (returns `{ accepted, seenAt, expiresAt }`) |
+| `purgeExpired()` | `void` | Remove all expired nonce entries |
+
+## HTTP signature headers
+
+Constants exported from `@clawdentity/sdk/http/constants`:
+
+| Constant | Value |
+|----------|-------|
+| `X_CLAW_TIMESTAMP` | `X-Claw-Timestamp` |
+| `X_CLAW_NONCE` | `X-Claw-Nonce` |
+| `X_CLAW_BODY_SHA256` | `X-Claw-Body-SHA256` |
+| `X_CLAW_PROOF` | `X-Claw-Proof` |
+
+## Datetime utilities
+
+Helper functions from `@clawdentity/sdk/datetime`:
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `nowIso()` | `() => string` | Returns the current time as an ISO-8601 string |
+| `addSeconds(value, seconds)` | `(Date \| string \| number, number) => string` | Adds seconds to a datetime value and returns ISO-8601 |
+| `isExpired(expiresAt, reference?)` | `(Date \| string \| number, Date \| string \| number?) => boolean` | Returns `true` if `expiresAt <= reference` (defaults to `Date.now()`) |
+
+## Middleware (Hono)
+
+The SDK provides Hono middleware for building services:
+
+- `createRequestContextMiddleware()` — adds `x-request-id` tracking
+- `createRequestLoggingMiddleware(logger)` — structured request logging
+- `createHonoErrorHandler(logger)` — consistent error response formatting
+
+## Dependencies
+
+The SDK builds on:
+
+- `@noble/ed25519` — Ed25519 signature operations
+- `jose` — JWT handling (sign, verify, decode)
+- `hono` — HTTP framework middleware
+- `zod` — Runtime schema validation

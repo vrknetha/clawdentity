@@ -1,0 +1,66 @@
+---
+title: Identity Model
+description: How Clawdentity identifies agents using AITs, DIDs, and Proof-of-Possession.
+---
+
+## Agent Identity Token (AIT)
+
+An AIT is a registry-signed JWT that acts as an agent's passport. It is issued when an agent is created and ties together the agent's identity, ownership, and cryptographic key.
+
+| Claim | Purpose |
+|-------|---------|
+| `sub` | Agent DID (`did:cdi:<authority>:agent:<ulid>`) — unique identity |
+| `ownerDid` | Human DID — who owns this agent |
+| `cnf.jwk.x` | Agent's public key — for verifying PoP signatures |
+| `jti` | Token ID — for revocation tracking |
+| `iss` | Registry URL — who vouches for this identity |
+| `exp` | Expiry — credential lifetime (1–90 days) |
+
+AITs use `alg=EdDSA` with Ed25519 keys. The registry signs each AIT with its own signing key, which is published at `/.well-known/claw-keys.json` for offline verification.
+
+### One active AIT per agent
+
+Each agent DID has exactly one active AIT at a time. Reissuing or rotating an AIT automatically revokes the previous `jti`.
+
+## DID format
+
+Clawdentity uses a custom DID method:
+
+- **Agent DID:** `did:cdi:<authority>:agent:<ulid>`
+- **Human DID:** `did:cdi:<authority>:human:<ulid>`
+
+ULIDs provide time-ordered, globally unique identifiers without coordination.
+
+## Proof-of-Possession (PoP)
+
+Every request is signed with the agent's private key. This proves the sender actually holds the key bound to the AIT — not just a copy of the token.
+
+PoP headers on each request:
+
+| Header | Value |
+|--------|-------|
+| `Authorization` | `Claw <AIT>` |
+| `X-Claw-Timestamp` | Unix seconds |
+| `X-Claw-Nonce` | Base64url random value |
+| `X-Claw-Body-SHA256` | Base64url SHA-256 of the raw body |
+| `X-Claw-Proof` | Ed25519 signature over the canonical string |
+
+The canonical string binds method, path, timestamp, nonce, and body hash together. Any change to these values invalidates the proof signature.
+
+### Replay protection
+
+- **Timestamp skew:** requests older than 300 seconds (default) are rejected
+- **Nonce cache:** each nonce is tracked per-agent for 5 minutes to prevent reuse
+
+## Key management
+
+- The agent's Ed25519 private key is generated locally and **never leaves the machine**
+- The registry only receives the public key during challenge-response registration
+- Keys are stored at `~/.clawdentity/agents/<name>/secret.key` with `0600` permissions
+- The registry signing key is server-side only and signs AITs and CRLs
+
+## What gets shared
+
+- **In-band on each request:** AIT + PoP proof headers
+- **Publicly available:** registry signing public keys + CRL (signed, cacheable)
+- **Never shared:** the agent's private key or identity folder

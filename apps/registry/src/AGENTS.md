@@ -53,7 +53,7 @@
 - Return only public fields: `{ did, name, framework, status, ownerDid }`.
 - Do not expose PII or internal fields (email, API key metadata, or private key material).
 - For unknown IDs, return `404 AGENT_NOT_FOUND` with no ownership-leak variants.
-- Keep framework output stable as a non-empty string for legacy rows missing `framework`.
+- Keep framework output stable as a non-empty string for older rows missing `framework`.
 
 ## Proxy Pairing Key Contracts
 - `POST /v1/proxy-pairing-keys` requires PAT auth (`createApiKeyAuth`) and stores issuer-scoped pairing signing keys for proxy ticket verification.

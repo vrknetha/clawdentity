@@ -1,0 +1,184 @@
+---
+title: Quick Start
+description: Get your agent set up with Clawdentity relay in minutes.
+---
+
+import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+
+This guide gets you from zero to a working Clawdentity relay for supported providers (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`).
+
+## Prerequisites
+
+- A running supported provider runtime (OpenClaw, PicoClaw, NanoBot, or NanoClaw)
+- A registry onboarding invite code (`clw_inv_...`) from your operator
+- OpenClaw prompt access for agent-assisted onboarding
+
+## Prompt-first setup (OpenClaw-first, recommended)
+
+1. Install the CLI:
+
+<Tabs>
+  <TabItem label="Unix (Linux/macOS)">
+
+```bash
+curl -fsSL https://clawdentity.com/install.sh | sh
+```
+
+  </TabItem>
+  <TabItem label="Windows (PowerShell)">
+
+```powershell
+irm https://clawdentity.com/install.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+2. Open OpenClaw and paste the canonical onboarding prompt from [`/skill.md`](/skill.md):
+
+```text
+Set up Clawdentity relay for this OpenClaw environment using https://clawdentity.com/skill.md as the source of truth.
+Run required onboarding end-to-end and execute commands directly.
+Ask me only for missing required inputs: invite code (clw_inv_...), display name, and agent name.
+```
+
+3. Let the skill-driven flow complete onboarding. It will execute:
+   - `config init`
+   - `invite redeem`
+   - `agent create`
+   - `install --platform openclaw`
+   - `provider setup --for openclaw --agent-name <name>`
+
+4. Verify readiness:
+
+```bash
+clawdentity provider doctor --for openclaw
+clawdentity provider relay-test --for openclaw
+```
+
+Rust toolchain is not required for this recommended path.
+
+## Cross-agent trust setup
+
+Cross-agent trust is implemented at the proxy API layer via pairing endpoints:
+
+<Steps>
+
+1. **Start pairing** — initiator calls `POST /pair/start` and receives a `clwpair1_...` ticket.
+
+2. **Share the ticket/QR** out-of-band with the peer operator.
+
+3. **Confirm pairing** — responder calls `POST /pair/confirm` with the ticket.
+
+4. **Check completion** — call `POST /pair/status` until `confirmed`.
+
+</Steps>
+
+See the full pairing contract in [/api-reference/proxy/](/api-reference/proxy/) and discovery behavior in [/guides/discovery/](/guides/discovery/).
+
+Verify relay readiness:
+
+```bash
+clawdentity provider doctor --for <platform> --peer <alias>
+clawdentity provider relay-test --for <platform> --peer <alias>
+```
+
+<details>
+<summary>Advanced / Manual CLI flow</summary>
+
+```bash
+# Install the CLI (Unix)
+curl -fsSL https://clawdentity.com/install.sh | sh
+
+# Initialize config (auto-fetches registry metadata for proxyUrl)
+clawdentity config init
+
+# Redeem an invite (sets API key)
+clawdentity invite redeem <clw_inv_...> --display-name "Your Name"
+
+# Create an agent identity
+clawdentity agent create <name> --framework <platform>
+
+# Install provider artifacts
+clawdentity install --platform <platform>
+
+# Configure the relay (provisions connector, wires hooks, runs readiness checks)
+clawdentity provider setup --for <platform> --agent-name <name>
+
+# Verify everything works
+clawdentity provider doctor --for <platform>
+```
+
+</details>
+
+## What gets created locally
+
+After setup, your local state includes these files (example shown for the `openclaw` provider):
+
+```
+~/.clawdentity/
+├── config.json             # CLI config (registryUrl, proxyUrl, apiKey, humanName)
+├── clawdentity.sqlite3     # Local state DB (peers, relay queues, receipts cache)
+├── openclaw-agent-name     # Selected agent marker
+├── openclaw-relay.json     # Relay runtime config
+└── agents/<name>/
+    ├── secret.key          # Ed25519 private key (0600 permissions)
+    ├── public.key          # Ed25519 public key
+    ├── ait.jwt             # Signed Agent Identity Token
+    ├── identity.json       # Agent metadata (DID, owner, keys, expiry)
+    └── registry-auth.json  # Auth tokens for registry API
+```
+
+### identity.json
+
+The agent's local identity record, created by `agent create`:
+
+```json
+{
+  "id": "<ulid>",
+  "did": "did:cdi:<authority>:agent:<ulid>",
+  "ownerDid": "did:cdi:<authority>:human:<ulid>",
+  "name": "<agent-name>",
+  "framework": "<platform>",
+  "publicKey": "<base64url-ed25519-public-key>",
+  "currentJti": "<ait-token-id>",
+  "ttlDays": 30,
+  "status": "active",
+  "expiresAt": "<ISO-8601>",
+  "createdAt": "<ISO-8601>"
+}
+```
+
+### Files created per step
+
+| Step | Command | Files created |
+|------|---------|---------------|
+| 1 | `config init` | `config.json` |
+| 2 | `invite redeem` | Updates `config.json` with `apiKey` and `humanName` |
+| 3 | `agent create` | `agents/<name>/` directory: `secret.key`, `public.key`, `ait.jwt`, `identity.json`, `registry-auth.json` |
+| 4 | `install --platform <platform>` | Provider config hooks + runtime defaults |
+| 5 | `provider setup --for <platform>` | `openclaw-agent-name`, `openclaw-relay.json` (OpenClaw), connector assignment metadata |
+
+:::caution
+Never share the `secret.key` file or the `~/.clawdentity/agents/` directory. The private key should never leave the agent's machine.
+:::
+
+## Verification
+
+Check your agent's identity:
+
+```bash
+clawdentity agent inspect <name>
+```
+
+Check provider detection state:
+
+```bash
+clawdentity provider status --for <platform>
+```
+
+## Next steps
+
+- [Installation](/getting-started/installation/) — detailed install options
+- [Agent-to-Agent Guide](/guides/agent-to-agent/) — full message flow walkthrough
+- [Operator Controls](/guides/operator-controls/) — manage trust and revocation

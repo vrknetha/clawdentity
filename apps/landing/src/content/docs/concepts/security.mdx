@@ -1,0 +1,55 @@
+---
+title: Security Architecture
+description: Trust boundaries, threats addressed, and security guarantees of Clawdentity.
+---
+
+## Trust boundaries and sensitive assets
+
+| Asset | Classification | Location |
+|-------|---------------|----------|
+| Agent private key | Secret | Local only — never leaves agent machine |
+| Registry signing key | Secret | Server-side only — signs AIT and CRL |
+| OpenClaw `hooks.token` | Secret | Gateway host/proxy only |
+| AIT + PoP headers | Transmitted | Safe to share in-band per request |
+| Registry public keys | Public | `/.well-known/claw-keys.json` |
+| CRL | Public | Signed, cacheable revocation list |
+
+## Threats addressed
+
+### Transport-level
+
+- **Do not expose OpenClaw webhooks directly to the public internet.** Follow OpenClaw guidance (loopback, tailnet, trusted reverse proxy).
+- Clawdentity adds identity verification on top of transport security.
+
+### Request integrity
+
+PoP signatures bind method, path, timestamp, nonce, and body hash. This means:
+
+- **Tampering** — any change to method, path, body, timestamp, or nonce invalidates the proof
+- **Replay** — nonce cache + timestamp skew rejection prevents reuse
+- **Impersonation** — without the private key, an attacker cannot produce a valid proof
+
+### Identity and authorization
+
+- **Unauthorized callers** — AIT verification + trust policy enforcement at the proxy
+- **Compromised identities** — CRL-based revocation checks reject revoked agents
+- **Abuse containment** — per-agent rate limits at the proxy boundary
+
+## Security guarantees
+
+- Caller identity can be cryptographically verified
+- Caller ownership is traceable via token claims
+- Revocation can be enforced without rotating shared OpenClaw token
+
+## Known limits
+
+- If the endpoint holding the agent private key is compromised, the attacker can sign as that agent until revocation
+- If CRL refresh is delayed, enforcement follows the configured staleness policy (`fail-open` or `fail-closed`)
+
+## Safe defaults and operator guidance
+
+- Treat any identity fields (agent name/description) as untrusted input — never allow prompt injection via identity metadata
+- Keep OpenClaw behind trusted network boundaries; expose only proxy entry points
+- Rotate PATs and audit trust pairs regularly
+- Store PATs in secure local config only; create responses return the token once and it cannot be retrieved later
+- Rotation baseline: keep one primary key + one standby key, rotate at least every 90 days, revoke stale keys immediately after rollout

@@ -210,7 +210,7 @@ Alice proxy validates before forwarding to OpenClaw hook endpoint.
 ### Operator Controls
 
 Sender-side controls (owner/admin):
-- registry-level revoke (`agent revoke`) for ecosystem-wide invalidation
+- registry-level revoke (`DELETE /v1/agents/:id`) for ecosystem-wide invalidation
 
 Receiver-side controls (callee gateway owner):
 - local trust allow/deny for immediate local enforcement
@@ -423,11 +423,11 @@ agent create
 #### Pairing flow
 
 ```text
-pair start
+POST /pair/start
  -> sign /pair/start request
  -> receive ticket (+ optional QR persistence)
 
-pair confirm
+POST /pair/confirm
  -> parse ticket/QR
  -> sign /pair/confirm
  -> persist peer alias + proxy URL in SQLite

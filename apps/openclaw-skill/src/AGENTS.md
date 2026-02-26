@@ -16,7 +16,7 @@
 - Relay transform must prefer OpenClaw-local runtime artifacts in `hooks/transforms/`:
   - `clawdentity-relay.json` for connector endpoint candidates/path
   - `clawdentity-peers.json` for peer alias map snapshot visible inside containerized OpenClaw runtimes
-- Assume default onboarding runs `openclaw setup` end-to-end (including runtime startup); direct `connector start` is manual recovery only.
+- Assume default onboarding runs `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw` end-to-end (including runtime startup); direct `connector start` is manual recovery only.
 - Connector endpoint fallback order must remain container-safe for macOS/Linux hosts (for example `host.docker.internal`, `gateway.docker.internal`, linux bridge/default gateway, then loopback).
 - Keep peer alias semantics deterministic: validate `payload.peer` against peers config before connector handoff.
 - Keep connector failure mapping deterministic (`404` endpoint unavailable, `409` peer alias conflict, network failure generic outage).

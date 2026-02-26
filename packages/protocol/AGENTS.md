@@ -8,7 +8,7 @@
 - Keep protocol APIs small and explicit; avoid leaking third-party library types into public exports.
 - Parse functions should throw `ProtocolParseError` with stable codes for caller-safe branching.
 - Maintain Cloudflare Worker portability: avoid Node-only globals in protocol helpers.
-- DID v2 is mandatory: only accept/build `did:cdi:<authority>:<agent|human>:<ulid>`; do not add compatibility paths for legacy DID methods.
+- DID v2 is mandatory: only accept/build `did:cdi:<authority>:<agent|human>:<ulid>`; do not add compatibility paths for older DID methods.
 - DID authorities must be DNS hostnames (lowercase dot-separated labels, hyphen allowed inside labels, no empty labels, no leading/trailing hyphen per label).
 - Use `parseAgentDid` / `parseHumanDid` for entity-specific checks instead of ad-hoc string checks or generic `parseDid` branching.
 - All DID construction must pass explicit authority (`makeAgentDid(authority, ulid)`, `makeHumanDid(authority, ulid)`); never infer or hardcode from unrelated context.

@@ -9,7 +9,8 @@
       "!**/dist",
       "!**/drizzle/meta",
       "!**/.wrangler",
-      "!**/worker-configuration.d.ts"
+      "!**/worker-configuration.d.ts",
+      "!apps/landing/**/*.astro"
     ]
   },
   "formatter": {

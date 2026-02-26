@@ -37,6 +37,26 @@
 - Use workflow concurrency groups to prevent overlapping deploys for the same environment.
 - Run Wrangler through workspace tooling (`pnpm exec wrangler`) in CI so commands work without a global Wrangler install on GitHub runners.
 
+## Deployment Rules (Landing)
+- `deploy-landing-develop.yml` deploys landing docs/asset output from `develop` to the Pages `develop` branch.
+- `deploy-landing.yml` deploys landing docs/asset output from `main` to the Pages `main` branch.
+- Both landing deploy workflows must trigger on:
+  - `apps/landing/**`
+  - `apps/openclaw-skill/skill/**`
+  - `apps/landing/scripts/**`
+  - `.github/workflows/deploy-landing*.yml`
+- Landing workflows must bootstrap Cloudflare Pages project `clawdentity-site` if missing before deploy.
+- Landing workflows must assert generated artifacts exist before invoking `pages deploy`:
+  - `apps/landing/dist/skill.md`
+  - `apps/landing/dist/install.sh`
+  - `apps/landing/dist/install.ps1`
+
+## Release Rules (Rust)
+- `publish-rust.yml` must publish six binary archives per release (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64/aarch64).
+- Rust release assets must always include:
+  - `clawdentity-<version>-windows-aarch64.zip`
+  - installer scripts copied from `apps/landing/public/install.sh` and `apps/landing/public/install.ps1`
+
 ## Release Rules (CLI)
 - `publish-cli.yml` is manual (`workflow_dispatch`) and must accept `release_type` (`patch`/`minor`/`major`) + `dist_tag` inputs.
 - Compute the next CLI version in CI from the currently published npm `clawdentity` version (fallback `0.0.0` if first publish), then bump `apps/cli/package.json` in the workflow.
@@ -67,7 +87,7 @@
   - `Workers Scripts:Edit`
   - `Workers Routes:Edit` (zone-level, custom domains)
   - `D1:Edit`
-  - add `Cloudflare Pages:Edit` only when Pages deploy workflow is introduced.
+  - `Cloudflare Pages:Edit`
 
 ## Migration Rollback Strategy (Develop)
 - Capture pre-deploy artifacts:

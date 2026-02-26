@@ -1,0 +1,188 @@
+---
+import FlowDiagram from "./FlowDiagram.astro";
+---
+
+<section class="section the-fix-section animate-on-scroll" id="the-fix">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-label">The Solution</span>
+      <h2>
+        The Fix: <span class="gradient-text">Clawdentity</span>
+      </h2>
+      <p>
+        Each agent gets a unique DID and signed passport. Every request proves
+        exactly which agent sent it. Revocation is instant.
+      </p>
+    </div>
+
+    <div class="flow-wrapper">
+      <FlowDiagram />
+    </div>
+
+    <div class="fix-highlights">
+      <div class="fix-item stagger-child">
+        <div class="fix-label-wrapper">
+          <span class="fix-label">AIT</span>
+        </div>
+        <div class="fix-desc">
+          <strong>Agent Identity Token</strong>
+          <span>A registry-signed passport (JWT / EdDSA) that uniquely identifies each agent</span>
+        </div>
+      </div>
+      <div class="fix-item stagger-child" style="transition-delay: 100ms;">
+        <div class="fix-label-wrapper">
+          <span class="fix-label fix-label--amber">PoP</span>
+        </div>
+        <div class="fix-desc">
+          <strong>Proof-of-Possession</strong>
+          <span>Every request signed with the agent's private key — never shared</span>
+        </div>
+      </div>
+      <div class="fix-item stagger-child" style="transition-delay: 200ms;">
+        <div class="fix-label-wrapper">
+          <span class="fix-label">CRL</span>
+        </div>
+        <div class="fix-desc">
+          <strong>Certificate Revocation List</strong>
+          <span>Signed feed that proxies cache and refresh for instant revocation</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .the-fix-section {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .the-fix-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: 
+      radial-gradient(ellipse 50% 30% at 50% 30%, rgba(13, 148, 136, 0.05), transparent),
+      radial-gradient(ellipse 40% 40% at 80% 70%, rgba(245, 158, 11, 0.03), transparent);
+    pointer-events: none;
+  }
+
+  .section-label {
+    display: inline-block;
+    padding: 0.375rem 1rem;
+    background: rgba(13, 148, 136, 0.1);
+    border: 1px solid rgba(13, 148, 136, 0.2);
+    border-radius: 2rem;
+    color: var(--cl-teal-light);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: var(--space-sm);
+  }
+
+  .flow-wrapper {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.6), rgba(11, 18, 32, 0.8));
+    border: 1px solid var(--cl-border);
+    border-radius: var(--radius-xl);
+    padding: var(--space-xl);
+    margin: var(--space-xl) 0;
+    position: relative;
+  }
+
+  .flow-wrapper::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-xl);
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(13, 148, 136, 0.2), transparent, rgba(245, 158, 11, 0.1));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .fix-highlights {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+  }
+
+  .fix-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border);
+    border-radius: var(--radius-lg);
+    transition: all var(--duration-normal) var(--ease-smooth);
+  }
+
+  .fix-item:hover {
+    border-color: var(--cl-border-light);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .fix-label-wrapper {
+    flex-shrink: 0;
+  }
+
+  .fix-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.375rem 0.75rem;
+    background: rgba(13, 148, 136, 0.15);
+    color: var(--cl-teal-light);
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    font-family: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+    letter-spacing: 0.05em;
+    border: 1px solid rgba(13, 148, 136, 0.3);
+  }
+
+  .fix-label--amber {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--cl-amber-light);
+    border-color: rgba(245, 158, 11, 0.3);
+  }
+
+  .fix-desc {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .fix-desc strong {
+    color: var(--cl-text);
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+
+  .fix-desc span {
+    color: var(--cl-text-muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .flow-wrapper {
+      padding: var(--space-md);
+    }
+
+    .fix-highlights {
+      grid-template-columns: 1fr;
+    }
+
+    .fix-item {
+      padding: var(--space-sm);
+    }
+  }
+</style>

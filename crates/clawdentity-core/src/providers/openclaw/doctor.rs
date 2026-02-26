@@ -178,7 +178,9 @@ fn run_connector_checks(
             "Connector runtime",
             DoctorCheckStatus::Fail,
             "connector runtime assignment is missing for selected agent",
-            Some("Run `openclaw setup <agentName>` or pass `--connector-base-url`."),
+            Some(
+                "Run `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw --agent-name <agentName>`, or pass `--connector-base-url`.",
+            ),
             None,
         );
         push_check(
@@ -187,7 +189,9 @@ fn run_connector_checks(
             "Connector inbound inbox",
             DoctorCheckStatus::Fail,
             "cannot validate connector inbox without connector assignment",
-            Some("Run `openclaw setup <agentName>` or pass `--connector-base-url`."),
+            Some(
+                "Run `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw --agent-name <agentName>`, or pass `--connector-base-url`.",
+            ),
             None,
         );
         push_check(
@@ -196,7 +200,9 @@ fn run_connector_checks(
             "OpenClaw hook health",
             DoctorCheckStatus::Fail,
             "cannot validate OpenClaw hook health without connector runtime",
-            Some("Run `openclaw setup <agentName>` and restart connector runtime."),
+            Some(
+                "Run `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw --agent-name <agentName>`, then restart connector runtime.",
+            ),
             None,
         );
         return Ok(());
@@ -418,7 +424,9 @@ pub fn run_openclaw_doctor(
             "Selected agent",
             DoctorCheckStatus::Fail,
             "selected agent marker is missing",
-            Some("Run `openclaw setup <agentName>` to persist selected agent."),
+            Some(
+                "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` to persist selected agent.",
+            ),
             Some(serde_json::json!({ "path": openclaw_agent_name_path(config_dir) })),
         );
     }
@@ -465,7 +473,9 @@ pub fn run_openclaw_doctor(
             "Agent credentials",
             DoctorCheckStatus::Fail,
             "cannot validate credentials without selected agent",
-            Some("Run `openclaw setup <agentName>` first."),
+            Some(
+                "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` first.",
+            ),
             None,
         );
     }
@@ -479,7 +489,9 @@ pub fn run_openclaw_doctor(
                     "Paired peers",
                     DoctorCheckStatus::Fail,
                     "no paired peers found",
-                    Some("Run `pair start`/`pair confirm` before relay checks."),
+                    Some(
+                        "Complete proxy pairing via `/pair/start` + `/pair/confirm` and persist local peer state before relay checks.",
+                    ),
                     None,
                 );
             } else if let Some(peer_alias) = options.peer_alias.as_deref().map(str::trim) {
@@ -500,7 +512,9 @@ pub fn run_openclaw_doctor(
                         "Paired peers",
                         DoctorCheckStatus::Fail,
                         format!("peer alias `{peer_alias}` is not configured"),
-                        Some("Choose an existing peer alias from peers.json."),
+                        Some(
+                            "Choose an existing peer alias from local peer state (or generated peer snapshot).",
+                        ),
                         Some(
                             serde_json::json!({ "peerAliases": peers.peers.keys().collect::<Vec<_>>() }),
                         ),
@@ -573,7 +587,9 @@ pub fn run_openclaw_doctor(
             "OpenClaw hook token",
             DoctorCheckStatus::Fail,
             "hook token is missing",
-            Some("Run `openclaw setup <agentName>` to persist runtime hook token."),
+            Some(
+                "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` to persist runtime hook token.",
+            ),
             None,
         );
     }

@@ -1,0 +1,200 @@
+---
+title: Protocol Reference
+description: DID format, signing rules, and protocol constants used by Clawdentity.
+---
+
+## DID format
+
+Clawdentity uses a custom DID method with ULID-based identifiers:
+
+| Type | Format | Example |
+|------|--------|---------|
+| Agent | `did:cdi:<authority>:agent:<ulid>` | `did:cdi:registry.clawdentity.com:agent:01HXK5M2V3N7P8Q9R0S1T2U3V4` |
+| Human | `did:cdi:<authority>:human:<ulid>` | `did:cdi:registry.clawdentity.com:human:01HXK5M2V3N7P8Q9R0S1T2U3V5` |
+
+## Cryptographic primitives
+
+| Primitive | Algorithm | Usage |
+|-----------|-----------|-------|
+| AIT signing | EdDSA (Ed25519) | Registry signs AITs and CRLs |
+| PoP signing | Ed25519 | Agent signs each request |
+| Body hashing | SHA-256 | Body integrity in PoP |
+| Nonce generation | Random bytes | Replay protection |
+
+## AIT (Agent Identity Token)
+
+JWT with `alg=EdDSA`, `typ=AIT`.
+
+### Required claims
+
+| Claim | Type | Description |
+|-------|------|-------------|
+| `iss` | string | Registry URL |
+| `sub` | string | Agent DID |
+| `owner` / `ownerDid` | string | Human DID |
+| `cnf` | object | Confirmation key (`cnf.jwk.x` = public key) |
+| `iat` | number | Issued at (Unix seconds) |
+| `nbf` | number | Not before (Unix seconds) |
+| `exp` | number | Expiry (Unix seconds) |
+| `jti` | string | Token ID (for revocation tracking) |
+| `name` | string | Agent name (strict validation) |
+| `framework` | string | Agent framework identifier |
+
+### Constraints
+
+- One active AIT per agent DID
+- Reissue/rotate automatically revokes the previous `jti`
+- Expiry window: 1–90 days
+- `name`: must match `/^[A-Za-z0-9._ -]{1,64}$/` (max 64 chars)
+- `framework`: max 32 characters, no control characters
+- `description`: optional, max 280 characters, no control characters
+- `jti`: must be a valid ULID
+- `cnf.jwk.x`: must decode to a 32-byte Ed25519 public key
+
+## CRL (Certificate Revocation List)
+
+Signed JWT with `typ=CRL`.
+
+- Contains list of revoked `jti` values with metadata
+- Default cache/refresh interval: 300 seconds
+- Staleness policy: configurable as `fail-open` or `fail-closed`
+
+### Revocation entry fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `jti` | string | Revoked token ID (must be a valid ULID) |
+| `agentDid` | string | Agent DID being revoked |
+| `reason` | string? | Optional reason, max 280 characters |
+| `revokedAt` | number | Unix timestamp of revocation |
+
+## Agent registration proof
+
+During agent registration, the agent signs a canonical proof message to bind its identity to the registration challenge.
+
+### Proof template
+
+Version: `clawdentity.register.v1`
+
+```
+clawdentity.register.v1
+challengeId:{challengeId}
+nonce:{nonce}
+ownerDid:{ownerDid}
+publicKey:{publicKey}
+name:{name}
+framework:{framework}
+ttlDays:{ttlDays}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `challengeId` | string | yes | Challenge ID from the registry |
+| `nonce` | string | yes | Unique nonce for the proof |
+| `ownerDid` | string | yes | Human DID of the agent owner |
+| `publicKey` | string | yes | Agent's Ed25519 public key |
+| `name` | string | yes | Agent name |
+| `framework` | string | no | Framework identifier (empty string if omitted) |
+| `ttlDays` | number | no | Requested TTL in days (empty string if omitted) |
+
+Optional fields are serialized as empty strings when not provided (e.g. `framework:`).
+
+## PoP request signing
+
+### Required headers
+
+| Header | Value |
+|--------|-------|
+| `Authorization` | `Claw <AIT>` |
+| `X-Claw-Timestamp` | Unix seconds |
+| `X-Claw-Nonce` | Base64url random bytes |
+| `X-Claw-Body-SHA256` | Base64url SHA-256 of raw body |
+| `X-Claw-Proof` | Base64url Ed25519 signature |
+
+### Canonical string format
+
+The proof signature is computed over a newline-joined canonical string:
+
+```
+CLAW-PROOF-V1
+METHOD
+pathWithQuery
+timestamp
+nonce
+bodyHash
+```
+
+Each field is a raw value with no labels. `METHOD` is uppercased (e.g. `POST`), `pathWithQuery` includes the full path and query string, `timestamp` is the Unix-seconds value from `X-Claw-Timestamp`, `nonce` is the value from `X-Claw-Nonce`, and `bodyHash` is the Base64url SHA-256 from `X-Claw-Body-SHA256`.
+
+### Verification rules
+
+| Rule | Default |
+|------|---------|
+| Max timestamp skew | 300 seconds |
+| Nonce replay cache TTL | 5 minutes |
+| Proof key source | `cnf.jwk.x` from AIT |
+
+## Protocol endpoints
+
+Constants exported from `@clawdentity/protocol`:
+
+| Constant | Path |
+|----------|------|
+| `ADMIN_BOOTSTRAP_PATH` | `/v1/admin/bootstrap` |
+| `ADMIN_INTERNAL_SERVICES_PATH` | `/v1/admin/internal-services` |
+| `AGENT_REGISTRATION_CHALLENGE_PATH` | `/v1/agents/challenge` |
+| `AGENT_AUTH_REFRESH_PATH` | `/v1/agents/auth/refresh` |
+| `AGENT_AUTH_VALIDATE_PATH` | `/v1/agents/auth/validate` |
+| `INVITES_PATH` | `/v1/invites` |
+| `INVITES_REDEEM_PATH` | `/v1/invites/redeem` |
+| `ME_API_KEYS_PATH` | `/v1/me/api-keys` |
+| `REGISTRY_METADATA_PATH` | `/v1/metadata` |
+| `INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH` | `/internal/v1/identity/agent-ownership` |
+| `RELAY_CONNECT_PATH` | `/v1/relay/connect` |
+| `RELAY_DELIVERY_RECEIPTS_PATH` | `/v1/relay/delivery-receipts` |
+
+## Headers
+
+| Constant | Header |
+|----------|--------|
+| `RELAY_RECIPIENT_AGENT_DID_HEADER` | `x-claw-recipient-agent-did` |
+| `RELAY_CONVERSATION_ID_HEADER` | `x-claw-conversation-id` |
+| `RELAY_DELIVERY_RECEIPT_URL_HEADER` | `x-claw-delivery-receipt-url` |
+| `REQUEST_ID_HEADER` | `x-request-id` |
+
+## Connector frame protocol
+
+The connector uses a WebSocket-based framing protocol for real-time agent communication.
+
+### Frame base schema
+
+Every frame includes these base fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `v` | number | Frame version (must be `1`) |
+| `id` | string | Unique frame ID (ULID) |
+| `ts` | string | ISO-8601 timestamp |
+| `type` | string | Frame type discriminator |
+
+### Frame types
+
+| Type | Direction | Additional Fields | Description |
+|------|-----------|-------------------|-------------|
+| `heartbeat` | client/server | -- | Keep-alive ping |
+| `heartbeat_ack` | server/client | `ackId` | Acknowledges a heartbeat |
+| `deliver` | server -> client | `fromAgentDid`, `toAgentDid`, `payload`, `contentType?`, `conversationId?`, `replyTo?` | Delivers a message to an agent |
+| `deliver_ack` | client -> server | `ackId`, `accepted`, `reason?` | Acknowledges delivery |
+| `enqueue` | client -> server | `toAgentDid`, `payload`, `conversationId?`, `replyTo?` | Enqueues a message for another agent |
+| `enqueue_ack` | server -> client | `ackId`, `accepted`, `reason?` | Acknowledges enqueue |
+
+### Frame constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `CONNECTOR_FRAME_VERSION` | `1` | Current frame protocol version |
+| `DEFAULT_HEARTBEAT_INTERVAL_MS` | `30000` (30s) | Heartbeat send interval |
+| `DEFAULT_RECONNECT_MIN_DELAY_MS` | `1000` (1s) | Minimum reconnect backoff |
+| `DEFAULT_RECONNECT_MAX_DELAY_MS` | `30000` (30s) | Maximum reconnect backoff |
+| `DEFAULT_RECONNECT_BACKOFF_FACTOR` | `2` | Exponential backoff multiplier |
+| `DEFAULT_RECONNECT_JITTER_RATIO` | `0.2` | Jitter ratio for reconnect delay |

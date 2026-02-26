@@ -132,7 +132,7 @@ fn map_probe_failure(status: u16) -> (&'static str, &'static str) {
         ),
         404 => (
             "OpenClaw send-to-peer hook is unavailable",
-            "Run `openclaw setup <agentName>` to install hook mapping.",
+            "Run `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw --agent-name <agentName>` to install hook mapping.",
         ),
         500 => (
             "Relay probe failed inside local relay pipeline",
@@ -188,7 +188,10 @@ pub fn run_openclaw_relay_test(
             endpoint: OPENCLAW_SEND_TO_PEER_PATH.to_string(),
             http_status: None,
             message: "Preflight checks failed".to_string(),
-            remediation_hint: Some("Run `openclaw doctor` and resolve failed checks.".to_string()),
+            remediation_hint: Some(
+                "Run `clawdentity provider doctor --for openclaw` and resolve failed checks."
+                    .to_string(),
+            ),
             preflight,
         });
     }
@@ -282,7 +285,10 @@ pub fn run_openclaw_relay_websocket_test(
             peer_alias,
             connector_status_url: STATUS_PATH.to_string(),
             message: "Preflight checks failed".to_string(),
-            remediation_hint: Some("Run `openclaw doctor` and resolve failed checks.".to_string()),
+            remediation_hint: Some(
+                "Run `clawdentity provider doctor --for openclaw` and resolve failed checks."
+                    .to_string(),
+            ),
             preflight,
         });
     }
@@ -295,7 +301,8 @@ pub fn run_openclaw_relay_websocket_test(
     )?
     .ok_or_else(|| {
         CoreError::InvalidInput(
-            "connector base URL is not configured; run openclaw setup first".to_string(),
+            "connector base URL is not configured; run clawdentity provider setup --for openclaw first"
+                .to_string(),
         )
     })?;
     let connector_status_url = join_url(&connector_base_url, STATUS_PATH, "connectorBaseUrl")?;
