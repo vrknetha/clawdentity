@@ -1,102 +1,184 @@
 ---
-import { Image } from "astro:assets";
-import heroImage from "../../assets/landing/clawdentity_hero_2400x1200.png";
+// Hero — Iron Ledger design
+// Two-machine diagram: OpenClaw (localhost) <-> Relay <-> NanoClaw (localhost)
 ---
 
-<section class="hero">
-  <!-- Animated gradient background -->
-  <div class="hero-gradient-bg"></div>
-  
-  <!-- Floating particles -->
-  <div class="particles" id="particles">
-    <div class="particle" style="top: 20%; left: 10%; animation-delay: 0s;"></div>
-    <div class="particle particle--amber" style="top: 60%; left: 15%; animation-delay: 2s;"></div>
-    <div class="particle" style="top: 30%; left: 85%; animation-delay: 4s;"></div>
-    <div class="particle particle--amber" style="top: 70%; left: 80%; animation-delay: 1s;"></div>
-    <div class="particle" style="top: 45%; left: 5%; animation-delay: 3s;"></div>
-    <div class="particle particle--amber" style="top: 15%; left: 90%; animation-delay: 5s;"></div>
-    <div class="particle" style="top: 80%; left: 50%; animation-delay: 2.5s;"></div>
-    <div class="particle particle--amber" style="top: 25%; left: 70%; animation-delay: 1.5s;"></div>
-  </div>
-
-  <!-- Hero background image -->
-  <div class="hero-bg">
-    <Image
-      src={heroImage}
-      alt=""
-      widths={[640, 960, 1280, 1920, 2400]}
-      sizes="100vw"
-      format="webp"
-      quality={80}
-      loading="eager"
-    />
-    <div class="hero-overlay"></div>
-  </div>
-
+<section class="hero" id="hero">
   <div class="hero-content container">
-    <h1 class="hero-title">
-      <span class="gradient-text hero-line" data-animate>Who is this agent,</span>
-      <span class="hero-line" data-animate>who owns it, and is it revoked?</span>
-    </h1>
-    <p class="hero-subtitle" data-animate>
-      Clawdentity answers that question with verifiable per-agent identity,
-      proof-of-possession on every request, and instant revocation
-      that propagates in seconds.
-    </p>
-    <div class="hero-actions" data-animate>
-      <a href="/getting-started/quickstart/" class="btn btn-primary animate-pulse-glow">
-        Get Started
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-      </a>
-      <a href="https://github.com/vrknetha/clawdentity" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
-        View on GitHub
-      </a>
+    <!-- Left column: text -->
+    <div class="hero-text">
+      <span class="hero-label">CROSS-PLATFORM AGENT IDENTITY PROTOCOL</span>
+      <h1 class="hero-title">
+        Your agents talk.<br/>
+        <em>Clawdentity</em> makes it safe.
+      </h1>
+      <p class="hero-subtitle">
+        Four platforms. Every agent behind localhost. Every request signed. Revoke one without touching the rest.
+      </p>
+      <div class="skillmd-callout">
+        <div class="callout-header">
+          <span class="callout-label">AGENT-FIRST SETUP</span>
+          <button class="callout-copy" id="skillmd-copy" aria-label="Copy agent prompt" type="button">
+            <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 6L9 17l-5-5"/>
+            </svg>
+            <span class="copy-label">Copy</span>
+          </button>
+        </div>
+        <div class="callout-prompt">
+          <span class="prompt-sym">$</span>
+          <code class="callout-text">Read the instructions from https://clawdentity.com/skill.md and follow the instructions</code>
+        </div>
+        <div class="callout-footer">Your agent handles the rest automatically.</div>
+      </div>
+      <div class="hero-actions">
+        <a href="/getting-started/quickstart/" class="btn btn-primary">
+          Get Started
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+        </a>
+        <a href="https://github.com/vrknetha/clawdentity" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+      <div class="platform-row" aria-label="Supported platforms">
+        <span class="platform-label">OpenClaw</span>
+        <span class="platform-sep">·</span>
+        <span class="platform-label">PicoClaw</span>
+        <span class="platform-sep">·</span>
+        <span class="platform-label">NanoBot</span>
+        <span class="platform-sep">·</span>
+        <span class="platform-label">NanoClaw</span>
+      </div>
     </div>
-  </div>
 
-  <!-- Scroll indicator -->
-  <div class="scroll-indicator" id="scroll-indicator">
-    <span>Scroll to explore</span>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 5v14M19 12l-7 7-7-7"/>
-    </svg>
+    <!-- Right column: diagram -->
+    <div class="hero-diagram" aria-label="Two-machine agent communication diagram">
+      <svg
+        class="diagram-svg"
+        viewBox="0 0 480 328"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+      >
+        <!-- Left machine: OpenClaw -->
+        <rect x="8" y="60" width="140" height="104" rx="3" ry="3"
+          fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+        <!-- localhost label -->
+        <text x="78" y="78" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="10"
+          fill="var(--cl-text-3)" letter-spacing="0.3">localhost:9400</text>
+        <!-- Divider -->
+        <line x1="8" y1="85" x2="148" y2="85" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+        <!-- Platform name -->
+        <text x="78" y="110" text-anchor="middle"
+          font-family="'Instrument Serif', serif" font-size="15" font-style="italic"
+          fill="var(--cl-text)">OpenClaw</text>
+        <text x="78" y="130" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="10"
+          fill="var(--cl-text-3)">my-agent</text>
+        <!-- Connector indicator -->
+        <rect x="24" y="143" width="108" height="16" rx="1"
+          fill="var(--cl-surface-3)" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+        <text x="78" y="154" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-text-3)" letter-spacing="0.2">connector :19400</text>
+
+        <!-- Right machine: NanoClaw -->
+        <rect x="332" y="60" width="140" height="104" rx="3" ry="3"
+          fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+        <text x="402" y="78" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="10"
+          fill="var(--cl-text-3)" letter-spacing="0.3">localhost:9400</text>
+        <line x1="332" y1="85" x2="472" y2="85" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+        <text x="402" y="110" text-anchor="middle"
+          font-family="'Instrument Serif', serif" font-size="15" font-style="italic"
+          fill="var(--cl-text)">NanoClaw</text>
+        <text x="402" y="130" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="10"
+          fill="var(--cl-text-3)">bob-agent</text>
+        <rect x="348" y="143" width="108" height="16" rx="1"
+          fill="var(--cl-surface-3)" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+        <text x="402" y="154" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-text-3)" letter-spacing="0.2">connector :19400</text>
+
+        <!-- Relay box (center, highlighted) -->
+        <rect x="168" y="186" width="144" height="96" rx="3" ry="3"
+          fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1.5"/>
+        <text x="240" y="208" text-anchor="middle"
+          font-family="'Instrument Serif', serif" font-size="13" font-style="italic"
+          fill="var(--cl-accent)">CLAWDENTITY</text>
+        <text x="240" y="224" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="11"
+          fill="var(--cl-text)">RELAY</text>
+        <line x1="168" y1="231" x2="312" y2="231" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+        <text x="240" y="247" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-text-3)">AIT + PoP</text>
+        <text x="240" y="262" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-text-3)">CRL check</text>
+
+        <!-- Connection: OpenClaw connector -> relay -->
+        <path class="svg-draw svg-draw-1"
+          d="M 78 159 L 78 234 L 168 234"
+          stroke="var(--cl-text-3)" stroke-width="1" stroke-dasharray="220" stroke-dashoffset="220">
+        </path>
+        <!-- Arrow at relay entry -->
+        <polygon points="165,230 175,234 165,238" fill="var(--cl-text-3)" opacity="0.6"/>
+
+        <!-- WebSocket label: horizontal, on vertical segment above relay -->
+        <text x="52" y="202" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-text-3)">WebSocket</text>
+
+        <!-- Connection: relay -> NanoClaw connector -->
+        <path class="svg-draw svg-draw-2"
+          d="M 312 234 L 402 234 L 402 159"
+          stroke="var(--cl-text-3)" stroke-width="1" stroke-dasharray="220" stroke-dashoffset="220">
+        </path>
+        <polygon points="398,162 402,152 406,162" fill="var(--cl-text-3)" opacity="0.6"/>
+
+        <!-- WebSocket label: horizontal, on vertical segment above relay -->
+        <text x="428" y="202" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-text-3)">WebSocket</text>
+
+        <!-- Trust verified badge -->
+        <rect x="168" y="296" width="144" height="20" rx="1"
+          fill="var(--cl-surface-3)"/>
+        <text x="240" y="309" text-anchor="middle"
+          font-family="'JetBrains Mono', monospace" font-size="9"
+          fill="var(--cl-accent-2)" letter-spacing="0.5">IDENTITY VERIFIED</text>
+      </svg>
+    </div>
   </div>
 </section>
 
 <script>
-  // Hero text reveal animation
   (function() {
-    const animateElements = document.querySelectorAll('[data-animate]');
-    
-    // Trigger animations after a short delay for page load
-    setTimeout(() => {
-      animateElements.forEach((el, index) => {
-        setTimeout(() => {
-          el.classList.add('animate-visible');
-        }, index * 150);
-      });
-    }, 200);
+    // SVG draw-on lines: animate stroke-dashoffset to 0 on load
+    const paths = document.querySelectorAll('.svg-draw');
+    paths.forEach((path) => {
+      setTimeout(() => {
+        (path as HTMLElement).classList.add('drawn');
+      }, 600);
+    });
 
-    // Hide scroll indicator on scroll
-    const scrollIndicator = document.getElementById('scroll-indicator');
-    let ticking = false;
-
-    function updateScrollIndicator() {
-      if (window.scrollY > 100) {
-        scrollIndicator?.classList.add('scroll-indicator--hidden');
-      } else {
-        scrollIndicator?.classList.remove('scroll-indicator--hidden');
-      }
-      ticking = false;
-    }
-
-    window.addEventListener('scroll', () => {
-      if (!ticking) {
-        requestAnimationFrame(updateScrollIndicator);
-        ticking = true;
-      }
-    }, { passive: true });
+    // Agent prompt copy
+    document.getElementById('skillmd-copy')?.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText('Read the instructions from https://clawdentity.com/skill.md and follow the instructions');
+        const btn = document.getElementById('skillmd-copy');
+        btn?.classList.add('copied');
+        setTimeout(() => btn?.classList.remove('copied'), 2000);
+      } catch { /* silently fail */ }
+    });
   })();
 </script>
 
@@ -106,246 +188,253 @@ import heroImage from "../../assets/landing/clawdentity_hero_2400x1200.png";
     min-height: 100vh;
     display: flex;
     align-items: center;
-    justify-content: center;
     overflow: hidden;
+    background: var(--cl-bg);
+    /* Very subtle SVG noise overlay via background-image data URI */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
   }
 
-  /* Gradient background layer */
-  .hero-gradient-bg {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  .hero-gradient-bg::before {
-    content: '';
-    position: absolute;
-    inset: -50%;
-    background: 
-      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(13, 148, 136, 0.12), transparent),
-      radial-gradient(ellipse 60% 40% at 80% 50%, rgba(245, 158, 11, 0.08), transparent),
-      radial-gradient(ellipse 50% 30% at 20% 80%, rgba(13, 148, 136, 0.06), transparent);
-    animation: gradientDrift 20s ease-in-out infinite;
-  }
-
-  @keyframes gradientDrift {
-    0%, 100% { transform: translate(0, 0) rotate(0deg); }
-    25% { transform: translate(2%, -2%) rotate(1deg); }
-    50% { transform: translate(-1%, 2%) rotate(-1deg); }
-    75% { transform: translate(-2%, -1%) rotate(0.5deg); }
-  }
-
-  /* Particles */
-  .particles {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .particle {
-    position: absolute;
-    width: 6px;
-    height: 6px;
-    background: var(--cl-teal);
-    border-radius: 50%;
-    opacity: 0;
-    animation: particleFloat 15s ease-in-out infinite;
-  }
-
-  .particle--amber {
-    background: var(--cl-amber);
-  }
-
-  @keyframes particleFloat {
-    0%, 100% { 
-      transform: translateY(0) translateX(0);
-      opacity: 0;
-    }
-    10% {
-      opacity: 0.4;
-    }
-    25% { 
-      transform: translateY(-40px) translateX(20px);
-      opacity: 0.5;
-    }
-    50% { 
-      transform: translateY(-20px) translateX(-10px);
-      opacity: 0.3;
-    }
-    75% { 
-      transform: translateY(-50px) translateX(15px);
-      opacity: 0.4;
-    }
-    90% {
-      opacity: 0.2;
-    }
-  }
-
-  /* Hero background image */
-  .hero-bg {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-  }
-
-  .hero-bg :global(img) {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: center;
-  }
-
-  .hero-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to bottom,
-      rgba(11, 18, 32, 0.5) 0%,
-      rgba(11, 18, 32, 0.7) 40%,
-      rgba(11, 18, 32, 0.85) 70%,
-      var(--cl-bg) 100%
-    );
-  }
-
-  /* Content */
   .hero-content {
-    position: relative;
-    z-index: 2;
-    text-align: center;
-    padding-top: calc(var(--nav-height) + var(--space-2xl));
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2xl);
+    align-items: center;
+    padding-top: calc(var(--nav-height) + var(--space-xl));
     padding-bottom: var(--space-2xl);
+    width: 100%;
+  }
+
+  /* Text column */
+  .hero-text {
+    max-width: 36rem;
+  }
+
+  .hero-label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-variant: small-caps;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cl-accent);
+    display: block;
+    margin-bottom: 1.25rem;
   }
 
   .hero-title {
+    font-family: var(--font-serif);
+    font-size: clamp(2.5rem, 5vw, 4.25rem);
+    font-weight: 400;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--cl-text);
     margin-bottom: var(--space-md);
-    line-height: 1.15;
   }
 
-  .hero-line {
-    display: block;
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.7s var(--ease-out-expo), transform 0.7s var(--ease-out-expo);
-  }
-
-  .hero-line.animate-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  .hero-line:first-child {
-    margin-bottom: 0.25rem;
+  .hero-title em {
+    font-style: italic;
+    color: var(--cl-accent);
   }
 
   .hero-subtitle {
-    color: var(--cl-text-muted);
-    font-size: clamp(1.0625rem, 2.5vw, 1.35rem);
-    max-width: 40rem;
-    margin: 0 auto var(--space-xl);
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    color: var(--cl-text-2);
     line-height: 1.7;
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.7s var(--ease-out-expo) 0.3s, transform 0.7s var(--ease-out-expo) 0.3s;
-  }
-
-  .hero-subtitle.animate-visible {
-    opacity: 1;
-    transform: translateY(0);
+    margin-bottom: var(--space-xl);
+    max-width: 30rem;
   }
 
   .hero-actions {
     display: flex;
     gap: var(--space-sm);
-    justify-content: center;
     flex-wrap: wrap;
-    opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.7s var(--ease-out-expo) 0.5s, transform 0.7s var(--ease-out-expo) 0.5s;
+    margin-bottom: var(--space-xl);
   }
 
-  .hero-actions.animate-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  /* Scroll indicator */
-  .scroll-indicator {
-    position: absolute;
-    bottom: 2rem;
-    left: 50%;
-    transform: translateX(-50%);
+  /* Platform row */
+  .platform-row {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
-    color: var(--cl-text-muted);
-    font-size: 0.75rem;
-    text-transform: uppercase;
+    gap: 0.625rem;
+    flex-wrap: wrap;
+  }
+
+  .platform-label {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-variant: small-caps;
     letter-spacing: 0.1em;
-    opacity: 0.7;
-    animation: bounce 2s infinite;
-    z-index: 2;
-    transition: opacity 0.3s, visibility 0.3s;
+    text-transform: uppercase;
+    color: var(--cl-text-3);
   }
 
-  .scroll-indicator--hidden {
-    opacity: 0;
-    visibility: hidden;
+  .platform-sep {
+    color: var(--cl-border-3);
+    font-size: 0.875rem;
   }
 
-  @keyframes bounce {
-    0%, 20%, 50%, 80%, 100% { transform: translateX(-50%) translateY(0); }
-    40% { transform: translateX(-50%) translateY(-10px); }
-    60% { transform: translateX(-50%) translateY(-5px); }
+  /* Diagram column */
+  .hero-diagram {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: float-card 6s ease-in-out infinite;
   }
 
-  .scroll-indicator svg {
-    width: 24px;
-    height: 24px;
+  @keyframes float-card {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
   }
 
-  /* Button pulse glow animation */
-  @keyframes pulseGlow {
-    0%, 100% { 
-      box-shadow: 0 0 20px rgba(13, 148, 136, 0.3), 0 4px 15px rgba(13, 148, 136, 0.2);
-    }
-    50% { 
-      box-shadow: 0 0 35px rgba(13, 148, 136, 0.5), 0 4px 15px rgba(13, 148, 136, 0.3);
-    }
+  .diagram-svg {
+    width: 100%;
+    max-width: 480px;
+    height: auto;
   }
 
-  .animate-pulse-glow {
-    animation: pulseGlow 2s ease-in-out infinite;
+  /* SVG draw-on animation */
+  .svg-draw {
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.25, 0, 0, 1);
   }
 
-  /* Mobile adjustments */
-  @media (max-width: 768px) {
-    .hero {
-      min-height: 90vh;
-    }
+  .svg-draw.svg-draw-1 { transition-delay: 0ms; }
+  .svg-draw.svg-draw-2 { transition-delay: 200ms; }
 
+  .svg-draw.drawn {
+    stroke-dashoffset: 0 !important;
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
     .hero-content {
-      padding-top: calc(var(--nav-height) + var(--space-xl));
+      grid-template-columns: 1fr;
+      text-align: left;
+    }
+
+    .hero-diagram {
+      animation: none;
+      order: -1;
+    }
+
+    .diagram-svg {
+      max-width: 380px;
     }
 
     .hero-title {
-      font-size: clamp(1.75rem, 8vw, 2.5rem);
+      font-size: clamp(2rem, 8vw, 3rem);
+    }
+  }
+
+  @media (max-width: 640px) {
+    .hero-content {
+      padding-top: calc(var(--nav-height) + var(--space-lg));
     }
 
-    .hero-subtitle {
-      font-size: 1rem;
+    .diagram-svg {
+      max-width: 300px;
     }
+  }
 
-    .particle {
-      display: none;
+  @media (prefers-reduced-motion: reduce) {
+    .hero-diagram {
+      animation: none;
     }
+    .svg-draw {
+      stroke-dashoffset: 0 !important;
+      transition: none;
+    }
+  }
 
-    .scroll-indicator {
-      bottom: 1.5rem;
-    }
+  /* skill.md / agent prompt callout */
+  .skillmd-callout {
+    background: var(--cl-code-bg);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: var(--space-xl);
+    max-width: 32rem;
+  }
+
+  .callout-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.875rem;
+    background: rgba(255, 255, 255, 0.025);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .callout-label {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-variant: small-caps;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--cl-accent);
+  }
+
+  .callout-copy {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    color: #A09488;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .callout-copy:hover {
+    color: #E6EDF3;
+    border-color: rgba(255, 255, 255, 0.25);
+  }
+
+  .callout-copy.copied {
+    color: #6A9955;
+    border-color: #6A9955;
+  }
+
+  .callout-copy .check-icon { display: none; }
+  .callout-copy.copied .check-icon { display: block; }
+  .callout-copy.copied .copy-icon { display: none; }
+
+  .copy-label { user-select: none; }
+
+  .callout-prompt {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem;
+  }
+
+  .prompt-sym {
+    color: var(--cl-accent);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-size: 0.875rem;
+    flex-shrink: 0;
+    line-height: 1.6;
+  }
+
+  .callout-text {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: #E6EDF3;
+    line-height: 1.6;
+    word-break: break-word;
+  }
+
+  .callout-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    padding: 0.5rem 0.875rem;
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+    color: #6B5F55;
   }
 </style>

@@ -40,6 +40,7 @@ export default defineConfig({
       logo: {
         src: "./src/assets/landing/clawdentity_icon_only.svg",
         alt: "Clawdentity",
+        replacesTitle: false,
       },
       head: [
         {
@@ -61,7 +62,7 @@ export default defineConfig({
           tag: "link",
           attrs: {
             rel: "stylesheet",
-            href: "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap",
+            href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap",
           },
         },
       ],

@@ -13,7 +13,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -39,58 +39,70 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={new URL("/og-image.png", Astro.site)} />
 
-    <!-- Preconnect to external domains -->
+    <!-- Fonts: Instrument Serif + DM Sans + JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700;800&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
   </head>
   <body>
     <slot />
 
+    <!-- Theme toggle logic -->
+    <script>
+      (function() {
+        const stored = localStorage.getItem('cl-theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = stored ?? (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+
     <!-- Scroll animation observer -->
     <script>
       (function() {
-        // Intersection Observer for scroll animations
         const observerOptions = {
-          threshold: 0.1,
-          rootMargin: "0px 0px -50px 0px"
+          threshold: 0.08,
+          rootMargin: "0px 0px -40px 0px"
         };
 
         const observer = new IntersectionObserver((entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting) {
-              // Add animate class
               entry.target.classList.add('animate');
-              
-              // Also animate stagger children if present
+
               const staggerChildren = entry.target.querySelectorAll('.stagger-child');
               staggerChildren.forEach((child, index) => {
                 setTimeout(() => {
                   child.classList.add('animate');
-                }, index * 100);
+                }, index * 60);
               });
-              
-              // Stop observing once animated
+
+              // SVG draw-on animation
+              const svgLines = entry.target.querySelectorAll('.svg-draw');
+              svgLines.forEach((line) => {
+                line.classList.add('drawn');
+              });
+
               observer.unobserve(entry.target);
             }
           });
         }, observerOptions);
 
-        // Observe all elements with animate-on-scroll class
         document.querySelectorAll('.animate-on-scroll').forEach((el) => {
           observer.observe(el);
         });
 
-        // Also observe elements that should animate their children
         document.querySelectorAll('.animate-children').forEach((el) => {
           observer.observe(el);
         });
       })();
     </script>
 
-    <!-- Smooth scroll polyfill for older browsers -->
+    <!-- Smooth scroll for anchor links -->
     <script>
-      // Smooth scroll for anchor links
       document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function(e) {
           const el = e.currentTarget as HTMLAnchorElement;
@@ -99,10 +111,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
             e.preventDefault();
             const target = document.querySelector(href);
             if (target) {
-              target.scrollIntoView({
-                behavior: 'smooth',
-                block: 'start'
-              });
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
           }
         });
@@ -112,11 +121,12 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
 </html>
 
 <style is:global>
-  /* Global styles for stagger animations */
   .stagger-child {
     opacity: 0;
-    transform: translateY(20px);
-    transition: opacity 0.5s var(--ease-out-expo), transform 0.5s var(--ease-out-expo);
+    transform: translateY(16px);
+    transition:
+      opacity 0.5s cubic-bezier(0.25, 0, 0, 1),
+      transform 0.5s cubic-bezier(0.25, 0, 0, 1);
   }
 
   .stagger-child.animate {
@@ -124,13 +134,12 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
     transform: translateY(0);
   }
 
-  /* Stagger delays for children */
-  .animate-children .stagger-child:nth-child(1) { transition-delay: 0.05s; }
-  .animate-children .stagger-child:nth-child(2) { transition-delay: 0.1s; }
-  .animate-children .stagger-child:nth-child(3) { transition-delay: 0.15s; }
-  .animate-children .stagger-child:nth-child(4) { transition-delay: 0.2s; }
-  .animate-children .stagger-child:nth-child(5) { transition-delay: 0.25s; }
-  .animate-children .stagger-child:nth-child(6) { transition-delay: 0.3s; }
-  .animate-children .stagger-child:nth-child(7) { transition-delay: 0.35s; }
-  .animate-children .stagger-child:nth-child(8) { transition-delay: 0.4s; }
+  .animate-children .stagger-child:nth-child(1) { transition-delay: 0ms; }
+  .animate-children .stagger-child:nth-child(2) { transition-delay: 60ms; }
+  .animate-children .stagger-child:nth-child(3) { transition-delay: 120ms; }
+  .animate-children .stagger-child:nth-child(4) { transition-delay: 180ms; }
+  .animate-children .stagger-child:nth-child(5) { transition-delay: 240ms; }
+  .animate-children .stagger-child:nth-child(6) { transition-delay: 300ms; }
+  .animate-children .stagger-child:nth-child(7) { transition-delay: 360ms; }
+  .animate-children .stagger-child:nth-child(8) { transition-delay: 420ms; }
 </style>

@@ -1,351 +1,185 @@
-<!-- Animated flow diagram with 3D perspective -->
-<div class="flow-diagram" aria-label="Clawdentity authentication flow">
-  <div class="flow-container">
-    <!-- Connection lines (SVG) -->
-    <svg class="flow-lines" viewBox="0 0 900 140" preserveAspectRatio="xMidYMid meet">
-      <defs>
-        <linearGradient id="lineGradient1" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stop-color="var(--cl-teal)" stop-opacity="0.8"/>
-          <stop offset="100%" stop-color="var(--cl-teal-light)" stop-opacity="0.4"/>
-        </linearGradient>
-        <linearGradient id="lineGradient2" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stop-color="var(--cl-teal-light)" stop-opacity="0.8"/>
-          <stop offset="100%" stop-color="var(--cl-amber)" stop-opacity="0.4"/>
-        </linearGradient>
-        <linearGradient id="lineGradient3" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stop-color="var(--cl-amber)" stop-opacity="0.8"/>
-          <stop offset="100%" stop-color="var(--cl-teal-light)" stop-opacity="0.4"/>
-        </linearGradient>
-        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-          <feMerge>
-            <feMergeNode in="coloredBlur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-      </defs>
-      
-      <!-- Animated path lines -->
-      <g class="flow-paths">
-        <path class="flow-path" d="M 140 70 L 240 70" stroke="url(#lineGradient1)" stroke-width="2" fill="none" stroke-dasharray="6 3" filter="url(#glow)"/>
-        <path class="flow-path" d="M 360 70 L 460 70" stroke="url(#lineGradient2)" stroke-width="2" fill="none" stroke-dasharray="6 3" filter="url(#glow)"/>
-        <path class="flow-path" d="M 580 70 L 680 70" stroke="url(#lineGradient3)" stroke-width="2" fill="none" stroke-dasharray="6 3" filter="url(#glow)"/>
-      </g>
-      
-      <!-- Arrowheads -->
-      <g class="flow-arrows">
-        <polygon points="235,65 245,70 235,75" fill="var(--cl-teal)" opacity="0.8"/>
-        <polygon points="455,65 465,70 455,75" fill="var(--cl-teal-light)" opacity="0.8"/>
-        <polygon points="675,65 685,70 675,75" fill="var(--cl-amber)" opacity="0.8"/>
-      </g>
-      
-      <!-- Flowing particles -->
-      <g class="flow-particles">
-        <circle r="3" fill="var(--cl-teal)">
-          <animateMotion dur="2s" repeatCount="indefinite" path="M 140 70 L 240 70"/>
-        </circle>
-        <circle r="3" fill="var(--cl-teal-light)">
-          <animateMotion dur="2s" begin="0.7s" repeatCount="indefinite" path="M 360 70 L 460 70"/>
-        </circle>
-        <circle r="3" fill="var(--cl-amber)">
-          <animateMotion dur="2s" begin="1.4s" repeatCount="indefinite" path="M 580 70 L 680 70"/>
-        </circle>
-      </g>
-    </svg>
+---
+// FlowDiagram — Pure SVG, 6 nodes horizontal chain
+// Colors: var(--cl-text-2) lines, var(--cl-surface-2) fills, var(--cl-accent) relay highlight
+---
 
-    <!-- Flow nodes -->
-    <div class="flow-nodes">
-      <div class="flow-node" data-step="1">
-        <div class="flow-node__inner">
-          <div class="flow-node__glow"></div>
-          <div class="flow-node__icon">🤖</div>
-          <div class="flow-node__title">Agent</div>
-          <div class="flow-node__subtitle">Caller</div>
-        </div>
-      </div>
+<div class="flow-diagram-wrap" aria-label="Message flow: OpenClaw through relay to NanoClaw">
+  <svg
+    class="flow-svg"
+    viewBox="0 0 860 120"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <!-- Node 1: OpenClaw -->
+    <rect x="2" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="62" y="56" text-anchor="middle"
+      font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
+      fill="var(--cl-text)">OpenClaw</text>
+    <text x="62" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="62" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:9400</text>
 
-      <div class="flow-node" data-step="2">
-        <div class="flow-node__inner">
-          <div class="flow-node__glow"></div>
-          <div class="flow-node__icon">🔐</div>
-          <div class="flow-node__title">Sign</div>
-          <div class="flow-node__subtitle">AIT + PoP</div>
-        </div>
-      </div>
+    <!-- Arrow 1 -->
+    <path class="flow-path svg-draw svg-draw-1"
+      d="M 122 60 L 150 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="30" stroke-dashoffset="30"/>
+    <polygon class="flow-arrow flow-arrow-1" points="147,57 155,60 147,63"
+      fill="var(--cl-text-3)" opacity="0"/>
 
-      <div class="flow-node flow-node--accent" data-step="3">
-        <div class="flow-node__inner">
-          <div class="flow-node__glow"></div>
-          <div class="flow-node__icon">⚡</div>
-          <div class="flow-node__title">Proxy</div>
-          <div class="flow-node__subtitle">Verify + CRL</div>
-        </div>
-      </div>
+    <!-- Node 2: Connector -->
+    <rect x="152" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="212" y="56" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500"
+      fill="var(--cl-text)">Connector</text>
+    <text x="212" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="212" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:19400</text>
 
-      <div class="flow-node flow-node--success" data-step="4">
-        <div class="flow-node__inner">
-          <div class="flow-node__glow"></div>
-          <div class="flow-node__icon">✓</div>
-          <div class="flow-node__title">Delivered</div>
-          <div class="flow-node__subtitle">Trusted</div>
-        </div>
-      </div>
-    </div>
-  </div>
+    <!-- Arrow 2: WebSocket label -->
+    <path class="flow-path svg-draw svg-draw-2"
+      d="M 272 60 L 320 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="50" stroke-dashoffset="50"/>
+    <polygon class="flow-arrow flow-arrow-2" points="317,57 325,60 317,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+    <text x="296" y="54" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="6.5"
+      fill="var(--cl-text-3)">WS + signed</text>
 
-  <!-- Detail tooltips (appear on hover) -->
-  <div class="flow-details">
-    <div class="flow-detail" data-for="1">
-      <strong>Agent Identity</strong>
-      <span>Each agent has a unique DID and keypair</span>
-    </div>
-    <div class="flow-detail" data-for="2">
-      <strong>Cryptographic Proof</strong>
-      <span>Every request is signed with EdDSA</span>
-    </div>
-    <div class="flow-detail" data-for="3">
-      <strong>Verification Layer</strong>
-      <span>Proxy checks signatures and revocation status</span>
-    </div>
-    <div class="flow-detail" data-for="4">
-      <strong>Trusted Delivery</strong>
-      <span>Only verified requests reach your agent</span>
-    </div>
-  </div>
+    <!-- Node 3: Relay Proxy (copper accent) -->
+    <rect x="322" y="20" width="140" height="80" rx="2" ry="2"
+      fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1.5"/>
+    <text x="392" y="44" text-anchor="middle"
+      font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
+      fill="var(--cl-accent)">Relay Proxy</text>
+    <line x1="322" y1="50" x2="462" y2="50" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+    <text x="392" y="64" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-text-3)">verify AIT</text>
+    <text x="392" y="75" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-text-3)">check CRL</text>
+    <text x="392" y="86" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-text-3)">trust pair</text>
+
+    <!-- Arrow 3 -->
+    <path class="flow-path svg-draw svg-draw-3"
+      d="M 462 60 L 510 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="50" stroke-dashoffset="50"/>
+    <polygon class="flow-arrow flow-arrow-3" points="507,57 515,60 507,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+    <text x="486" y="54" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="6.5"
+      fill="var(--cl-text-3)">WS deliver</text>
+
+    <!-- Node 4: Remote Connector -->
+    <rect x="512" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="572" y="56" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500"
+      fill="var(--cl-text)">Connector</text>
+    <text x="572" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="572" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:19400</text>
+
+    <!-- Arrow 4 -->
+    <path class="flow-path svg-draw svg-draw-4"
+      d="M 632 60 L 660 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="30" stroke-dashoffset="30"/>
+    <polygon class="flow-arrow flow-arrow-4" points="657,57 665,60 657,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+    <text x="646" y="54" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="6.5"
+      fill="var(--cl-text-3)">webhook</text>
+
+    <!-- Node 5: NanoClaw -->
+    <rect x="662" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="722" y="56" text-anchor="middle"
+      font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
+      fill="var(--cl-text)">NanoClaw</text>
+    <text x="722" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="722" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:9400</text>
+
+    <!-- Trusted delivery label at bottom — centered on content (x=2 to x=782, center=392) -->
+    <text x="392" y="112" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-accent-2)" letter-spacing="0.5">CRYPTOGRAPHICALLY VERIFIED DELIVERY</text>
+  </svg>
 </div>
 
+<script>
+  // Draw-on when parent section enters viewport
+  // The parent section already triggers 'animate' class via LandingLayout observer.
+  // We listen for that and then draw our lines.
+  const wrap = document.querySelector('.flow-diagram-wrap');
+  if (wrap) {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const paths = wrap.querySelectorAll('.flow-path');
+          const arrows = wrap.querySelectorAll('.flow-arrow');
+          paths.forEach((p, i) => {
+            setTimeout(() => {
+              (p as SVGElement).style.transition = 'stroke-dashoffset 0.6s cubic-bezier(0.25, 0, 0, 1)';
+              (p as SVGElement).style.strokeDashoffset = '0';
+            }, i * 180);
+          });
+          arrows.forEach((a, i) => {
+            setTimeout(() => {
+              (a as SVGElement).style.transition = 'opacity 0.3s ease';
+              (a as SVGElement).style.opacity = '0.6';
+            }, i * 180 + 400);
+          });
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.3 });
+    obs.observe(wrap);
+  }
+</script>
+
 <style>
-  .flow-diagram {
-    position: relative;
-    padding: var(--space-xl) 0;
+  .flow-diagram-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
-  .flow-container {
-    position: relative;
-    max-width: 900px;
-    margin: 0 auto;
-    perspective: 1000px;
-  }
-
-  /* SVG Lines */
-  .flow-lines {
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    transform: translateY(-50%);
+  .flow-svg {
     width: 100%;
-    height: 140px;
-    z-index: 0;
-  }
-
-  .flow-path {
-    animation: dash 1s linear infinite;
-  }
-
-  @keyframes dash {
-    to {
-      stroke-dashoffset: -9;
-    }
-  }
-
-  /* Flow nodes */
-  .flow-nodes {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    position: relative;
-    z-index: 1;
-    padding: 0 2rem;
-  }
-
-  .flow-node {
-    flex: 0 0 auto;
-    width: 120px;
-    position: relative;
-    cursor: pointer;
-    transition: transform 0.3s var(--ease-out-back);
-  }
-
-  .flow-node:hover {
-    transform: translateY(-5px) scale(1.05);
-  }
-
-  .flow-node__inner {
-    position: relative;
-    background: linear-gradient(135deg, var(--cl-surface), rgba(30, 41, 59, 0.8));
-    border: 1px solid var(--cl-border);
-    border-radius: var(--radius-lg);
-    padding: 1.25rem;
-    text-align: center;
-    box-shadow: 
-      0 10px 30px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    transition: all 0.3s var(--ease-smooth);
-  }
-
-  .flow-node:hover .flow-node__inner {
-    border-color: rgba(13, 148, 136, 0.5);
-    box-shadow: 
-      0 15px 40px rgba(0, 0, 0, 0.4),
-      0 0 30px rgba(13, 148, 136, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  }
-
-  .flow-node--accent .flow-node__inner {
-    border-color: rgba(245, 158, 11, 0.3);
-  }
-
-  .flow-node--accent:hover .flow-node__inner {
-    border-color: rgba(245, 158, 11, 0.6);
-    box-shadow: 
-      0 15px 40px rgba(0, 0, 0, 0.4),
-      0 0 30px rgba(245, 158, 11, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  }
-
-  .flow-node--success .flow-node__inner {
-    border-color: rgba(13, 148, 136, 0.5);
-    background: linear-gradient(135deg, rgba(13, 148, 136, 0.1), var(--cl-surface));
-  }
-
-  .flow-node--success:hover .flow-node__inner {
-    border-color: var(--cl-teal);
-    box-shadow: 
-      0 15px 40px rgba(0, 0, 0, 0.4),
-      0 0 40px rgba(13, 148, 136, 0.3),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  }
-
-  .flow-node__glow {
-    position: absolute;
-    inset: -5px;
-    border-radius: calc(var(--radius-lg) + 5px);
-    background: radial-gradient(circle, rgba(13, 148, 136, 0.2) 0%, transparent 70%);
-    opacity: 0;
-    transition: opacity 0.3s;
-    pointer-events: none;
-  }
-
-  .flow-node:hover .flow-node__glow {
-    opacity: 1;
-  }
-
-  .flow-node--accent .flow-node__glow {
-    background: radial-gradient(circle, rgba(245, 158, 11, 0.2) 0%, transparent 70%);
-  }
-
-  .flow-node__icon {
-    font-size: 1.5rem;
-    margin-bottom: 0.5rem;
-    line-height: 1;
-  }
-
-  .flow-node__title {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--cl-text);
-    margin-bottom: 0.25rem;
-  }
-
-  .flow-node__subtitle {
-    font-size: 0.75rem;
-    color: var(--cl-text-muted);
-    font-family: ui-monospace, "JetBrains Mono", monospace;
-  }
-
-  /* Detail tooltips */
-  .flow-details {
-    display: flex;
-    justify-content: space-between;
-    max-width: 900px;
-    margin: var(--space-md) auto 0;
-    padding: 0 2rem;
-    gap: 1rem;
-  }
-
-  .flow-detail {
-    flex: 1;
-    text-align: center;
-    opacity: 0;
-    transform: translateY(10px);
-    transition: all 0.3s var(--ease-smooth);
-    padding: 0.5rem;
-  }
-
-  .flow-detail.visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  .flow-detail strong {
+    min-width: 600px;
+    height: auto;
     display: block;
-    font-size: 0.75rem;
-    color: var(--cl-teal-light);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 0.25rem;
   }
 
-  .flow-detail span {
-    font-size: 0.8125rem;
-    color: var(--cl-text-muted);
-  }
-
-  /* Responsive */
-  @media (max-width: 768px) {
-    .flow-nodes {
-      flex-wrap: wrap;
-      gap: 1rem;
-      justify-content: center;
+  @media (prefers-reduced-motion: reduce) {
+    .flow-path {
+      stroke-dashoffset: 0 !important;
+      transition: none !important;
     }
-
-    .flow-node {
-      width: 100px;
-    }
-
-    .flow-node__inner {
-      padding: 1rem;
-    }
-
-    .flow-node__icon {
-      font-size: 1.25rem;
-    }
-
-    .flow-node__title {
-      font-size: 0.8125rem;
-    }
-
-    .flow-node__subtitle {
-      font-size: 0.6875rem;
-    }
-
-    .flow-lines {
-      display: none;
-    }
-
-    .flow-details {
-      display: none;
+    .flow-arrow {
+      opacity: 0.6 !important;
+      transition: none !important;
     }
   }
 </style>
-
-<script>
-  // Show details on node hover
-  document.querySelectorAll('.flow-node').forEach(node => {
-    const step = node.getAttribute('data-step');
-    const detail = document.querySelector(`.flow-detail[data-for="${step}"]`);
-    
-    node.addEventListener('mouseenter', () => {
-      // Hide all details
-      document.querySelectorAll('.flow-detail').forEach(d => d.classList.remove('visible'));
-      // Show this detail
-      detail?.classList.add('visible');
-    });
-  });
-
-  // Hide details when leaving the diagram
-  document.querySelector('.flow-diagram')?.addEventListener('mouseleave', () => {
-    document.querySelectorAll('.flow-detail').forEach(d => d.classList.remove('visible'));
-  });
-</script>
