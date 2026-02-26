@@ -62,8 +62,8 @@
 - Preserve stylesheet cascade order by importing `landing-motion.css` after `landing.css` in `src/pages/index.astro`.
 
 ## Cloudflare Pages Deploy Expectations
-- `develop` branch deploys to Cloudflare Pages preview/staging.
-- `main` branch deploys to Cloudflare Pages production.
+- `develop` branch deploys to dedicated Cloudflare Pages project `clawdentity-site-dev`.
+- `main` branch deploys to production Cloudflare Pages project `clawdentity-site`.
 - Deploy jobs must use package scripts that run `build:skill-md` first so `public/skill.md` is always current.
 - Deploy output must include `public/install.sh` and `public/install.ps1` at site root (`/install.sh`, `/install.ps1`).
 - Landing docs must keep OS-specific installer commands canonical:

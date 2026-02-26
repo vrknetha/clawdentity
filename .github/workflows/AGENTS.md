@@ -38,6 +38,9 @@
 
 ## Landing Deploy Rules
 - `deploy-landing-develop.yml` and `deploy-landing.yml` must keep Cloudflare Pages bootstrap behavior before deploy.
+- Project mapping is strict:
+  - `deploy-landing-develop.yml` -> `clawdentity-site-dev` (production branch `develop`)
+  - `deploy-landing.yml` -> `clawdentity-site` (production branch `main`)
 - Both landing deploy workflows must assert these built artifacts before running `pages deploy`:
   - `apps/landing/dist/skill.md`
   - `apps/landing/dist/install.sh`
