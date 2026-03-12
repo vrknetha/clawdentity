@@ -20,9 +20,9 @@ Use this single URL as the source of truth:
 - `https://clawdentity.com/skill.md`
 
 Fallback mirror (not canonical):
-- `https://raw.githubusercontent.com/vrknetha/clawdentity/develop/apps/openclaw-skill/skill/SKILL.md`
+- `https://downloads.clawdentity.com/skill/v<version>/skill.md`
 
-For deterministic automation, pin the fallback mirror to a release tag or commit SHA instead of `develop`.
+For deterministic automation, pin the fallback mirror to a concrete released version.
 
 ## Scope Guard
 
@@ -62,17 +62,19 @@ irm https://clawdentity.com/install.ps1 | iex
 
 Installer environment controls:
 
-- `CLAWDENTITY_VERSION` (optional, defaults to latest `rust/v*` release)
+- `CLAWDENTITY_VERSION` (optional, defaults to `https://downloads.clawdentity.com/rust/latest.json`)
 - `CLAWDENTITY_INSTALL_DIR` (optional custom install path)
 - `CLAWDENTITY_INSTALL_DRY_RUN=1`
 - `CLAWDENTITY_NO_VERIFY=1` (skip checksum verification; use only when required)
+- `CLAWDENTITY_RELEASE_MANIFEST_URL` (optional override for CI/private mirrors)
 
 2. Prebuilt release binary (advanced fallback)
 
 - Release URL pattern:
-  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.tar.gz`
-  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.zip`
-  - `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-checksums.txt`
+  - `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-<platform>.tar.gz`
+  - `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-<platform>.zip`
+  - `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-checksums.txt`
+  - `https://downloads.clawdentity.com/rust/latest.json`
 - Linux/macOS archive platforms:
   - `linux-x86_64`
   - `linux-aarch64`
@@ -88,7 +90,7 @@ Linux `aarch64` example:
 version="<version>"
 asset="clawdentity-${version}-linux-aarch64.tar.gz"
 tag="rust/v${version}"
-base="https://github.com/vrknetha/clawdentity/releases/download/${tag}"
+base="https://downloads.clawdentity.com/${tag}"
 checksums="clawdentity-${version}-checksums.txt"
 
 mkdir -p "$HOME/bin" /tmp/clawdentity-bin
@@ -109,7 +111,7 @@ $tag = "rust/v$version"
 $platform = "windows-x86_64" # use windows-aarch64 on Arm64
 $asset = "clawdentity-$version-$platform.zip"
 $checksums = "clawdentity-$version-checksums.txt"
-$base = "https://github.com/vrknetha/clawdentity/releases/download/$tag"
+$base = "https://downloads.clawdentity.com/$tag"
 
 irm "$base/$asset" -OutFile $asset
 irm "$base/$checksums" -OutFile $checksums

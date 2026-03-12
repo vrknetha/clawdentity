@@ -2,16 +2,20 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 Set-StrictMode -Version Latest
 
-$Repo = "vrknetha/clawdentity"
 $BinaryName = "clawdentity.exe"
+$DefaultDownloadsBaseUrl = "https://downloads.clawdentity.com"
 
 $DryRun = $env:CLAWDENTITY_INSTALL_DRY_RUN -eq "1"
 $NoVerify = $env:CLAWDENTITY_NO_VERIFY -eq "1"
 $VersionInput = $env:CLAWDENTITY_VERSION
 $InstallDir = $env:CLAWDENTITY_INSTALL_DIR
+$DownloadsBaseUrl = $env:CLAWDENTITY_DOWNLOADS_BASE_URL
+$ManifestUrlInput = $env:CLAWDENTITY_RELEASE_MANIFEST_URL
 
 $script:Tag = ""
 $script:Version = ""
+$script:AssetBaseUrl = ""
+$script:ChecksumsUrl = ""
 
 function Write-Info {
   param([string]$Message)
@@ -28,31 +32,51 @@ function Fail {
   throw "clawdentity installer: $Message"
 }
 
-function Resolve-LatestRustTag {
-  $headers = @{ Accept = "application/vnd.github+json" }
-  $latestUri = "https://api.github.com/repos/$Repo/releases/latest"
-  $releasesUri = "https://api.github.com/repos/$Repo/releases?per_page=100"
+function Trim-TrailingSlash {
+  param([string]$Value)
 
-  try {
-    $latest = Invoke-RestMethod -Uri $latestUri -Headers $headers
-    if ($null -ne $latest -and $latest.tag_name -match "^rust/v\d+\.\d+\.\d+$") {
-      return $latest.tag_name
-    }
-  }
-  catch {
-    Write-WarnLine "failed to query releases/latest; falling back to releases list"
+  return $Value.TrimEnd("/")
+}
+
+function Resolve-ManifestUrl {
+  if (-not [string]::IsNullOrWhiteSpace($ManifestUrlInput)) {
+    return $ManifestUrlInput
   }
 
-  $releases = Invoke-RestMethod -Uri $releasesUri -Headers $headers
-  $tag = $releases |
-    Where-Object { -not $_.draft -and -not $_.prerelease -and $_.tag_name -match "^rust/v\d+\.\d+\.\d+$" } |
-    Select-Object -ExpandProperty tag_name -First 1
-
-  if ([string]::IsNullOrWhiteSpace($tag)) {
-    Fail "could not resolve latest rust/v* release tag"
+  $baseUrl = if ([string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
+    $DefaultDownloadsBaseUrl
+  }
+  else {
+    $DownloadsBaseUrl
   }
 
-  return $tag
+  return "$(Trim-TrailingSlash $baseUrl)/rust/latest.json"
+}
+
+function Resolve-LatestReleaseInfo {
+  $manifestUri = Resolve-ManifestUrl
+  if ($DryRun) {
+    Write-Info "resolving latest release from $manifestUri"
+  }
+
+  $manifest = Invoke-RestMethod -Uri $manifestUri
+  if ([string]::IsNullOrWhiteSpace($manifest.version)) {
+    Fail "release manifest is missing version"
+  }
+  if ([string]::IsNullOrWhiteSpace($manifest.tag)) {
+    Fail "release manifest is missing tag"
+  }
+  if ([string]::IsNullOrWhiteSpace($manifest.assetBaseUrl)) {
+    Fail "release manifest is missing assetBaseUrl"
+  }
+  if ([string]::IsNullOrWhiteSpace($manifest.checksumsUrl)) {
+    Fail "release manifest is missing checksumsUrl"
+  }
+
+  $script:Version = $manifest.version.Trim()
+  $script:Tag = $manifest.tag.Trim()
+  $script:AssetBaseUrl = $manifest.assetBaseUrl.Trim()
+  $script:ChecksumsUrl = $manifest.checksumsUrl.Trim()
 }
 
 function Set-VersionInfo {
@@ -132,19 +156,23 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
 
 if (-not [string]::IsNullOrWhiteSpace($VersionInput)) {
   Set-VersionInfo -InputVersion $VersionInput
+  $baseUrl = if ([string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
+    $DefaultDownloadsBaseUrl
+  }
+  else {
+    $DownloadsBaseUrl
+  }
+  $script:AssetBaseUrl = "$(Trim-TrailingSlash $baseUrl)/rust/v$Version"
+  $script:ChecksumsUrl = "$script:AssetBaseUrl/clawdentity-$Version-checksums.txt"
 }
 else {
-  if ($DryRun) {
-    Write-Info "resolving latest rust/v* release tag from GitHub"
-  }
-  Set-VersionInfo -InputVersion (Resolve-LatestRustTag)
+  Resolve-LatestReleaseInfo
 }
 
 $assetName = "clawdentity-$Version-$platform.zip"
 $checksumName = "clawdentity-$Version-checksums.txt"
-$baseUrl = "https://github.com/$Repo/releases/download/$Tag"
-$assetUrl = "$baseUrl/$assetName"
-$checksumUrl = "$baseUrl/$checksumName"
+$assetUrl = "$script:AssetBaseUrl/$assetName"
+$checksumUrl = $script:ChecksumsUrl
 $targetPath = Join-Path $InstallDir $BinaryName
 
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("clawdentity-" + [Guid]::NewGuid().ToString("N"))

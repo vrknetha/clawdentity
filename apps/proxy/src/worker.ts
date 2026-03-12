@@ -8,7 +8,7 @@ import {
   ProxyConfigError,
   parseProxyConfig,
 } from "./config.js";
-import { resolveProxyVersion } from "./index.js";
+import { resolveProxyVersion, resolveProxyVersionSource } from "./index.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
@@ -98,21 +98,28 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
   const config = parseProxyConfig(env, {
     requireRuntimeKeys: true,
   });
+  const runtimeLogger = createLogger(
+    { service: "proxy" },
+    {
+      minLevel: config.environment === "production" ? "warn" : "debug",
+    },
+  );
   const trustStoreResolution = resolveWorkerTrustStore({
     environment: config.environment,
     trustStateNamespace: env.PROXY_TRUST_STATE,
   });
   if (trustStoreResolution.backend === "memory") {
-    logger.warn("proxy.trust_store.memory_fallback", {
+    runtimeLogger.warn("proxy.trust_store.memory_fallback", {
       environment: config.environment,
       reason: "PROXY_TRUST_STATE binding is unavailable",
     });
   }
   const app = createProxyApp({
     config,
-    logger,
+    logger: runtimeLogger,
     trustStore: trustStoreResolution.trustStore,
     version: resolveProxyVersion(env),
+    versionSource: resolveProxyVersionSource(env),
   });
 
   cachedRuntime = {
@@ -171,5 +178,5 @@ const worker = {
   },
 };
 
+export { worker };
 export { AgentRelaySession, ProxyTrustState };
-export default worker;

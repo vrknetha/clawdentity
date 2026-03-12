@@ -33,6 +33,14 @@
   - `install.ps1`
   - `clawdentity-<version>-checksums.txt`
 - Installer script assets in Rust releases must be sourced from `apps/landing/public/install.sh` and `apps/landing/public/install.ps1`.
+- Rust releases must publish the canonical installer manifest to R2 at `rust/latest.json` and stage immutable release assets under `rust/v<version>/`.
+- Release automation must stage and publish these skill assets to R2:
+  - `skill/v<version>/skill.md`
+  - `skill/latest/skill.md`
+- Installer verification in CI must exercise both paths:
+  - manifest-driven latest install
+  - explicit `CLAWDENTITY_VERSION` install against staged downloads base URL
+- Release checksum files must contain bare archive names, never workspace-relative prefixes such as `dist/`.
 - Always generate and publish SHA256 checksums.
 - Keep release uploads idempotent (`overwrite_files` / clobber-safe behavior) so reruns replace assets cleanly.
 
@@ -45,6 +53,11 @@
   - `apps/landing/dist/skill.md`
   - `apps/landing/dist/install.sh`
   - `apps/landing/dist/install.ps1`
+- Both landing deploy workflows must preserve the canonical installer defaults that point at `https://downloads.clawdentity.com`.
+- The production landing workflow must also mirror latest assets into the R2 artifact bucket after the Pages deploy succeeds.
+- Any workflow step that calls raw `wrangler r2 object put` must explicitly export `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+- The develop landing workflow must verify the dev Pages onboarding URLs after deploy.
+- Keep production landing and runtime deploys separable, but if a combined production deploy workflow exists it must still preserve the runtime-first ordering before landing/artifact publish.
 
 ## Rust Crate Publish Rules
 - Resolve next version from crates metadata using `cargo info` and bump both crate manifests consistently:
@@ -56,6 +69,7 @@
   - first `clawdentity-core`
   - then `clawdentity-cli`
 - After crate publish and tag creation, build binaries from that same tag so crates and binaries stay aligned.
+- Do not depend on GitHub Releases API for installer latest-version lookup; the workflow must publish a self-contained manifest consumed from `downloads.clawdentity.com`.
 
 ## Separation of Concerns
 - Keep `.github/workflows/ci.yml` focused on validation gates.

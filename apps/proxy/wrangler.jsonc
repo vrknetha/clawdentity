@@ -116,6 +116,14 @@
     },
     "production": {
       "name": "clawdentity-proxy",
+      "observability": {
+        "enabled": true,
+        "logs": {
+          "enabled": true,
+          "invocation_logs": false,
+          "head_sampling_rate": 1
+        }
+      },
       "routes": [
         {
           "pattern": "proxy.clawdentity.com",

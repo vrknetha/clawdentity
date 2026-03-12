@@ -21,6 +21,8 @@
 - Keep environment-aware error exposure unchanged (`shouldExposeVerboseErrors` paths).
 - Preserve transaction-first flow and local rollback fallbacks where present.
 - Keep route registration order stable unless a route conflict requires change.
+- Keep `/health` top-level fields backward-compatible while allowing additive readiness metadata for deploy verification.
+- Health readiness checks must reflect actual config/binding presence, not inferred hostnames or environment-name shortcuts.
 
 ## Validation
 - For server changes, run:

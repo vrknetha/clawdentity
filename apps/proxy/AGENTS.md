@@ -9,7 +9,8 @@
 - Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `dev`, and `production` environments.
 - Duplicate Durable Object `bindings` and `migrations` inside each Wrangler env block; env sections do not inherit top-level DO config.
 - Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
-- Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so relay/auth failures are visible in Cloudflare logs.
+- Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`) so relay/auth failures are visible in Cloudflare logs.
+- Production must keep `invocation_logs=false` to reduce noisy request-volume logs while preserving structured warn/error events.
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/proxy run types:dev`) after `wrangler.jsonc` or binding changes.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
@@ -96,6 +97,11 @@
 - Keep `src/worker.ts` as the Cloudflare Worker fetch entry and `src/node-server.ts` as the Node compatibility entry.
 - Keep `AgentRelaySession` exported from `src/worker.ts` and bound/migrated in `wrangler.jsonc`.
 - Keep middleware order stable: request context -> request logging -> public-route IP rate limit -> auth verification -> agent DID rate limit -> error handler.
-- Keep `/health` response contract stable: `{ status, version, environment }` with HTTP 200; version should reflect deploy-time `APP_VERSION` when provided.
+- Keep `/health` top-level response fields stable: `{ status, version, environment }` with HTTP 200.
+- Additive readiness fields are allowed and expected:
+  - top-level `ready`
+  - `readiness.versionSource`
+  - binding/config readiness booleans for registry URL, internal service credentials, relay session namespace, trust state binding, and OpenClaw base URL
 - Log startup and request completion with structured JSON logs; never log secrets or tokens.
+- Production request logging should emit only slow or failing requests; do not restore verbose success-path request logs in production.
 - If identity injection is enabled, mutate only `payload.message` when it is a string; preserve all other payload fields unchanged.

@@ -10,6 +10,8 @@ const targetSkillRoot = join(cliRoot, "skill-bundle", "openclaw-skill");
 const requiredPaths = [
   join(targetSkillRoot, "skill", "SKILL.md"),
   join(targetSkillRoot, "skill", "references", "clawdentity-protocol.md"),
+  join(targetSkillRoot, "skill", "references", "clawdentity-registry.md"),
+  join(targetSkillRoot, "skill", "references", "clawdentity-environment.md"),
   join(targetSkillRoot, "dist", "relay-to-peer.mjs"),
 ];
 

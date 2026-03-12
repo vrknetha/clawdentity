@@ -31,10 +31,11 @@ Rust toolchain is not required for this recommended path; installer scripts down
 
 | Variable | Description |
 |--------|-------------|
-| `CLAWDENTITY_VERSION` | Optional version override (`0.1.2`, `v0.1.2`, or `rust/v0.1.2`). Defaults to latest `rust/v*` release. |
+| `CLAWDENTITY_VERSION` | Optional version override (`0.1.2`, `v0.1.2`, or `rust/v0.1.2`). Defaults to the version in `https://downloads.clawdentity.com/rust/latest.json`. |
 | `CLAWDENTITY_INSTALL_DIR` | Optional install target directory. |
 | `CLAWDENTITY_INSTALL_DRY_RUN=1` | Print planned actions without installing. |
 | `CLAWDENTITY_NO_VERIFY=1` | Skip checksum verification (not recommended). |
+| `CLAWDENTITY_RELEASE_MANIFEST_URL` | Optional manifest override for CI or private mirrors. |
 
 ### Example overrides
 
@@ -69,9 +70,10 @@ If you cannot use the hosted installer scripts, download release assets directly
 
 | Artifact | Location |
 |----------|----------|
-| Linux/macOS archive | `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.tar.gz` |
-| Windows archive | `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-<platform>.zip` |
-| Checksums file | `https://github.com/vrknetha/clawdentity/releases/download/rust/v<version>/clawdentity-<version>-checksums.txt` |
+| Release manifest | `https://downloads.clawdentity.com/rust/latest.json` |
+| Linux/macOS archive | `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-<platform>.tar.gz` |
+| Windows archive | `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-<platform>.zip` |
+| Checksums file | `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-checksums.txt` |
 
 Supported platforms:
 
@@ -89,6 +91,8 @@ Always verify checksums before installing when downloading assets manually.
 After installing the CLI, use the canonical onboarding prompt from [`/skill.md`](/skill.md).
 
 ## Development setup
+
+For the hosted develop environment, the Pages site at `https://clawdentity-site-dev.pages.dev` serves the same installer entrypoints and the same release downloads surface. Keep source docs production-first and use installer env overrides only when you need to test a private mirror locally.
 
 For contributing to Clawdentity itself:
 

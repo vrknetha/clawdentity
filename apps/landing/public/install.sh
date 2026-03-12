@@ -1,17 +1,23 @@
 #!/usr/bin/env sh
 set -eu
 
-REPO="vrknetha/clawdentity"
 BIN_NAME="clawdentity"
+DEFAULT_DOWNLOADS_BASE_URL="https://downloads.clawdentity.com"
 
 DRY_RUN="${CLAWDENTITY_INSTALL_DRY_RUN:-0}"
 NO_VERIFY="${CLAWDENTITY_NO_VERIFY:-0}"
 VERSION_INPUT="${CLAWDENTITY_VERSION:-}"
 INSTALL_DIR="${CLAWDENTITY_INSTALL_DIR:-}"
+DOWNLOADS_BASE_URL="${CLAWDENTITY_DOWNLOADS_BASE_URL:-$DEFAULT_DOWNLOADS_BASE_URL}"
+MANIFEST_URL_INPUT="${CLAWDENTITY_RELEASE_MANIFEST_URL:-}"
 
 TAG=""
 VERSION=""
 PLATFORM=""
+ASSET_BASE_URL=""
+CHECKSUM_URL=""
+manifest_path=""
+tmp_dir=""
 
 info() {
   printf '%s\n' "clawdentity installer: $*"
@@ -30,24 +36,55 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
 }
 
-resolve_latest_tag() {
-  latest_url="https://api.github.com/repos/${REPO}/releases/latest"
-  releases_url="https://api.github.com/repos/${REPO}/releases?per_page=100"
+trim_trailing_slash() {
+  value="$1"
+  while [ "${value%/}" != "$value" ]; do
+    value="${value%/}"
+  done
+  printf '%s\n' "$value"
+}
 
-  latest_tag="$(
-    curl -fsSL "$latest_url" 2>/dev/null \
-      | awk -F'"' '/"tag_name":[[:space:]]*"[^"]+"/ { print $4; exit }'
-  )"
-  case "${latest_tag:-}" in
-    rust/v*) printf '%s\n' "$latest_tag"; return 0 ;;
-  esac
+resolve_manifest_url() {
+  if [ -n "$MANIFEST_URL_INPUT" ]; then
+    printf '%s\n' "$MANIFEST_URL_INPUT"
+    return 0
+  fi
 
-  fallback_tag="$(
-    curl -fsSL "$releases_url" \
-      | awk -F'"' '/"tag_name":[[:space:]]*"rust\/v[0-9]+\.[0-9]+\.[0-9]+"/ { print $4; exit }'
-  )"
-  [ -n "${fallback_tag:-}" ] || return 1
-  printf '%s\n' "$fallback_tag"
+  base_url="$(trim_trailing_slash "$DOWNLOADS_BASE_URL")"
+  printf '%s\n' "${base_url}/rust/latest.json"
+}
+
+extract_manifest_string() {
+  key="$1"
+  manifest_path="$2"
+  awk -F'"' -v key="$key" '$2 == key { print $4; exit }' "$manifest_path"
+}
+
+resolve_latest_release_from_manifest() {
+  manifest_url="$(resolve_manifest_url)"
+  manifest_path="$1"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    info "[dry-run] fetching latest release metadata from ${manifest_url}"
+    curl -fL --retry 3 --retry-delay 1 --connect-timeout 20 "$manifest_url" -o "$manifest_path"
+  else
+    download_file "$manifest_url" "$manifest_path"
+  fi
+
+  resolved_version="$(extract_manifest_string "version" "$manifest_path")"
+  resolved_tag="$(extract_manifest_string "tag" "$manifest_path")"
+  resolved_asset_base_url="$(extract_manifest_string "assetBaseUrl" "$manifest_path")"
+  resolved_checksums_url="$(extract_manifest_string "checksumsUrl" "$manifest_path")"
+
+  [ -n "${resolved_version:-}" ] || fail "release manifest is missing version"
+  [ -n "${resolved_tag:-}" ] || fail "release manifest is missing tag"
+  [ -n "${resolved_asset_base_url:-}" ] || fail "release manifest is missing assetBaseUrl"
+  [ -n "${resolved_checksums_url:-}" ] || fail "release manifest is missing checksumsUrl"
+
+  VERSION="$resolved_version"
+  TAG="$resolved_tag"
+  ASSET_BASE_URL="$resolved_asset_base_url"
+  CHECKSUM_URL="$resolved_checksums_url"
 }
 
 set_version_from_input() {
@@ -140,17 +177,18 @@ main() {
 
   if [ -n "$VERSION_INPUT" ]; then
     set_version_from_input "$VERSION_INPUT"
+    normalized_downloads_base_url="$(trim_trailing_slash "$DOWNLOADS_BASE_URL")"
+    ASSET_BASE_URL="${normalized_downloads_base_url}/rust/v${VERSION}"
+    CHECKSUM_URL="${ASSET_BASE_URL}/${BIN_NAME}-${VERSION}-checksums.txt"
   else
-    [ "$DRY_RUN" = "1" ] && info "resolving latest rust/v* release tag from GitHub"
-    latest_tag="$(resolve_latest_tag)" || fail "could not resolve latest rust/v* release tag"
-    set_version_from_input "$latest_tag"
+    manifest_path="$(mktemp)"
+    resolve_latest_release_from_manifest "$manifest_path"
   fi
 
   asset_name="${BIN_NAME}-${VERSION}-${PLATFORM}.tar.gz"
   checksum_name="${BIN_NAME}-${VERSION}-checksums.txt"
-  base_url="https://github.com/${REPO}/releases/download/${TAG}"
-  asset_url="${base_url}/${asset_name}"
-  checksum_url="${base_url}/${checksum_name}"
+  asset_url="${ASSET_BASE_URL}/${asset_name}"
+  checksum_url="${CHECKSUM_URL}"
   target_path="${INSTALL_DIR}/${BIN_NAME}"
 
   tmp_dir="$(mktemp -d)"
@@ -160,6 +198,7 @@ main() {
 
   cleanup() {
     [ -d "$tmp_dir" ] && rm -rf "$tmp_dir"
+    [ -n "$manifest_path" ] && rm -f "$manifest_path"
   }
   trap cleanup EXIT INT TERM
 

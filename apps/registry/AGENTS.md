@@ -18,9 +18,14 @@
 - Deploy scripts must run D1 migrations before Worker deployment.
 - For local development, run local migrations before `wrangler dev --env dev --port 8788` (use `pnpm -F @clawdentity/registry run dev:local`).
 - Verify `GET /health` returns `status: "ok"` and environment (`development` or `production`).
+- Production deploy verification must also assert `/health.ready == true` and the expected readiness keys for DB, queue/event bus, signing config, and internal service credentials.
 
 ## Runtime and API
-- Preserve `/health` response contract: `{ status, version, environment }`.
+- Preserve `/health` top-level response contract: `{ status, version, environment }`.
+- Additive readiness metadata is allowed and expected:
+  - top-level `ready`
+  - `readiness.versionSource`
+  - readiness booleans for DB binding, event bus backend/binding, proxy URL, issuer URL, bootstrap secret, internal service credentials, and signing config
 - Keep the worker entrypoint in `src/server.ts`; use `src/index.ts` only as the package export wrapper.
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so deploy/runtime failures are visible without ad-hoc debugging.
@@ -29,6 +34,7 @@
 - Generate local `apps/registry/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
 - Use memory event bus in `development` while no downstream consumers exist (`EVENT_BUS_BACKEND=memory`).
 - Keep production queue-backed (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`) until rollout policy changes.
+- Keep queue-backed event bus validation fail-fast in production-like runtime paths; do not silently fallback to memory when `EVENT_BUS_QUEUE` is missing.
 
 ## Validation
 - Validate deployment config and bundle with `wrangler deploy --env <env> --dry-run` before remote migration/deploy.

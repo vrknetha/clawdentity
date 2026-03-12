@@ -400,12 +400,33 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_ARTIFACTS_BUCKET: ${{ vars.R2_ARTIFACTS_BUCKET }}
+      DOWNLOADS_BASE_URL: ${{ vars.CLAWDENTITY_DOWNLOADS_BASE_URL }}
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.publish.outputs.tag }}
           fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Validate release infrastructure inputs
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+          test -n "${R2_ARTIFACTS_BUCKET}"
 
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
@@ -421,6 +442,13 @@ jobs:
           mkdir -p dist
           install -m 0755 apps/landing/public/install.sh dist/install.sh
           install -m 0644 apps/landing/public/install.ps1 dist/install.ps1
+
+      - name: Build skill artifact and verify bundle parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          node apps/landing/scripts/build-skill-md.mjs
+          node apps/landing/scripts/verify-skill-artifacts.mjs
 
       - name: Verify assets and generate checksums
         shell: bash
@@ -439,7 +467,107 @@ jobs:
             exit 1
           fi
 
-          sha256sum "${ARCHIVES[@]}" > "${CHECKSUM_PATH}"
+          ARCHIVE_NAMES=()
+          for archive_path in "${ARCHIVES[@]}"; do
+            ARCHIVE_NAMES+=("$(basename "${archive_path}")")
+          done
+
+          (
+            cd dist
+            sha256sum "${ARCHIVE_NAMES[@]}"
+          ) > "${CHECKSUM_PATH}"
+
+      - name: Stage R2 publish tree and release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.publish.outputs.next_version }}"
+          TAG="${{ needs.publish.outputs.tag }}"
+          PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          DOWNLOADS_BASE_URL="${DOWNLOADS_BASE_URL:-https://downloads.clawdentity.com}"
+
+          mkdir -p "dist/publish/rust/v${VERSION}" "dist/publish/rust" "dist/publish/skill/v${VERSION}" "dist/publish/skill/latest"
+
+          cp "dist/clawdentity-${VERSION}-linux-x86_64.tar.gz" "dist/publish/rust/v${VERSION}/"
+          cp "dist/clawdentity-${VERSION}-linux-aarch64.tar.gz" "dist/publish/rust/v${VERSION}/"
+          cp "dist/clawdentity-${VERSION}-macos-x86_64.tar.gz" "dist/publish/rust/v${VERSION}/"
+          cp "dist/clawdentity-${VERSION}-macos-aarch64.tar.gz" "dist/publish/rust/v${VERSION}/"
+          cp "dist/clawdentity-${VERSION}-windows-x86_64.zip" "dist/publish/rust/v${VERSION}/"
+          cp "dist/clawdentity-${VERSION}-windows-aarch64.zip" "dist/publish/rust/v${VERSION}/"
+          cp "dist/clawdentity-${VERSION}-checksums.txt" "dist/publish/rust/v${VERSION}/"
+          cp "dist/install.sh" "dist/publish/install.sh"
+          cp "dist/install.ps1" "dist/publish/install.ps1"
+          cp "apps/landing/public/skill.md" "dist/publish/skill/v${VERSION}/skill.md"
+          cp "apps/landing/public/skill.md" "dist/publish/skill/latest/skill.md"
+
+          node apps/landing/scripts/create-release-manifest.mjs \
+            --version "${VERSION}" \
+            --tag "${TAG}" \
+            --base-url "${DOWNLOADS_BASE_URL}" \
+            --published-at "${PUBLISHED_AT}" \
+            --output "dist/publish/rust/latest.json"
+
+          cp "dist/publish/rust/latest.json" "dist/publish/rust/v${VERSION}/manifest.json"
+
+          mkdir -p "dist/verify"
+          cp -R dist/publish/. dist/verify/
+
+          node apps/landing/scripts/create-release-manifest.mjs \
+            --version "${VERSION}" \
+            --tag "${TAG}" \
+            --base-url "http://127.0.0.1:8943" \
+            --published-at "${PUBLISHED_AT}" \
+            --output "dist/verify/rust/latest.json"
+
+      - name: Verify installer against staged manifest and explicit version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.publish.outputs.next_version }}"
+          python3 -m http.server 8943 --directory dist/verify >/tmp/clawdentity-r2-verify.log 2>&1 &
+          SERVER_PID=$!
+          cleanup() {
+            kill "${SERVER_PID}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+          sleep 2
+
+          INSTALL_ROOT="${RUNNER_TEMP}/clawdentity-installer"
+          EXPLICIT_INSTALL_ROOT="${RUNNER_TEMP}/clawdentity-explicit-installer"
+
+          CLAWDENTITY_RELEASE_MANIFEST_URL="http://127.0.0.1:8943/rust/latest.json" \
+            CLAWDENTITY_INSTALL_DIR="${INSTALL_ROOT}" \
+            sh dist/install.sh
+
+          "${INSTALL_ROOT}/clawdentity" --version | grep -F "${VERSION}"
+
+          CLAWDENTITY_VERSION="${VERSION}" \
+            CLAWDENTITY_DOWNLOADS_BASE_URL="http://127.0.0.1:8943" \
+            CLAWDENTITY_INSTALL_DIR="${EXPLICIT_INSTALL_ROOT}" \
+            sh dist/install.sh
+
+          "${EXPLICIT_INSTALL_ROOT}/clawdentity" --version | grep -F "${VERSION}"
+
+      - name: Upload release assets to R2
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r file_path; do
+            object_key="${file_path#dist/publish/}"
+            content_type="application/octet-stream"
+            case "${file_path}" in
+              *.json) content_type="application/json" ;;
+              *.md) content_type="text/markdown; charset=utf-8" ;;
+              *.ps1) content_type="text/plain; charset=utf-8" ;;
+              *.sh) content_type="text/x-shellscript; charset=utf-8" ;;
+              *.zip) content_type="application/zip" ;;
+              *.tar.gz) content_type="application/gzip" ;;
+            esac
+
+            pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/${object_key}" \
+              --file "${file_path}" \
+              --content-type "${content_type}"
+          done < <(find dist/publish -type f | sort)
 
       - name: Write release notes
         shell: bash
@@ -448,6 +576,11 @@ jobs:
           NOTES_PATH="dist/release-notes.md"
           cat > "${NOTES_PATH}" <<'EOF'
           ## Clawdentity Rust CLI binaries
+
+          Canonical downloads:
+          - Latest manifest: `https://downloads.clawdentity.com/rust/latest.json`
+          - Immutable binaries/checksums: `https://downloads.clawdentity.com/rust/v<version>/...`
+          - Immutable skill snapshot: `https://downloads.clawdentity.com/skill/v<version>/skill.md`
 
           Assets in this release:
           - Linux: x86_64 and aarch64
@@ -462,7 +595,7 @@ jobs:
           $tag = "rust/vX.Y.Z"
           $version = "X.Y.Z"
           $asset = "clawdentity-$version-windows-x86_64.zip"
-          $url = "https://github.com/vrknetha/clawdentity/releases/download/$tag/$asset"
+          $url = "https://downloads.clawdentity.com/rust/v$version/$asset"
 
           irm $url -OutFile $asset
           Expand-Archive -Path $asset -DestinationPath ".\\clawdentity-bin" -Force
@@ -498,5 +631,6 @@ jobs:
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-windows-x86_64.zip
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-windows-aarch64.zip
             dist/clawdentity-${{ needs.publish.outputs.next_version }}-checksums.txt
+            dist/publish/rust/latest.json
             dist/install.sh
             dist/install.ps1

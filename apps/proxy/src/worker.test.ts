@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PROXY_VERSION } from "./index.js";
-import worker, { type ProxyWorkerBindings } from "./worker.js";
+import { type ProxyWorkerBindings, worker } from "./worker.js";
 
 function createTrustStateNamespace(): NonNullable<
   ProxyWorkerBindings["PROXY_TRUST_STATE"]
@@ -24,12 +24,19 @@ function createExecutionContext(): ExecutionContext {
   } as unknown as ExecutionContext;
 }
 
+function createRelaySessionNamespace(): NonNullable<
+  ProxyWorkerBindings["AGENT_RELAY_SESSION"]
+> {
+  return {} as NonNullable<ProxyWorkerBindings["AGENT_RELAY_SESSION"]>;
+}
+
 function createRequiredBindings(
   overrides: ProxyWorkerBindings = {},
 ): ProxyWorkerBindings {
   return {
     ENVIRONMENT: "local",
     REGISTRY_URL: "https://registry.example.test",
+    AGENT_RELAY_SESSION: createRelaySessionNamespace(),
     BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
     BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
     ...overrides,
@@ -50,13 +57,21 @@ describe("proxy worker", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       status: string;
+      ready: boolean;
       version: string;
       environment: string;
+      readiness: {
+        versionSource: string;
+      };
     };
-    expect(payload).toEqual({
+    expect(payload).toMatchObject({
       status: "ok",
       version: "sha-worker-123",
       environment: "local",
+      ready: true,
+      readiness: {
+        versionSource: "APP_VERSION",
+      },
     });
   });
 
@@ -72,12 +87,14 @@ describe("proxy worker", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as {
       status: string;
+      ready: boolean;
       version: string;
       environment: string;
     };
     expect(payload.status).toBe("ok");
     expect(payload.version).toBe(PROXY_VERSION);
     expect(payload.environment).toBe("local");
+    expect(payload.ready).toBe(true);
   });
 
   it("allows development startup when trust DO binding exists", async () => {

@@ -28,10 +28,15 @@ describe("GET /health", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       status: "ok",
       version: "0.0.0",
       environment: "local",
+      ready: false,
+      readiness: {
+        versionSource: "fallback",
+        dbBindingConfigured: true,
+      },
     });
     expect(res.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
   });
@@ -52,10 +57,14 @@ describe("GET /health", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       status: "ok",
       version: "sha-1234567890",
       environment: "local",
+      ready: false,
+      readiness: {
+        versionSource: "APP_VERSION",
+      },
     });
   });
 

@@ -20,7 +20,7 @@ import {
   type ProxyRequestVariables,
 } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
-import { PROXY_VERSION } from "./index.js";
+import { PROXY_VERSION, type ProxyVersionSource } from "./index.js";
 import {
   PAIR_CONFIRM_PATH,
   PAIR_START_PATH,
@@ -69,6 +69,7 @@ type ProxyRateLimitRuntimeOptions = {
 type CreateProxyAppOptions = {
   config: ProxyConfig;
   version?: string;
+  versionSource?: ProxyVersionSource;
   logger?: Logger;
   registerRoutes?: (app: ProxyApp) => void;
   auth?: ProxyAuthRuntimeOptions;
@@ -86,26 +87,88 @@ type CreateProxyAppOptions = {
 export type ProxyApp = Hono<{
   Bindings: {
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+    PROXY_TRUST_STATE?: object;
   };
   Variables: ProxyRequestVariables;
 }>;
 
-function resolveLogger(logger?: Logger): Logger {
-  return logger ?? createLogger({ service: "proxy" });
+function resolveLogger(config: ProxyConfig, logger?: Logger): Logger {
+  if (logger) {
+    return logger;
+  }
+
+  return createLogger(
+    { service: "proxy" },
+    {
+      minLevel: config.environment === "production" ? "warn" : "debug",
+    },
+  );
+}
+
+function resolveRequestLoggingOptions(config: ProxyConfig) {
+  return config.environment === "production"
+    ? {
+        onlyErrors: true,
+        slowThresholdMs: 3_000,
+        errorOrSlowLogLevel: "warn" as const,
+      }
+    : {};
+}
+
+function buildHealthPayload(input: {
+  config: ProxyConfig;
+  version: string;
+  versionSource: ProxyVersionSource;
+  bindings: {
+    AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+    PROXY_TRUST_STATE?: object;
+  };
+}) {
+  const requiresDurableTrustState = input.config.environment !== "local";
+  const readiness = {
+    versionSource: input.versionSource,
+    registryUrlConfigured: input.config.registryUrl.length > 0,
+    internalServiceCredentialsConfigured:
+      typeof input.config.registryInternalServiceId === "string" &&
+      typeof input.config.registryInternalServiceSecret === "string",
+    relaySessionNamespaceConfigured:
+      input.bindings.AGENT_RELAY_SESSION !== undefined,
+    trustStateBindingConfigured:
+      input.bindings.PROXY_TRUST_STATE !== undefined ||
+      !requiresDurableTrustState,
+    openclawBaseUrlConfigured: input.config.openclawBaseUrl.length > 0,
+  };
+
+  return {
+    status: "ok",
+    ready: Object.entries(readiness).every(([, value]) =>
+      typeof value === "boolean" ? value : true,
+    ),
+    version: input.version,
+    environment: input.config.environment,
+    readiness,
+  };
 }
 
 export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
-  const logger = resolveLogger(options.logger);
+  const logger = resolveLogger(options.config, options.logger);
   const trustStore = options.trustStore ?? createInMemoryProxyTrustStore();
   const app = new Hono<{
     Bindings: {
       AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+      PROXY_TRUST_STATE?: object;
     };
     Variables: ProxyRequestVariables;
   }>();
 
   app.use("*", createRequestContextMiddleware());
-  app.use("*", createRequestLoggingMiddleware(logger));
+  app.use(
+    "*",
+    createRequestLoggingMiddleware(
+      logger,
+      resolveRequestLoggingOptions(options.config),
+    ),
+  );
   app.use(
     "*",
     createPublicRateLimitMiddleware({
@@ -139,13 +202,24 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
   );
   app.onError(createHonoErrorHandler(logger));
 
-  app.get("/health", (c) =>
-    c.json({
-      status: "ok",
-      version: options.version ?? PROXY_VERSION,
-      environment: options.config.environment,
-    }),
-  );
+  app.get("/health", (c) => {
+    const bindings = (c.env ?? {}) as {
+      AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+      PROXY_TRUST_STATE?: object;
+    };
+
+    return c.json(
+      buildHealthPayload({
+        config: options.config,
+        version: options.version ?? PROXY_VERSION,
+        versionSource: options.versionSource ?? "default",
+        bindings: {
+          AGENT_RELAY_SESSION: bindings.AGENT_RELAY_SESSION,
+          PROXY_TRUST_STATE: bindings.PROXY_TRUST_STATE,
+        },
+      }),
+    );
+  });
   app.post(
     "/hooks/agent",
     createAgentHookHandler({

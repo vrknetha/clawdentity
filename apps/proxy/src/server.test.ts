@@ -18,15 +18,25 @@ describe("proxy server", () => {
     const res = await app.request("/health");
     const body = (await res.json()) as {
       status: string;
+      ready: boolean;
       version: string;
       environment: string;
+      readiness: {
+        versionSource: string;
+        relaySessionNamespaceConfigured: boolean;
+      };
     };
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       status: "ok",
       version: PROXY_VERSION,
       environment: DEFAULT_PROXY_ENVIRONMENT,
+      ready: false,
+      readiness: {
+        versionSource: "default",
+        relaySessionNamespaceConfigured: false,
+      },
     });
     expect(res.headers.get("x-request-id")).toBeTruthy();
   });
@@ -49,13 +59,18 @@ describe("proxy server", () => {
     const app = createProxyApp({
       config: parseProxyConfig({}),
       version: "sha-123456",
+      versionSource: "APP_VERSION",
     });
 
     const res = await app.request("/health");
-    const body = (await res.json()) as { version: string };
+    const body = (await res.json()) as {
+      version: string;
+      readiness: { versionSource: string };
+    };
 
     expect(res.status).toBe(200);
     expect(body.version).toBe("sha-123456");
+    expect(body.readiness.versionSource).toBe("APP_VERSION");
   });
 
   it("emits structured request completion log for /health", async () => {
@@ -78,6 +93,58 @@ describe("proxy server", () => {
       expect(typeof parsed.requestId).toBe("string");
     } finally {
       logSpy.mockRestore();
+    }
+  });
+
+  it("suppresses successful request logs in production", async () => {
+    const logSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const app = createProxyApp({
+        config: parseProxyConfig({
+          ENVIRONMENT: "production",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "svc",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret",
+        }),
+      });
+
+      const res = await app.request("/health");
+      expect(res.status).toBe(200);
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("emits warn completion logs for handled production errors", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      const app = createProxyApp({
+        config: parseProxyConfig({
+          ENVIRONMENT: "production",
+          BOOTSTRAP_INTERNAL_SERVICE_ID: "svc",
+          BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret",
+        }),
+      });
+
+      const res = await app.request(RELAY_CONNECT_PATH, {
+        headers: {
+          "CF-Connecting-IP": "198.51.100.91",
+        },
+      });
+
+      expect(res.status).toBe(401);
+      expect(infoSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalled();
+
+      const line = String(warnSpy.mock.calls.at(-1)?.[0] ?? "");
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      expect(parsed.message).toBe("request.completed");
+      expect(parsed.status).toBe(401);
+      expect(parsed.path).toBe(RELAY_CONNECT_PATH);
+    } finally {
+      infoSpy.mockRestore();
+      warnSpy.mockRestore();
     }
   });
 

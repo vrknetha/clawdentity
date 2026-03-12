@@ -103,11 +103,11 @@ clawdentity provider doctor --for openclaw
 # Rust developers
 cargo install --locked clawdentity-cli
 
-# macOS
-brew install clawdentity
+# npm package
+npm install -g clawdentity
 
-# npm wrapper (like esbuild pattern)
-npm install -g @clawdentity/cli
+# Direct release metadata
+curl -fsSL https://downloads.clawdentity.com/rust/latest.json
 ```
 
 </details>

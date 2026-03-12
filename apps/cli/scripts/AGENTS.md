@@ -7,6 +7,12 @@
 - `sync-skill-bundle.mjs` is the source of truth for copying OpenClaw skill assets into `apps/cli/skill-bundle/`.
 - `sync-skill-bundle.mjs` must copy only from built source artifacts (`apps/openclaw-skill/dist/relay-to-peer.mjs`) and never fallback to stale bundled copies.
 - `verify-skill-bundle.mjs` must validate the exact artifacts required by `clawdentity skill install`.
+- Bundle verification must require the full released skill surface:
+  - `skill/SKILL.md`
+  - `skill/references/clawdentity-protocol.md`
+  - `skill/references/clawdentity-registry.md`
+  - `skill/references/clawdentity-environment.md`
+  - `dist/relay-to-peer.mjs`
 - `openclaw-relay-docker-ready.sh` is the only Docker local-test entrypoint:
   - Restore alpha/beta profiles from pre-skill baselines (`alpha-kimi-preskill`, `beta-kimi-preskill` by default).
   - Preserve existing `.env` files by default (`PRESERVE_ENV=1`) so model API keys remain configured.

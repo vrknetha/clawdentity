@@ -11,7 +11,9 @@
   - Windows binary: `clawdentity.exe`
 
 ## Installer Contract (Do Not Drift)
-- `CLAWDENTITY_VERSION` is optional and defaults to the latest `rust/v*` GitHub release tag.
+- `CLAWDENTITY_VERSION` is optional and defaults to the release manifest at `https://downloads.clawdentity.com/rust/latest.json`.
+- `CLAWDENTITY_DOWNLOADS_BASE_URL` is optional and overrides the default downloads origin (`https://downloads.clawdentity.com`).
+- `CLAWDENTITY_RELEASE_MANIFEST_URL` is optional and overrides the latest manifest URL.
 - `CLAWDENTITY_INSTALL_DIR` is optional and overrides the destination directory.
 - `CLAWDENTITY_INSTALL_DRY_RUN=1` performs a no-write simulation.
 - `CLAWDENTITY_NO_VERIFY=1` is the only allowed checksum bypass.
@@ -66,6 +68,13 @@
 - `main` branch deploys to production Cloudflare Pages project `clawdentity-site`.
 - Deploy jobs must use package scripts that run `build:skill-md` first so `public/skill.md` is always current.
 - Deploy output must include `public/install.sh` and `public/install.ps1` at site root (`/install.sh`, `/install.ps1`).
+- Source installers in `public/` are canonical for both `develop` and `main`; do not fork or rewrite them per branch.
+- Both Pages environments must point at the same release downloads surface (`https://downloads.clawdentity.com`) unless an operator explicitly overrides installer env vars at runtime.
+- Production deploys must mirror latest operator assets into the R2 artifact bucket:
+  - `skill/latest/skill.md`
+  - `install.sh`
+  - `install.ps1`
+- Keep the immutable/versioned skill snapshots in R2 release automation, not in the landing build.
 - Landing docs must keep OS-specific installer commands canonical:
   - Unix: `curl -fsSL https://clawdentity.com/install.sh | sh`
   - Windows: `irm https://clawdentity.com/install.ps1 | iex`
@@ -73,6 +82,8 @@
 - Canonical onboarding prompt source is `/skill.md` (generated from `apps/openclaw-skill/skill/SKILL.md`).
 - CLI command-by-command onboarding belongs in advanced/manual fallback sections only.
 - Cargo install and direct GitHub release asset flows are fallback-only in docs.
+- Direct binary fallback examples must point to `https://downloads.clawdentity.com/rust/v<version>/...`, not GitHub release URLs.
+- Do not hardcode develop-specific download URLs in source docs or source installers.
 - Rust toolchain requirements must only appear in advanced/developer fallback sections.
 - Do not reintroduce deprecated CLI command groups in landing docs; keep examples on current Rust `install` and `provider` commands.
 - Keep CLI docs aligned with the current Rust binary command surface (`init`, `whoami`, `register`, `agent`, `config`, `api-key`, `invite`, `admin`, `connector`, `provider`, `install`).

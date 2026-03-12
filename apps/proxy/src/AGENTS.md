@@ -3,6 +3,7 @@
 ## Source Layout
 - Keep `index.ts` as runtime bootstrap surface and version export.
 - Keep version resolution in `index.ts` deterministic: prefer `APP_VERSION`, then `PROXY_VERSION`, then fallback constant for local/dev defaults.
+- Keep `resolveProxyVersionSource` aligned with the same precedence so `/health.readiness.versionSource` stays truthful.
 - Keep runtime env parsing and defaults in `config.ts`; do not scatter `process.env` reads across handlers.
 - Keep `config.ts` as a facade export only; place implementation in `config/` modules:
   - `config/defaults.ts` for exported defaults and env/value types.
@@ -15,6 +16,9 @@
 - Keep `REGISTRY_URL` override optional; default it from `ENVIRONMENT` (`production` => `https://registry.clawdentity.com`, `development`/`local` => `https://dev.registry.clawdentity.com`).
 - Keep agent DID rate-limit env parsing in `config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE`, `AGENT_RATE_LIMIT_WINDOW_MS`) and validate as positive integers.
 - Keep HTTP app composition in `server.ts`.
+- Keep `/health` payload additive and release-safe:
+  - preserve `status`, `version`, and `environment`
+  - expose `ready` plus binding/config readiness booleans without breaking older clients
 - Keep Cloudflare Worker fetch startup in `worker.ts`.
 - Keep Node runtime startup in `node-server.ts`; use `bin.ts` as Node process entrypoint.
 - Keep inbound auth verification in `auth-middleware.ts` with focused helpers for token parsing, registry material loading, CRL checks, and replay protection.
@@ -52,6 +56,8 @@
 - Keep relay delivery-receipt HTTP handlers isolated in `relay-delivery-receipt-route.ts`; `server.ts` should only compose `POST/GET /v1/relay/delivery-receipts`.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
+- Keep production request logging policy in `server.ts` restrictive (`onlyErrors` with a slow-request threshold) and keep development/local verbose for debugging.
+- When production keeps `minLevel: "warn"`, request completion logs that survive the filter (slow requests and handled `4xx/5xx`) must be emitted at `warn`, not `info`.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep proxy expected issuer derivation based on `new URL(resolvedRegistryUrl).origin`; do not branch on hardcoded hostnames.
 - Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.

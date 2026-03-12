@@ -28,10 +28,33 @@ export function registerHealthRoutes(
 
   app.get("/health", (c) => {
     const config = getConfig(c.env);
+    const readiness = {
+      versionSource: config.APP_VERSION ? "APP_VERSION" : "fallback",
+      dbBindingConfigured: c.env.DB !== undefined,
+      eventBusBackendConfigured: config.EVENT_BUS_BACKEND !== undefined,
+      eventBusBindingConfigured:
+        config.EVENT_BUS_BACKEND !== "queue" ||
+        c.env.EVENT_BUS_QUEUE !== undefined,
+      proxyUrlConfigured: typeof config.PROXY_URL === "string",
+      issuerUrlConfigured: typeof config.REGISTRY_ISSUER_URL === "string",
+      bootstrapSecretConfigured: typeof config.BOOTSTRAP_SECRET === "string",
+      internalServiceCredentialsConfigured:
+        typeof config.BOOTSTRAP_INTERNAL_SERVICE_ID === "string" &&
+        typeof config.BOOTSTRAP_INTERNAL_SERVICE_SECRET === "string",
+      signingConfigured:
+        typeof config.REGISTRY_SIGNING_KEY === "string" &&
+        Array.isArray(config.REGISTRY_SIGNING_KEYS) &&
+        config.REGISTRY_SIGNING_KEYS.length > 0,
+    };
+
     return c.json({
       status: "ok",
+      ready: Object.entries(readiness).every(([, value]) =>
+        typeof value === "boolean" ? value : true,
+      ),
       version: config.APP_VERSION ?? "0.0.0",
       environment: config.ENVIRONMENT,
+      readiness,
     });
   });
 

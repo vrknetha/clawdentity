@@ -37,6 +37,18 @@
 - Use workflow concurrency groups to prevent overlapping deploys for the same environment.
 - Run Wrangler through workspace tooling (`pnpm exec wrangler`) in CI so commands work without a global Wrangler install on GitHub runners.
 
+## Deployment Rules (Production Runtime)
+- Keep registry/proxy production deploy automation separate from landing-site deploy automation; production runtime deploys must not rely on manual `package.json` scripts alone.
+- Production runtime workflows must validate and sync all required worker secrets before deploy, including registry signing material and proxy internal-service credentials.
+- Production runtime workflows must capture rollback artifacts and provide executable rollback steps for both Workers and the production D1 database before mutating remote state.
+- Production health gates must verify the deployed runtime version plus critical dependencies, not only the shallow `/health` JSON shape.
+- Production runtime deploy order is strict:
+  - registry migrations + deploy
+  - registry health/readiness verification
+  - proxy deploy
+  - proxy health/readiness verification
+  - landing/artifact publish only after runtime health passes
+
 ## Deployment Rules (Landing)
 - `deploy-landing-develop.yml` deploys landing docs/asset output from `develop` to the Pages `develop` branch.
 - `deploy-landing.yml` deploys landing docs/asset output from `main` to the Pages `main` branch.
@@ -50,12 +62,28 @@
   - `apps/landing/dist/skill.md`
   - `apps/landing/dist/install.sh`
   - `apps/landing/dist/install.ps1`
+- Production landing deploys must also mirror latest operator assets into R2:
+  - `skill/latest/skill.md`
+  - `install.sh`
+  - `install.ps1`
+- Keep Cloudflare Pages as the canonical host for `https://clawdentity.com/skill.md`, `https://clawdentity.com/install.sh`, and `https://clawdentity.com/install.ps1`; R2 is the backup/latest mirror, not the primary operator URL.
 
 ## Release Rules (Rust)
 - `publish-rust.yml` must publish six binary archives per release (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64/aarch64).
 - Rust release assets must always include:
   - `clawdentity-<version>-windows-aarch64.zip`
   - installer scripts copied from `apps/landing/public/install.sh` and `apps/landing/public/install.ps1`
+- Rust releases must publish immutable assets to the R2 artifact bucket before or alongside GitHub release mirroring.
+- Keep installer resolution independent from GitHub APIs:
+  - latest lookup: `https://downloads.clawdentity.com/rust/latest.json`
+  - immutable binaries/checksums: `https://downloads.clawdentity.com/rust/v<version>/...`
+- Rust release automation must publish these R2-backed artifacts:
+  - six platform archives
+  - `clawdentity-<version>-checksums.txt`
+  - `rust/latest.json`
+  - `skill/v<version>/skill.md`
+  - `skill/latest/skill.md`
+- Release CI must smoke-test the staged installer against the generated manifest before uploading artifacts.
 
 ## Release Rules (CLI)
 - `publish-cli.yml` is manual (`workflow_dispatch`) and must accept `release_type` (`patch`/`minor`/`major`) + `dist_tag` inputs.
@@ -78,7 +106,14 @@
   - `CLOUDFLARE_ACCOUNT_ID`
   - `BOOTSTRAP_INTERNAL_SERVICE_ID`
   - `BOOTSTRAP_INTERNAL_SERVICE_SECRET`
+- Required production deploy/release secrets:
+  - `BOOTSTRAP_SECRET`
+  - `REGISTRY_SIGNING_KEY`
+  - `REGISTRY_SIGNING_KEYS`
 - Mirror to `CF_API_TOKEN` and `CF_ACCOUNT_ID` for tooling compatibility.
+- Required Cloudflare repo/environment variables:
+  - `R2_ARTIFACTS_BUCKET`
+  - `CLAWDENTITY_DOWNLOADS_BASE_URL`
 - Optional deploy secrets:
   - `REGISTRY_HEALTH_URL` (only needed when dev registry health endpoint is not `https://dev.registry.clawdentity.com`; CI falls back to that URL by default).
   - `PROXY_HEALTH_URL` (only needed when dev proxy health endpoint is not `https://dev.proxy.clawdentity.com`; CI now falls back to that URL if workers.dev output is unavailable).

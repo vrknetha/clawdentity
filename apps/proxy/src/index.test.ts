@@ -7,6 +7,7 @@ import {
   initializeProxyRuntime,
   PROXY_VERSION,
   resolveProxyVersion,
+  resolveProxyVersionSource,
 } from "./index.js";
 
 describe("proxy", () => {
@@ -55,5 +56,15 @@ describe("proxy", () => {
     expect(resolveProxyVersion({ PROXY_VERSION: "proxy-1.2.3" })).toBe(
       "proxy-1.2.3",
     );
+  });
+
+  it("tracks the source of the resolved runtime version", () => {
+    expect(resolveProxyVersionSource({ APP_VERSION: "sha-1234" })).toBe(
+      "APP_VERSION",
+    );
+    expect(resolveProxyVersionSource({ PROXY_VERSION: "proxy-1.2.3" })).toBe(
+      "PROXY_VERSION",
+    );
+    expect(resolveProxyVersionSource({})).toBe("default");
   });
 });

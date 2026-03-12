@@ -41,6 +41,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ARTIFACTS_BUCKET: ${{ vars.R2_ARTIFACTS_BUCKET }}
         run: |
           set -euo pipefail
 
@@ -51,6 +52,11 @@ jobs:
 
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "Missing required secret: CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+
+          if [ -z "${R2_ARTIFACTS_BUCKET:-}" ]; then
+            echo "Missing required variable: R2_ARTIFACTS_BUCKET"
             exit 1
           fi
 
@@ -101,3 +107,23 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy apps/landing/dist --project-name=clawdentity-site --branch=main
+
+      - name: Mirror latest onboarding assets to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ARTIFACTS_BUCKET: ${{ vars.R2_ARTIFACTS_BUCKET }}
+        run: |
+          set -euo pipefail
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/skill/latest/skill.md" \
+            --file apps/landing/dist/skill.md \
+            --content-type "text/markdown; charset=utf-8"
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/install.sh" \
+            --file apps/landing/dist/install.sh \
+            --content-type "text/x-shellscript; charset=utf-8"
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/install.ps1" \
+            --file apps/landing/dist/install.ps1 \
+            --content-type "text/plain; charset=utf-8"
