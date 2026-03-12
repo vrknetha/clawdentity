@@ -12,6 +12,7 @@
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`) so relay/auth failures are visible in Cloudflare logs.
 - Production must keep `invocation_logs=false` to reduce noisy request-volume logs while preserving structured warn/error events.
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/proxy run types:dev`) after `wrangler.jsonc` or binding changes.
+- Keep `src/worker.ts` in module-worker shape: export the fetch handler as the default export when this Worker owns Durable Objects, and keep any named `worker` export only as a test convenience.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
 - Keep agent DID limiter defaults explicit in `src/config.ts` (`AGENT_RATE_LIMIT_REQUESTS_PER_MINUTE=60`, `AGENT_RATE_LIMIT_WINDOW_MS=60000`) unless explicitly overridden.

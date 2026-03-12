@@ -178,5 +178,6 @@ const worker = {
   },
 };
 
+export default worker;
 export { worker };
 export { AgentRelaySession, ProxyTrustState };
