@@ -448,6 +448,7 @@ jobs:
         run: |
           set -euo pipefail
           node apps/landing/scripts/build-skill-md.mjs
+          pnpm -F clawdentity run sync:skill-bundle
           node apps/landing/scripts/verify-skill-artifacts.mjs
 
       - name: Verify assets and generate checksums

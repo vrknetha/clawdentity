@@ -37,6 +37,7 @@
 - Release automation must stage and publish these skill assets to R2:
   - `skill/v<version>/skill.md`
   - `skill/latest/skill.md`
+- Any release job that runs `apps/landing/scripts/verify-skill-artifacts.mjs` must sync the CLI skill bundle first (`pnpm -F clawdentity run sync:skill-bundle`), because a release-tag checkout does not contain generated bundle artifacts by default.
 - Installer verification in CI must exercise both paths:
   - manifest-driven latest install
   - explicit `CLAWDENTITY_VERSION` install against staged downloads base URL
