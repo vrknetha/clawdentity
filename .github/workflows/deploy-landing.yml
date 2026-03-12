@@ -117,13 +117,16 @@ jobs:
           set -euo pipefail
 
           pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/skill/latest/skill.md" \
+            --remote \
             --file apps/landing/dist/skill.md \
             --content-type "text/markdown; charset=utf-8"
 
           pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/install.sh" \
+            --remote \
             --file apps/landing/dist/install.sh \
             --content-type "text/x-shellscript; charset=utf-8"
 
           pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/install.ps1" \
+            --remote \
             --file apps/landing/dist/install.ps1 \
             --content-type "text/plain; charset=utf-8"

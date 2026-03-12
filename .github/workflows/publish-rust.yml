@@ -566,6 +566,7 @@ jobs:
             esac
 
             pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/${object_key}" \
+              --remote \
               --file "${file_path}" \
               --content-type "${content_type}"
           done < <(find dist/publish -type f | sort)

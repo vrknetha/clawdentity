@@ -56,7 +56,7 @@
   - `apps/landing/dist/install.ps1`
 - Both landing deploy workflows must preserve the canonical installer defaults that point at `https://downloads.clawdentity.com`.
 - The production landing workflow must also mirror latest assets into the R2 artifact bucket after the Pages deploy succeeds.
-- Any workflow step that calls raw `wrangler r2 object put` must explicitly export `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+- Any workflow step that calls raw `wrangler r2 object put` must explicitly export `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and it must pass `--remote` so CI writes to the real bucket instead of Wrangler's local target.
 - The develop landing workflow must verify the dev Pages onboarding URLs after deploy.
 - Keep production landing and runtime deploys separable, but if a combined production deploy workflow exists it must still preserve the runtime-first ordering before landing/artifact publish.
 
