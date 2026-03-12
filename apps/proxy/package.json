@@ -9,17 +9,48 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    },
+    "./node-server": {
+      "import": "./dist/node-server.js",
+      "types": "./dist/node-server.d.ts"
+    },
+    "./worker": {
+      "import": "./dist/worker.js",
+      "types": "./dist/worker.d.ts"
     }
   },
   "scripts": {
     "build": "tsup",
+    "types:dev": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev",
+    "deploy:dev": "wrangler deploy --env dev",
+    "deploy:production": "wrangler deploy --env production",
+    "dev": "wrangler dev --env dev --port 8787",
+    "dev:dev": "wrangler dev --env dev --port 8787",
+    "dev:local": "wrangler dev --env local --port 8787",
+    "dev:fresh": "wrangler dev --env local --name clawdentity-proxy-local-fresh --port 8789 --persist-to .wrangler/state-fresh",
     "format": "biome format .",
     "lint": "biome lint .",
+    "start": "node ./dist/bin.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.6",
+    "@clawdentity/common": "workspace:*",
+    "@clawdentity/connector": "workspace:*",
     "@clawdentity/protocol": "workspace:*",
-    "@clawdentity/sdk": "workspace:*"
+    "@clawdentity/sdk": "workspace:*",
+    "dotenv": "^17.2.3",
+    "hono": "^4.11.9",
+    "json5": "^2.2.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260210.0",
+    "@types/node": "^22.17.2"
   }
 }

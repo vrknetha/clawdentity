@@ -1,0 +1,418 @@
+name: Deploy production
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/registry/**"
+      - "apps/proxy/**"
+      - "apps/landing/**"
+      - "apps/openclaw-skill/skill/**"
+      - "packages/sdk/**"
+      - ".github/workflows/deploy-production.yml"
+      - ".github/workflows/deploy-landing.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  deployments: write
+
+jobs:
+  deploy:
+    name: Lint, test, migrate, and deploy registry + proxy to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      R2_ARTIFACTS_BUCKET: ${{ vars.R2_ARTIFACTS_BUCKET }}
+      APP_VERSION: ${{ github.sha }}
+      REGISTRY_HEALTH_URL_OVERRIDE: ${{ secrets.REGISTRY_HEALTH_URL }}
+      PROXY_HEALTH_URL_OVERRIDE: ${{ secrets.PROXY_HEALTH_URL }}
+      BOOTSTRAP_SECRET: ${{ secrets.BOOTSTRAP_SECRET }}
+      BOOTSTRAP_INTERNAL_SERVICE_ID: ${{ secrets.BOOTSTRAP_INTERNAL_SERVICE_ID }}
+      BOOTSTRAP_INTERNAL_SERVICE_SECRET: ${{ secrets.BOOTSTRAP_INTERNAL_SERVICE_SECRET }}
+      REGISTRY_SIGNING_KEY: ${{ secrets.REGISTRY_SIGNING_KEY }}
+      REGISTRY_SIGNING_KEYS: ${{ secrets.REGISTRY_SIGNING_KEYS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Install D2 CLI
+        run: curl -fsSL https://d2lang.com/install.sh | sh -s --
+
+      - name: Validate required secrets
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+          test -n "${BOOTSTRAP_SECRET}"
+          test -n "${BOOTSTRAP_INTERNAL_SERVICE_ID}"
+          test -n "${BOOTSTRAP_INTERNAL_SERVICE_SECRET}"
+          test -n "${REGISTRY_SIGNING_KEY}"
+          test -n "${REGISTRY_SIGNING_KEYS}"
+          test -n "${R2_ARTIFACTS_BUCKET}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Worker type bindings are up to date
+        run: |
+          pnpm -F @clawdentity/registry run types:dev
+          pnpm -F @clawdentity/proxy run types:dev
+          git diff --exit-code -- apps/registry/worker-configuration.d.ts apps/proxy/worker-configuration.d.ts
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm -r typecheck
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: Run tests
+        run: pnpm -r test
+
+      - name: Sync production Worker secrets
+        run: |
+          printf "%s" "${BOOTSTRAP_INTERNAL_SERVICE_ID}" | pnpm exec wrangler --cwd apps/registry secret put BOOTSTRAP_INTERNAL_SERVICE_ID --env production
+          printf "%s" "${BOOTSTRAP_INTERNAL_SERVICE_SECRET}" | pnpm exec wrangler --cwd apps/registry secret put BOOTSTRAP_INTERNAL_SERVICE_SECRET --env production
+          printf "%s" "${BOOTSTRAP_SECRET}" | pnpm exec wrangler --cwd apps/registry secret put BOOTSTRAP_SECRET --env production
+          printf "%s" "${REGISTRY_SIGNING_KEY}" | pnpm exec wrangler --cwd apps/registry secret put REGISTRY_SIGNING_KEY --env production
+          printf "%s" "${REGISTRY_SIGNING_KEYS}" | pnpm exec wrangler --cwd apps/registry secret put REGISTRY_SIGNING_KEYS --env production
+          printf "%s" "${BOOTSTRAP_INTERNAL_SERVICE_ID}" | pnpm exec wrangler --cwd apps/proxy secret put BOOTSTRAP_INTERNAL_SERVICE_ID --env production
+          printf "%s" "${BOOTSTRAP_INTERNAL_SERVICE_SECRET}" | pnpm exec wrangler --cwd apps/proxy secret put BOOTSTRAP_INTERNAL_SERVICE_SECRET --env production
+
+      - name: Wrangler deploy preflight (dry-run)
+        run: |
+          pnpm exec wrangler --cwd apps/registry deploy --env production --dry-run --var APP_VERSION:${APP_VERSION}
+          pnpm exec wrangler --cwd apps/proxy deploy --env production --dry-run --var APP_VERSION:${APP_VERSION}
+
+      - name: Capture pre-deploy rollback artifacts
+        run: |
+          mkdir -p artifacts
+          PREDEPLOY_TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "PREDEPLOY_TS=${PREDEPLOY_TS}" >> "${GITHUB_ENV}"
+          printf "%s\n" "${PREDEPLOY_TS}" > artifacts/predeploy.timestamp
+          pnpm exec wrangler --cwd apps/registry deployments list --env production --json > artifacts/registry-deployments-pre.json
+          pnpm exec wrangler --cwd apps/proxy deployments list --env production --json > artifacts/proxy-deployments-pre.json || true
+          pnpm exec wrangler --cwd apps/registry d1 time-travel info clawdentity-db --env production --timestamp "${PREDEPLOY_TS}" --json > artifacts/d1-time-travel-pre.json
+          pnpm exec wrangler --cwd apps/registry d1 export clawdentity-db --remote --env production --output "${GITHUB_WORKSPACE}/artifacts/d1-production-predeploy.sql"
+
+      - name: Apply registry production migrations and deploy
+        run: |
+          pnpm exec wrangler --cwd apps/registry d1 migrations apply clawdentity-db --remote --env production
+          pnpm exec wrangler --cwd apps/registry deploy --env production --var APP_VERSION:${APP_VERSION}
+
+      - name: Verify registry deployment exists in Wrangler
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/registry deployments list --env production --json > artifacts/registry-deployments-current.json
+          python3 - <<'PY'
+          import json
+
+          path = "artifacts/registry-deployments-current.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          if not isinstance(payload, list) or len(payload) == 0:
+              raise SystemExit(f"wrangler returned no registry deployments in {path}")
+
+          print("registry wrangler deployment check passed")
+          print(payload[0])
+          PY
+
+      - name: Verify registry health endpoint
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request
+
+          configured_url = os.environ.get("REGISTRY_HEALTH_URL_OVERRIDE", "").strip()
+          if configured_url and not configured_url.endswith("/health"):
+              configured_url = f"{configured_url.rstrip('/')}/health"
+          url = configured_url or "https://registry.clawdentity.com/health"
+          expected_version = os.environ.get("APP_VERSION", "")
+          attempts = 18
+          delay_seconds = 10
+          last_error = None
+
+          for attempt in range(1, attempts + 1):
+              try:
+                  req = urllib.request.Request(
+                      url,
+                      headers={
+                          "Cache-Control": "no-cache",
+                          "Accept": "application/json",
+                          "User-Agent": "Clawdentity-CI/1.0",
+                      },
+                  )
+                  resp = urllib.request.urlopen(req, timeout=10)
+                  data = json.load(resp)
+                  readiness = data.get("readiness", {})
+                  if data.get("status") != "ok" or data.get("environment") != "production":
+                      raise RuntimeError(f"unexpected health payload: {data}")
+                  if data.get("version") != expected_version:
+                      raise RuntimeError(
+                          f"unexpected version: expected {expected_version}, got {data.get('version')}"
+                      )
+                  if data.get("ready") is not True:
+                      raise RuntimeError(f"registry reported not ready: {data}")
+                  for key in (
+                      "dbBindingConfigured",
+                      "eventBusBindingConfigured",
+                      "signingConfigured",
+                      "internalServiceCredentialsConfigured",
+                  ):
+                      if readiness.get(key) is not True:
+                          raise RuntimeError(f"registry readiness check failed for {key}: {data}")
+                  print(f"registry healthcheck passed on attempt {attempt}", data)
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  sys.stderr.write(
+                      f"registry health attempt {attempt}/{attempts} failed: {exc}\n"
+                  )
+                  if attempt == attempts:
+                      raise SystemExit(
+                          f"registry health check failed after {attempts} attempts: {last_error}"
+                      )
+                  time.sleep(delay_seconds)
+          PY
+
+      - name: Deploy proxy to production environment
+        run: |
+          mkdir -p artifacts
+          PROXY_DEPLOY_OUTPUT_FILE="artifacts/proxy-deploy-output.txt"
+          pnpm exec wrangler --cwd apps/proxy deploy --env production --var APP_VERSION:${APP_VERSION} 2>&1 | tee "${PROXY_DEPLOY_OUTPUT_FILE}"
+
+          PROXY_HEALTH_URL=""
+          if [ -n "${PROXY_HEALTH_URL_OVERRIDE}" ]; then
+            PROXY_HEALTH_URL="${PROXY_HEALTH_URL_OVERRIDE%/}/health"
+          else
+            PROXY_HEALTH_URL="https://proxy.clawdentity.com/health"
+          fi
+
+          echo "PROXY_HEALTH_URL=${PROXY_HEALTH_URL}" >> "${GITHUB_ENV}"
+          echo "Resolved proxy health URL: ${PROXY_HEALTH_URL}"
+
+      - name: Verify proxy deployment exists in Wrangler
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/proxy deployments list --env production --json > artifacts/proxy-deployments-current.json
+          python3 - <<'PY'
+          import json
+
+          path = "artifacts/proxy-deployments-current.json"
+          with open(path, "r", encoding="utf-8") as f:
+              payload = json.load(f)
+
+          if not isinstance(payload, list) or len(payload) == 0:
+              raise SystemExit(f"wrangler returned no proxy deployments in {path}")
+
+          print("proxy wrangler deployment check passed")
+          print(payload[0])
+          PY
+
+      - name: Verify proxy health endpoint
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, time, urllib.request
+
+          url = os.environ.get("PROXY_HEALTH_URL", "")
+          expected_version = os.environ.get("APP_VERSION", "")
+          attempts = 18
+          delay_seconds = 10
+          last_error = None
+
+          for attempt in range(1, attempts + 1):
+              try:
+                  req = urllib.request.Request(
+                      url,
+                      headers={
+                          "Cache-Control": "no-cache",
+                          "Accept": "application/json",
+                          "User-Agent": "Clawdentity-CI/1.0",
+                      },
+                  )
+                  resp = urllib.request.urlopen(req, timeout=10)
+                  data = json.load(resp)
+                  readiness = data.get("readiness", {})
+                  if data.get("status") != "ok" or data.get("environment") != "production":
+                      raise RuntimeError(f"unexpected proxy health payload: {data}")
+                  if data.get("version") != expected_version:
+                      raise RuntimeError(
+                          f"unexpected proxy version: expected {expected_version}, got {data.get('version')}"
+                      )
+                  if data.get("ready") is not True:
+                      raise RuntimeError(f"proxy reported not ready: {data}")
+                  for key in (
+                      "relaySessionNamespaceConfigured",
+                      "trustStateBindingConfigured",
+                      "internalServiceCredentialsConfigured",
+                  ):
+                      if readiness.get(key) is not True:
+                          raise RuntimeError(f"proxy readiness check failed for {key}: {data}")
+                  print(f"proxy healthcheck passed on attempt {attempt}", data)
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  sys.stderr.write(
+                      f"proxy health attempt {attempt}/{attempts} failed: {exc}\n"
+                  )
+                  if attempt == attempts:
+                      raise SystemExit(
+                          f"proxy health check failed after {attempts} attempts: {last_error}"
+                      )
+                  time.sleep(delay_seconds)
+          PY
+
+      - name: Bootstrap Cloudflare Pages project
+        run: |
+          set -euo pipefail
+          PROJECT_NAME="clawdentity-site"
+          PROJECTS_JSON="$(pnpm dlx wrangler@4 pages project list --json)"
+          if PROJECTS_JSON="${PROJECTS_JSON}" node - "${PROJECT_NAME}" <<'NODE'
+          const projectName = process.argv[2];
+          const projects = JSON.parse(process.env.PROJECTS_JSON ?? "[]");
+          const exists =
+            Array.isArray(projects) &&
+            projects.some((project) => {
+              const name =
+                project?.name ??
+                project?.["Project Name"] ??
+                project?.project_name ??
+                null;
+              return name === projectName;
+            });
+          process.exit(exists ? 0 : 1);
+          NODE
+          then
+            echo "Cloudflare Pages project '${PROJECT_NAME}' already exists"
+          else
+            echo "Creating Cloudflare Pages project '${PROJECT_NAME}' with production branch 'main'"
+            pnpm dlx wrangler@4 pages project create "${PROJECT_NAME}" --production-branch main
+          fi
+
+      - name: Build landing production artifact
+        run: pnpm --filter @clawdentity/landing build
+
+      - name: Assert landing artifacts exist
+        run: |
+          set -euo pipefail
+          test -f apps/landing/dist/skill.md
+          test -f apps/landing/dist/install.sh
+          test -f apps/landing/dist/install.ps1
+
+      - name: Deploy landing site after runtime health passes
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/landing/dist --project-name=clawdentity-site --branch=main
+
+      - name: Mirror latest onboarding assets to R2
+        run: |
+          set -euo pipefail
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/skill/latest/skill.md" \
+            --remote \
+            --file apps/landing/dist/skill.md \
+            --content-type "text/markdown; charset=utf-8"
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/install.sh" \
+            --remote \
+            --file apps/landing/dist/install.sh \
+            --content-type "text/x-shellscript; charset=utf-8"
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/install.ps1" \
+            --remote \
+            --file apps/landing/dist/install.ps1 \
+            --content-type "text/plain; charset=utf-8"
+
+      - name: Verify production onboarding URLs
+        run: |
+          python3 - <<'PY'
+          import sys, time, urllib.request
+
+          urls = [
+              "https://clawdentity.com/",
+              "https://clawdentity.com/skill.md",
+              "https://clawdentity.com/install.sh",
+              "https://clawdentity.com/install.ps1",
+          ]
+
+          for url in urls:
+              last_error = None
+              for attempt in range(1, 13):
+                  try:
+                      req = urllib.request.Request(
+                          url,
+                          headers={
+                              "Cache-Control": "no-cache",
+                              "User-Agent": "Clawdentity-CI/1.0",
+                          },
+                      )
+                      with urllib.request.urlopen(req, timeout=10) as response:
+                          if response.status != 200:
+                              raise RuntimeError(f"{url} returned {response.status}")
+                      print(f"url check passed for {url} on attempt {attempt}")
+                      break
+                  except Exception as exc:
+                      last_error = exc
+                      sys.stderr.write(f"{url} attempt {attempt}/12 failed: {exc}\n")
+                      if attempt == 12:
+                          raise SystemExit(f"onboarding url verification failed for {url}: {last_error}")
+                      time.sleep(10)
+          PY
+
+      - name: Capture post-deploy state
+        if: always()
+        run: |
+          mkdir -p artifacts
+          pnpm exec wrangler --cwd apps/registry deployments list --env production --json > artifacts/registry-deployments-post.json || true
+          pnpm exec wrangler --cwd apps/proxy deployments list --env production --json > artifacts/proxy-deployments-post.json || true
+          pnpm exec wrangler --cwd apps/registry d1 migrations list clawdentity-db --remote --env production > artifacts/d1-migrations-post.txt || true
+
+      - name: Rollback instructions on failure
+        if: failure()
+        run: |
+          echo "Registry Worker rollback:"
+          echo "  wrangler --cwd apps/registry deployments list --env production --json"
+          echo "  wrangler --cwd apps/registry rollback <version-id> --env production -y -m \"ci rollback\""
+          echo ""
+          echo "Proxy Worker rollback:"
+          echo "  wrangler --cwd apps/proxy deployments list --env production --json"
+          echo "  wrangler --cwd apps/proxy rollback <version-id> --env production -y -m \"ci rollback\""
+          echo ""
+          echo "D1 rollback:"
+          echo "  wrangler --cwd apps/registry d1 time-travel restore clawdentity-db --env production --timestamp \"${PREDEPLOY_TS}\""
+          echo "  # or restore via bookmark from artifacts/d1-time-travel-pre.json"
+
+      - name: Upload rollback artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-production-rollback-${{ github.run_id }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,157 @@
+---
+title: Peer Discovery
+description: How agents find and establish trust with each other via QR-code pairing.
+---
+
+## Discovery methods
+
+Clawdentity supports several ways for agents to find each other:
+
+### 1. QR-code pairing (primary)
+
+The primary trust establishment method. One side calls the pairing API to generate a ticket (and optional QR), shares it out-of-band, and the peer confirms.
+
+#### Flow
+
+```d2
+direction: down
+
+alice: Alice's Machine {
+  style.fill: "#e8f8e8"
+  label: |md
+    **Alice's Machine**
+    `POST /pair/start`
+  |
+}
+
+proxy: Clawdentity Proxy {
+  style.fill: "#e8f4f8"
+  label: |md
+    **Clawdentity Proxy**
+    Cloudflare Worker + ProxyTrustState
+  |
+}
+
+bob: Bob's Machine {
+  style.fill: "#e8e8f8"
+  label: |md
+    **Bob's Machine**
+    `POST /pair/confirm`
+  |
+}
+
+alice -> proxy: "1. POST /pair/start" {
+  style.stroke: "#1976d2"
+}
+proxy -> alice: "2. clwpair1_ ticket + QR" {
+  style.stroke: "#1976d2"
+  style.stroke-dash: 3
+}
+alice -> bob: "3. Share QR out-of-band" {
+  style.stroke: "#9e9e9e"
+  style.stroke-dash: 5
+}
+bob -> proxy: "4. POST /pair/confirm" {
+  style.stroke: "#e65100"
+}
+proxy -> proxy: "5. Create bidirectional trust pair\nin ProxyTrustState" {
+  style.stroke: "#388e3c"
+  target-arrowhead.shape: diamond
+}
+```
+
+1. Alice starts pairing via `POST /pair/start` — receives a pairing ticket (`clwpair1_...`) and optional QR payload.
+2. Alice shares the ticket/QR to Bob (email, chat, airdrop)
+3. Bob confirms via `POST /pair/confirm`
+4. Local peer routing state is updated with an auto-derived alias
+5. A bidirectional trust pair is created in the proxy trust store — both directions are now allowed
+
+#### Pairing ticket format
+
+- Prefix: `clwpair1_`
+- Encoding: base64url JSON payload
+- Payload fields (v2): `iss`, `kid`, `nonce`, `exp`, `pkid`, `sig`
+- Default TTL: 300s (5 min), max: 900s (15 min)
+- QR cleanup: stale images auto-cleaned from `~/.clawdentity/pairing/` after 900s
+
+#### Peer alias derivation
+
+When pairing confirm persists a new peer, the alias is derived automatically:
+
+1. Parse the peer DID to extract the ULID component
+2. Take the last 8 characters of the ULID, lowercase: `peer-<last8>`
+3. If the alias already exists for a different DID, append a numeric suffix: `peer-<last8>-2`, `peer-<last8>-3`, etc.
+4. If the peer DID already exists, reuse the existing alias (no duplicate)
+5. Fallback alias is `peer` if the DID is not a valid agent DID
+
+Alias validation: `[a-zA-Z0-9._-]`, max 128 characters.
+
+#### Peer routing snapshot format
+
+The relay transform consumes a JSON peer map snapshot (commonly `~/.clawdentity/peers.json`):
+
+```json
+{
+  "peers": {
+    "<alias>": {
+      "did": "did:cdi:<authority>:agent:<ulid>",
+      "proxyUrl": "https://proxy.clawdentity.com",
+      "agentName": "beta",
+      "humanName": "Ira"
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `did` | The peer's agent DID |
+| `proxyUrl` | The peer's proxy URL for outbound routing |
+| `agentName` | The peer's agent name |
+| `humanName` | The peer's human operator name |
+
+The [relay transform](/guides/openclaw-skill/#relay-payload-processing) uses this snapshot to resolve a peer alias to a DID and proxy URL for outbound message routing.
+
+:::note
+`peers.json` (or equivalent snapshot path) is a **local routing view** only. The authoritative trust enforcement happens in [ProxyTrustState](#local-vs-proxy-trust) at the proxy.
+:::
+
+### 2. Out-of-band contact card
+
+A human shares a contact card containing the agent's DID and proxy endpoint URL. No keys or tokens are exchanged.
+
+### 3. Registry resolution
+
+The callee publishes an endpoint in the registry. Callers resolve it via:
+
+```http
+GET /v1/resolve/:id
+```
+
+Returns the agent's public metadata including any published gateway hint.
+
+## Local vs. proxy trust
+
+Two data stores track peer relationships, each with a different role:
+
+### Local peer state (client-side)
+
+Local peer records are persisted in client state (for example `~/.clawdentity/clawdentity.sqlite3`) and may be projected to a JSON snapshot (`peers.json`) for transform/runtime consumption. This local state is **not enforced** — you can have a local peer entry without a corresponding trust pair, but the proxy will reject messages with `PROXY_AUTH_FORBIDDEN` (403).
+
+### ProxyTrustState (proxy-side)
+
+A Durable Object that stores bidirectional trust pairs. Created during [QR pairing](#1-qr-code-pairing-primary). The proxy checks this on every inbound relay request at step 7 of the [verification pipeline](/api-reference/proxy/#verification-pipeline). This is the **authoritative** source for trust enforcement.
+
+### Relationship
+
+Local peer state and ProxyTrustState can diverge if:
+
+- local peer state is edited manually without pairing
+- The proxy trust state is modified via admin tools
+- A trust pair is revoked at the proxy but the local entry remains
+
+When they diverge, the proxy trust state wins — outbound messages to a peer that exists only in local state (without a proxy trust pair) will be rejected.
+
+## Key principle
+
+Identity is presented **per request**, not per connection. No one shares keys or credential files between agents. Each request carries its own proof of identity through PoP headers.

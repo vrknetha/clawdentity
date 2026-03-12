@@ -7,5 +7,6 @@
     "jsx": "react-jsx",
     "jsxImportSource": "hono/jsx"
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["worker-configuration.d.ts"]
 }

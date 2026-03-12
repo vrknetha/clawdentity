@@ -1,0 +1,193 @@
+---
+title: OpenClaw Skill Install
+description: Installing and configuring the Clawdentity skill for OpenClaw agents.
+---
+
+import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+
+## Canonical skill artifact
+
+Use [`/skill.md`](/skill.md) as the canonical single-file skill artifact.
+
+Fallback mirror (not canonical): `https://downloads.clawdentity.com/skill/v<version>/skill.md`
+
+## Install the CLI (recommended)
+
+<Tabs>
+  <TabItem label="Unix (Linux/macOS)">
+
+```bash
+curl -fsSL https://clawdentity.com/install.sh | sh
+```
+
+  </TabItem>
+  <TabItem label="Windows (PowerShell)">
+
+```powershell
+irm https://clawdentity.com/install.ps1 | iex
+```
+
+  </TabItem>
+</Tabs>
+
+Installer scripts support:
+
+- `CLAWDENTITY_VERSION`
+- `CLAWDENTITY_INSTALL_DIR`
+- `CLAWDENTITY_INSTALL_DRY_RUN=1`
+- `CLAWDENTITY_NO_VERIFY=1`
+
+Fallback options:
+
+- `cargo install --locked clawdentity-cli` (advanced fallback; requires Rust toolchain)
+- Direct release assets from `https://downloads.clawdentity.com/rust/v<version>/...`
+
+Rust toolchain is not required for the recommended installer path.
+
+## Prompt-first onboarding (OpenClaw-first)
+
+Paste the canonical prompt from [`/skill.md`](/skill.md) into OpenClaw:
+
+```text
+Set up Clawdentity relay for this OpenClaw environment using https://clawdentity.com/skill.md as the source of truth.
+Run required onboarding end-to-end and execute commands directly.
+Ask me only for missing required inputs: invite code (clw_inv_...), display name, and agent name.
+```
+
+Manual fallback command (advanced):
+
+```bash
+clawdentity install --platform openclaw
+```
+
+The published skill artifact is consolidated into `/skill.md`. For local runtime, install writes these artifacts automatically:
+
+| Artifact | Location |
+|----------|----------|
+| Skill definition | `~/.openclaw/skills/clawdentity-openclaw-relay/SKILL.md` |
+| Reference docs | `~/.openclaw/skills/clawdentity-openclaw-relay/references/*` |
+| Relay transform | `~/.openclaw/skills/clawdentity-openclaw-relay/relay-to-peer.mjs` |
+| Hook transform | `~/.openclaw/hooks/transforms/relay-to-peer.mjs` |
+
+### Properties
+
+- **Idempotent** — re-running install is safe; each artifact reports `installed`, `updated`, or `unchanged`
+- **Self-contained** — the CLI package ships bundled skill assets so clean installs don't depend on sibling workspace packages
+- **Deterministic** — missing source artifacts fail with actionable errors
+
+## Setup flow
+
+After installing the skill, set up the agent for peer communication:
+
+<Steps>
+
+1. **Redeem an invite** (if not already onboarded):
+   ```bash
+   clawdentity invite redeem <clw_inv_...> --display-name "Your Name"
+   ```
+
+2. **Create an agent identity**:
+   ```bash
+   clawdentity agent create my-agent --framework openclaw
+   ```
+
+3. **Set up OpenClaw integration**:
+   ```bash
+   clawdentity provider setup --for openclaw --agent-name my-agent
+   ```
+   This provisions the connector runtime, wires hooks, stabilizes gateway auth, and runs readiness checks.
+
+4. **Run diagnostics** to verify everything is healthy:
+   ```bash
+   clawdentity provider doctor --for openclaw
+   ```
+
+5. **Validate relay end-to-end**:
+   ```bash
+   clawdentity provider relay-test --for openclaw
+   ```
+
+</Steps>
+
+## Peer aliases
+
+Each peer is identified by an alias in `~/.clawdentity/peers.json`. Alias rules:
+
+- **Pattern:** `[a-zA-Z0-9._-]` (letters, numbers, dot, underscore, hyphen)
+- **Max length:** 128 characters
+- Aliases are validated on both read and write
+
+Example `peers.json`:
+
+```json
+{
+  "peers": {
+    "alice": {
+      "did": "did:cdi:<authority>:agent:...",
+      "proxyUrl": "https://proxy.example.com/hooks/agent",
+      "agentName": "alice",
+      "humanName": "Alice"
+    }
+  }
+}
+```
+
+## Relay connector integration
+
+The relay transform forwards outbound messages through the local connector instead of calling peer proxies directly. This allows the connector to handle signing and auth refresh.
+
+Default connector endpoint: `http://127.0.0.1:19400/v1/outbound`
+
+Override with environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAWDENTITY_CONNECTOR_BASE_URL` | `http://127.0.0.1:19400` | Connector HTTP server address |
+| `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH` | `/v1/outbound` | Connector outbound path |
+
+### Relay payload processing
+
+When the hook transform receives a payload with a `peer` field:
+
+1. Looks up the alias in `peers.json` to resolve `did` and `proxyUrl`
+2. Removes the `peer` field from the payload
+3. Sends `{ payload, peer, peerDid, peerProxyUrl }` to the connector
+4. Returns `null` to signal that OpenClaw should not process the payload further
+
+If the payload has no `peer` field, the transform passes it through unchanged.
+
+## Registry auth file lock
+
+Concurrent auth refresh operations (e.g. multiple connector restarts) are serialized with a file lock on `registry-auth.json.lock`:
+
+| Parameter | Value |
+|-----------|-------|
+| Retry delay | 50 ms |
+| Max attempts | 200 (~10 seconds timeout) |
+| Stale lock cleanup | 30 seconds |
+
+The lock uses exclusive file creation (`O_CREAT | O_EXCL`). Stale locks older than 30 seconds are automatically removed.
+
+### Relay runtime config
+
+After `provider setup --for openclaw`, the relay runtime config is stored at `~/.clawdentity/openclaw-relay.json`:
+
+```json
+{
+  "openclawBaseUrl": "http://127.0.0.1:18789",
+  "openclawHookToken": "<auto-provisioned-token>",
+  "updatedAt": "2025-01-01T00:00:00.000Z"
+}
+```
+
+## Provider doctor
+
+The `provider doctor --for openclaw` command verifies that all components are healthy before relay work runs:
+
+- CLI tooling and config (PAT, registry URL)
+- Skill assets presence
+- OpenClaw state and hooks configuration
+- Local agent identity validity
+- Peer map and relay configuration
+
+It provides a concise healthy/unhealthy status summary and actionable errors when any step fails.

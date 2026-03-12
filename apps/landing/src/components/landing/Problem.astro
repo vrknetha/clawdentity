@@ -1,0 +1,103 @@
+---
+// Problem — Section 01
+const problems = [
+  {
+    num: "01",
+    title: "No Cross-Platform Identity",
+    description: "Every platform runs in isolation. Receivers cannot prove which exact agent sent a request or who owns it. Any caller with the shared token looks identical to the gateway.",
+  },
+  {
+    num: "02",
+    title: "Shared-Secret Blast Radius",
+    description: "If one token leaks, any caller can impersonate a trusted agent until rotation. One leak exposes every integration across every platform.",
+  },
+  {
+    num: "03",
+    title: "Revocation Breaks Everything",
+    description: "Disabling one compromised agent means rotating shared credentials across all integrations. There is no way to revoke a single identity without disrupting the rest.",
+  },
+];
+---
+
+<section class="section problem-section animate-on-scroll" id="problem">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-number">01 —</span>
+      <h2>Agents that can't safely<br/>talk to each other.</h2>
+      <p>
+        <em>Every platform runs in isolation. Webhooks need public exposure. Shared tokens mean one leak breaks everything.</em>
+      </p>
+    </div>
+
+    <div class="problem-grid animate-children">
+      {problems.map((problem) => (
+        <div class="problem-card stagger-child">
+          <span class="problem-num">{problem.num}</span>
+          <h3>{problem.title}</h3>
+          <p>{problem.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .problem-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-md);
+  }
+
+  .problem-card {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
+    padding: var(--space-lg);
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .problem-card:hover {
+    border-color: var(--cl-border-3);
+    border-left-color: var(--cl-accent);
+    transform: translateY(-2px);
+  }
+
+  .problem-num {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--cl-accent);
+    letter-spacing: 0.08em;
+    display: block;
+    margin-bottom: 0.875rem;
+  }
+
+  .problem-card h3 {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 1.0625rem;
+    color: var(--cl-text);
+    margin-bottom: 0.625rem;
+    line-height: 1.3;
+  }
+
+  .problem-card p {
+    color: var(--cl-text-2);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 768px) {
+    .problem-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .problem-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

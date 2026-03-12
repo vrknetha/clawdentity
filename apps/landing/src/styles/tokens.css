@@ -1,0 +1,58 @@
+/* ── Iron Ledger Design Tokens ── */
+
+:root {
+  /* Dark mode (default) */
+  --cl-bg: #0c0b09;
+  --cl-surface: #141210;
+  --cl-surface-2: #1c1916;
+  --cl-surface-3: #252018;
+  --cl-text: #f0ebe3;
+  --cl-text-2: #a09488;
+  --cl-text-3: #6b5f55;
+  --cl-accent: #d4522a;
+  --cl-accent-2: #c09b3e;
+  --cl-accent-hover: #e05c30;
+  --cl-border: #252018;
+  --cl-border-2: #3a3028;
+  --cl-border-3: #504540;
+  --cl-rule: #2e2720;
+  --cl-code-bg: #0d1117;
+
+  /* Typography */
+  --font-serif: "Instrument Serif", Georgia, serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
+
+  /* Font weights */
+  --fw-serif: 400;
+  --fw-body: 400;
+  --fw-medium: 500;
+  --fw-ui: 600;
+}
+
+/* Light mode overrides */
+:root[data-theme="light"] {
+  --cl-bg: #f5f0e8;
+  --cl-surface: #ede8dc;
+  --cl-surface-2: #ffffff;
+  --cl-surface-3: #f0ebe1;
+  --cl-text: #1e1710;
+  --cl-text-2: #5c5048;
+  --cl-text-3: #9c9088;
+  --cl-accent: #b83e1a;
+  --cl-accent-2: #8a6c1e;
+  --cl-accent-hover: #c94420;
+  --cl-border: #d4ccbf;
+  --cl-border-2: #beb5a5;
+  --cl-border-3: #a89e8e;
+  --cl-rule: #d0c8bc;
+  /* --cl-code-bg stays dark: #0D1117 */
+}
+
+/* Smooth theme transitions */
+:root {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease;
+}

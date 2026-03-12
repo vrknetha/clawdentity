@@ -1,0 +1,17 @@
+# AGENTS.md (apps/landing/scripts)
+
+## Purpose
+- Keep landing build and release helper scripts deterministic and safe for CI/release automation.
+
+## Rules
+- `build-skill-md.mjs` is the only supported generator for `apps/landing/public/skill.md`.
+- `build-skill-md.mjs` must keep `SKILL.md` first and append the protocol, registry, and environment references in that fixed order.
+- `create-release-manifest.mjs` is the source of truth for the installer manifest contract:
+  - `version`
+  - `tag`
+  - `publishedAt`
+  - `assetBaseUrl`
+  - `checksumsUrl`
+  - platform asset URLs
+- `verify-skill-artifacts.mjs` must fail fast when the landing skill artifact drifts from the source skill or the CLI bundle drifts from the source skill tree.
+- Keep these scripts Node-only and dependency-light so release workflows can run them without a full workspace install.

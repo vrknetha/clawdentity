@@ -1,0 +1,179 @@
+services:
+  mock-registry:
+    build:
+      context: ../../..
+      dockerfile: crates/tests/local/mock-registry/Dockerfile
+    environment:
+      MOCK_REGISTRY_PORT: ${MOCK_REGISTRY_PORT}
+      MOCK_REGISTRY_URL: http://mock-registry:${MOCK_REGISTRY_PORT}
+      MOCK_PROXY_URL: http://mock-proxy:${MOCK_PROXY_PORT}
+    ports:
+      - "${MOCK_REGISTRY_PORT}:${MOCK_REGISTRY_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${MOCK_REGISTRY_PORT}/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+    networks:
+      - clawdentity-test
+
+  mock-proxy:
+    build:
+      context: ../../..
+      dockerfile: crates/tests/local/mock-proxy/Dockerfile
+    environment:
+      MOCK_PROXY_PORT: ${MOCK_PROXY_PORT}
+      MOCK_PROXY_URL: http://mock-proxy:${MOCK_PROXY_PORT}
+    ports:
+      - "${MOCK_PROXY_PORT}:${MOCK_PROXY_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${MOCK_PROXY_PORT}/health >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+    networks:
+      - clawdentity-test
+
+  openclaw:
+    build:
+      context: ../../..
+      dockerfile: crates/tests/integration/providers/openclaw/Dockerfile
+    depends_on:
+      mock-registry:
+        condition: service_healthy
+      mock-proxy:
+        condition: service_healthy
+    environment:
+      CLAWDENTITY_HOME: /var/lib/clawdentity/openclaw
+      MOCK_REGISTRY_URL: http://mock-registry:${MOCK_REGISTRY_PORT}
+      MOCK_PROXY_URL: http://mock-proxy:${MOCK_PROXY_PORT}
+      API_KEY: pat_openclaw
+      AGENT_NAME: ${OPENCLAW_AGENT_NAME}
+      FRAMEWORK: openclaw
+      CONNECTOR_PORT: 19400
+      RUNTIME_PORT: ${OPENCLAW_RUNTIME_PORT}
+      RUNTIME_BASE_URL: http://127.0.0.1:${OPENCLAW_RUNTIME_PORT}
+      RUNTIME_HOOK_PATH: /hooks/agent
+      RUNTIME_HOOK_TOKEN: openclaw-hook-token
+      PLATFORM_RUN_CMD: node /opt/platform/mock-platform.js
+    ports:
+      - "${OPENCLAW_CONNECTOR_HOST_PORT}:19400"
+      - "${OPENCLAW_RUNTIME_HOST_PORT}:${OPENCLAW_RUNTIME_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19400/v1/status >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
+    networks:
+      - clawdentity-test
+
+  picoclaw:
+    build:
+      context: ../../..
+      dockerfile: crates/tests/integration/providers/picoclaw/Dockerfile
+    depends_on:
+      mock-registry:
+        condition: service_healthy
+      mock-proxy:
+        condition: service_healthy
+    environment:
+      CLAWDENTITY_HOME: /var/lib/clawdentity/picoclaw
+      MOCK_REGISTRY_URL: http://mock-registry:${MOCK_REGISTRY_PORT}
+      MOCK_PROXY_URL: http://mock-proxy:${MOCK_PROXY_PORT}
+      API_KEY: pat_picoclaw
+      AGENT_NAME: ${PICOCLAW_AGENT_NAME}
+      FRAMEWORK: picoclaw
+      CONNECTOR_PORT: 19400
+      RUNTIME_PORT: ${PICOCLAW_RUNTIME_PORT}
+      RUNTIME_BASE_URL: http://127.0.0.1:${PICOCLAW_RUNTIME_PORT}
+      RUNTIME_HOOK_PATH: /v1/inbound
+      RUNTIME_HOOK_TOKEN: picoclaw-hook-token
+      PLATFORM_RUN_CMD: python3 /opt/platform/mock-platform.py
+    ports:
+      - "${PICOCLAW_CONNECTOR_HOST_PORT}:19400"
+      - "${PICOCLAW_RUNTIME_HOST_PORT}:${PICOCLAW_RUNTIME_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19400/v1/status >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
+    networks:
+      - clawdentity-test
+
+  nanobot:
+    build:
+      context: ../../..
+      dockerfile: crates/tests/integration/providers/nanobot/Dockerfile
+    depends_on:
+      mock-registry:
+        condition: service_healthy
+      mock-proxy:
+        condition: service_healthy
+    environment:
+      CLAWDENTITY_HOME: /var/lib/clawdentity/nanobot
+      MOCK_REGISTRY_URL: http://mock-registry:${MOCK_REGISTRY_PORT}
+      MOCK_PROXY_URL: http://mock-proxy:${MOCK_PROXY_PORT}
+      API_KEY: pat_nanobot
+      AGENT_NAME: ${NANOBOT_AGENT_NAME}
+      FRAMEWORK: nanobot
+      CONNECTOR_PORT: 19400
+      RUNTIME_PORT: ${NANOBOT_RUNTIME_PORT}
+      RUNTIME_BASE_URL: http://127.0.0.1:${NANOBOT_RUNTIME_PORT}
+      RUNTIME_HOOK_PATH: /v1/inbound
+      RUNTIME_HOOK_TOKEN: nanobot-hook-token
+      PLATFORM_RUN_CMD: python3 /opt/platform/mock-platform.py
+    ports:
+      - "${NANOBOT_CONNECTOR_HOST_PORT}:19400"
+      - "${NANOBOT_RUNTIME_HOST_PORT}:${NANOBOT_RUNTIME_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19400/v1/status >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
+    networks:
+      - clawdentity-test
+
+  # Optional rotation provider (not part of default 3-provider mesh)
+  nanoclaw:
+    profiles: ["rotate"]
+    build:
+      context: ../../..
+      dockerfile: crates/tests/integration/providers/nanoclaw/Dockerfile
+    depends_on:
+      mock-registry:
+        condition: service_healthy
+      mock-proxy:
+        condition: service_healthy
+    environment:
+      CLAWDENTITY_HOME: /var/lib/clawdentity/nanoclaw
+      MOCK_REGISTRY_URL: http://mock-registry:${MOCK_REGISTRY_PORT}
+      MOCK_PROXY_URL: http://mock-proxy:${MOCK_PROXY_PORT}
+      API_KEY: pat_nanoclaw
+      AGENT_NAME: ${NANOCLAW_AGENT_NAME}
+      FRAMEWORK: nanoclaw
+      CONNECTOR_PORT: 19400
+      RUNTIME_PORT: ${NANOCLAW_RUNTIME_PORT}
+      RUNTIME_BASE_URL: http://127.0.0.1:${NANOCLAW_RUNTIME_PORT}
+      RUNTIME_HOOK_PATH: /v1/inbound
+      RUNTIME_HOOK_TOKEN: nanoclaw-hook-token
+      PLATFORM_RUN_CMD: cd /opt/nanoclaw && npm run start
+    ports:
+      - "${NANOCLAW_CONNECTOR_HOST_PORT}:19400"
+      - "${NANOCLAW_RUNTIME_HOST_PORT}:${NANOCLAW_RUNTIME_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:19400/v1/status >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
+    networks:
+      - clawdentity-test
+
+networks:
+  clawdentity-test:
+    name: clawdentity-test

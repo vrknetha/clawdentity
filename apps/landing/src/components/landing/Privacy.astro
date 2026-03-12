@@ -1,0 +1,123 @@
+---
+// Privacy — Section 05
+const highlights = [
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`,
+    title: "No Shared Secrets",
+    description: "Each agent holds its own private key. Nothing sensitive is shared between parties or stored in a central database.",
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>`,
+    title: "Offline Verification",
+    description: "Relay proxies verify tokens locally using cached public keys and CRLs. No call home to a central authority required at request time.",
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`,
+    title: "Decentralized by Design",
+    description: "No central authority needed at request time. The registry is only involved at registration and revocation — not on the critical path.",
+  },
+  {
+    icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+    title: "Instant Revocation",
+    description: "Compromised agent? Revoke it in the registry. All relay proxies pick up the CRL update within seconds — no manual rotation required.",
+  },
+];
+---
+
+<section class="section privacy-section animate-on-scroll" id="privacy">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-number">05 —</span>
+      <h2>Zero-trust from the ground up.</h2>
+    </div>
+
+    <div class="privacy-grid animate-children">
+      {highlights.map((item, index) => (
+        <div class="privacy-card stagger-child" style={`transition-delay: ${index * 80}ms`}>
+          <div class="privacy-icon" set:html={item.icon} />
+          <h3>{item.title}</h3>
+          <p>{item.description}</p>
+        </div>
+      ))}
+    </div>
+
+    <p class="trust-note">
+      Open source. Auditable. MIT licensed. —
+      <a href="https://github.com/vrknetha/clawdentity" target="_blank" rel="noopener noreferrer">github.com/vrknetha/clawdentity</a>
+    </p>
+  </div>
+</section>
+
+<style>
+  .privacy-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+  }
+
+  .privacy-card {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
+    padding: var(--space-lg);
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .privacy-card:hover {
+    border-color: var(--cl-border-3);
+    border-left-color: var(--cl-accent);
+    transform: translateY(-2px);
+  }
+
+  .privacy-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+    color: var(--cl-accent);
+    margin-bottom: 0.875rem;
+  }
+
+  .privacy-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .privacy-card h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--cl-text);
+    margin-bottom: 0.5rem;
+  }
+
+  .privacy-card p {
+    color: var(--cl-text-2);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+
+  .trust-note {
+    margin-top: var(--space-xl);
+    padding-top: var(--space-md);
+    border-top: 1px solid var(--cl-rule);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--cl-text-3);
+  }
+
+  .trust-note a {
+    color: var(--cl-accent);
+    text-decoration: none;
+  }
+
+  .trust-note a:hover {
+    text-decoration: underline;
+  }
+
+  @media (max-width: 640px) {
+    .privacy-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

@@ -1,5 +1,6 @@
 node_modules/
 dist/
+apps/cli/skill-bundle/openclaw-skill/
 .nx/
 nx
 nx.bat
@@ -9,3 +10,16 @@ nx.bat
 .env.*
 !.env.example
 .dev.vars
+.pnpm-store/
+target/
+.astro/
+
+# Working docs (plans, reviews, research — keep local)
+**/PLAN.md
+**/REVIEW.md
+**/KAI_REVIEW.md
+**/*_PLAN.md
+**/*_RESEARCH.md
+**/*_FORMATS.md
+**/EXECUTION_PLAN.md
+**/WEBHOOK_PR_PLAN.md

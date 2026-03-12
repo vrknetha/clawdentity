@@ -1,55 +1,98 @@
 import { describe, expect, it } from "vitest";
-import { makeAgentDid, makeHumanDid, parseDid } from "./did.js";
+import {
+  makeAgentDid,
+  makeHumanDid,
+  parseAgentDid,
+  parseDid,
+  parseHumanDid,
+} from "./did.js";
 import { ProtocolParseError } from "./errors.js";
 import { generateUlid } from "./ulid.js";
+
+const AUTHORITY = "registry.clawdentity.dev";
+
+function expectInvalidDid(action: () => unknown): void {
+  try {
+    action();
+    throw new Error("expected DID operation to throw");
+  } catch (error) {
+    expect(error).toBeInstanceOf(ProtocolParseError);
+    if (error instanceof ProtocolParseError) {
+      expect(error.code).toBe("INVALID_DID");
+    }
+  }
+}
 
 describe("did helpers", () => {
   it("builds and parses human DIDs", () => {
     const ulid = generateUlid(1700000000000);
-    const did = makeHumanDid(ulid);
-    expect(did).toBe(`did:claw:human:${ulid}`);
+    const did = makeHumanDid(AUTHORITY, ulid);
+    expect(did).toBe(`did:cdi:${AUTHORITY}:human:${ulid}`);
     expect(parseDid(did)).toEqual({
-      kind: "human",
+      method: "cdi",
+      authority: AUTHORITY,
+      entity: "human",
+      ulid,
+    });
+    expect(parseHumanDid(did)).toEqual({
+      method: "cdi",
+      authority: AUTHORITY,
+      entity: "human",
       ulid,
     });
   });
 
   it("builds and parses agent DIDs", () => {
     const ulid = generateUlid(1700000000000);
-    const did = makeAgentDid(ulid);
-    expect(did).toBe(`did:claw:agent:${ulid}`);
+    const did = makeAgentDid(AUTHORITY, ulid);
+    expect(did).toBe(`did:cdi:${AUTHORITY}:agent:${ulid}`);
     expect(parseDid(did)).toEqual({
-      kind: "agent",
+      method: "cdi",
+      authority: AUTHORITY,
+      entity: "agent",
+      ulid,
+    });
+    expect(parseAgentDid(did)).toEqual({
+      method: "cdi",
+      authority: AUTHORITY,
+      entity: "agent",
       ulid,
     });
   });
 
   it("rejects malformed DIDs", () => {
     const samples = [
-      "did:claw:bot:01HF7YAT00M5H6RVQ6Q6N1W30X",
-      "did:other:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
-      "did:claw:human",
-      "did:claw:human:invalid-ulid",
+      "did:foo:registry.clawdentity.dev:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
+      "did:other:registry.clawdentity.dev:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
+      "did:cdi:registry.clawdentity.dev:bot:01HF7YAT00M5H6RVQ6Q6N1W30X",
+      "did:cdi:registry.clawdentity.dev:human",
+      "did:cdi:registry.clawdentity.dev:human:invalid-ulid",
+      "did:cdi:registry..clawdentity.dev:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
+      "did:cdi:-registry.clawdentity.dev:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
+      "did:cdi:Registry.clawdentity.dev:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
+      "did:cdi:localhost:agent:01HF7YAT00M5H6RVQ6Q6N1W30X",
     ];
 
     for (const sample of samples) {
-      try {
+      expectInvalidDid(() => {
         parseDid(sample);
-        throw new Error("expected parseDid to throw");
-      } catch (error) {
-        expect(error).toBeInstanceOf(ProtocolParseError);
-        expect((error as ProtocolParseError).code).toBe("INVALID_DID");
-      }
+      });
     }
   });
 
-  it("rejects invalid ULID input in make helpers", () => {
-    try {
-      makeHumanDid("invalid-ulid");
-      throw new Error("expected makeHumanDid to throw");
-    } catch (error) {
-      expect(error).toBeInstanceOf(ProtocolParseError);
-      expect((error as ProtocolParseError).code).toBe("INVALID_DID");
-    }
+  it("rejects invalid entity-specific parse helpers", () => {
+    const ulid = generateUlid(1700000000000);
+    const humanDid = makeHumanDid(AUTHORITY, ulid);
+    const agentDid = makeAgentDid(AUTHORITY, ulid);
+
+    expectInvalidDid(() => parseAgentDid(humanDid));
+    expectInvalidDid(() => parseHumanDid(agentDid));
+  });
+
+  it("rejects invalid authority and ULID input in make helpers", () => {
+    expectInvalidDid(() =>
+      makeHumanDid("registry..clawdentity.dev", generateUlid(1)),
+    );
+    expectInvalidDid(() => makeHumanDid(AUTHORITY, "invalid-ulid"));
   });
 });

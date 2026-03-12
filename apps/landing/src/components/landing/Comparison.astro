@@ -1,0 +1,291 @@
+---
+// Comparison — Section 03 — Ledger table with SVG circle symbols
+
+const features = [
+  { name: "Per-agent identity", apiKeys: false, oauth: "Partial", clawdentity: true },
+  { name: "Proof of possession", apiKeys: false, oauth: false, clawdentity: true },
+  { name: "Instant revocation", apiKeys: false, oauth: "Partial", clawdentity: true },
+  { name: "No shared secrets", apiKeys: false, oauth: true, clawdentity: true },
+  { name: "Offline verification", apiKeys: false, oauth: false, clawdentity: true },
+  { name: "Works as sidecar", apiKeys: "N/A", oauth: false, clawdentity: true },
+  { name: "Open source", apiKeys: "Varies", oauth: "Varies", clawdentity: true },
+];
+
+type FeatureValue = boolean | string;
+
+function renderValue(v: FeatureValue) {
+  if (v === true) return { type: 'yes' as const };
+  if (v === false) return { type: 'no' as const };
+  if (v === "N/A") return { type: 'na' as const };
+  return { type: 'partial' as const, text: v as string };
+}
+---
+
+<section class="section comparison-section animate-on-scroll" id="comparison">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-number">03 —</span>
+      <h2>How it compares.</h2>
+    </div>
+
+    <!-- Desktop table -->
+    <div class="comparison-desktop animate-children">
+      <table class="ledger-table" aria-label="Feature comparison">
+        <thead>
+          <tr>
+            <th class="col-feature">Feature</th>
+            <th class="col-provider">API Keys</th>
+            <th class="col-provider">OAuth 2.0</th>
+            <th class="col-provider col-highlight">
+              <span>Clawdentity</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {features.map((feature, index) => {
+            const ak = renderValue(feature.apiKeys);
+            const oa = renderValue(feature.oauth);
+            const cl = renderValue(feature.clawdentity);
+            return (
+              <tr class="stagger-child" style={`transition-delay: ${index * 50}ms`}>
+                <td class="cell-feature">{feature.name}</td>
+                <td class="cell-value">
+                  {ak.type === 'yes' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="Yes">
+                      <circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/>
+                    </svg>
+                  )}
+                  {ak.type === 'no' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="No">
+                      <circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/>
+                    </svg>
+                  )}
+                  {ak.type === 'na' && <span class="sym-na">—</span>}
+                  {ak.type === 'partial' && <span class="sym-partial">{ak.text}</span>}
+                </td>
+                <td class="cell-value">
+                  {oa.type === 'yes' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="Yes">
+                      <circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/>
+                    </svg>
+                  )}
+                  {oa.type === 'no' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="No">
+                      <circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/>
+                    </svg>
+                  )}
+                  {oa.type === 'na' && <span class="sym-na">—</span>}
+                  {oa.type === 'partial' && <span class="sym-partial">{oa.text}</span>}
+                </td>
+                <td class="cell-value cell-cl">
+                  {cl.type === 'yes' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="Yes">
+                      <circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/>
+                    </svg>
+                  )}
+                  {cl.type === 'no' && (
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="No">
+                      <circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/>
+                    </svg>
+                  )}
+                  {cl.type === 'na' && <span class="sym-na">—</span>}
+                  {cl.type === 'partial' && <span class="sym-partial">{cl.text}</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Mobile cards -->
+    <div class="comparison-mobile animate-children">
+      {features.map((feature, index) => {
+        const ak = renderValue(feature.apiKeys);
+        const oa = renderValue(feature.oauth);
+        const cl = renderValue(feature.clawdentity);
+        return (
+          <div class="feature-card stagger-child" style={`transition-delay: ${index * 50}ms`}>
+            <h4 class="feature-card__title">{feature.name}</h4>
+            <div class="feature-card__rows">
+              <div class="feature-card__row">
+                <span class="feature-card__provider">API Keys</span>
+                <span>
+                  {ak.type === 'yes' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="Yes"><circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/></svg>}
+                  {ak.type === 'no' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="No"><circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/></svg>}
+                  {ak.type === 'na' && <span class="sym-na">—</span>}
+                  {ak.type === 'partial' && <span class="sym-partial">{ak.text}</span>}
+                </span>
+              </div>
+              <div class="feature-card__row">
+                <span class="feature-card__provider">OAuth 2.0</span>
+                <span>
+                  {oa.type === 'yes' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="Yes"><circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/></svg>}
+                  {oa.type === 'no' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="No"><circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/></svg>}
+                  {oa.type === 'na' && <span class="sym-na">—</span>}
+                  {oa.type === 'partial' && <span class="sym-partial">{oa.text}</span>}
+                </span>
+              </div>
+              <div class="feature-card__row feature-card__row--highlight">
+                <span class="feature-card__provider feature-card__provider--cl">Clawdentity</span>
+                <span>
+                  {cl.type === 'yes' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="Yes"><circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/></svg>}
+                  {cl.type === 'no' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="No"><circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/></svg>}
+                  {cl.type === 'na' && <span class="sym-na">—</span>}
+                  {cl.type === 'partial' && <span class="sym-partial">{cl.text}</span>}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Desktop */
+  .comparison-desktop {
+    display: block;
+  }
+  .comparison-mobile {
+    display: none;
+  }
+
+  /* Ledger table */
+  .ledger-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--font-sans);
+  }
+
+  .ledger-table th {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-variant: small-caps;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cl-text-3);
+    background: var(--cl-surface);
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--cl-rule);
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .col-feature {
+    text-align: left !important;
+    width: 40%;
+  }
+
+  .col-highlight {
+    background: var(--cl-surface-2) !important;
+    color: var(--cl-accent) !important;
+    border-top: 2px solid var(--cl-accent) !important;
+  }
+
+  .ledger-table td {
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--cl-rule);
+    vertical-align: middle;
+  }
+
+  .ledger-table tr:hover td {
+    background: var(--cl-surface);
+  }
+
+  .cell-feature {
+    font-size: 0.9375rem;
+    color: var(--cl-text);
+  }
+
+  .cell-value {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .cell-value svg {
+    display: block;
+    margin: 0 auto;
+  }
+
+  .cell-cl {
+    background: var(--cl-surface-2);
+  }
+
+  .sym-na {
+    color: var(--cl-text-3);
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    display: block;
+    text-align: center;
+  }
+
+  .sym-partial {
+    color: var(--cl-text-2);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    display: block;
+    text-align: center;
+  }
+
+  /* Mobile */
+  @media (max-width: 640px) {
+    .comparison-desktop { display: none; }
+    .comparison-mobile {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+    }
+  }
+
+  .feature-card {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
+    padding: var(--space-md);
+  }
+
+  .feature-card__title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--cl-text);
+    margin-bottom: 0.75rem;
+  }
+
+  .feature-card__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .feature-card__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.375rem 0;
+    border-bottom: 1px solid var(--cl-rule);
+  }
+
+  .feature-card__row:last-child {
+    border-bottom: none;
+  }
+
+  .feature-card__row--highlight {
+    background: var(--cl-surface-2);
+    margin: 0 -0.5rem;
+    padding: 0.5rem;
+    border-radius: 2px;
+  }
+
+  .feature-card__provider {
+    font-size: 0.8125rem;
+    color: var(--cl-text-3);
+    font-family: var(--font-mono);
+  }
+
+  .feature-card__provider--cl {
+    color: var(--cl-accent);
+  }
+</style>

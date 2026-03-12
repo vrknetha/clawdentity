@@ -1,316 +1,232 @@
-# Clawdentity
+<p align="center">
+  <img src="assets/banner.png" alt="Clawdentity" width="100%" />
+</p>
 
-Verified identity + revocation for AI agents — starting with **OpenClaw**.
+<h1 align="center">Clawdentity</h1>
 
-Clawdentity solves one question for agent-to-agent / agent-to-service calls:
+<p align="center">
+  Identity, messaging, and trust for AI agents — across any platform.
+</p>
 
-> **“Who is this agent, who owns it, and is it revoked?”**
-
-It does this with:
-
-- **AIT (Agent Identity Token)**: a registry-signed passport (JWT / EdDSA)
-- **PoP (Proof-of-Possession)**: every request is signed with the agent’s private key
-- **CRL (Revocation List)**: a signed revocation feed clients cache and refresh
-
----
-
-## Problem statement
-
-OpenClaw webhook auth is built around a shared gateway token. That works for transport, but not for identity-aware agent systems.
-In practice, identity is flat: any caller with the shared token looks the same to the gateway.
-
-Current pain points:
-
-- **Shared-secret blast radius:** if one token leaks, any caller can impersonate a trusted agent until rotation.
-- **No per-agent identity:** receivers cannot prove which exact agent sent a request or who owns it.
-- **Weak revocation model:** disabling one compromised agent means rotating shared credentials across integrations.
-- **No local trust policy:** gateway operators cannot reliably enforce “who is allowed” per caller identity.
-
-What Clawdentity adds:
-
-- Verifiable per-agent identity (AIT + PoP)
-- Fast revocation propagation (signed CRL + cache refresh)
-- Proxy-side policy enforcement (allowlist + rate limits + replay protection)
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/Rust-1.75+-orange.svg" alt="Rust" />
+  <a href="https://www.npmjs.com/package/clawdentity"><img src="https://img.shields.io/npm/v/clawdentity.svg" alt="npm version" /></a>
+</p>
 
 ---
 
-## Why this exists (OpenClaw reality)
+## The Problem
 
-OpenClaw webhooks are a great transport layer, but they authenticate using a **single shared webhook token**. OpenClaw requires `hooks.token` when hooks are enabled, and inbound calls must provide the token (e.g., `Authorization: Bearer ...` or `x-openclaw-token: ...`).  
-OpenClaw docs: https://docs.openclaw.ai/automation/webhook
+AI agents today are stuck in silos. An agent on OpenClaw can't talk to an agent on NanoBot. An agent on PicoClaw can't verify who's calling it. Every platform has its own messaging format, its own auth model, its own way of doing things.
 
-That means “just replace Bearer with Claw” does **not** work without upstream changes.
+And even within a single platform, agents share one webhook token — one leak exposes everyone, no way to tell agents apart, no way to revoke just one.
 
-### MVP integration approach (no OpenClaw fork)
+## What Clawdentity Does
 
-For MVP, Clawdentity runs as a **proxy/sidecar** in front of OpenClaw:
+Clawdentity is a **cross-platform protocol** that gives every AI agent:
+
+- **Each agent gets its own identity** — a unique keypair and a registry-signed passport (DID v2 `did:cdi:<authority>:<entity>:<ulid>` + AIT)
+- **Every request is signed** — the proxy can verify exactly who sent it and reject tampering
+- **Revoke one agent without breaking the rest** — no shared token rotation needed
+- **Per-agent access control** — trust policies, rate limits, and replay protection at the proxy
+- **OpenClaw stays private** — only the proxy is public; your OpenClaw instance stays on localhost
+- **QR-code pairing** — one scan to approve trust between two agents
+- **Resilient local relay delivery** — connector probes local OpenClaw liveness and recovers from hook-token rotation without dropping inbound messages
+
+## Supported Platforms
+
+| Platform | Language | Stars | Status |
+|----------|----------|-------|--------|
+| [OpenClaw](https://github.com/openclaw/openclaw) | TypeScript | 216K | ✅ Native support |
+| [PicoClaw](https://github.com/sipeed/picoclaw) | Go | 17.4K | ✅ [Webhook PR](https://github.com/sipeed/picoclaw/pull/626) |
+| [NanoBot](https://github.com/HKUDS/nanobot) | Python | 22.6K | ✅ [Webhook PR](https://github.com/HKUDS/nanobot/pull/985) |
+| [NanoClaw](https://github.com/qwibitai/nanoclaw) | TypeScript | 10.6K | ✅ [Skill PR](https://github.com/qwibitai/nanoclaw/pull/377) |
+
+## How It Works
 
 ```
-Caller Agent
-  |
-  |  Authorization: Claw <AIT>  +  X-Claw-Proof/Nonce/Timestamp
-  v
-Clawdentity Proxy   (verifies identity + allowlist + rate limits)
-  |
-  |  x-openclaw-token: <hooks.token>   (internal only)
-  v
-OpenClaw Gateway  (normal /hooks/agent handling)
+Agent A (OpenClaw)                              Agent B (NanoBot)
+  │                                                  │
+  │ relay transform -> connector POST /v1/outbound   │
+  │ + Ed25519 proof headers                           │
+  ▼                                                  │
+Connector (:19400)                          Connector (:19400)
+  │                                                  ▲
+  │  WebSocket                          WebSocket    │
+  ▼                                                  │
+┌─────────────────────────────────────────────────────┐
+│              Clawdentity Relay Proxy                │
+│     Verifies identity · Enforces trust policy       │
+│     Rate limits · Replay protection                 │
+└─────────────────────────────────────────────────────┘
 ```
 
-**What happens to the OpenClaw hooks token?**
+Each platform gets a **bidirectional webhook channel** with two routes:
+- `POST /v1/inbound` — relay delivers messages to the agent
+- `POST /v1/outbound` — agent sends messages through the relay
 
-- It stays **private** on the gateway host.
-- Only the proxy uses it to forward requests to OpenClaw.
-- You never share it with other humans/agents.
+The connector handles format translation per platform — PicoClaw gets headers, NanoBot gets body fields. Same protocol, native feel.
 
----
+## Quick Start
 
-## How it works (end-to-end)
+```bash
+# Install (single binary, zero deps)
+curl -fsSL https://clawdentity.com/install.sh | sh
 
-### 1) Agent identity provisioning
+# Initialize identity
+clawdentity init
 
-- Operator runs CLI to create an agent identity.
-- Registry stores the public key and issues a signed AIT.
-- Agent keeps private key locally; registry never sees it.
+# Register with the network
+clawdentity register
 
-### 2) Outbound request signing
+# Create an agent
+clawdentity agent create my-agent --framework openclaw
 
-- SDK creates PoP headers for each request:
-  - `Authorization: Claw <AIT>`
-  - `X-Claw-Timestamp`
-  - `X-Claw-Nonce`
-  - `X-Claw-Body-SHA256`
-  - `X-Claw-Proof`
-- Proof signature is bound to method, path, timestamp, nonce, and body hash.
+# Install provider artifacts (auto-detect by default)
+clawdentity install
 
-### 3) Proxy verification pipeline
+# Or specify explicitly
+clawdentity install --platform openclaw
 
-- Proxy validates AIT signature against registry keys.
-- Proxy checks AIT expiry and CRL revocation status.
-- Proxy verifies PoP signature against the key in the token.
-- Proxy rejects replay via timestamp skew + nonce cache.
-- Proxy enforces allowlist and rate limits.
+# Configure runtime + hooks for your agent
+clawdentity provider setup --for openclaw --agent-name my-agent
 
-### 4) Forward to OpenClaw
+# Verify everything works
+clawdentity provider doctor --for openclaw
+```
 
-- Only verified and authorized requests are forwarded.
-- Proxy injects internal `x-openclaw-token` to call OpenClaw `/hooks/agent`.
-- OpenClaw continues normal processing and returns `202` for async handling.
+<details>
+<summary>Alternative install methods</summary>
 
-### 5) Revocation flow
+```bash
+# Rust developers
+cargo install --locked clawdentity-cli
 
-- Agent owner or admin revokes an agent at the registry.
-- Registry publishes revocation in signed CRL.
-- Proxy cache refresh picks up revocation and starts rejecting requests from revoked AITs.
+# npm package
+npm install -g clawdentity
 
----
+# Direct release metadata
+curl -fsSL https://downloads.clawdentity.com/rust/latest.json
+```
 
-## Operator controls on both ends
+</details>
 
-### Sender side operator (owner/admin)
+## Platform Install
 
-- Action: `clawdentity agent revoke <agent>`
-- Scope: **global** (registry-level identity revocation)
-- Effect: every receiving proxy rejects that revoked token once CRL refreshes.
-- Use when: key compromise, decommissioning, or ownership/admin suspension events.
+`clawdentity install` auto-detects your agent platform and configures everything:
 
-### Receiver side operator (callee gateway owner)
+| Platform | Detection | What it does |
+|----------|-----------|-------------|
+| OpenClaw | `~/.openclaw/` dir | Configures connector in `openclaw.json` |
+| PicoClaw | `picoclaw` in PATH | Enables webhook channel in `config.json` |
+| NanoBot | `~/.nanobot/` dir | Enables webhook channel in `config.yaml` |
+| NanoClaw | `.claude/` skills dir | Applies webhook skill via skills engine |
 
-- Action: remove/deny caller in local allowlist (or keep `approvalRequired` for first contact)
-- Scope: **local only** (that specific gateway/proxy)
-- Effect: caller is blocked on this gateway immediately, but remains valid elsewhere unless globally revoked.
-- Use when: policy mismatch, abuse from a specific caller, temporary trust removal.
+The connector starts as a system service (launchd on macOS, systemd on Linux) and auto-restarts on boot.
 
-### Key distinction
+## Cross-Agent Communication
 
-- **Global revoke** = sender owner/admin authority at registry.
-- **Local block** = receiver operator authority at their own gateway.
-- Opposite-side operator cannot globally revoke someone else's agent identity; they can only deny locally.
+```bash
+# Start local connector runtime (optional if service mode is enabled)
+clawdentity connector start my-agent
 
-### Incident response pattern
+# Probe relay delivery to a paired peer alias
+clawdentity provider relay-test --for <platform> --peer alice
+```
 
-1. Receiver blocks caller locally for immediate containment.
-2. Sender owner/admin performs registry revoke for ecosystem-wide invalidation.
-3. Proxies return:
-   - `401` for invalid/expired/revoked identity
-   - `403` for valid identity that is not allowlisted locally
+Pairing/trust establishment is API-based on proxy routes (`POST /pair/start`, `POST /pair/confirm`, `POST /pair/status`). See the docs at [clawdentity.com](https://clawdentity.com/docs).
 
----
+## Identity & Trust
 
-## What gets shared (and what never should)
+```bash
+# Show your agent's identity
+clawdentity whoami
 
-- ✅ Shared **in-band** on each request: **AIT + PoP proof headers**
-- ✅ Shared publicly: registry signing public keys + CRL (signed, cacheable)
-- ❌ Never shared: the agent’s **private key** or identity folder
+# Inspect local agent identity state
+clawdentity agent inspect my-agent
 
----
+# Refresh scoped auth for one local agent
+clawdentity agent auth refresh my-agent
 
-## Repo layout (planned MVP)
+# Revoke scoped auth for one local agent
+clawdentity agent auth revoke my-agent
+```
 
-This repo is a monorepo:
+Global identity revocation is performed via the registry API (`DELETE /v1/agents/:id`), not via a dedicated CLI `agent revoke` command.
 
-- `apps/registry` — issues AITs, serves CRL + public keys (Worker config: `apps/registry/wrangler.jsonc`)
-- `apps/proxy` — verifies Clawdentity headers then forwards to OpenClaw hooks
-- `apps/cli` — operator workflow (`claw create`, `claw revoke`, `claw share`)
-- `packages/sdk` — TS SDK (sign + verify + CRL cache)
-- `packages/protocol` — shared types + canonical signing rules
+### DID Format
 
----
+```
+did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
+         ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+               authority          entity            ULID
+```
 
-## Core features (MVP)
-
-### 1) Identity issuance and verification
-
-- Handled by: `apps/registry`, `packages/sdk`
-- Registry issues signed AITs tied to agent DID + owner DID.
-- Registry publishes verification material (`/.well-known/claw-keys.json`) and signed CRL.
-- SDK + proxy verify signatures, expiry windows, and token validity locally.
-
-### 2) Request-level proof and replay protection
-
-- Handled by: `packages/sdk`, `apps/proxy`
-- Each request carries PoP-bound headers:
-  - `Authorization: Claw <AIT>`
-  - `X-Claw-Timestamp`
-  - `X-Claw-Nonce`
-  - `X-Claw-Body-SHA256`
-  - `X-Claw-Proof`
-- Proxy rejects tampered payloads, nonce replays, and stale timestamps.
-
-### 3) Proxy enforcement before OpenClaw
-
-- Handled by: `apps/proxy`
-- Sidecar proxy verifies AIT + CRL + PoP before forwarding to OpenClaw.
-- Enforces caller allowlist policy by DID.
-- Applies per-agent rate limiting.
-- Keeps `hooks.token` private and only injects it internally during forward.
-
-### 4) Operator lifecycle tooling (CLI)
-
-- Handled by: `apps/cli`
-- `clawdentity agent create` for local keypair + registry registration.
-- `clawdentity agent inspect` and `clawdentity verify` for offline token checks.
-- `clawdentity agent revoke` for kill switch workflows.
-- `clawdentity share` for contact-card exchange (DID, verify URL, endpoint).
-
-### 5) Onboarding and control model
-
-- Handled by: `apps/registry`, `apps/cli`
-- Invite-gated registration model with admin-issued invite codes.
-- One-agent-per-invite policy for simple quota and abuse control.
-- Feature work is deployment-gated (`T00 -> T37 -> T38`) before backlog execution.
-
-### 6) Discovery and first-contact options
-
-- Handled by: `apps/registry`, `apps/proxy`, `apps/cli`
-- Out-of-band contact card sharing.
-- Registry `gateway_hint` resolution.
-- Optional pairing-code flow for first-contact allowlist approval.
-
----
-
-## MVP goals
-
-1. **Create agent identity** (local keypair + registry-issued AIT)
-2. **Send signed requests** (PoP per request, replay-resistant)
-3. **Verify locally** (signature + expiry + cached CRL)
-4. **Kill switch** (revoke → proxy rejects within CRL refresh window)
-5. **Discovery** (share endpoint + verify link; optional pairing code)
-
----
-
-## Discovery (how first contact happens)
-
-MVP supports three ways to “find” another agent:
-
-1. **Out-of-band share**: human shares a contact card (verify link + endpoint URL)
-2. **Registry `gateway_hint`**: callee publishes an endpoint, callers resolve it via registry
-3. **Pairing code** (proxy): “Approve first contact” to auto-add caller to allowlist
-
-No one shares keys/files between agents. Identity is presented per request.
-
----
-
-## Security architecture (MVP)
-
-### Trust boundaries and sensitive assets
-
-- **Agent private key**: secret, local only, never leaves agent machine.
-- **Registry signing key**: secret, server-side only, signs AIT and CRL.
-- **OpenClaw `hooks.token`**: secret, only present on gateway host/proxy.
-- **AIT + PoP headers**: transmitted per request, safe to share in-band.
-
-### Threats addressed
-
-- Do not expose OpenClaw webhooks directly to the public internet. Follow OpenClaw guidance (loopback, tailnet, trusted reverse proxy).  
-  Docs: https://docs.openclaw.ai/automation/webhook
-- Clawdentity PoP signatures must bind:
-  - method, path, timestamp, nonce, body hash
-  - and reject nonce replays
-- Reject tampering: any change to method/path/body/timestamp/nonce invalidates proof.
-- Reject unauthorized callers: AIT verification + allowlist enforcement.
-- Reject compromised identities quickly: CRL-based revocation checks.
-- Contain abuse: per-agent rate limits at proxy boundary.
-
-### Security guarantees and limits
-
-- Guarantees:
-  - caller identity can be cryptographically verified
-  - caller ownership is traceable via token claims
-  - revocation can be enforced without rotating shared OpenClaw token
-- Limits:
-  - if the endpoint that holds the agent private key is compromised, attacker can sign as that agent until revocation
-  - if CRL refresh is delayed, enforcement follows configured staleness policy (`fail-open` or `fail-closed`)
-
-### Safe defaults and operator guidance
-
-- Treat any identity fields (agent name/description) as untrusted input; never allow prompt injection via identity metadata.
-- Keep OpenClaw behind trusted network boundaries; expose only proxy entry points.
-- Rotate PATs and audit allowlist entries regularly.
-
----
-
-## Documentation
-
-- **PRD:** see [`PRD.md`](./PRD.md) (MVP product requirements + execution plan)
-- **Issue execution plan:** see [`issues/EXECUTION_PLAN.md`](./issues/EXECUTION_PLAN.md) (deployment-first ordering + waves)
-- **Issue authoring rules:** see [`issues/AGENTS.md`](./issues/AGENTS.md) (required issue schema + blockers policy)
-
----
-
-## Contributing / Execution
-
-This repo is built as a sequence of small issues with a **deployment-first gate**:
-
-1. `T00` — workspace scaffolding
-2. `T37` — deployment scaffolding contract
-3. `T38` — baseline deployment verification
-4. `T01`–`T36` — feature implementation after deploy gate passes
-
-### Backlog shape
-
-- Total issue set: `T00`–`T38`
-- Feature tickets `T01`–`T36` explicitly depend on `T38`
-- Parallel execution starts only after Wave 2 (`T38`) completes
-
-### Issue schema
-
-Every issue in [`issues/`](./issues) is standardized to include:
-
-- `Goal`
-- `In Scope`
-- `Out of Scope`
-- `Dependencies` + `Blockers`
-- `Execution Mode`
-- `Parallel Wave`
-- `Required Skills`
-- `Deliverables`
-- `Refactor Opportunities`
-- `Definition of Done`
-- `Validation Steps`
-
----
+Every agent gets a `did:cdi` identifier backed by an Ed25519 keypair. Private keys never leave the machine.
+
+## Shared Tokens vs Clawdentity
+
+| | Shared Token | Clawdentity |
+|---|---|---|
+| **Identity** | All callers look the same | Each agent has its own signed identity |
+| **Blast radius** | One leak exposes everyone | One key compromised = one agent affected |
+| **Revocation** | Rotate token = break all integrations | Revoke one agent, others unaffected |
+| **Cross-platform** | Not possible | Any platform → relay → any platform |
+| **Replay protection** | None | Timestamp + nonce + signature |
+| **Access control** | All or nothing | Per-agent trust policies |
+
+## Architecture
+
+```
+clawdentity/
+├── crates/
+│   ├── clawdentity-core/    — Rust business logic (identity, messaging, providers)
+│   └── clawdentity-cli/     — CLI (clap)
+├── apps/
+│   ├── registry/            — Identity registry (Cloudflare Worker + D1)
+│   ├── proxy/               — Relay proxy (Cloudflare Worker)
+│   └── openclaw-skill/      — OpenClaw integration skill
+├── packages/
+│   ├── protocol/            — Canonical types + signing rules
+│   ├── sdk/                 — TypeScript SDK
+│   └── connector/           — Connector runtime (TypeScript reference)
+```
+
+## Roadmap
+
+- [x] Agent identity (DID, keypairs, registry)
+- [x] Signed messaging with replay protection
+- [x] QR-code pairing and trust policies
+- [x] Relay proxy (WebSocket + HTTP)
+- [x] Rust CLI (single binary)
+- [x] Cross-platform webhook channels (OpenClaw, PicoClaw, NanoBot, NanoClaw)
+- [x] Install providers with platform auto-detection
+- [ ] Group messaging (multi-agent channels)
+- [ ] Agent discovery (find agents by capability)
+- [ ] Encrypted messaging (E2E between agents)
+- [ ] Federation (multiple registries)
+
+## Protocol Specification
+
+Clawdentity is a formally specified protocol:
+
+| Format | File |
+|--------|------|
+| Markdown | [PROTOCOL.md](./PROTOCOL.md) |
+| Internet-Draft | [draft-ravikiran-clawdentity-protocol-00.xml](./draft-ravikiran-clawdentity-protocol-00.xml) |
+| RFC Text | [draft-ravikiran-clawdentity-protocol-00.txt](./draft-ravikiran-clawdentity-protocol-00.txt) |
+
+Covers: DID format, Agent Identity Tokens, Ed25519 signing, trust establishment, WebSocket relay, certificate revocation. References 13 RFCs including RFC 8032 (EdDSA) and RFC 9449 (DPoP).
+
+## Contributing
+
+1. Pick an open [issue](https://github.com/vrknetha/clawdentity/issues)
+2. Implement in a feature branch with tests
+3. Open a PR to `develop`
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for deep technical docs.
 
 ## License
 
-TBD.
+[MIT](./LICENSE)

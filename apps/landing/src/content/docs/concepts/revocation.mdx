@@ -1,0 +1,95 @@
+---
+title: Revocation Model
+description: How Clawdentity handles agent revocation through signed CRLs.
+---
+
+## Certificate Revocation List (CRL)
+
+The CRL is a signed JWT (`typ=CRL`) published by the registry. It contains a list of revoked AIT `jti` values with metadata.
+
+### How it works
+
+1. An agent owner or admin revokes an agent at the registry
+2. The registry adds the AIT's `jti` to the CRL and re-signs it
+3. Proxies cache the CRL and refresh it periodically (default: 300 seconds)
+4. On the next refresh, the revoked agent's requests start being rejected
+
+### CRL revocation entry schema
+
+Each entry in the `revocations` array contains:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `jti` | string (ULID) | Yes | Unique identifier for the revocation entry |
+| `agentDid` | string | Yes | DID of the revoked agent |
+| `revokedAt` | number | Yes | Unix timestamp (seconds) when revocation occurred |
+| `reason` | string | No | Human-readable reason for revocation (max 280 characters) |
+
+The `reason` field is optional and intended for audit trails and operator diagnostics. When provided, it is included in the signed CRL payload and visible to any proxy that fetches the list.
+
+### CRL properties
+
+- **Signed:** CRL is a JWS signed by the registry's Ed25519 key — cannot be forged
+- **Cached:** clients cache the CRL locally and refresh at a configurable interval
+- **Staleness policy:** configurable as `fail-open` (allow if CRL is stale) or `fail-closed` (reject if CRL is stale)
+
+## Revocation flow
+
+```d2
+direction: right
+
+owner: Agent Owner / Admin
+registry: Registry {
+  style.fill: "#f0f4ff"
+}
+proxy: Proxy {
+  style.fill: "#e8f4f8"
+}
+
+owner -> registry: "DELETE /v1/agents/:id" {
+  style.stroke: "#d32f2f"
+}
+registry.note: "Add jti to CRL\nRe-sign CRL"
+proxy -> registry: "CRL refresh cycle" {
+  style.stroke-dash: 3
+}
+registry -> proxy: "Updated CRL" {
+  style.stroke-dash: 3
+}
+proxy.result: "Reject requests\nfrom revoked AIT" {
+  style.fill: "#ffebee"
+  style.font-color: "#d32f2f"
+}
+```
+
+## Operator controls
+
+Revocation operates at two levels with distinct authority:
+
+### Global revocation (sender side)
+
+- **Action:** registry API `DELETE /v1/agents/:id` (or equivalent admin tooling)
+- **Scope:** registry-level identity revocation
+- **Effect:** every receiving proxy rejects the revoked token once the CRL refreshes
+- **Use when:** key compromise, decommissioning, or ownership suspension
+
+### Local blocking (receiver side)
+
+- **Action:** remove a trust pair from the proxy trust store
+- **Scope:** that specific gateway/proxy only
+- **Effect:** caller is blocked on this gateway immediately, but remains valid elsewhere
+- **Use when:** policy mismatch, abuse from a specific caller, temporary trust removal
+
+### Key distinction
+
+- **Global revoke** = sender owner/admin authority at the registry
+- **Local block** = receiver operator authority at their own gateway
+- An opposite-side operator cannot globally revoke someone else's agent identity; they can only deny locally
+
+## Incident response pattern
+
+1. Receiver blocks caller locally for immediate containment
+2. Sender owner/admin performs registry revoke for ecosystem-wide invalidation
+3. Proxies return:
+   - `401` for invalid, expired, or revoked identity
+   - `403` for valid identity that is not in a confirmed trust pair

@@ -1,0 +1,25 @@
+{
+  "name": "@clawdentity/landing",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "build:skill-md": "node ./scripts/build-skill-md.mjs",
+    "dev": "pnpm run build:skill-md && astro dev",
+    "build": "pnpm run build:skill-md && astro build",
+    "preview": "pnpm run build:skill-md && astro preview",
+    "check": "pnpm run build:skill-md && astro check"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^12.5.0",
+    "@astrojs/starlight": "^0.34.0",
+    "astro": "^5.7.0",
+    "astro-d2": "^0.9.0",
+    "sharp": "^0.33.5",
+    "starlight-links-validator": "^0.14.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.0",
+    "typescript": "5.8.3"
+  }
+}

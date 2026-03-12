@@ -8,6 +8,8 @@
   },
   "scripts": {
     "prepare": "husky",
+    "check:file-size": "node ./scripts/quality/check-file-size.mjs",
+    "check:structural": "tsx scripts/structural-check.ts",
     "format": "biome format .",
     "lint": "biome check .",
     "lint:staged": "lint-staged --concurrent false",
@@ -16,16 +18,24 @@
     "typecheck": "nx run-many -t typecheck",
     "affected:typecheck:local": "nx affected -t typecheck --base=origin/main --head=HEAD",
     "affected:test:local": "nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD",
-    "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD"
+    "affected:ci": "nx affected -t lint,format,typecheck,test,build --base=$NX_BASE --head=$NX_HEAD",
+    "dev:registry": "pnpm -F @clawdentity/registry run dev",
+    "dev:registry:local": "pnpm -F @clawdentity/registry run dev:local",
+    "dev:proxy": "pnpm -F @clawdentity/proxy run dev",
+    "dev:proxy:dev": "pnpm -F @clawdentity/proxy run dev:dev",
+    "dev:proxy:local": "pnpm -F @clawdentity/proxy run dev:local",
+    "dev:proxy:fresh": "pnpm -F @clawdentity/proxy run dev:fresh",
+    "env:sync": "bash ./scripts/env/sync-worktree-env.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.14",
     "husky": "^9.1.0",
     "lint-staged": "^15.2.0",
     "nx": "22.5.0",
+    "tsx": "^4.20.6",
     "tsup": "^8.5.1",
     "typescript": "5.8.3",
     "vitest": "^4.0.18",
-    "wrangler": "^4.64.0"
+    "wrangler": "^4.67.0"
   }
 }

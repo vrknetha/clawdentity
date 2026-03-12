@@ -39,4 +39,64 @@ describe("logging helpers", () => {
     expect(line).toContain('"status":500');
     spy.mockRestore();
   });
+
+  it("suppresses levels below the configured minimum", () => {
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logger = createLogger({ service: "sdk-test" }, { minLevel: "warn" });
+
+    logger.info("hello.info");
+    logger.warn("hello.warn");
+
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("skips successful fast request logs when onlyErrors is enabled", async () => {
+    const spy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = new Hono<{ Variables: { requestId: string } }>();
+    const logger = createLogger({ service: "sdk-test" });
+    app.use("*", createRequestContextMiddleware());
+    app.use("*", createRequestLoggingMiddleware(logger, { onlyErrors: true }));
+    app.get("/ok", () => new Response("ok"));
+
+    const res = await app.request("/ok");
+
+    expect(res.status).toBe(200);
+    expect(spy).not.toHaveBeenCalled();
+
+    spy.mockRestore();
+  });
+
+  it("elevates slow completion logs when configured", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const app = new Hono<{ Variables: { requestId: string } }>();
+    const logger = createLogger({ service: "sdk-test" });
+    app.use("*", createRequestContextMiddleware());
+    app.use(
+      "*",
+      createRequestLoggingMiddleware(logger, {
+        onlyErrors: true,
+        slowThresholdMs: 0,
+        errorOrSlowLogLevel: "warn",
+      }),
+    );
+    app.get("/ok", () => new Response("ok"));
+
+    const res = await app.request("/ok");
+
+    expect(res.status).toBe(200);
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    const line = String(warnSpy.mock.calls.at(-1)?.[0] ?? "");
+    expect(line).toContain('"message":"request.completed"');
+    expect(line).toContain('"slow":true');
+
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
 });

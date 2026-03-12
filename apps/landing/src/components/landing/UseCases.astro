@@ -1,0 +1,103 @@
+---
+// UseCases — Section 06
+const useCases = [
+  {
+    tag: "OpenClaw → NanoBot",
+    title: "Orchestrate across platforms",
+    description: "OpenClaw orchestrator delegates tasks to NanoBot workers using signed requests. Per-caller policy enforced at the relay — no shared tokens needed.",
+  },
+  {
+    tag: "Any platform",
+    title: "Replace webhook tokens",
+    description: "Drop the Clawdentity connector sidecar in front of any agent endpoint. Signed per-agent identity replaces every shared webhook secret immediately.",
+  },
+  {
+    tag: "Agent ↔ Agent",
+    title: "Agent-to-agent trust",
+    description: "Mutual authentication before any data exchange. AIT + PoP signature on every request — timestamp, nonce, and body hash prevent replay attacks.",
+  },
+  {
+    tag: "All platforms",
+    title: "Compliance and audit trail",
+    description: "Every cross-agent message is signed and traceable to a specific agent and owner. Body hash plus PoP signature means any modification is detectable.",
+  },
+];
+---
+
+<section class="section use-cases-section animate-on-scroll" id="use-cases">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-number">06 —</span>
+      <h2>Built for what agents actually do.</h2>
+    </div>
+
+    <div class="use-cases-grid animate-children">
+      {useCases.map((uc, index) => (
+        <div class="use-case-card stagger-child" style={`transition-delay: ${index * 80}ms`}>
+          <span class="uc-tag">{uc.tag}</span>
+          <h3>{uc.title}</h3>
+          <p>{uc.description}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .use-cases-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-md);
+  }
+
+  .use-case-card {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
+    padding: var(--space-lg);
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .use-case-card:hover {
+    border-color: var(--cl-border-3);
+    border-left-color: var(--cl-accent);
+    transform: translateY(-2px);
+  }
+
+  .uc-tag {
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-variant: small-caps;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--cl-accent-2);
+    display: inline-block;
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--cl-border-2);
+    padding: 0.2rem 0.5rem;
+    border-radius: 2px;
+  }
+
+  .use-case-card h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    color: var(--cl-text);
+    margin-bottom: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .use-case-card p {
+    color: var(--cl-text-2);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 640px) {
+    .use-cases-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

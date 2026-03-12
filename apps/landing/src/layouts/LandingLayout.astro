@@ -1,0 +1,145 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "Clawdentity — Verified Identity for AI Agents",
+  description = "Cryptographic identity, proof-of-possession, and instant revocation for AI agent-to-agent communication. Open source, privacy-first.",
+} = Astro.props;
+
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={new URL("/og-image.png", Astro.site)} />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={new URL("/og-image.png", Astro.site)} />
+
+    <!-- Fonts: Instrument Serif + DM Sans + JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <slot />
+
+    <!-- Theme toggle logic -->
+    <script>
+      (function() {
+        const stored = localStorage.getItem('cl-theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = stored ?? (prefersDark ? 'dark' : 'light');
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+
+    <!-- Scroll animation observer -->
+    <script>
+      (function() {
+        const observerOptions = {
+          threshold: 0.08,
+          rootMargin: "0px 0px -40px 0px"
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('animate');
+
+              const staggerChildren = entry.target.querySelectorAll('.stagger-child');
+              staggerChildren.forEach((child, index) => {
+                setTimeout(() => {
+                  child.classList.add('animate');
+                }, index * 60);
+              });
+
+              // SVG draw-on animation
+              const svgLines = entry.target.querySelectorAll('.svg-draw');
+              svgLines.forEach((line) => {
+                line.classList.add('drawn');
+              });
+
+              observer.unobserve(entry.target);
+            }
+          });
+        }, observerOptions);
+
+        document.querySelectorAll('.animate-on-scroll').forEach((el) => {
+          observer.observe(el);
+        });
+
+        document.querySelectorAll('.animate-children').forEach((el) => {
+          observer.observe(el);
+        });
+      })();
+    </script>
+
+    <!-- Smooth scroll for anchor links -->
+    <script>
+      document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function(e) {
+          const el = e.currentTarget as HTMLAnchorElement;
+          const href = el.getAttribute('href');
+          if (href && href !== '#') {
+            e.preventDefault();
+            const target = document.querySelector(href);
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  .stagger-child {
+    opacity: 0;
+    transform: translateY(16px);
+    transition:
+      opacity 0.5s cubic-bezier(0.25, 0, 0, 1),
+      transform 0.5s cubic-bezier(0.25, 0, 0, 1);
+  }
+
+  .stagger-child.animate {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .animate-children .stagger-child:nth-child(1) { transition-delay: 0ms; }
+  .animate-children .stagger-child:nth-child(2) { transition-delay: 60ms; }
+  .animate-children .stagger-child:nth-child(3) { transition-delay: 120ms; }
+  .animate-children .stagger-child:nth-child(4) { transition-delay: 180ms; }
+  .animate-children .stagger-child:nth-child(5) { transition-delay: 240ms; }
+  .animate-children .stagger-child:nth-child(6) { transition-delay: 300ms; }
+  .animate-children .stagger-child:nth-child(7) { transition-delay: 360ms; }
+  .animate-children .stagger-child:nth-child(8) { transition-delay: 420ms; }
+</style>

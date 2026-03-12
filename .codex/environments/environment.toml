@@ -1,0 +1,39 @@
+[setup_scripts]
+default_script = "bash ./scripts/env/sync-worktree-env.sh"
+default_script_macos = "bash ./scripts/env/sync-worktree-env.sh"
+default_script_windows = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"bash ./scripts/env/sync-worktree-env.sh\""
+
+[[actions]]
+name = "Sync Env"
+icon = "gear"
+script = "pnpm env:sync"
+script_macos = "pnpm env:sync"
+script_windows = "pnpm env:sync"
+
+[[actions]]
+name = "Registry Local"
+icon = "play"
+script = "pnpm dev:registry:local"
+script_macos = "pnpm dev:registry:local"
+script_windows = "pnpm dev:registry:local"
+
+[[actions]]
+name = "Proxy Local"
+icon = "play"
+script = "pnpm dev:proxy:local"
+script_macos = "pnpm dev:proxy:local"
+script_windows = "pnpm dev:proxy:local"
+
+[[actions]]
+name = "Typecheck"
+icon = "check"
+script = "pnpm -r typecheck"
+script_macos = "pnpm -r typecheck"
+script_windows = "pnpm -r typecheck"
+
+[[actions]]
+name = "Tests"
+icon = "check"
+script = "pnpm -r test"
+script_macos = "pnpm -r test"
+script_windows = "pnpm -r test"

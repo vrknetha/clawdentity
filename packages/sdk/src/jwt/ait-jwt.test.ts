@@ -1,0 +1,200 @@
+import {
+  type AitClaims,
+  encodeBase64url,
+  generateUlid,
+  makeAgentDid,
+  makeHumanDid,
+} from "@clawdentity/protocol";
+import { describe, expect, it } from "vitest";
+import { generateEd25519Keypair } from "../crypto/ed25519.js";
+import { decodeAIT, signAIT, verifyAIT } from "./ait-jwt.js";
+
+function makeClaims(overrides: Partial<AitClaims> = {}): AitClaims {
+  const agentUlid = generateUlid(1700100000000);
+  const ownerUlid = generateUlid(1700100001000);
+  const now = Math.floor(Date.now() / 1000);
+  const authority = "registry.clawdentity.dev";
+
+  return {
+    iss: `https://${authority}`,
+    sub: makeAgentDid(authority, agentUlid),
+    ownerDid: makeHumanDid(authority, ownerUlid),
+    name: "agent-jwt-01",
+    framework: "openclaw",
+    description: "AIT JWT test payload",
+    cnf: {
+      jwk: {
+        kty: "OKP",
+        crv: "Ed25519",
+        x: encodeBase64url(
+          Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+        ),
+      },
+    },
+    iat: now,
+    nbf: now - 5,
+    exp: now + 3600,
+    jti: generateUlid(1700100002000),
+    ...overrides,
+  };
+}
+
+describe("AIT JWT helpers", () => {
+  it("signs and verifies an AIT with matching registry key + kid", async () => {
+    const keypair = await generateEd25519Keypair();
+    const claims = makeClaims();
+    const token = await signAIT({
+      claims,
+      signerKid: "reg-key-1",
+      signerKeypair: keypair,
+    });
+
+    const verified = await verifyAIT({
+      token,
+      registryKeys: [
+        {
+          kid: "reg-key-1",
+          jwk: {
+            kty: "OKP",
+            crv: "Ed25519",
+            x: encodeBase64url(keypair.publicKey),
+          },
+        },
+      ],
+      expectedIssuer: claims.iss,
+    });
+
+    expect(verified).toEqual(claims);
+  });
+
+  it("fails verification when issuer does not match expected issuer", async () => {
+    const keypair = await generateEd25519Keypair();
+    const claims = makeClaims();
+    const token = await signAIT({
+      claims,
+      signerKid: "reg-key-1",
+      signerKeypair: keypair,
+    });
+
+    await expect(
+      verifyAIT({
+        token,
+        registryKeys: [
+          {
+            kid: "reg-key-1",
+            jwk: {
+              kty: "OKP",
+              crv: "Ed25519",
+              x: encodeBase64url(keypair.publicKey),
+            },
+          },
+        ],
+        expectedIssuer: "https://wrong-issuer.example",
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("fails verification when token kid cannot be found in registry key set", async () => {
+    const keypair = await generateEd25519Keypair();
+    const claims = makeClaims();
+    const token = await signAIT({
+      claims,
+      signerKid: "reg-key-1",
+      signerKeypair: keypair,
+    });
+
+    await expect(
+      verifyAIT({
+        token,
+        registryKeys: [
+          {
+            kid: "reg-key-2",
+            jwk: {
+              kty: "OKP",
+              crv: "Ed25519",
+              x: encodeBase64url(keypair.publicKey),
+            },
+          },
+        ],
+      }),
+    ).rejects.toThrow(/kid/i);
+  });
+
+  function replaceProtectedHeader(
+    token: string,
+    header: Record<string, unknown>,
+  ): string {
+    const [_, payload, signature] = token.split(".");
+    if (!payload || !signature) {
+      throw new Error("malformed token");
+    }
+    const encodedHeader = encodeBase64url(
+      new TextEncoder().encode(JSON.stringify(header)),
+    );
+    return `${encodedHeader}.${payload}.${signature}`;
+  }
+
+  describe("decodeAIT", () => {
+    async function makeSignedToken(): Promise<{
+      token: string;
+      claims: AitClaims;
+    }> {
+      const keypair = await generateEd25519Keypair();
+      const claims = makeClaims();
+      const token = await signAIT({
+        claims,
+        signerKid: "reg-key-1",
+        signerKeypair: keypair,
+      });
+      return { token, claims };
+    }
+
+    it("returns header + claims without verifying signature", async () => {
+      const { token, claims } = await makeSignedToken();
+      const decoded = decodeAIT(token);
+
+      expect(decoded.header).toEqual({
+        alg: "EdDSA",
+        typ: "AIT",
+        kid: "reg-key-1",
+      });
+      expect(decoded.claims).toEqual(claims);
+    });
+
+    it("rejects tokens with the wrong alg header", async () => {
+      const { token } = await makeSignedToken();
+      const badToken = replaceProtectedHeader(token, {
+        alg: "HS256",
+        typ: "AIT",
+        kid: "reg-key-1",
+      });
+
+      expect(() => decodeAIT(badToken)).toThrow(/alg=EdDSA/);
+    });
+
+    it("rejects tokens with the wrong typ header", async () => {
+      const { token } = await makeSignedToken();
+      const badToken = replaceProtectedHeader(token, {
+        alg: "EdDSA",
+        typ: "JWT",
+        kid: "reg-key-1",
+      });
+
+      expect(() => decodeAIT(badToken)).toThrow(/typ=AIT/);
+    });
+
+    it("requires a kid in the protected header", async () => {
+      const { token } = await makeSignedToken();
+      const badToken = replaceProtectedHeader(token, {
+        alg: "EdDSA",
+        typ: "AIT",
+      });
+
+      expect(() => decodeAIT(badToken)).toThrow(/missing protected kid header/);
+    });
+
+    it("throws for malformed JWT strings", () => {
+      expect(() => decodeAIT("not-a-jwt")).toThrow();
+    });
+  });
+});

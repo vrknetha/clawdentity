@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 300" fill="none">
+  <!-- Option D Full: Lock Claw - Dark mode variant -->
+  
+  <g transform="translate(40, 20) scale(0.51)">
+    <path d="M168 280 L168 180 Q168 100 220 80 Q245 72 256 72" 
+          fill="none" stroke="#DD3333" stroke-width="28" stroke-linecap="round"/>
+    <path d="M344 280 L344 180 Q344 100 292 80 Q267 72 256 72" 
+          fill="none" stroke="#DD3333" stroke-width="28" stroke-linecap="round"/>
+    <path d="M148 270 Q135 250 138 230 Q142 215 155 210 Q168 205 178 218 L185 232
+             Q175 240 170 250 L168 265Z" 
+          fill="#EE4444" stroke="#CC2222" stroke-width="3"/>
+    <path d="M364 270 Q377 250 374 230 Q370 215 357 210 Q344 205 334 218 L327 232
+             Q337 240 342 250 L344 265Z" 
+          fill="#EE4444" stroke="#CC2222" stroke-width="3"/>
+    <rect x="140" y="275" width="232" height="170" rx="24" 
+          fill="#DD3333" stroke="#CC2222" stroke-width="4"/>
+    <rect x="156" y="291" width="200" height="138" rx="16" 
+          fill="none" stroke="#EE4444" stroke-width="2" opacity="0.3"/>
+    <rect x="140" y="275" width="232" height="85" rx="24" 
+          fill="white" opacity="0.1"/>
+    <circle cx="256" cy="345" r="22" fill="#220000" opacity="0.6"/>
+    <circle cx="256" cy="345" r="15" fill="#110000" opacity="0.5"/>
+    <path d="M256 358 L248 395 Q248 402 256 402 Q264 402 264 395 L256 358Z" 
+          fill="#220000" opacity="0.6"/>
+    <path d="M190 180 Q192 140 220 115" fill="none" stroke="#EE4444" stroke-width="2" opacity="0.3"/>
+    <path d="M322 180 Q320 140 292 115" fill="none" stroke="#EE4444" stroke-width="2" opacity="0.3"/>
+    <circle cx="155" cy="225" r="4" fill="white" opacity="0.25"/>
+    <circle cx="357" cy="225" r="4" fill="white" opacity="0.25"/>
+  </g>
+
+  <text x="320" y="165" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" 
+        font-size="62" font-weight="700" letter-spacing="-1">
+    <tspan fill="#DD3333">claw</tspan><tspan fill="#cccccc">dentity</tspan>
+  </text>
+  <text x="322" y="200" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" 
+        font-size="18" font-weight="400" fill="#777777" letter-spacing="3">
+    VERIFIED AGENT IDENTITY
+  </text>
+</svg>

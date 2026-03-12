@@ -1,0 +1,164 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { Logger } from "@clawdentity/sdk";
+import { DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS } from "../constants.js";
+import { OPENCLAW_RELAY_RUNTIME_FILE_NAME } from "./constants.js";
+import { LocalOpenclawDeliveryError, sanitizeErrorReason } from "./errors.js";
+import { isRecord } from "./parse.js";
+
+export async function waitWithAbort(input: {
+  delayMs: number;
+  signal: AbortSignal;
+}): Promise<void> {
+  if (input.signal.aborted) {
+    throw new LocalOpenclawDeliveryError({
+      code: "RUNTIME_STOPPING",
+      message: "Connector runtime is stopping",
+      retryable: false,
+    });
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const timeoutHandle = setTimeout(() => {
+      input.signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, input.delayMs);
+
+    const onAbort = () => {
+      clearTimeout(timeoutHandle);
+      input.signal.removeEventListener("abort", onAbort);
+      reject(
+        new LocalOpenclawDeliveryError({
+          code: "RUNTIME_STOPPING",
+          message: "Connector runtime is stopping",
+          retryable: false,
+        }),
+      );
+    };
+
+    input.signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function readOpenclawHookTokenFromRelayRuntimeConfig(input: {
+  configDir: string;
+  logger: Logger;
+}): Promise<string | undefined> {
+  const runtimeConfigPath = join(
+    input.configDir,
+    OPENCLAW_RELAY_RUNTIME_FILE_NAME,
+  );
+  let raw: string;
+  try {
+    raw = await readFile(runtimeConfigPath, "utf8");
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: string }).code === "ENOENT"
+    ) {
+      return undefined;
+    }
+
+    input.logger.warn("connector.runtime.openclaw_relay_config_read_failed", {
+      runtimeConfigPath,
+      reason: sanitizeErrorReason(error),
+    });
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    input.logger.warn("connector.runtime.openclaw_relay_config_invalid_json", {
+      runtimeConfigPath,
+    });
+    return undefined;
+  }
+
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+
+  const tokenValue = parsed.openclawHookToken;
+  if (typeof tokenValue !== "string") {
+    return undefined;
+  }
+
+  const trimmed = tokenValue.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export async function deliverToOpenclawHook(input: {
+  fetchImpl: typeof fetch;
+  fromAgentDid: string;
+  openclawHookToken?: string;
+  openclawHookUrl: string;
+  payload: unknown;
+  requestId: string;
+  shutdownSignal: AbortSignal;
+  toAgentDid: string;
+}): Promise<void> {
+  const timeoutSignal = AbortSignal.timeout(
+    DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
+  );
+  const signal = AbortSignal.any([input.shutdownSignal, timeoutSignal]);
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-clawdentity-agent-did": input.fromAgentDid,
+    "x-clawdentity-to-agent-did": input.toAgentDid,
+    "x-clawdentity-verified": "true",
+    "x-request-id": input.requestId,
+  };
+  if (input.openclawHookToken !== undefined) {
+    headers["x-openclaw-token"] = input.openclawHookToken;
+  }
+
+  try {
+    const response = await input.fetchImpl(input.openclawHookUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input.payload),
+      signal,
+    });
+    if (!response.ok) {
+      throw new LocalOpenclawDeliveryError({
+        message: `Local OpenClaw hook rejected payload with status ${response.status}`,
+        retryable:
+          response.status === 401 ||
+          response.status === 403 ||
+          response.status >= 500 ||
+          response.status === 404 ||
+          response.status === 429,
+        code:
+          response.status === 401 || response.status === 403
+            ? "HOOK_AUTH_REJECTED"
+            : undefined,
+      });
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      if (input.shutdownSignal.aborted) {
+        throw new LocalOpenclawDeliveryError({
+          code: "RUNTIME_STOPPING",
+          message: "Connector runtime is stopping",
+          retryable: false,
+        });
+      }
+      throw new LocalOpenclawDeliveryError({
+        message: "Local OpenClaw hook request timed out",
+        retryable: true,
+      });
+    }
+    if (error instanceof LocalOpenclawDeliveryError) {
+      throw error;
+    }
+    throw new LocalOpenclawDeliveryError({
+      message: sanitizeErrorReason(error),
+      retryable: true,
+    });
+  }
+}

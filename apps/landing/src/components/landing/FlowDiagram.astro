@@ -1,0 +1,185 @@
+---
+// FlowDiagram — Pure SVG, 6 nodes horizontal chain
+// Colors: var(--cl-text-2) lines, var(--cl-surface-2) fills, var(--cl-accent) relay highlight
+---
+
+<div class="flow-diagram-wrap" aria-label="Message flow: OpenClaw through relay to NanoClaw">
+  <svg
+    class="flow-svg"
+    viewBox="0 0 860 120"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <!-- Node 1: OpenClaw -->
+    <rect x="2" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="62" y="56" text-anchor="middle"
+      font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
+      fill="var(--cl-text)">OpenClaw</text>
+    <text x="62" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="62" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:9400</text>
+
+    <!-- Arrow 1 -->
+    <path class="flow-path svg-draw svg-draw-1"
+      d="M 122 60 L 150 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="30" stroke-dashoffset="30"/>
+    <polygon class="flow-arrow flow-arrow-1" points="147,57 155,60 147,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+
+    <!-- Node 2: Connector -->
+    <rect x="152" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="212" y="56" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500"
+      fill="var(--cl-text)">Connector</text>
+    <text x="212" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="212" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:19400</text>
+
+    <!-- Arrow 2: WebSocket label -->
+    <path class="flow-path svg-draw svg-draw-2"
+      d="M 272 60 L 320 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="50" stroke-dashoffset="50"/>
+    <polygon class="flow-arrow flow-arrow-2" points="317,57 325,60 317,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+    <text x="296" y="54" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="6.5"
+      fill="var(--cl-text-3)">WS + signed</text>
+
+    <!-- Node 3: Relay Proxy (copper accent) -->
+    <rect x="322" y="20" width="140" height="80" rx="2" ry="2"
+      fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1.5"/>
+    <text x="392" y="44" text-anchor="middle"
+      font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
+      fill="var(--cl-accent)">Relay Proxy</text>
+    <line x1="322" y1="50" x2="462" y2="50" stroke="var(--cl-border-2)" stroke-width="0.5"/>
+    <text x="392" y="64" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-text-3)">verify AIT</text>
+    <text x="392" y="75" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-text-3)">check CRL</text>
+    <text x="392" y="86" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-text-3)">trust pair</text>
+
+    <!-- Arrow 3 -->
+    <path class="flow-path svg-draw svg-draw-3"
+      d="M 462 60 L 510 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="50" stroke-dashoffset="50"/>
+    <polygon class="flow-arrow flow-arrow-3" points="507,57 515,60 507,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+    <text x="486" y="54" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="6.5"
+      fill="var(--cl-text-3)">WS deliver</text>
+
+    <!-- Node 4: Remote Connector -->
+    <rect x="512" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="572" y="56" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="9" font-weight="500"
+      fill="var(--cl-text)">Connector</text>
+    <text x="572" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="572" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:19400</text>
+
+    <!-- Arrow 4 -->
+    <path class="flow-path svg-draw svg-draw-4"
+      d="M 632 60 L 660 60"
+      stroke="var(--cl-text-3)" stroke-width="1"
+      stroke-dasharray="30" stroke-dashoffset="30"/>
+    <polygon class="flow-arrow flow-arrow-4" points="657,57 665,60 657,63"
+      fill="var(--cl-text-3)" opacity="0"/>
+    <text x="646" y="54" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="6.5"
+      fill="var(--cl-text-3)">webhook</text>
+
+    <!-- Node 5: NanoClaw -->
+    <rect x="662" y="30" width="120" height="60" rx="2" ry="2"
+      fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
+    <text x="722" y="56" text-anchor="middle"
+      font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
+      fill="var(--cl-text)">NanoClaw</text>
+    <text x="722" y="70" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">localhost</text>
+    <text x="722" y="82" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7.5"
+      fill="var(--cl-text-3)">:9400</text>
+
+    <!-- Trusted delivery label at bottom — centered on content (x=2 to x=782, center=392) -->
+    <text x="392" y="112" text-anchor="middle"
+      font-family="'JetBrains Mono', monospace" font-size="7"
+      fill="var(--cl-accent-2)" letter-spacing="0.5">CRYPTOGRAPHICALLY VERIFIED DELIVERY</text>
+  </svg>
+</div>
+
+<script>
+  // Draw-on when parent section enters viewport
+  // The parent section already triggers 'animate' class via LandingLayout observer.
+  // We listen for that and then draw our lines.
+  const wrap = document.querySelector('.flow-diagram-wrap');
+  if (wrap) {
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const paths = wrap.querySelectorAll('.flow-path');
+          const arrows = wrap.querySelectorAll('.flow-arrow');
+          paths.forEach((p, i) => {
+            setTimeout(() => {
+              (p as SVGElement).style.transition = 'stroke-dashoffset 0.6s cubic-bezier(0.25, 0, 0, 1)';
+              (p as SVGElement).style.strokeDashoffset = '0';
+            }, i * 180);
+          });
+          arrows.forEach((a, i) => {
+            setTimeout(() => {
+              (a as SVGElement).style.transition = 'opacity 0.3s ease';
+              (a as SVGElement).style.opacity = '0.6';
+            }, i * 180 + 400);
+          });
+          obs.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.3 });
+    obs.observe(wrap);
+  }
+</script>
+
+<style>
+  .flow-diagram-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .flow-svg {
+    width: 100%;
+    min-width: 600px;
+    height: auto;
+    display: block;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flow-path {
+      stroke-dashoffset: 0 !important;
+      transition: none !important;
+    }
+    .flow-arrow {
+      opacity: 0.6 !important;
+      transition: none !important;
+    }
+  }
+</style>

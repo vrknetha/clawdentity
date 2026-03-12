@@ -1,87 +1,102 @@
-# AGENTS.md (repository root)
+# AGENTS.md
 
-## Purpose
-- Define repository-wide engineering and documentation guardrails for Clawdentity.
-- Keep product docs, issue specs, and execution order in sync.
+## 1) Project Overview
+Clawdentity is a mixed TypeScript + Rust monorepo that provides cryptographic identity and trusted relay infrastructure for agent-to-agent communication. The deployable surface is in `apps/` (registry, proxy, CLI packaging, OpenClaw skill), shared contracts/runtime libraries are in `packages/`, and Rust runtime + CLI implementation is in `crates/`. Design and delivery must assume operators may run Clawdentity in local or constrained/offline environments, with OpenClaw integration as a first-class workflow.
 
-## Core Rules
-- Ship maintainable, non-duplicative changes.
-- Prefer small, testable increments tied to explicit issue IDs.
-- If a simplification/refactor is obvious, include it in the plan and ticket notes.
+## 2) Build Commands
 
-## Deployment-First Execution
-- Enforce `T00 -> T37 -> T38` before feature implementation.
-- Feature tickets `T01`-`T36` must not proceed until `T38` is complete.
-- Source of truth for sequencing: `issues/EXECUTION_PLAN.md`.
+### TypeScript (apps + packages)
+Run from repository root:
+- `pnpm install`
+- `pnpm build`
+- `pnpm test`
 
-## Issue Governance
-- Ticket schema and quality rules are maintained in `issues/AGENTS.md`.
-- Any dependency/wave changes must update both affected `T*.md` files and `issues/EXECUTION_PLAN.md` in the same change.
+## DID Format Guidance
+- Keep all DID construction/parsing inside `packages/protocol/src/did.ts` so the switch to `did:cdi` stays centralized and tests update automatically.
+- Trust slices (AIT, CRL, registry ownership, proxy pairings, connectors) should call shared helpers (e.g., `parseDid`, `validateAgentDid`) instead of copying brittle string-prefix checks; this keeps role expectations tied to context when DID semantics depend on parsed entity and authority fields.
+- When new DID authorities appear (registry-owned vs self-hosted), track their identifiers in configuration and rely on parsed `authority` metadata for routing/trust checks rather than scattering hardcoded strings.
 
-## Documentation Sync
-- `README.md` must reflect current execution model and links to issue governance.
-- `PRD.md` must reflect current rollout order, deployment gating, and verification strategy.
-- If backlog shape changes (`Txx` additions/removals), update README + PRD + execution plan together.
+## Execution Governance
+- GitHub issues are the source of truth for sequencing, blockers, and rollout updates.
+- Primary execution tracker: https://github.com/vrknetha/clawdentity/issues/74.
+- Do not use local execution-order files as governance source.
 
-## Validation Baseline
-- Run and pass: `pnpm lint`, `pnpm -r typecheck`, `pnpm -r test`, `pnpm -r build` for implementation changes.
-- Lint runs at root (`pnpm lint` via `biome check .`), not per-package.
-- For planning/doc changes, run dependency/order consistency checks in `issues/EXECUTION_PLAN.md`.
+Common quality checks:
+- `pnpm lint`
+- `pnpm -r typecheck`
+- `pnpm check:file-size`
 
-## Cloudflare Worker & Wrangler Conventions
-- Registry is a **Hono** app deployed as a Cloudflare Worker. Wrangler handles bundling — tsup is only for type generation and local build validation.
-- **Environment separation** via wrangler environments in `apps/registry/wrangler.jsonc`:
-  - `--env dev` for development (Worker: `clawdentity-registry-dev`, D1: `clawdentity-db-dev`)
-  - `--env production` for production (Worker: `clawdentity-registry`, D1: `clawdentity-db`)
-- **Local dev** uses `wrangler dev --env dev` with local SQLite. Override vars via `apps/registry/.dev.vars` (gitignored).
-- **One-touch deploy** scripts in `apps/registry/package.json`:
-  - `deploy:dev` — migrates remote dev D1 + deploys dev Worker
-  - `deploy:production` — migrates remote prod D1 + deploys prod Worker
-- **Secrets** are set via `wrangler secret put <NAME> --env <env>`, never committed.
-- `.dev.vars` is for local development overrides only. It is gitignored.
+### Rust (crates workspace)
+Run from `crates/`:
+- `cargo check`
+- `cargo clippy --all-targets`
+- `cargo test`
+- `cargo build`
 
-## Database & Migrations
-- ORM: **Drizzle** with SQLite dialect targeting Cloudflare D1.
-- Schema source of truth: `apps/registry/src/db/schema.ts`.
-- Generate migrations: `pnpm -F @clawdentity/registry run db:generate` (outputs to `apps/registry/drizzle/`).
-- Apply locally: `pnpm -F @clawdentity/registry run db:migrate:local`.
-- Drizzle meta files (`drizzle/meta/`) are excluded from Biome via `biome.json`.
-- Wrangler reads migrations from the `drizzle/` directory (`migrations_dir = "drizzle"` in wrangler.jsonc).
-- HLD Section 5 defines the canonical schema: humans, agents, revocations, api_keys, invites.
+## 3) Module Map
 
-## Biome Configuration
-- `biome.json` at repo root covers all `packages/**` and `apps/**`.
-- Excluded from Biome: `**/dist`, `**/drizzle/meta`, `**/.wrangler`.
-- Generated files from tools (drizzle-kit, wrangler) should be excluded rather than reformatted.
+### Apps (deployable services)
+- `apps/registry` - Cloudflare Worker HTTP API for humans, agents, invites, API keys, and revocation data.
+- `apps/proxy` - Cloudflare Worker relay/proxy that verifies Clawdentity auth headers and enforces trust policy.
+- `apps/cli` - TypeScript CLI compatibility package (`clawdentity`); Rust CLI is the canonical operator surface.
+- `apps/openclaw-skill` - OpenClaw skill package and relay transform artifacts used by CLI install flow.
 
-## CI Pipeline
-- `.github/workflows/ci.yml` runs on push and pull_request.
-- Steps: `pnpm install --frozen-lockfile` -> set `NX_BASE`/`NX_HEAD` -> `pnpm lint` -> `pnpm affected:ci`.
-- CI must run `actions/checkout` with `fetch-depth: 0` so `nx affected` can resolve the commit graph.
-- `pnpm affected:ci` must include `lint`, `format`, `typecheck`, `test`, and `build`.
+### Packages (shared libraries)
+- `packages/protocol` - Canonical protocol models and signing/verification wire-contract definitions.
+- `packages/common` - Shared utility layer (errors, helpers, validation glue, shared types).
+- `packages/connector` - TypeScript connector client/runtime primitives for relay connectivity.
+- `packages/sdk` - Developer SDK for identity operations, verification, auth flows, and integration helpers.
 
-## Local Quality Gates
-- Husky hooks are required for local checks (`prepare` installs hooks).
-- `pre-commit` runs `pnpm lint:staged` (staged-file `biome check --write --no-errors-on-unmatched --files-ignore-unknown=true` and staged-file `nx affected -t typecheck`).
-- `pre-push` runs `nx affected -t lint,format,typecheck,test --base=origin/main --head=HEAD`.
-- Keep pre-commit fast: staged-file linting only, with impacted project checks delegated to `nx affected`.
-- Workspace Node runtime is pinned in `.npmrc` via `use-node-version=22.16.0` to match `engines.node` and prevent unsupported-engine drift.
+### Rust workspace crates
+- `crates/clawdentity-core` - Core Rust library for identity, registry clients, connector/runtime, providers, pairing, and persistence.
+- `crates/clawdentity-cli` - Rust CLI binary and command surface for current operator workflows.
 
-## Testing Patterns
-- Use **Vitest** for all tests.
-- Hono apps are tested via `app.request()` (Hono's built-in test client) — no wrangler or miniflare needed for unit tests.
-- Pass mock bindings as the third argument: `app.request("/path", {}, { DB: {}, ENVIRONMENT: "test" })`.
+### Rust local test services
+- `crates/tests/local/mock-registry` - Local mock registry used for integration and harness-style flows.
+- `crates/tests/local/mock-proxy` - Local mock relay/proxy used for integration and connector testing.
 
-## T00 Scaffold Best Practices
-- Start T00 by confirming the deployment-first order (`T00 -> T37 -> T38`) and reviewing README/PRD/`issues/EXECUTION_PLAN.md` so documentation mirrors the execution model.
-- Define the workspace layout now: `apps/registry`, `apps/proxy`, `apps/cli`, `packages/sdk`, and `packages/protocol` (with shared tooling such as `pnpm-workspace.yaml`, `tsconfig.base.json`, and `biome.json`) so downstream tickets have a known structure.
-- Declare placeholder scripts for lint/test/build (e.g., `pnpm -r lint`, `pnpm -r test`, `pnpm -r build`) and identify the expected toolchain (Biome, Vitest, tsup, etc.) so future work can fill implementations without duplication.
-- Document the CI entrypoints (GitHub Actions or another pipeline) that will run the above scripts, so deployment scaffolding (T37/T38) can wire the baseline checks without guessing what belongs in T00.
+## 4) CLI Commands
 
-## T37/T38 Deployment Scaffold Best Practices
-- Always separate dev and production via wrangler environments — never use a single top-level D1 binding.
-- Keep `wrangler.jsonc` database IDs in version control (they are not secrets). Secrets go via `wrangler secret put`.
-- Deploy scripts should always run migrations before deploy (`db:migrate:remote && wrangler deploy`) for atomic one-touch deploys.
-- The `/health` endpoint is the baseline verification target. It returns `{ status, version, environment }`.
-- When adding generated files (drizzle migrations, wrangler temp), immediately exclude them from Biome in `biome.json`.
-- `tsconfig.json` for Workers must include `"types": ["@cloudflare/workers-types"]` and `"lib": ["esnext"]` to get D1Database and other Worker globals.
+### TypeScript CLI (`apps/cli`)
+- Build/package: `pnpm -F clawdentity build`
+- Treat command docs here as compatibility guidance, not canonical runtime surface.
+
+### Rust CLI (`crates/clawdentity-cli`)
+- Help: `cargo run -p clawdentity-cli -- --help`
+- Common ops: `cargo run -p clawdentity-cli -- init`, `register`, `whoami`, `agent create <name>`, `agent auth revoke <name>`, `provider setup --for <platform> --agent-name <name>`, `provider doctor --for <platform>`, `connector start <agent>`
+
+## 5) Deeper Docs
+Use `docs/` as system of record:
+- `docs/ARCHITECTURE.md` - end-to-end architecture across apps, packages, crates, and trust flows.
+- `docs/MONOREPO.md` - workspace structure, dependency/build ordering, and cross-ecosystem testing strategy.
+- `docs/DESIGN_DECISIONS.md` - architectural choices and tradeoffs.
+- `docs/GOLDEN_PRINCIPLES.md` - non-negotiable quality constraints.
+- `docs/HARNESS_ACTION_PLAN.md` - staged execution and quality-enforcement plan.
+
+## 6) Quality Rules
+- Follow `docs/GOLDEN_PRINCIPLES.md` for code and documentation changes.
+- Keep modules small, testable, and dependency direction explicit.
+- Favor actionable errors and stable machine-readable outputs.
+- Run relevant TypeScript and Rust checks before commit (`pnpm build` and `cargo check` are baseline gates).
+- Keep docs synchronized with implementation changes, especially when changing CLI flows or skill behavior.
+- Keep user onboarding docs prompt-first (`/skill.md` canonical); treat command-by-command and Rust toolchain flows as advanced fallback guidance only.
+
+## 7) Release Automation
+- Keep Rust release automation in `.github/workflows/publish-rust.yml` as the single canonical path for version bump + crates.io publish + tag creation + binary release.
+- Rust crate publish flow must derive the next version from crates metadata via `cargo info`, avoid direct crates.io API endpoint calls, verify the new `rust/vX.Y.Z` tag does not yet exist, and keep `clawdentity-core` / `clawdentity-cli` versions aligned.
+- Rust crate publish order is strict: publish `clawdentity-core` before `clawdentity-cli`.
+- Rust binary builds must use the same `rust/vX.Y.Z` tag created by the crate publish flow.
+- Rust binary releases must publish cross-platform assets for Windows x64, Linux x64/aarch64, and macOS x64/aarch64.
+- Keep release asset names stable:
+  - `clawdentity-<version>-linux-x86_64.tar.gz`
+  - `clawdentity-<version>-linux-aarch64.tar.gz`
+  - `clawdentity-<version>-macos-x86_64.tar.gz`
+  - `clawdentity-<version>-macos-aarch64.tar.gz`
+  - `clawdentity-<version>-windows-x86_64.zip`
+  - `clawdentity-<version>-windows-aarch64.zip`
+  - `clawdentity-<version>-checksums.txt`
+- Binary naming contract for release artifacts:
+  - Unix binary is `clawdentity`
+  - Windows binary is `clawdentity.exe`
+- `irm`/PowerShell is a download/install path only; do not treat it as a runtime binary format.
+- Every release run must publish SHA256 checksums for all archives.

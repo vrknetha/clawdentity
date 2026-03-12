@@ -1,0 +1,121 @@
+---
+import FlowDiagram from "./FlowDiagram.astro";
+
+const concepts = [
+  {
+    acronym: "AIT",
+    title: "Agent Identity Token",
+    description: "A registry-signed passport (JWT / EdDSA) that uniquely identifies each agent across all platforms.",
+  },
+  {
+    acronym: "PoP",
+    title: "Proof-of-Possession",
+    description: "Every request signed with the agent's private key — never shared, never leaves the machine.",
+  },
+  {
+    acronym: "CRL",
+    title: "Certificate Revocation List",
+    description: "A signed feed that proxies cache and refresh. Revoke a single agent in seconds, everywhere.",
+  },
+];
+---
+
+<section class="section the-fix-section animate-on-scroll" id="the-fix">
+  <div class="container">
+    <div class="section-header">
+      <span class="section-number">02 —</span>
+      <h2>The fix: a secure sidecar for every agent.</h2>
+      <p>
+        <em>A lightweight connector runs alongside each agent. Agents stay private on localhost. The relay verifies every request before delivery.</em>
+      </p>
+    </div>
+
+    <div class="concept-row animate-children">
+      {concepts.map((c) => (
+        <div class="concept-block stagger-child">
+          <span class="concept-acronym">{c.acronym}</span>
+          <h3 class="concept-title">{c.title}</h3>
+          <p class="concept-desc">{c.desc || c.description}</p>
+        </div>
+      ))}
+    </div>
+
+    <div class="flow-wrapper">
+      <FlowDiagram />
+    </div>
+  </div>
+</section>
+
+<style>
+  .concept-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-md);
+    margin-bottom: var(--space-2xl);
+  }
+
+  .concept-block {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-left: 2px solid var(--cl-accent);
+    border-radius: 4px;
+    padding: var(--space-lg);
+    transition:
+      border-color 0.2s ease,
+      transform 0.2s ease;
+  }
+
+  .concept-block:hover {
+    border-color: var(--cl-border-3);
+    border-left-color: var(--cl-accent);
+    transform: translateY(-2px);
+  }
+
+  .concept-acronym {
+    font-family: var(--font-mono);
+    font-size: 1.75rem;
+    font-weight: 500;
+    color: var(--cl-accent);
+    display: block;
+    margin-bottom: 0.625rem;
+    letter-spacing: -0.01em;
+  }
+
+  .concept-title {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--cl-text);
+    margin-bottom: 0.5rem;
+  }
+
+  .concept-desc {
+    font-size: 0.9375rem;
+    color: var(--cl-text-2);
+    line-height: 1.7;
+  }
+
+  .flow-wrapper {
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border-2);
+    border-radius: 4px;
+    padding: var(--space-xl);
+    overflow: hidden;
+  }
+
+  @media (max-width: 768px) {
+    .concept-row {
+      grid-template-columns: 1fr;
+    }
+
+    .flow-wrapper {
+      padding: var(--space-md);
+    }
+  }
+
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .concept-row {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

@@ -1,0 +1,9 @@
+export const CONNECTOR_AGENT_DID_HEADER = "x-claw-connector-agent-did";
+export const RELAY_RPC_DELIVER_PATH = "/rpc/deliver-to-connector";
+export const RELAY_RPC_GET_RECEIPT_PATH = "/rpc/get-delivery-receipt";
+export const RELAY_RPC_RECORD_RECEIPT_PATH = "/rpc/record-delivery-receipt";
+export const RELAY_HEARTBEAT_INTERVAL_MS = 30_000;
+export const RELAY_HEARTBEAT_ACK_TIMEOUT_MS = 60_000;
+export const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
+export const RELAY_SOCKET_SUPERSEDED_CLOSE_CODE = 1000;
+export const RELAY_SOCKET_STALE_CLOSE_CODE = 1011;

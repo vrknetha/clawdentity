@@ -1,0 +1,65 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Testing
+*.test
+*.spec
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# Local test artifacts
+tests/local/mock-registry/target/
+tests/local/mock-proxy/target/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Docs build
+docs/_build/
+site/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

@@ -1,0 +1,140 @@
+---
+title: Operator Controls
+description: Managing trust, revocation, and access control as a Clawdentity operator.
+---
+
+## CLI operator commands
+
+### Configuration
+
+```bash
+# Initialize local config file
+clawdentity config init
+
+# Set a config value (valid keys: registryUrl, proxyUrl, apiKey, humanName)
+clawdentity config set <key> <value>
+
+# Get a resolved config value
+clawdentity config get <key>
+
+# Show all resolved config values
+clawdentity config show
+```
+
+### Agent lifecycle
+
+```bash
+# Create a new agent identity (local keypair + registry registration)
+clawdentity agent create <name>
+
+# Inspect an agent's identity and token details
+clawdentity agent inspect <name>
+
+# Revoke an agent auth session (access/refresh token invalidation)
+clawdentity agent auth revoke <name>
+
+# Refresh agent auth tokens
+clawdentity agent auth refresh <name>
+```
+
+### API key management
+
+```bash
+# Create a new PAT (token shown once)
+clawdentity api-key create --name <key-name>
+
+# List PAT metadata (id, name, status, createdAt, lastUsedAt)
+clawdentity api-key list
+
+# Revoke a specific PAT
+clawdentity api-key revoke <key-id>
+```
+
+:::tip
+Rotation baseline: keep one primary key + one standby key, rotate at least every 90 days, and revoke stale keys immediately after rollout.
+:::
+
+### Invite management
+
+```bash
+# Create a registry onboarding invite (admin only)
+clawdentity invite create
+
+# Redeem an invite to create an account
+clawdentity invite redeem <code>
+```
+
+### Connector management
+
+```bash
+# Start the local relay connector runtime
+clawdentity connector start <agentName>
+
+# Install autostart service (launchd on macOS, systemd on Linux)
+clawdentity connector service install <agentName>
+
+# Remove autostart service
+clawdentity connector service uninstall <agentName>
+```
+
+### Diagnostics
+
+```bash
+# Validate provider relay setup and runtime checks
+clawdentity provider doctor --for <platform> [--peer <alias>] [--json]
+
+# Send a relay probe to a configured peer alias
+clawdentity provider relay-test --for <platform> --peer <alias> [--json]
+```
+
+### Pairing
+
+```bash
+# Start pairing (returns clwpair1_ ticket + metadata)
+POST /pair/start
+
+# Confirm pairing with ticket from initiator
+POST /pair/confirm
+
+# Check pairing status
+POST /pair/status
+```
+
+### Skill management
+
+```bash
+# Install provider artifacts for selected platform
+clawdentity install --for <platform>
+```
+
+## Trust model
+
+### Sender side (agent owner/admin)
+
+- **Global revocation** via registry API (`DELETE /v1/agents/:id`)
+- Scope: registry-level — every receiving proxy rejects the revoked token once CRL refreshes
+- Use when: key compromise, decommissioning, or ownership suspension
+
+### Receiver side (gateway owner)
+
+- **Local blocking** by removing a trust pair from the proxy trust store
+- Scope: that specific gateway/proxy only
+- Use when: policy mismatch, abuse from a specific caller, temporary trust removal
+
+### Incident response
+
+1. Receiver blocks caller locally for immediate containment
+2. Sender owner/admin performs registry revoke for ecosystem-wide invalidation
+3. Proxies return `401` for revoked identity, `403` for valid but not in a confirmed trust pair
+
+## Command idempotency
+
+| Command | Idempotent? | Note |
+|---------|-------------|------|
+| `config init` | Yes | Safe to re-run |
+| `invite redeem` | **No** | One-time; invite consumed on success |
+| `agent create` | No | Fails if agent directory exists |
+| `agent auth revoke` | Yes | Safe to repeat; session remains revoked |
+| `provider setup --for <platform>` | Usually yes | Primary reconciliation re-entry point |
+| `install --for <platform>` | Yes | Reports: installed/updated/unchanged |
+| `connector service install` | Yes | Idempotent |
