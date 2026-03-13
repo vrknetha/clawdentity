@@ -35,7 +35,7 @@ const rustTransform = join(
   "clawdentity-core",
   "assets",
   "openclaw-skill",
-  "dist",
+  "transform",
   "relay-to-peer.mjs",
 );
 

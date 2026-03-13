@@ -28,7 +28,8 @@ const REFERENCE_PROTOCOL: &str =
     include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-protocol.md");
 const REFERENCE_REGISTRY: &str =
     include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-registry.md");
-const RELAY_MODULE: &[u8] = include_bytes!("../../../assets/openclaw-skill/dist/relay-to-peer.mjs");
+const RELAY_MODULE: &[u8] =
+    include_bytes!("../../../assets/openclaw-skill/transform/relay-to-peer.mjs");
 
 pub struct OpenclawConfigPatchResult {
     pub config_changed: bool,

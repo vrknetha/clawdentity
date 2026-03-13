@@ -62,7 +62,7 @@ const copyJobs = [
   },
   {
     source: path.join(sourceRoot, "dist", "relay-to-peer.mjs"),
-    target: path.join(targetRoot, "dist", "relay-to-peer.mjs"),
+    target: path.join(targetRoot, "transform", "relay-to-peer.mjs"),
   },
 ];
 
