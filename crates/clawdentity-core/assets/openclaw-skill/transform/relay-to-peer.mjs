@@ -6,7 +6,7 @@ var __export = (target, all) => {
 
 // src/transforms/relay-to-peer.ts
 import { readFile as readFile2 } from "fs/promises";
-import { dirname as dirname2, join as join3 } from "path";
+import { dirname as dirname2, isAbsolute, join as join3 } from "path";
 import { fileURLToPath } from "url";
 
 // ../../packages/common/src/index.ts
@@ -14669,7 +14669,7 @@ async function resolvePeersConfigPathOptions(options) {
   const runtimeConfig = await loadRelayRuntimeConfig();
   if (runtimeConfig.peersConfigPath) {
     return {
-      configPath: join3(resolveTransformsDir(), runtimeConfig.peersConfigPath)
+      configPath: isAbsolute(runtimeConfig.peersConfigPath) ? runtimeConfig.peersConfigPath : join3(resolveTransformsDir(), runtimeConfig.peersConfigPath)
     };
   }
   return {

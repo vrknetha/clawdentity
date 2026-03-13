@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isRecord } from "@clawdentity/common";
 import {
@@ -340,7 +340,9 @@ async function resolvePeersConfigPathOptions(
   const runtimeConfig = await loadRelayRuntimeConfig();
   if (runtimeConfig.peersConfigPath) {
     return {
-      configPath: join(resolveTransformsDir(), runtimeConfig.peersConfigPath),
+      configPath: isAbsolute(runtimeConfig.peersConfigPath)
+        ? runtimeConfig.peersConfigPath
+        : join(resolveTransformsDir(), runtimeConfig.peersConfigPath),
     };
   }
 

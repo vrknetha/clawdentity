@@ -142,12 +142,26 @@ impl OpenclawProvider {
         opts: &ProviderSetupOptions,
         config_dir: &std::path::Path,
         openclaw_dir: &std::path::Path,
-    ) -> (Option<OpenclawRelayRuntimeConfig>, String) {
+    ) -> (Option<OpenclawRelayRuntimeConfig>, PathBuf) {
         let existing_runtime = load_relay_runtime_config(config_dir).ok().flatten();
         let peers_path = opts
             .relay_transform_peers_path
-            .clone()
-            .unwrap_or_else(|| transform_peers_path(openclaw_dir).display().to_string());
+            .as_deref()
+            .map(PathBuf::from)
+            .or_else(|| {
+                existing_runtime
+                    .as_ref()
+                    .and_then(|runtime| runtime.relay_transform_peers_path.as_deref())
+                    .map(PathBuf::from)
+            })
+            .map(|path| {
+                if path.is_absolute() {
+                    path
+                } else {
+                    openclaw_dir.join("hooks").join("transforms").join(path)
+                }
+            })
+            .unwrap_or_else(|| transform_peers_path(openclaw_dir));
         (existing_runtime, peers_path)
     }
 
@@ -158,20 +172,24 @@ impl OpenclawProvider {
         connector_base_url: &str,
         install_notes: Vec<String>,
     ) -> Result<OpenclawSetupArtifacts> {
+        let (_, relay_snapshot_path) =
+            self.resolve_setup_runtime_paths(opts, &context.config_dir, &context.openclaw_dir);
         let marker_path = write_selected_openclaw_agent(&context.config_dir, &context.agent_name)?;
-        let runtime_path = self.save_setup_runtime_config(context, opts, connector_base_url)?;
+        let runtime_path =
+            self.save_setup_runtime_config(context, opts, connector_base_url, &relay_snapshot_path)?;
         let connector_assignment_path = save_connector_assignment(
             &context.config_dir,
             &context.agent_name,
             connector_base_url,
         )?;
         let relay_snapshot_path = write_transform_peers_snapshot(
-            &context.openclaw_dir,
+            &relay_snapshot_path,
             &crate::peers::load_peers_config(&context.store)?,
         )?;
         let relay_runtime_path = write_transform_runtime_config(
             &context.openclaw_dir,
-            connector_port_from_base_url(connector_base_url).unwrap_or(19400),
+            connector_base_url,
+            &relay_snapshot_path,
         )?;
         Ok(self.finalize_setup_artifacts(
             context,
@@ -192,11 +210,11 @@ impl OpenclawProvider {
         context: &OpenclawSetupContext,
         opts: &ProviderSetupOptions,
         _connector_base_url: &str,
+        relay_snapshot_path: &std::path::Path,
     ) -> Result<PathBuf> {
         let resolved_base_url =
             resolve_openclaw_base_url(&context.config_dir, opts.platform_base_url.as_deref())?;
-        let (existing_runtime, relay_transform_peers_path) =
-            self.resolve_setup_runtime_paths(opts, &context.config_dir, &context.openclaw_dir);
+        let existing_runtime = load_relay_runtime_config(&context.config_dir).ok().flatten();
         let config_path =
             resolve_openclaw_config_path(context.state_options.home_dir.as_deref(), None)?;
         save_relay_runtime_config(
@@ -208,7 +226,7 @@ impl OpenclawProvider {
                     .clone()
                     .or_else(|| existing_runtime.and_then(|cfg| cfg.openclaw_hook_token))
                     .or(read_openclaw_config_hook_token(&config_path)?),
-                relay_transform_peers_path: Some(relay_transform_peers_path),
+                relay_transform_peers_path: Some(relay_snapshot_path.display().to_string()),
                 updated_at: Some(now_iso()),
             },
         )
@@ -536,12 +554,21 @@ mod setup;
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::fs;
 
+    use serde_json::Value;
     use tempfile::TempDir;
 
-    use crate::provider::{InboundMessage, PlatformProvider};
+    use crate::{
+        config::{ConfigPathOptions, get_config_dir},
+        provider::{InboundMessage, PlatformProvider, ProviderSetupOptions},
+    };
 
-    use super::{OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider, resolve_openclaw_dir};
+    use super::{
+        assets::{transform_peers_path, transform_runtime_path},
+        OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider, load_connector_assignments,
+        resolve_openclaw_dir,
+    };
 
     #[test]
     fn detection_checks_home_and_path_evidence() {
@@ -614,6 +641,76 @@ mod tests {
                     .expect("openclaw dir")
                     .join(OPENCLAW_CONFIG_FILE_NAME)
             )
+        );
+    }
+
+    #[test]
+    fn setup_honors_explicit_connector_url_and_custom_peers_path() {
+        let home = TempDir::new().expect("temp home");
+        let provider = OpenclawProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+        let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
+        let custom_peers_path = home.path().join("runtime").join("custom-peers.json");
+
+        let result = provider
+            .setup(&ProviderSetupOptions {
+                home_dir: None,
+                agent_name: Some("alpha".to_string()),
+                platform_base_url: Some("http://127.0.0.1:19001".to_string()),
+                webhook_host: None,
+                webhook_port: None,
+                webhook_token: Some("hook-token".to_string()),
+                connector_base_url: Some("https://relay.example.test:24444".to_string()),
+                connector_url: None,
+                relay_transform_peers_path: Some(custom_peers_path.display().to_string()),
+            })
+            .expect("setup");
+
+        assert!(
+            result
+                .updated_paths
+                .iter()
+                .any(|path| path == &custom_peers_path.display().to_string())
+        );
+        assert!(custom_peers_path.exists());
+        assert!(!transform_peers_path(&openclaw_dir).exists());
+
+        let runtime_path = transform_runtime_path(&openclaw_dir);
+        let runtime: Value =
+            serde_json::from_str(&fs::read_to_string(&runtime_path).expect("runtime body"))
+                .expect("runtime json");
+        assert_eq!(
+            runtime.get("connectorBaseUrl").and_then(Value::as_str),
+            Some("https://relay.example.test:24444/")
+        );
+        assert_eq!(
+            runtime
+                .get("connectorBaseUrls")
+                .and_then(Value::as_array)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["https://relay.example.test:24444/"])
+        );
+        assert_eq!(
+            runtime.get("peersConfigPath").and_then(Value::as_str),
+            Some(custom_peers_path.to_string_lossy().as_ref())
+        );
+
+        let config_dir = get_config_dir(&ConfigPathOptions {
+            home_dir: Some(home.path().to_path_buf()),
+            registry_url_hint: None,
+        })
+        .expect("config dir");
+        let assignments = load_connector_assignments(&config_dir).expect("assignments");
+        assert_eq!(
+            assignments
+                .agents
+                .get("alpha")
+                .map(|entry| entry.connector_base_url.as_str()),
+            Some("https://relay.example.test:24444/")
         );
     }
 }

@@ -16,6 +16,7 @@ const DEFAULT_OPENCLAW_MAIN_SESSION_KEY: &str = "main";
 const GATEWAY_TOKEN_BYTES: usize = 32;
 const FILE_MODE: u32 = 0o600;
 const CONNECTOR_HOST_LOOPBACK: &str = "127.0.0.1";
+const CONNECTOR_HOST_LOCALHOST: &str = "localhost";
 const CONNECTOR_HOST_DOCKER: &str = "host.docker.internal";
 const CONNECTOR_HOST_DOCKER_GATEWAY: &str = "gateway.docker.internal";
 const CONNECTOR_HOST_LINUX_BRIDGE: &str = "172.17.0.1";
@@ -501,20 +502,76 @@ pub fn transform_target_path(openclaw_dir: &Path) -> PathBuf {
         .join(RELAY_MODULE_FILE_NAME)
 }
 
+fn transform_dir(openclaw_dir: &Path) -> PathBuf {
+    openclaw_dir.join("hooks").join("transforms")
+}
+
 /// Return the runtime metadata file path used by the relay transform.
 pub fn transform_runtime_path(openclaw_dir: &Path) -> PathBuf {
-    openclaw_dir
-        .join("hooks")
-        .join("transforms")
-        .join(RELAY_RUNTIME_FILE_NAME)
+    transform_dir(openclaw_dir).join(RELAY_RUNTIME_FILE_NAME)
 }
 
 /// Return the peer snapshot file path used by the relay transform.
 pub fn transform_peers_path(openclaw_dir: &Path) -> PathBuf {
-    openclaw_dir
-        .join("hooks")
-        .join("transforms")
-        .join(RELAY_PEERS_FILE_NAME)
+    transform_dir(openclaw_dir).join(RELAY_PEERS_FILE_NAME)
+}
+
+fn is_container_fallback_host(host: &str) -> bool {
+    matches!(
+        host,
+        CONNECTOR_HOST_LOOPBACK
+            | CONNECTOR_HOST_LOCALHOST
+            | CONNECTOR_HOST_DOCKER
+            | CONNECTOR_HOST_DOCKER_GATEWAY
+            | CONNECTOR_HOST_LINUX_BRIDGE
+    )
+}
+
+fn connector_runtime_base_urls(connector_base_url: &str) -> Result<Vec<String>> {
+    let normalized = url::Url::parse(connector_base_url.trim())
+        .map_err(|_| CoreError::InvalidUrl {
+            context: "connectorBaseUrl",
+            value: connector_base_url.to_string(),
+        })?
+        .to_string();
+    let parsed = url::Url::parse(&normalized).map_err(|_| CoreError::InvalidUrl {
+        context: "connectorBaseUrl",
+        value: connector_base_url.to_string(),
+    })?;
+    let Some(host) = parsed.host_str() else {
+        return Ok(vec![normalized]);
+    };
+
+    if !is_container_fallback_host(host) {
+        return Ok(vec![normalized]);
+    }
+
+    let mut urls = vec![normalized];
+    for fallback_host in [
+        CONNECTOR_HOST_DOCKER,
+        CONNECTOR_HOST_DOCKER_GATEWAY,
+        CONNECTOR_HOST_LINUX_BRIDGE,
+        CONNECTOR_HOST_LOOPBACK,
+        CONNECTOR_HOST_LOCALHOST,
+    ] {
+        let mut candidate = parsed.clone();
+        if candidate.set_host(Some(fallback_host)).is_err() {
+            continue;
+        }
+        let candidate = candidate.to_string();
+        if !urls.iter().any(|value| value == &candidate) {
+            urls.push(candidate);
+        }
+    }
+    Ok(urls)
+}
+
+fn runtime_peers_config_path_value(openclaw_dir: &Path, peers_path: &Path) -> String {
+    let transforms_dir = transform_dir(openclaw_dir);
+    peers_path
+        .strip_prefix(&transforms_dir)
+        .map(|relative| relative.to_string_lossy().to_string())
+        .unwrap_or_else(|_| peers_path.to_string_lossy().to_string())
 }
 
 /// Install or verify the OpenClaw skill bundle and relay transform assets.
@@ -562,22 +619,18 @@ pub fn read_openclaw_config_hook_token(config_path: &Path) -> Result<Option<Stri
 }
 
 /// Write relay runtime metadata consumed by the OpenClaw hook transform.
-pub fn write_transform_runtime_config(openclaw_dir: &Path, connector_port: u16) -> Result<PathBuf> {
-    let connector_base_urls = [
-        CONNECTOR_HOST_DOCKER,
-        CONNECTOR_HOST_DOCKER_GATEWAY,
-        CONNECTOR_HOST_LINUX_BRIDGE,
-        CONNECTOR_HOST_LOOPBACK,
-    ]
-    .into_iter()
-    .map(|host| format!("http://{host}:{connector_port}"))
-    .collect::<Vec<_>>();
+pub fn write_transform_runtime_config(
+    openclaw_dir: &Path,
+    connector_base_url: &str,
+    peers_path: &Path,
+) -> Result<PathBuf> {
+    let connector_base_urls = connector_runtime_base_urls(connector_base_url)?;
     let payload = json!({
         "version": 1,
         "connectorBaseUrl": connector_base_urls.first().cloned().unwrap_or_default(),
         "connectorBaseUrls": connector_base_urls,
         "connectorPath": DEFAULT_CONNECTOR_OUTBOUND_PATH,
-        "peersConfigPath": RELAY_PEERS_FILE_NAME,
+        "peersConfigPath": runtime_peers_config_path_value(openclaw_dir, peers_path),
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });
     let target_path = transform_runtime_path(openclaw_dir);
@@ -589,13 +642,12 @@ pub fn write_transform_runtime_config(openclaw_dir: &Path, connector_port: u16) 
 }
 
 /// Write the peer snapshot consumed by the OpenClaw hook transform.
-pub fn write_transform_peers_snapshot(openclaw_dir: &Path, peers: &PeersConfig) -> Result<PathBuf> {
-    let target_path = transform_peers_path(openclaw_dir);
+pub fn write_transform_peers_snapshot(peers_path: &Path, peers: &PeersConfig) -> Result<PathBuf> {
     write_secure_bytes(
-        &target_path,
+        peers_path,
         format!("{}\n", serde_json::to_string_pretty(peers)?).as_bytes(),
     )?;
-    Ok(target_path)
+    Ok(peers_path.to_path_buf())
 }
 
 /// Verify that the OpenClaw relay install left the required files and config entries in place.
@@ -618,6 +670,9 @@ pub fn verify_openclaw_install(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use serde_json::Value;
     use tempfile::TempDir;
 
     use super::{
@@ -639,10 +694,43 @@ mod tests {
                 .exists()
         );
 
-        let runtime_path = write_transform_runtime_config(temp.path(), 19400).expect("runtime");
-        assert_eq!(runtime_path, transform_runtime_path(temp.path()));
-        let peers_path = write_transform_peers_snapshot(
+        let peers_target = temp.path().join("custom").join("peers.json");
+        let runtime_path = write_transform_runtime_config(
             temp.path(),
+            "https://relay.example.test:24444",
+            &peers_target,
+        )
+        .expect("runtime");
+        assert_eq!(runtime_path, transform_runtime_path(temp.path()));
+        let runtime_value: Value =
+            serde_json::from_str(&fs::read_to_string(&runtime_path).expect("runtime body"))
+                .expect("runtime json");
+        assert_eq!(
+            runtime_value
+                .get("connectorBaseUrl")
+                .and_then(Value::as_str),
+            Some("https://relay.example.test:24444/")
+        );
+        assert_eq!(
+            runtime_value
+                .get("connectorBaseUrls")
+                .and_then(Value::as_array)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["https://relay.example.test:24444/"])
+        );
+        assert_eq!(
+            runtime_value
+                .get("peersConfigPath")
+                .and_then(Value::as_str),
+            Some(peers_target.to_string_lossy().as_ref())
+        );
+        let peers_path = write_transform_peers_snapshot(
+            &peers_target,
             &PeersConfig {
                 peers: Default::default(),
             },
