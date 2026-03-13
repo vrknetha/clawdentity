@@ -38,6 +38,7 @@
   - `skill/v<version>/skill.md`
   - `skill/latest/skill.md`
 - Any release job that runs `apps/landing/scripts/verify-skill-artifacts.mjs` must build `@clawdentity/openclaw-skill` and sync Rust-owned assets first (`pnpm -F @clawdentity/openclaw-skill build && pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`).
+- Any release job that builds Node-owned landing or skill artifacts must run its own `pnpm install --frozen-lockfile` after checkout; do not assume `node_modules` from another job.
 - Installer verification in CI must exercise both paths:
   - manifest-driven latest install
   - explicit `CLAWDENTITY_VERSION` install against staged downloads base URL

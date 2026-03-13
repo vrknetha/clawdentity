@@ -9,4 +9,5 @@
 - Keep doctor and relay-test compatible with container-mounted OpenClaw homes and explicit env overrides.
 - Explicit CLI home/state roots must beat ambient `OPENCLAW_*` env vars; isolated-home runs are a release gate.
 - When an explicit home already looks like an OpenClaw profile root (`openclaw.json`, `hooks/`, `skills/`), write directly into that root instead of inventing an extra `.openclaw/` layer.
+- Keep detection and setup helpers `clippy -D warnings` clean; prefer flattened `if let ... && ...` control flow over nested single-branch checks.
 - Do not reintroduce JS CLI bundle dependencies.

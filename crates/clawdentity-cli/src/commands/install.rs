@@ -75,11 +75,7 @@ pub(crate) fn execute_install_command(
                 .map(|provider| provider.name().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            anyhow!(
-                "unknown provider `{}`. Available providers: {}",
-                platform_name,
-                available
-            )
+            anyhow!("unknown provider `{platform_name}`. Available providers: {available}")
         })?
     } else {
         detect_platform().ok_or_else(|| {

@@ -354,10 +354,10 @@ pub fn build_connector_base_url(host: &str, port: u16) -> String {
 }
 
 fn allocate_connector_port(assignments: &OpenclawConnectorsConfig, agent_name: &str) -> u16 {
-    if let Some(existing) = assignments.agents.get(agent_name) {
-        if let Some(port) = connector_port_from_base_url(&existing.connector_base_url) {
-            return port;
-        }
+    if let Some(existing) = assignments.agents.get(agent_name)
+        && let Some(port) = connector_port_from_base_url(&existing.connector_base_url)
+    {
+        return port;
     }
 
     let mut used_ports = assignments

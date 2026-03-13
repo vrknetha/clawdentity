@@ -61,7 +61,15 @@ pub async fn execute_pair_command(
 async fn dispatch_pair_command(options: &ConfigPathOptions, command: PairCommand, json: bool) -> Result<()> {
     match command {
         PairCommand::Start { agent_name, ttl_seconds, qr, qr_output, wait, wait_seconds, poll_interval_seconds } =>
-            dispatch_pair_start(options, json, agent_name, ttl_seconds, qr, qr_output, wait, wait_seconds, poll_interval_seconds).await,
+            dispatch_pair_start(options, json, PairStartCommandInput {
+                agent_name,
+                ttl_seconds,
+                qr,
+                qr_output,
+                wait,
+                wait_seconds,
+                poll_interval_seconds,
+            }).await,
         PairCommand::Confirm { agent_name, ticket, qr_file } =>
             execute_pair_confirm(options, json, agent_name, ticket, qr_file).await,
         PairCommand::Status { agent_name, ticket, wait, wait_seconds, poll_interval_seconds } =>
@@ -69,9 +77,7 @@ async fn dispatch_pair_command(options: &ConfigPathOptions, command: PairCommand
     }
 }
 
-async fn dispatch_pair_start(
-    options: &ConfigPathOptions,
-    json: bool,
+struct PairStartCommandInput {
     agent_name: String,
     ttl_seconds: Option<u64>,
     qr: bool,
@@ -79,19 +85,14 @@ async fn dispatch_pair_start(
     wait: bool,
     wait_seconds: u64,
     poll_interval_seconds: u64,
+}
+
+async fn dispatch_pair_start(
+    options: &ConfigPathOptions,
+    json: bool,
+    input: PairStartCommandInput,
 ) -> Result<()> {
-    execute_pair_start(
-        options,
-        json,
-        agent_name,
-        ttl_seconds,
-        qr,
-        qr_output,
-        wait,
-        wait_seconds,
-        poll_interval_seconds,
-    )
-    .await
+    execute_pair_start(options, json, input).await
 }
 
 async fn dispatch_pair_status(
@@ -118,14 +119,17 @@ async fn dispatch_pair_status(
 async fn execute_pair_start(
     options: &ConfigPathOptions,
     json: bool,
-    agent_name: String,
-    ttl_seconds: Option<u64>,
-    qr: bool,
-    qr_output: Option<PathBuf>,
-    wait: bool,
-    wait_seconds: u64,
-    poll_interval_seconds: u64,
+    input: PairStartCommandInput,
 ) -> Result<()> {
+    let PairStartCommandInput {
+        agent_name,
+        ttl_seconds,
+        qr,
+        qr_output,
+        wait,
+        wait_seconds,
+        poll_interval_seconds,
+    } = input;
     let (state_options, config_dir, profile, proxy_url) =
         resolve_pair_context(options, &agent_name).await?;
     let mut start_result =
@@ -422,9 +426,7 @@ async fn resolve_pair_proxy_url(config: &clawdentity_core::CliConfig) -> Result<
         let normalized_metadata = reqwest::Url::parse(&metadata.proxy_url)?.to_string();
         if normalized_saved != normalized_metadata {
             bail!(
-                "proxyUrl mismatch: local config has {}, registry metadata has {}",
-                normalized_saved,
-                normalized_metadata
+                "proxyUrl mismatch: local config has {normalized_saved}, registry metadata has {normalized_metadata}"
             );
         }
         return Ok(normalized_saved);

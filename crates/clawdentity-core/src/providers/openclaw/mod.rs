@@ -304,20 +304,19 @@ impl PlatformProvider for OpenclawProvider {
         let mut evidence = Vec::new();
         let mut confidence: f32 = 0.0;
 
-        if let Ok(openclaw_dir) = resolve_openclaw_dir(self.home_dir_override.as_deref(), None) {
-            if openclaw_dir.is_dir() {
-                evidence.push(format!("found {}/", openclaw_dir.display()));
-                confidence += 0.65;
-            }
+        if let Ok(openclaw_dir) = resolve_openclaw_dir(self.home_dir_override.as_deref(), None)
+            && openclaw_dir.is_dir()
+        {
+            evidence.push(format!("found {}/", openclaw_dir.display()));
+            confidence += 0.65;
         }
 
         if let Ok(config_path) =
             resolve_openclaw_config_path(self.home_dir_override.as_deref(), None)
+            && config_path.is_file()
         {
-            if config_path.is_file() {
-                evidence.push(format!("found {}", config_path.display()));
-                confidence += 0.1;
-            }
+            evidence.push(format!("found {}", config_path.display()));
+            confidence += 0.1;
         }
 
         if command_exists(OPENCLAW_BINARY, self.path_override.as_deref()) {

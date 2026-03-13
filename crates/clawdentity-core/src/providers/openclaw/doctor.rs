@@ -320,10 +320,7 @@ fn run_connector_checks(
             "state.connectorInboundInbox",
             "Connector inbound inbox",
             DoctorCheckStatus::Pass,
-            format!(
-                "pending={} deadLetter={}",
-                inbound_pending, inbound_dead_letter
-            ),
+            format!("pending={inbound_pending} deadLetter={inbound_dead_letter}"),
             None,
             Some(
                 serde_json::json!({ "pendingCount": inbound_pending, "deadLetterCount": inbound_dead_letter }),

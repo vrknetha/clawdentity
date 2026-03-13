@@ -246,11 +246,7 @@ fn resolve_provider_instance(
                 .map(|provider| provider.name().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            anyhow!(
-                "unknown platform `{}`. Available platforms: {}",
-                platform,
-                available
-            )
+            anyhow!("unknown platform `{platform}`. Available platforms: {available}")
         });
     }
 
