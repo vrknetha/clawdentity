@@ -26,6 +26,7 @@ export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
     apiKeyInserts,
     internalServiceInserts,
     internalServiceRows,
+    starterPassRows,
     agentAuthSessionInserts,
     agentAuthSessionRows,
     agentAuthEventInserts,
@@ -128,6 +129,12 @@ export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
           displayName: row.display_name,
           role: row.role,
           status: row.status,
+          onboardingSource:
+            typeof row.onboarding_source === "string"
+              ? row.onboarding_source
+              : null,
+          agentLimit:
+            typeof row.agent_limit === "number" ? row.agent_limit : null,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
         });
@@ -439,6 +446,98 @@ export function applyRunHandlersPhaseOne(input: RunHandlerPhaseInput): number {
       status_where: statusFilter,
       refresh_key_hash_where: refreshHashFilter,
       access_key_hash_where: accessHashFilter,
+      matched_rows: matchedRows,
+    });
+    changes = matchedRows;
+  }
+  if (
+    normalizedQuery.includes('update "starter_passes"') ||
+    normalizedQuery.includes("update starter_passes")
+  ) {
+    const setColumns = parseUpdateSetColumns(query, "starter_passes");
+    const nextValues = setColumns.reduce<Record<string, unknown>>(
+      (acc, column, index) => {
+        acc[column] = params[index];
+        return acc;
+      },
+      {},
+    );
+    const whereClause = extractWhereClause(query);
+    const whereParams = params.slice(setColumns.length);
+    const equalityParams = parseWhereEqualityParams({
+      whereClause,
+      params: whereParams,
+    });
+    const idFilter =
+      typeof equalityParams.values.id?.[0] === "string"
+        ? String(equalityParams.values.id[0])
+        : undefined;
+    const statusFilter =
+      typeof equalityParams.values.status?.[0] === "string"
+        ? String(equalityParams.values.status[0])
+        : undefined;
+    const redeemedByFilter = equalityParams.values.redeemed_by?.[0] as
+      | string
+      | null
+      | undefined;
+    const requiresRedeemedByNull =
+      whereClause.includes("redeemed_by") && whereClause.includes("is null");
+
+    let matchedRows = 0;
+    for (const row of starterPassRows) {
+      if (idFilter && row.id !== idFilter) {
+        continue;
+      }
+      if (statusFilter && row.status !== statusFilter) {
+        continue;
+      }
+      if (requiresRedeemedByNull && row.redeemedBy !== null) {
+        continue;
+      }
+      if (
+        redeemedByFilter !== undefined &&
+        row.redeemedBy !== redeemedByFilter
+      ) {
+        continue;
+      }
+
+      matchedRows += 1;
+      if (typeof nextValues.provider_login === "string") {
+        row.providerLogin = nextValues.provider_login;
+      }
+      if (typeof nextValues.display_name === "string") {
+        row.displayName = nextValues.display_name;
+      }
+      if (
+        typeof nextValues.redeemed_by === "string" ||
+        nextValues.redeemed_by === null
+      ) {
+        row.redeemedBy = nextValues.redeemed_by;
+      }
+      if (
+        typeof nextValues.redeemed_at === "string" ||
+        nextValues.redeemed_at === null
+      ) {
+        row.redeemedAt = nextValues.redeemed_at;
+      }
+      if (typeof nextValues.expires_at === "string") {
+        row.expiresAt = nextValues.expires_at;
+      }
+      if (
+        nextValues.status === "active" ||
+        nextValues.status === "redeemed" ||
+        nextValues.status === "expired"
+      ) {
+        row.status = nextValues.status;
+      }
+    }
+
+    state.starterPassUpdates.push({
+      ...nextValues,
+      id: idFilter,
+      status_where: statusFilter,
+      redeemed_by_where: redeemedByFilter,
+      redeemed_by_is_null_where: requiresRedeemedByNull,
       matched_rows: matchedRows,
     });
     changes = matchedRows;

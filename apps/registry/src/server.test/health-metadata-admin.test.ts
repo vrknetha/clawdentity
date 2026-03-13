@@ -452,6 +452,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
         did: string;
         displayName: string;
         role: string;
+        onboardingSource: string | null;
+        agentLimit: number | null;
         apiKey: {
           id: string;
           name: string;
@@ -463,6 +465,8 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
       did: bootstrapBody.human.did,
       displayName: bootstrapBody.human.displayName,
       role: bootstrapBody.human.role,
+      onboardingSource: "admin_bootstrap",
+      agentLimit: null,
       apiKey: {
         id: bootstrapBody.apiKey.id,
         name: bootstrapBody.apiKey.name,

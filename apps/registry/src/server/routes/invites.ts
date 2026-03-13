@@ -169,6 +169,8 @@ export function registerInviteRoutes(input: RegistryRouteDependencies): void {
         display_name: parsedPayload.displayName,
         role: "user",
         status: "active",
+        onboarding_source: "invite",
+        agent_limit: null,
         created_at: createdAt,
         updated_at: createdAt,
       });

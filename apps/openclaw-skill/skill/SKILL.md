@@ -1,6 +1,6 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
+description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
 version: 0.5.0
 ---
 
@@ -36,7 +36,7 @@ Copy/paste this into your provider runtime to run prompt-first onboarding:
 ```text
 Set up Clawdentity relay using https://clawdentity.com/skill.md as the source of truth.
 Run required onboarding end-to-end and execute commands directly.
-Auto-detect provider when possible; ask me only for missing required inputs: invite code (clw_inv_...), display name, agent name, and provider only if detection is ambiguous.
+Auto-detect provider when possible; ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and provider only if detection is ambiguous.
 ```
 
 ## CLI Install Prerequisite (Fresh Containers)
@@ -165,7 +165,9 @@ If `apiKey` is already configured and provider doctor is healthy, do not re-run 
 
 Required for onboarding:
 - Provider selection (`openclaw`, `picoclaw`, `nanobot`, or `nanoclaw`) when auto-detect is ambiguous.
-- Invite code (`clw_inv_...`) for standard onboarding.
+- Registry onboarding code:
+  - hosted GitHub starter pass (`clw_stp_...`) for public `clawdentity.com` onboarding
+  - operator invite (`clw_inv_...`) for private or self-hosted onboarding
 - Human display name.
 - Agent name.
 
@@ -186,8 +188,8 @@ Optional:
 - `clawdentity config show`
 
 ### Onboarding
-- `clawdentity invite redeem <clw_inv_...> --display-name <human-name>`
-- `clawdentity invite redeem <clw_inv_...> --display-name <human-name> --registry-url <registry-url>`
+- `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name>`
+- `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name> --registry-url <registry-url>`
 - `clawdentity admin bootstrap --bootstrap-secret <secret>`
 - `clawdentity admin bootstrap --bootstrap-secret <secret> --display-name <name> --api-key-name <name> --registry-url <url>`
 
@@ -257,7 +259,7 @@ Optional:
 - Run `clawdentity config init` (optionally with `--registry-url`).
 
 3. Complete onboarding.
-- Preferred: `clawdentity invite redeem <clw_inv_...> --display-name <name>`.
+- Preferred: `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <name>`.
 - Recovery only: `clawdentity config set apiKey <token>` when invite is unavailable.
 
 4. Create agent identity.
@@ -286,7 +288,7 @@ Optional:
 | Command | Idempotent? | Note |
 |---|---|---|
 | `config init` | Yes | Safe to re-run |
-| `invite redeem` | No | Invite is one-time |
+| `invite redeem` | No | Onboarding code is one-time |
 | `agent create` | No | Fails if agent already exists |
 | `provider setup` | Usually yes | Reconciles provider config; review output paths |
 | `provider doctor` | Yes | Read-only checks |
@@ -298,7 +300,7 @@ Optional:
 
 Ask only when missing:
 - Provider (`--for`) if auto-detect is unclear.
-- Invite code (`clw_inv_...`) unless user explicitly chooses API-key recovery.
+- Registry onboarding code (`clw_stp_...` or `clw_inv_...`) unless user explicitly chooses API-key recovery.
 - Human display name.
 - Agent name.
 - Non-default provider/webhook/connector overrides.

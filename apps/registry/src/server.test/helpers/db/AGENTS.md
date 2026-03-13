@@ -11,3 +11,4 @@
 - When adding a new fake table, add a dedicated resolver module and re-export it from `resolvers/index.ts`.
 - Keep rollback-sensitive tables (`api_keys`, `internal_services`) modeled in run handlers so fallback compensation tests can assert row cleanup deterministically.
 - Avoid embedding clock/random side effects in resolver functions.
+- Keep `all()` and `raw()` result shapes in sync for joined auth queries and new tables, otherwise Drizzle-backed tests can silently miss fields that production routes depend on.

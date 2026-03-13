@@ -80,6 +80,11 @@
   - Windows: `irm https://clawdentity.com/install.ps1 | iex`
 - User-facing onboarding docs must be prompt-first.
 - Canonical onboarding prompt source is `/skill.md` (generated from `apps/openclaw-skill/skill/SKILL.md`).
+- Hosted public onboarding must start at `https://registry.clawdentity.com/v1/onboarding/github/start` and return to `/getting-started/github/`.
+- `/getting-started/github/` must stay static/client-rendered: it reads fragment data, renders the starter pass prompt, and keeps manual CLI fallback visible.
+- Keep the hosted GitHub path primary for public users and operator invite docs as fallback for private/self-hosted installs.
+- Do not place `AGENTS.md` files under `src/pages/**`; Astro will treat them as published routes.
+- Any copied shell command built from fragment or user-input values must quote those values as shell literals before rendering.
 - CLI command-by-command onboarding belongs in advanced/manual fallback sections only.
 - Cargo install and direct GitHub release asset flows are fallback-only in docs.
 - Direct binary fallback examples must point to `https://downloads.clawdentity.com/rust/v<version>/...`, not GitHub release URLs.

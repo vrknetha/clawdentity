@@ -20,6 +20,12 @@ export function getHumanSelectColumnValue(
   if (column === "status") {
     return row.status;
   }
+  if (column === "onboarding_source") {
+    return row.onboardingSource;
+  }
+  if (column === "agent_limit") {
+    return row.agentLimit;
+  }
   if (column === "created_at") {
     return row.createdAt;
   }

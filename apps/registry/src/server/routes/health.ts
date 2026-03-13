@@ -37,10 +37,15 @@ export function registerHealthRoutes(
         c.env.EVENT_BUS_QUEUE !== undefined,
       proxyUrlConfigured: typeof config.PROXY_URL === "string",
       issuerUrlConfigured: typeof config.REGISTRY_ISSUER_URL === "string",
+      landingUrlConfigured: typeof config.LANDING_URL === "string",
       bootstrapSecretConfigured: typeof config.BOOTSTRAP_SECRET === "string",
       internalServiceCredentialsConfigured:
         typeof config.BOOTSTRAP_INTERNAL_SERVICE_ID === "string" &&
         typeof config.BOOTSTRAP_INTERNAL_SERVICE_SECRET === "string",
+      githubOnboardingConfigured:
+        typeof config.GITHUB_CLIENT_ID === "string" &&
+        typeof config.GITHUB_CLIENT_SECRET === "string" &&
+        typeof config.GITHUB_OAUTH_STATE_SECRET === "string",
       signingConfigured:
         typeof config.REGISTRY_SIGNING_KEY === "string" &&
         Array.isArray(config.REGISTRY_SIGNING_KEYS) &&

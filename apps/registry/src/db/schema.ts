@@ -1,4 +1,10 @@
-import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const humans = sqliteTable("humans", {
   id: text("id").primaryKey(),
@@ -10,6 +16,8 @@ export const humans = sqliteTable("humans", {
   status: text("status", { enum: ["active", "suspended"] })
     .notNull()
     .default("active"),
+  onboarding_source: text("onboarding_source"),
+  agent_limit: integer("agent_limit"),
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),
 });
@@ -175,6 +183,32 @@ export const invites = sqliteTable("invites", {
   expires_at: text("expires_at"),
   created_at: text("created_at").notNull(),
 });
+
+export const starter_passes = sqliteTable(
+  "starter_passes",
+  {
+    id: text("id").primaryKey(),
+    code: text("code").notNull().unique(),
+    provider: text("provider", { enum: ["github"] }).notNull(),
+    provider_subject: text("provider_subject").notNull(),
+    provider_login: text("provider_login").notNull(),
+    display_name: text("display_name").notNull(),
+    redeemed_by: text("redeemed_by").references(() => humans.id),
+    issued_at: text("issued_at").notNull(),
+    redeemed_at: text("redeemed_at"),
+    expires_at: text("expires_at").notNull(),
+    status: text("status", { enum: ["active", "redeemed", "expired"] })
+      .notNull()
+      .default("active"),
+  },
+  (table) => [
+    uniqueIndex("starter_passes_provider_subject_unique").on(
+      table.provider,
+      table.provider_subject,
+    ),
+    index("idx_starter_passes_code_status").on(table.code, table.status),
+  ],
+);
 
 export const internal_services = sqliteTable(
   "internal_services",

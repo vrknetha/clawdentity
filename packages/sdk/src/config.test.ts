@@ -102,6 +102,26 @@ describe("config helpers", () => {
     });
   });
 
+  it("parses landing and GitHub onboarding fields when provided", () => {
+    expect(
+      parseRegistryConfig({
+        ENVIRONMENT: "development",
+        LANDING_URL: "https://clawdentity.com",
+        GITHUB_CLIENT_ID: "github-client-id",
+        GITHUB_CLIENT_SECRET: "github-client-secret",
+        GITHUB_OAUTH_STATE_SECRET: "state-secret",
+        ...bootstrapInternalServiceConfig,
+      }),
+    ).toEqual({
+      ENVIRONMENT: "development",
+      LANDING_URL: "https://clawdentity.com",
+      GITHUB_CLIENT_ID: "github-client-id",
+      GITHUB_CLIENT_SECRET: "github-client-secret",
+      GITHUB_OAUTH_STATE_SECRET: "state-secret",
+      ...bootstrapInternalServiceConfig,
+    });
+  });
+
   it("throws AppError when APP_VERSION is empty", () => {
     try {
       parseRegistryConfig({
@@ -272,6 +292,7 @@ describe("config helpers", () => {
         ENVIRONMENT: "development",
         PROXY_URL: "https://dev.proxy.clawdentity.com",
         REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
+        LANDING_URL: "https://clawdentity.com",
         EVENT_BUS_BACKEND: "memory",
         BOOTSTRAP_SECRET: "bootstrap-secret",
         ...bootstrapInternalServiceConfig,
