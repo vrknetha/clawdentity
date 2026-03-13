@@ -197,8 +197,12 @@ main() {
   extract_dir="${tmp_dir}/extract"
 
   cleanup() {
-    [ -d "$tmp_dir" ] && rm -rf "$tmp_dir"
-    [ -n "$manifest_path" ] && rm -f "$manifest_path"
+    if [ -d "$tmp_dir" ]; then
+      rm -rf "$tmp_dir"
+    fi
+    if [ -n "$manifest_path" ]; then
+      rm -f "$manifest_path"
+    fi
   }
   trap cleanup EXIT INT TERM
 

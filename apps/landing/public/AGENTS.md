@@ -16,4 +16,5 @@
   - `CLAWDENTITY_NO_VERIFY=1`
 - `CLAWDENTITY_INSTALL_DRY_RUN=1` must still resolve the latest manifest metadata when `CLAWDENTITY_VERSION` is unset, so preview mode works without pinning a version.
 - Checksum verification stays default-on and must validate against `clawdentity-<version>-checksums.txt`.
+- Shell cleanup/trap paths must stay explicit `if ...; then ...; fi` blocks under `set -e`; do not rely on `[ ... ] && ...` tests that can flip successful installs into non-zero exits.
 - `skill.md` is generated output; never edit it by hand.
