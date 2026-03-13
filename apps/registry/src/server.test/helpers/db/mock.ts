@@ -8,6 +8,7 @@ import {
   getHumanSelectColumnValue,
   getInternalServiceSelectColumnValue,
   getInviteSelectColumnValue,
+  getStarterPassSelectColumnValue,
   resolveAgentAuthSessionSelectRows,
   resolveAgentRegistrationChallengeSelectRows,
   resolveAgentSelectRows,
@@ -16,6 +17,7 @@ import {
   resolveHumanSelectRows,
   resolveInternalServiceSelectRows,
   resolveInviteSelectRows,
+  resolveStarterPassSelectRows,
 } from "./resolvers.js";
 import { handleRunQuery } from "./run-handlers.js";
 import type {
@@ -39,6 +41,8 @@ import type {
   FakeInviteInsertRow,
   FakeInviteUpdateRow,
   FakeRevocationInsertRow,
+  FakeStarterPassInsertRow,
+  FakeStarterPassUpdateRow,
 } from "./types.js";
 
 export function createFakeDb(
@@ -62,12 +66,15 @@ export function createFakeDb(
   const internalServiceInserts: FakeInternalServiceInsertRow[] = [];
   const inviteInserts: FakeInviteInsertRow[] = [];
   const inviteUpdates: FakeInviteUpdateRow[] = [];
+  const starterPassInserts: FakeStarterPassInsertRow[] = [];
+  const starterPassUpdates: FakeStarterPassUpdateRow[] = [];
   const revocationRows = [...(options.revocationRows ?? [])];
   const registrationChallengeRows = [
     ...(options.registrationChallengeRows ?? []),
   ];
   const agentAuthSessionRows = [...(options.agentAuthSessionRows ?? [])];
   const inviteRows = [...(options.inviteRows ?? [])];
+  const seededHumanRows = [...(options.humanRows ?? [])];
   const humanRows = rows.reduce<FakeHumanRow[]>((acc, row) => {
     if (acc.some((item) => item.id === row.humanId)) {
       return acc;
@@ -79,11 +86,14 @@ export function createFakeDb(
       displayName: row.humanDisplayName,
       role: row.humanRole,
       status: row.humanStatus,
+      onboardingSource: row.humanOnboardingSource ?? null,
+      agentLimit:
+        typeof row.humanAgentLimit === "number" ? row.humanAgentLimit : null,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     return acc;
-  }, []);
+  }, seededHumanRows);
   const apiKeyRows: FakeApiKeyRow[] = rows.map((row) => ({
     id: row.apiKeyId,
     humanId: row.humanId,
@@ -97,6 +107,7 @@ export function createFakeDb(
   const internalServiceRows: FakeInternalServiceRow[] = [
     ...(options.internalServiceRows ?? []),
   ];
+  const starterPassRows = [...(options.starterPassRows ?? [])];
   const state: FakeDbState = {
     authRows: rows,
     agentRows,
@@ -115,14 +126,18 @@ export function createFakeDb(
     agentAuthEventInserts,
     inviteInserts,
     inviteUpdates,
+    starterPassInserts,
+    starterPassUpdates,
     revocationRows,
     registrationChallengeRows,
     agentAuthSessionRows,
     inviteRows,
+    starterPassRows,
     humanRows,
     apiKeyRows,
     internalServiceRows,
     beforeFirstAgentUpdateApplied: false,
+    beforeFirstAgentRegistrationChallengeUpdateApplied: false,
     beforeFirstAgentAuthSessionUpdateApplied: false,
     remainingApiKeyInsertFailures: options.failApiKeyInsertCount ?? 0,
     remainingInternalServiceInsertFailures:
@@ -175,6 +190,8 @@ export function createFakeDb(
                       human_display_name: human.displayName,
                       human_role: human.role,
                       human_status: human.status,
+                      human_onboarding_source: human.onboardingSource,
+                      human_agent_limit: human.agentLimit,
                     };
                   })
                   .filter(isDefined),
@@ -224,6 +241,34 @@ export function createFakeDb(
                 return selectedColumns.reduce<Record<string, unknown>>(
                   (acc, column) => {
                     acc[column] = getHumanSelectColumnValue(row, column);
+                    return acc;
+                  },
+                  {},
+                );
+              }),
+            };
+          }
+          if (
+            (normalizedQuery.includes('from "starter_passes"') ||
+              normalizedQuery.includes("from starter_passes")) &&
+            normalizedQuery.includes("select")
+          ) {
+            const resultRows = resolveStarterPassSelectRows({
+              query,
+              params,
+              starterPassRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getStarterPassSelectColumnValue(row, column);
                     return acc;
                   },
                   {},
@@ -434,6 +479,8 @@ export function createFakeDb(
                     human.displayName,
                     human.role,
                     human.status,
+                    human.onboardingSource,
+                    human.agentLimit,
                   ];
                 })
                 .filter(isDefined);
@@ -464,6 +511,22 @@ export function createFakeDb(
             return resultRows.map((row) =>
               selectedColumns.map((column) =>
                 getAgentAuthSessionSelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
+            normalizedQuery.includes('from "starter_passes"') ||
+            normalizedQuery.includes("from starter_passes")
+          ) {
+            const resultRows = resolveStarterPassSelectRows({
+              query,
+              params,
+              starterPassRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getStarterPassSelectColumnValue(row, column),
               ),
             );
           }
@@ -597,6 +660,9 @@ export function createFakeDb(
     inviteInserts,
     inviteUpdates,
     inviteRows,
+    starterPassInserts,
+    starterPassUpdates,
+    starterPassRows,
     revocationInserts,
     registrationChallengeRows,
   };

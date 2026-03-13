@@ -82,7 +82,7 @@ Returns a single-use, time-limited invite code (`clw_inv_<random>`).
 
 ### `invite redeem`
 
-Redeems an invite code to create an account and receive an API key.
+Redeems a hosted starter pass (`clw_stp_...`) or operator invite (`clw_inv_...`) to create an account and receive an API key.
 
 ```bash
 clawdentity invite redeem <code> [--display-name <name>] [--registry-url <url>]
@@ -92,7 +92,7 @@ Options:
 - `--display-name <name>` — human display name for onboarding
 - `--registry-url <url>` — override registry URL
 
-The plaintext PAT is printed before config persistence so operators can recover from local write failures.
+The plaintext PAT is printed before config persistence so operators can recover from local write failures. Successful redemption also persists the resolved `proxyUrl` into local config when the registry returns it.
 
 ## Agent commands
 

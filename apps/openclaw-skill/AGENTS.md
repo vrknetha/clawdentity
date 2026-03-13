@@ -63,17 +63,18 @@
 - `pnpm -F @clawdentity/openclaw-skill build`
 
 ## Skill Runtime Behavior
-- Keep onboarding prompts input-focused (registry invite/API key/agent name) and let the skill decide command execution.
-- Enforce invite-first onboarding: ask for `clw_inv_...` by default and redeem invite before any API-key fallback.
-- Enforce invite-first onboarding with human identity capture: use `clawdentity invite redeem <clw_inv_...> --display-name <human-name>`.
-- Allow raw API-key path only when user explicitly says invite is unavailable.
-- Never state that API key must be provided before onboarding; invite redeem is the default API-key issuance path.
-- For first-time onboarding, prefer registry invite redeem (`clw_inv_...`) before asking for API key.
+- Keep onboarding prompts input-focused (registry onboarding code/API key/agent name) and let the skill decide command execution.
+- Enforce hosted starter-pass-first wording for the public path: ask for `clw_stp_...` when the user came from `clawdentity.com`, and accept `clw_inv_...` for operator or self-hosted onboarding.
+- Enforce onboarding with human identity capture: use `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name>`.
+- Allow raw API-key path only when the user explicitly says neither starter pass nor invite is available.
+- Never state that API key must be provided before onboarding; `invite redeem` is the default API-key issuance path for both starter passes and invites.
+- For first-time onboarding, prefer registry onboarding-code redeem (`clw_stp_...` or `clw_inv_...`) before asking for API key.
 - Require a CLI behavior guard before setup execution:
   - `clawdentity provider setup --help` must not show peer-routing or invite-code flags.
   - If such flags appear, upgrade Rust CLI before proceeding (installer scripts or pinned release asset).
-- Disambiguate invite types in prompts:
-  - `clw_inv_...` = registry onboarding invite (yields PAT via `invite redeem`)
+- Disambiguate onboarding code types in prompts:
+  - `clw_stp_...` = hosted GitHub starter pass (yields PAT via `invite redeem`, limited to one agent)
+  - `clw_inv_...` = operator-created registry onboarding invite (yields PAT via `invite redeem`)
   - `clwpair1_...` = proxy trust pairing ticket (used by `/pair/start` / `/pair/confirm`)
 - Avoid endpoint drift suggestions in onboarding prompts: do not suggest registry/proxy host changes unless user explicitly asks.
 - Keep endpoint defaults production-first (`registry.clawdentity.com`, `proxy.clawdentity.com`); local Docker/development must be handled via env overrides (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`, `CLAWDENTITY_PROXY_WS_URL`).

@@ -17,7 +17,9 @@
 - Keep a non-canonical fallback mirror path:
   - `https://downloads.clawdentity.com/skill/v<version>/skill.md`
 - Do not document deprecated command groups that are absent from Rust CLI.
-- Keep onboarding invite prefix explicit: `clw_inv_...`.
+- Keep onboarding code prefixes explicit:
+  - hosted starter pass: `clw_stp_...`
+  - operator invite: `clw_inv_...`
 - Do not document manual registry/proxy host changes unless explicitly needed for a recovery scenario.
 - Keep CLI install guidance deterministic and fallback-safe:
   - primary path: hosted installers `https://clawdentity.com/install.sh` and `https://clawdentity.com/install.ps1`
@@ -33,6 +35,7 @@
 - Keep `apps/landing/src/content/docs/guides/openclaw-skill.mdx` aligned with the consolidated `/skill.md` artifact wording while preserving local install artifact paths.
 - Keep `apps/landing/src/content/docs/getting-started/installation.mdx` aligned with installer defaults and fallback ordering.
 - Keep `apps/landing/src/content/docs/getting-started/quickstart.mdx` prompt-first and aligned with the canonical quick prompt text from `SKILL.md`.
+- Keep `apps/landing/src/pages/getting-started/github.astro` aligned with the hosted starter-pass prompt contract and manual fallback command.
 - When `skill/SKILL.md` or `skill/references/*` changes, regenerate and sync Rust-owned assets:
   - `pnpm -F @clawdentity/openclaw-skill build`
   - `pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`

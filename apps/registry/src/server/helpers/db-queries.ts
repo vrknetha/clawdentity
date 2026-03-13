@@ -5,17 +5,24 @@ import {
   agent_registration_challenges,
   agents,
   invites,
+  starter_passes,
 } from "../../db/schema.js";
 import {
   inviteRedeemAlreadyUsedError,
   inviteRedeemCodeInvalidError,
   inviteRedeemExpiredError,
 } from "../../invite-lifecycle.js";
+import {
+  starterPassAlreadyUsedError,
+  starterPassCodeInvalidError,
+  starterPassExpiredError,
+} from "../../starter-pass-lifecycle.js";
 import type {
   InviteRow,
   OwnedAgent,
   OwnedAgentAuthSession,
   OwnedAgentRegistrationChallenge,
+  StarterPassRow,
 } from "../constants.js";
 
 export async function findOwnedAgent(input: {
@@ -132,6 +139,7 @@ export async function findInviteByCode(input: {
       code: invites.code,
       created_by: invites.created_by,
       redeemed_by: invites.redeemed_by,
+      agent_id: invites.agent_id,
       expires_at: invites.expires_at,
       created_at: invites.created_at,
     })
@@ -152,6 +160,7 @@ export async function findInviteById(input: {
       code: invites.code,
       created_by: invites.created_by,
       redeemed_by: invites.redeemed_by,
+      agent_id: invites.agent_id,
       expires_at: invites.expires_at,
       created_at: invites.created_at,
     })
@@ -206,6 +215,113 @@ export async function resolveInviteRedeemStateError(input: {
   }
 
   return inviteRedeemCodeInvalidError();
+}
+
+export async function findStarterPassByCode(input: {
+  db: ReturnType<typeof createDb>;
+  code: string;
+}): Promise<StarterPassRow | undefined> {
+  const rows = await input.db
+    .select({
+      id: starter_passes.id,
+      code: starter_passes.code,
+      provider: starter_passes.provider,
+      provider_subject: starter_passes.provider_subject,
+      provider_login: starter_passes.provider_login,
+      display_name: starter_passes.display_name,
+      redeemed_by: starter_passes.redeemed_by,
+      issued_at: starter_passes.issued_at,
+      redeemed_at: starter_passes.redeemed_at,
+      expires_at: starter_passes.expires_at,
+      status: starter_passes.status,
+    })
+    .from(starter_passes)
+    .where(eq(starter_passes.code, input.code))
+    .limit(1);
+
+  return rows[0];
+}
+
+export async function findStarterPassByProviderSubject(input: {
+  db: ReturnType<typeof createDb>;
+  provider: "github";
+  providerSubject: string;
+}): Promise<StarterPassRow | undefined> {
+  const rows = await input.db
+    .select({
+      id: starter_passes.id,
+      code: starter_passes.code,
+      provider: starter_passes.provider,
+      provider_subject: starter_passes.provider_subject,
+      provider_login: starter_passes.provider_login,
+      display_name: starter_passes.display_name,
+      redeemed_by: starter_passes.redeemed_by,
+      issued_at: starter_passes.issued_at,
+      redeemed_at: starter_passes.redeemed_at,
+      expires_at: starter_passes.expires_at,
+      status: starter_passes.status,
+    })
+    .from(starter_passes)
+    .where(
+      and(
+        eq(starter_passes.provider, input.provider),
+        eq(starter_passes.provider_subject, input.providerSubject),
+      ),
+    )
+    .limit(1);
+
+  return rows[0];
+}
+
+export async function countAgentsByOwner(input: {
+  db: ReturnType<typeof createDb>;
+  ownerId: string;
+}): Promise<number> {
+  const rows = await input.db
+    .select({
+      id: agents.id,
+    })
+    .from(agents)
+    .where(eq(agents.owner_id, input.ownerId));
+
+  return rows.length;
+}
+
+export async function resolveStarterPassRedeemStateError(input: {
+  db: ReturnType<typeof createDb>;
+  starterPassId: string;
+  nowMillis: number;
+}) {
+  const rows = await input.db
+    .select({
+      id: starter_passes.id,
+      redeemed_by: starter_passes.redeemed_by,
+      expires_at: starter_passes.expires_at,
+      status: starter_passes.status,
+    })
+    .from(starter_passes)
+    .where(eq(starter_passes.id, input.starterPassId))
+    .limit(1);
+  const starterPass = rows[0];
+
+  if (!starterPass) {
+    return starterPassCodeInvalidError();
+  }
+
+  if (starterPass.redeemed_by !== null || starterPass.status === "redeemed") {
+    return starterPassAlreadyUsedError();
+  }
+
+  if (starterPass.status === "expired") {
+    return starterPassExpiredError();
+  }
+
+  const expiresAtMillis = Date.parse(starterPass.expires_at);
+  if (!Number.isFinite(expiresAtMillis) || expiresAtMillis <= input.nowMillis) {
+    return starterPassExpiredError();
+  }
+
+  return starterPassCodeInvalidError();
 }
 
 export function isUnsupportedLocalTransactionError(error: unknown): boolean {

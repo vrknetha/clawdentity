@@ -285,6 +285,8 @@ describe("GET /v1/me", () => {
         did: string;
         displayName: string;
         role: string;
+        onboardingSource: string | null;
+        agentLimit: number | null;
         apiKey: { id: string; name: string };
       };
     };
@@ -293,6 +295,8 @@ describe("GET /v1/me", () => {
       did: "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       displayName: "Ravi",
       role: "admin",
+      onboardingSource: "admin_bootstrap",
+      agentLimit: null,
       apiKey: {
         id: "key-1",
         name: "ci",

@@ -14,9 +14,13 @@ export type Bindings = {
   APP_VERSION?: string;
   PROXY_URL?: string;
   REGISTRY_ISSUER_URL?: string;
+  LANDING_URL?: string;
   EVENT_BUS_BACKEND?: "memory" | "queue";
   EVENT_BUS_QUEUE?: QueuePublisher;
   BOOTSTRAP_SECRET?: string;
+  GITHUB_CLIENT_ID?: string;
+  GITHUB_CLIENT_SECRET?: string;
+  GITHUB_OAUTH_STATE_SECRET?: string;
   REGISTRY_SIGNING_KEY?: string;
   REGISTRY_SIGNING_KEYS?: string;
 };
@@ -98,8 +102,23 @@ export type InviteRow = {
   code: string;
   created_by: string;
   redeemed_by: string | null;
+  agent_id: string | null;
   expires_at: string | null;
   created_at: string;
+};
+
+export type StarterPassRow = {
+  id: string;
+  code: string;
+  provider: "github";
+  provider_subject: string;
+  provider_login: string;
+  display_name: string;
+  redeemed_by: string | null;
+  issued_at: string;
+  redeemed_at: string | null;
+  expires_at: string;
+  status: "active" | "redeemed" | "expired";
 };
 
 export type CrlSnapshotRow = {
@@ -129,6 +148,15 @@ export const PROXY_URL_BY_ENVIRONMENT: Record<
   local: "https://dev.proxy.clawdentity.com",
   development: "https://dev.proxy.clawdentity.com",
   production: "https://proxy.clawdentity.com",
+};
+
+export const LANDING_URL_BY_ENVIRONMENT: Record<
+  RegistryConfig["ENVIRONMENT"],
+  string
+> = {
+  local: "https://clawdentity-site-dev.pages.dev",
+  development: "https://clawdentity-site-dev.pages.dev",
+  production: "https://clawdentity.com",
 };
 
 // Deterministic bootstrap identity guarantees one-time admin creation under races.

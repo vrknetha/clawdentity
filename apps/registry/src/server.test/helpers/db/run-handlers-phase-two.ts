@@ -11,6 +11,7 @@ import type {
   FakeAgentRegistrationChallengeInsertRow,
   FakeInviteInsertRow,
   FakeRevocationInsertRow,
+  FakeStarterPassInsertRow,
 } from "./types.js";
 
 export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
@@ -20,6 +21,8 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
     inviteInserts,
     inviteRows,
     inviteUpdates,
+    starterPassInserts,
+    starterPassRows,
     humanRows,
     apiKeyRows,
     internalServiceRows,
@@ -60,6 +63,52 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
         agentId: typeof row.agent_id === "string" ? row.agent_id : null,
         expiresAt: typeof row.expires_at === "string" ? row.expires_at : null,
         createdAt: row.created_at,
+      });
+    }
+
+    changes = 1;
+  }
+  if (
+    normalizedQuery.includes('insert into "starter_passes"') ||
+    normalizedQuery.includes("insert into starter_passes")
+  ) {
+    const columns = parseInsertColumns(query, "starter_passes");
+    const row = columns.reduce<FakeStarterPassInsertRow>(
+      (acc, column, index) => {
+        acc[column] = params[index];
+        return acc;
+      },
+      {},
+    );
+    starterPassInserts.push(row);
+
+    if (
+      typeof row.id === "string" &&
+      typeof row.code === "string" &&
+      row.provider === "github" &&
+      typeof row.provider_subject === "string" &&
+      typeof row.provider_login === "string" &&
+      typeof row.display_name === "string" &&
+      typeof row.issued_at === "string" &&
+      typeof row.expires_at === "string" &&
+      (row.status === "active" ||
+        row.status === "redeemed" ||
+        row.status === "expired")
+    ) {
+      starterPassRows.push({
+        id: row.id,
+        code: row.code,
+        provider: row.provider,
+        providerSubject: row.provider_subject,
+        providerLogin: row.provider_login,
+        displayName: row.display_name,
+        redeemedBy:
+          typeof row.redeemed_by === "string" ? row.redeemed_by : null,
+        issuedAt: row.issued_at,
+        redeemedAt:
+          typeof row.redeemed_at === "string" ? row.redeemed_at : null,
+        expiresAt: row.expires_at,
+        status: row.status,
       });
     }
 
@@ -217,6 +266,17 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
     normalizedQuery.includes('update "agent_registration_challenges"') ||
     normalizedQuery.includes("update agent_registration_challenges")
   ) {
+    if (
+      !state.beforeFirstAgentRegistrationChallengeUpdateApplied &&
+      options.beforeFirstAgentRegistrationChallengeUpdate
+    ) {
+      options.beforeFirstAgentRegistrationChallengeUpdate(
+        agentRows,
+        registrationChallengeRows,
+      );
+      state.beforeFirstAgentRegistrationChallengeUpdateApplied = true;
+    }
+
     const setColumns = parseUpdateSetColumns(
       query,
       "agent_registration_challenges",

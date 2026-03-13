@@ -1,20 +1,28 @@
 ---
 // GettingStarted — Section 07
 // Agent-first: give your AI agent one URL
+import {
+  GENERIC_AGENT_PROMPT,
+  GITHUB_ONBOARDING_START_URL,
+} from "./onboarding";
 
-const agentPrompt = `Read the instructions from https://clawdentity.com/skill.md and follow the instructions`;
+const agentPrompt = GENERIC_AGENT_PROMPT;
 ---
 
 <section class="section getting-started-section animate-on-scroll" id="getting-started">
   <div class="container">
     <div class="section-header">
       <span class="section-number">07 —</span>
-      <h2>Give your agent this prompt.</h2>
+      <h2>Hosted onboarding starts with GitHub.</h2>
     </div>
+
+    <p class="getting-started-intro stagger-child">
+      Public onboarding is now one GitHub sign-in, one starter pass, and one agent. Private or self-hosted installs can still use an operator invite.
+    </p>
 
     <div class="agent-block stagger-child">
       <div class="agent-block__header">
-        <span class="agent-block__label">AGENT-FIRST SETUP</span>
+        <span class="agent-block__label">PROMPT-FIRST FALLBACK</span>
         <button class="agent-block__copy" id="prompt-copy" aria-label="Copy agent prompt" type="button">
           <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="9" y="9" width="13" height="13" rx="2"/>
@@ -29,21 +37,24 @@ const agentPrompt = `Read the instructions from https://clawdentity.com/skill.md
       <div class="agent-block__content">
         <code class="agent-prompt">{agentPrompt}</code>
       </div>
-      <p class="agent-block__note">Your agent handles install, config, and identity setup.</p>
+      <p class="agent-block__note">Use the generated prompt from the GitHub starter-pass page when possible. This generic prompt remains valid when you already have a starter pass or an operator invite.</p>
     </div>
 
     <div class="cta-row stagger-child" style="transition-delay: 300ms">
-      <a href="/getting-started/quickstart/" class="btn btn-primary">
-        Read the Quick Start Guide
+      <a href={GITHUB_ONBOARDING_START_URL} class="btn btn-primary">
+        Get Started with GitHub
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
         </svg>
+      </a>
+      <a href="/getting-started/quickstart/" class="btn btn-secondary">
+        Read the Quick Start Guide
       </a>
     </div>
   </div>
 </section>
 
-<script define:vars={{ agentPrompt }}>
+<script is:inline define:vars={{ agentPrompt }}>
   document.getElementById('prompt-copy')?.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(agentPrompt);
@@ -57,7 +68,15 @@ const agentPrompt = `Read the instructions from https://clawdentity.com/skill.md
 <style>
   /* Tighten gap between heading and block */
   .getting-started-section .section-header {
-    margin-bottom: var(--space-lg);
+    margin-bottom: var(--space-sm);
+  }
+
+  .getting-started-intro {
+    max-width: 42rem;
+    margin: 0 0 var(--space-lg);
+    color: var(--cl-text-2);
+    font-size: 0.95rem;
+    line-height: 1.7;
   }
 
   /* Outer wrapper — uses surface-2 so it contrasts against page bg in both themes */
@@ -146,6 +165,9 @@ const agentPrompt = `Read the instructions from https://clawdentity.com/skill.md
 
   .cta-row {
     margin-top: var(--space-md);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
 
   @media (max-width: 640px) {

@@ -16,6 +16,7 @@ import { parseInternalServiceScopesPayload } from "../../auth/internal-service-s
 import {
   CRL_TTL_SECONDS,
   type CrlSnapshotRow,
+  LANDING_URL_BY_ENVIRONMENT,
   PROXY_URL_BY_ENVIRONMENT,
 } from "../constants.js";
 
@@ -395,6 +396,10 @@ export function adminBootstrapAlreadyCompletedError(): AppError {
 
 export function resolveProxyUrl(config: RegistryConfig): string {
   return config.PROXY_URL ?? PROXY_URL_BY_ENVIRONMENT[config.ENVIRONMENT];
+}
+
+export function resolveLandingUrl(config: RegistryConfig): string {
+  return config.LANDING_URL ?? LANDING_URL_BY_ENVIRONMENT[config.ENVIRONMENT];
 }
 
 export function isIsoExpired(expiresAtIso: string, nowMillis: number): boolean {

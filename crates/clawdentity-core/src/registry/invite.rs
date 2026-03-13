@@ -7,7 +7,9 @@ use crate::http::blocking_client;
 
 const INVITES_PATH: &str = "/v1/invites";
 const INVITES_REDEEM_PATH: &str = "/v1/invites/redeem";
+const STARTER_PASSES_REDEEM_PATH: &str = "/v1/starter-passes/redeem";
 const METADATA_PATH: &str = "/v1/metadata";
+const STARTER_PASS_CODE_PREFIX: &str = "clw_stp_";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,6 +159,14 @@ fn parse_error_message(response_body: &str) -> String {
             .and_then(|error| error.message)
             .unwrap_or_else(|| response_body.to_string()),
         Err(_) => response_body.to_string(),
+    }
+}
+
+fn redeem_path_for_code(code: &str) -> &'static str {
+    if code.trim().starts_with(STARTER_PASS_CODE_PREFIX) {
+        STARTER_PASSES_REDEEM_PATH
+    } else {
+        INVITES_REDEEM_PATH
     }
 }
 
@@ -382,6 +392,7 @@ pub fn redeem_invite(
     let runtime = resolve_runtime(options, input.registry_url)?;
     let invite_code = parse_non_empty(&input.code, "code")?;
     let display_name = parse_non_empty(&input.display_name, "displayName")?;
+    let redeem_path = redeem_path_for_code(&invite_code);
     let mut payload = Map::new();
     payload.insert("code".to_string(), Value::String(invite_code));
     payload.insert("displayName".to_string(), Value::String(display_name));
@@ -398,7 +409,10 @@ pub fn redeem_invite(
     }
 
     let response = blocking_client()?
-        .post(to_request_url(&runtime.registry_url, INVITES_REDEEM_PATH)?)
+        .post(to_request_url(
+            &runtime.registry_url,
+            redeem_path,
+        )?)
         .header("content-type", "application/json")
         .json(&Value::Object(payload))
         .send()
@@ -598,6 +612,52 @@ mod tests {
         .expect("redeem invite");
 
         assert_eq!(redeemed.api_key_name.as_deref(), Some("invite"));
+        assert_eq!(redeemed.proxy_url, "https://proxy.example/");
+    }
+
+    #[tokio::test]
+    async fn redeem_invite_routes_starter_pass_codes_to_starter_pass_endpoint() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/starter-passes/redeem"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "code": "clw_stp_123",
+                "displayName": "Alice"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "apiKey": {
+                    "id": "01HF7YAT00W6W7CM7N3W5FDXT5",
+                    "name": "starter-pass",
+                    "token": "pat_onboard"
+                },
+                "human": {
+                    "displayName": "Alice"
+                },
+                "proxyUrl": "https://proxy.example"
+            })))
+            .mount(&server)
+            .await;
+
+        let temp = TempDir::new().expect("temp dir");
+        seed_config(temp.path(), &server.uri(), None);
+        let options = options(temp.path());
+
+        let redeemed = tokio::task::spawn_blocking(move || {
+            redeem_invite(
+                &options,
+                InviteRedeemInput {
+                    code: "clw_stp_123".to_string(),
+                    display_name: "Alice".to_string(),
+                    api_key_name: None,
+                    registry_url: None,
+                },
+            )
+        })
+        .await
+        .expect("join")
+        .expect("redeem starter pass");
+
+        assert_eq!(redeemed.api_key_name.as_deref(), Some("starter-pass"));
         assert_eq!(redeemed.proxy_url, "https://proxy.example/");
     }
 }

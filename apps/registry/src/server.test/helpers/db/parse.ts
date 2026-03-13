@@ -55,11 +55,12 @@ export function hasFilter(
 ): boolean {
   const escapedColumn = column.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   const escapedOperator = operator.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const qualifierPattern = '(?:"?[a-zA-Z0-9_]+"?\\.)?';
   const quotedPattern = new RegExp(
-    `"${escapedColumn}"\\s*${escapedOperator}\\s*\\?`,
+    `${qualifierPattern}"${escapedColumn}"\\s*${escapedOperator}\\s*\\?`,
   );
   const barePattern = new RegExp(
-    `\\b${escapedColumn}\\b\\s*${escapedOperator}\\s*\\?`,
+    `${qualifierPattern}\\b${escapedColumn}\\b\\s*${escapedOperator}\\s*\\?`,
   );
   return quotedPattern.test(whereClause) || barePattern.test(whereClause);
 }
@@ -73,7 +74,7 @@ export function parseWhereEqualityParams(options: {
   params: unknown[];
 }): { values: Record<string, unknown[]>; consumedParams: number } {
   const values: Record<string, unknown[]> = {};
-  const pattern = /"?([a-zA-Z0-9_]+)"?\s*=\s*\?/g;
+  const pattern = /(?:"?[a-zA-Z0-9_]+"?\.)?"?([a-zA-Z0-9_]+)"?\s*=\s*\?/g;
   let parameterIndex = 0;
 
   let match = pattern.exec(options.whereClause);

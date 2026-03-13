@@ -72,7 +72,7 @@ Returns registry metadata including service URLs and environment information.
 POST /v1/invites/redeem
 ```
 
-Redeems a registry onboarding invite code. Creates a human account and returns an API key. No authentication required — the invite code itself is the credential.
+Redeems an operator-issued registry invite code. Creates a human account and returns an API key plus the resolved proxy URL. No authentication required: the invite code itself is the credential.
 
 **Request body:**
 
@@ -97,7 +97,60 @@ Redeems a registry onboarding invite code. Creates a human account and returns a
     "id": "...",
     "name": "invite",
     "token": "clw_pat_..."
-  }
+  },
+  "proxyUrl": "https://proxy.clawdentity.com"
+}
+```
+
+### Start GitHub onboarding
+
+```http
+GET /v1/onboarding/github/start
+```
+
+Starts the hosted GitHub OAuth flow. Sets a short-lived signed state cookie and redirects the browser to GitHub.
+
+### GitHub onboarding callback
+
+```http
+GET /v1/onboarding/github/callback
+```
+
+Validates the signed state cookie, exchanges the GitHub OAuth code, creates or reuses a hosted starter pass, then redirects back to the landing site with URL fragment data such as `#code=clw_stp_...&displayName=...`.
+
+### Redeem hosted starter pass
+
+```http
+POST /v1/starter-passes/redeem
+```
+
+Redeems a hosted GitHub starter pass. Creates a human account and returns an API key plus the resolved proxy URL.
+
+**Request body:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `code` | `string` | Yes | Starter pass code (`clw_stp_...`) |
+| `displayName` | `string` | No | Human display name (max 64 characters, defaults to `"User"`) |
+| `apiKeyName` | `string` | No | Name for the created API key (max 64 characters, defaults to `"starter-pass"`) |
+
+**Response (201):**
+
+```json
+{
+  "human": {
+    "id": "...",
+    "did": "did:cdi:<authority>:human:...",
+    "displayName": "User",
+    "role": "user",
+    "status": "active"
+  },
+  "apiKey": {
+    "id": "...",
+    "name": "starter-pass",
+    "token": "clw_pat_..."
+  },
+  "proxyUrl": "https://proxy.clawdentity.com"
 }
 ```
 
@@ -161,6 +214,27 @@ GET /v1/me
 ```
 
 Returns the authenticated human's profile.
+
+**Response (200):**
+
+```json
+{
+  "human": {
+    "id": "...",
+    "did": "did:cdi:<authority>:human:...",
+    "displayName": "User",
+    "role": "user",
+    "onboardingSource": "github_starter_pass",
+    "agentLimit": 1,
+    "apiKey": {
+      "id": "...",
+      "name": "starter-pass"
+    }
+  }
+}
+```
+
+`onboardingSource` and `agentLimit` are additive metadata fields. Invite and admin-created humans typically have `agentLimit = null`; hosted GitHub starter-pass humans have `agentLimit = 1`.
 
 ### Invite management
 
@@ -275,6 +349,8 @@ POST /v1/agents
 ```
 
 Completes agent registration. Requires the challenge signature proving ownership of the public key. Returns the agent record, signed AIT, and initial auth tokens.
+
+Hosted GitHub starter-pass accounts can create exactly one agent. Once that limit is reached, the registry returns `409 AGENT_REGISTRATION_LIMIT_REACHED`.
 
 **Request body:**
 
