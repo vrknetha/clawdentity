@@ -3,7 +3,7 @@ use std::path::Path;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use tempfile::TempDir;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::db::SqliteStore;
@@ -176,4 +176,55 @@ async fn start_confirm_and_status_flow() {
     .expect("join")
     .expect("status");
     assert_eq!(status.status, PairStatusKind::Confirmed);
+}
+
+#[tokio::test]
+async fn start_pairing_omits_ttl_seconds_when_not_provided() {
+    let server = MockServer::start().await;
+    let ticket_payload = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "iss": server.uri(),
+            "sub":"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+        }))
+        .expect("payload"),
+    );
+    let ticket = format!("clwpair1_{ticket_payload}");
+
+    Mock::given(method("POST"))
+        .and(path("/pair/start"))
+        .and(body_json(serde_json::json!({
+            "initiatorProfile": { "agentName":"alpha", "humanName":"alice" }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "ticket": ticket,
+            "initiatorAgentDid": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+            "initiatorProfile": { "agentName":"alpha", "humanName":"alice" },
+            "expiresAt": "2030-01-01T00:00:00.000Z"
+        })))
+        .mount(&server)
+        .await;
+
+    let temp = TempDir::new().expect("temp dir");
+    seed_agent_material(temp.path(), "alpha");
+    let start_temp = temp.path().to_path_buf();
+    let start_server_uri = server.uri();
+
+    let start = tokio::task::spawn_blocking(move || {
+        start_pairing(
+            &start_temp,
+            "alpha",
+            &start_server_uri,
+            PairProfile {
+                agent_name: "alpha".to_string(),
+                human_name: "alice".to_string(),
+                proxy_origin: None,
+            },
+            None,
+        )
+    })
+    .await
+    .expect("join")
+    .expect("start");
+
+    assert_eq!(start.ticket, ticket);
 }

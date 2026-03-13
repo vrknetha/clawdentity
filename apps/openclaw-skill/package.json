@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsup",
+    "sync:rust-assets": "node ./scripts/sync-rust-assets.mjs",
     "format": "biome format .",
     "lint": "biome lint .",
     "test": "vitest run",

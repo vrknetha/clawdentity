@@ -422,6 +422,10 @@ jobs:
         with:
           version: 10.23.0
 
+      - name: Install Node dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
       - name: Validate release infrastructure inputs
         run: |
           test -n "${CLOUDFLARE_API_TOKEN}"
@@ -447,8 +451,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          pnpm -F @clawdentity/openclaw-skill build
+          pnpm -F @clawdentity/openclaw-skill run sync:rust-assets
           node apps/landing/scripts/build-skill-md.mjs
-          pnpm -F clawdentity run sync:skill-bundle
           node apps/landing/scripts/verify-skill-artifacts.mjs
 
       - name: Verify assets and generate checksums

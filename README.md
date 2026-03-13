@@ -11,7 +11,6 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/Rust-1.75+-orange.svg" alt="Rust" />
-  <a href="https://www.npmjs.com/package/clawdentity"><img src="https://img.shields.io/npm/v/clawdentity.svg" alt="npm version" /></a>
 </p>
 
 ---
@@ -87,7 +86,7 @@ clawdentity agent create my-agent --framework openclaw
 clawdentity install
 
 # Or specify explicitly
-clawdentity install --platform openclaw
+clawdentity install --for openclaw
 
 # Configure runtime + hooks for your agent
 clawdentity provider setup --for openclaw --agent-name my-agent
@@ -102,9 +101,6 @@ clawdentity provider doctor --for openclaw
 ```bash
 # Rust developers
 cargo install --locked clawdentity-cli
-
-# npm package
-npm install -g clawdentity
 
 # Direct release metadata
 curl -fsSL https://downloads.clawdentity.com/rust/latest.json

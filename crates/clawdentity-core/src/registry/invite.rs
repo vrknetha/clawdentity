@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::config::{CliConfig, ConfigPathOptions, read_config, resolve_config, write_config};
 use crate::error::{CoreError, Result};
@@ -381,19 +382,25 @@ pub fn redeem_invite(
     let runtime = resolve_runtime(options, input.registry_url)?;
     let invite_code = parse_non_empty(&input.code, "code")?;
     let display_name = parse_non_empty(&input.display_name, "displayName")?;
+    let mut payload = Map::new();
+    payload.insert("code".to_string(), Value::String(invite_code));
+    payload.insert("displayName".to_string(), Value::String(display_name));
+    if let Some(api_key_name) = input
+        .api_key_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        payload.insert(
+            "apiKeyName".to_string(),
+            Value::String(api_key_name.to_string()),
+        );
+    }
 
     let response = blocking_client()?
         .post(to_request_url(&runtime.registry_url, INVITES_REDEEM_PATH)?)
         .header("content-type", "application/json")
-        .json(&serde_json::json!({
-            "code": invite_code,
-            "displayName": display_name,
-            "apiKeyName": input
-                .api_key_name
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty()),
-        }))
+        .json(&Value::Object(payload))
         .send()
         .map_err(|error| CoreError::Http(error.to_string()))?;
 
@@ -546,5 +553,51 @@ mod tests {
         let config = read_config(&options).expect("config");
         assert_eq!(config.api_key.as_deref(), Some("pat_onboard"));
         assert_eq!(config.human_name.as_deref(), Some("Alice"));
+    }
+
+    #[tokio::test]
+    async fn redeem_invite_omits_api_key_name_when_not_provided() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/invites/redeem"))
+            .and(wiremock::matchers::body_json(serde_json::json!({
+                "code": "invite_123",
+                "displayName": "Alice"
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "apiKey": {
+                    "id": "01HF7YAT00W6W7CM7N3W5FDXT5",
+                    "name": "invite",
+                    "token": "pat_onboard"
+                },
+                "human": {
+                    "displayName": "Alice"
+                },
+                "proxyUrl": "https://proxy.example"
+            })))
+            .mount(&server)
+            .await;
+
+        let temp = TempDir::new().expect("temp dir");
+        seed_config(temp.path(), &server.uri(), None);
+        let options = options(temp.path());
+
+        let redeemed = tokio::task::spawn_blocking(move || {
+            redeem_invite(
+                &options,
+                InviteRedeemInput {
+                    code: "invite_123".to_string(),
+                    display_name: "Alice".to_string(),
+                    api_key_name: None,
+                    registry_url: None,
+                },
+            )
+        })
+        .await
+        .expect("join")
+        .expect("redeem invite");
+
+        assert_eq!(redeemed.api_key_name.as_deref(), Some("invite"));
+        assert_eq!(redeemed.proxy_url, "https://proxy.example/");
     }
 }

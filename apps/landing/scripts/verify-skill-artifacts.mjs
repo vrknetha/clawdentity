@@ -13,14 +13,30 @@ const sourceSkill = join(
   "SKILL.md",
 );
 const landingSkill = join(repoRoot, "apps", "landing", "public", "skill.md");
-const bundledSkill = join(
+const rustSkill = join(
   repoRoot,
-  "apps",
-  "cli",
-  "skill-bundle",
+  "crates",
+  "clawdentity-core",
+  "assets",
   "openclaw-skill",
   "skill",
   "SKILL.md",
+);
+const sourceTransform = join(
+  repoRoot,
+  "apps",
+  "openclaw-skill",
+  "dist",
+  "relay-to-peer.mjs",
+);
+const rustTransform = join(
+  repoRoot,
+  "crates",
+  "clawdentity-core",
+  "assets",
+  "openclaw-skill",
+  "transform",
+  "relay-to-peer.mjs",
 );
 
 async function readUtf8(filePath) {
@@ -28,10 +44,18 @@ async function readUtf8(filePath) {
 }
 
 async function main() {
-  const [source, landing, bundled] = await Promise.all([
+  const [
+    source,
+    landing,
+    rustSkillBody,
+    sourceTransformBody,
+    rustTransformBody,
+  ] = await Promise.all([
     readUtf8(sourceSkill),
     readUtf8(landingSkill),
-    readUtf8(bundledSkill),
+    readUtf8(rustSkill),
+    readUtf8(sourceTransform),
+    readUtf8(rustTransform),
   ]);
 
   if (!landing.startsWith(source)) {
@@ -40,14 +64,20 @@ async function main() {
     );
   }
 
-  if (bundled !== source) {
+  if (rustSkillBody !== source) {
     throw new Error(
-      "[verify-skill-artifacts] bundled CLI SKILL.md does not match apps/openclaw-skill/skill/SKILL.md",
+      "[verify-skill-artifacts] Rust skill asset does not match apps/openclaw-skill/skill/SKILL.md",
+    );
+  }
+
+  if (rustTransformBody !== sourceTransformBody) {
+    throw new Error(
+      "[verify-skill-artifacts] Rust relay transform asset does not match apps/openclaw-skill/dist/relay-to-peer.mjs",
     );
   }
 
   process.stdout.write(
-    "[verify-skill-artifacts] landing and bundled skill artifacts are in sync\n",
+    "[verify-skill-artifacts] landing and Rust skill artifacts are in sync\n",
   );
 }
 

@@ -6,8 +6,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::setup::{
-    OPENCLAW_DEFAULT_BASE_URL, load_relay_runtime_config, openclaw_agent_name_path,
-    read_selected_openclaw_agent, resolve_connector_base_url, resolve_openclaw_hook_token,
+    OPENCLAW_DEFAULT_BASE_URL, explicit_openclaw_dir, load_relay_runtime_config,
+    openclaw_agent_name_path, read_selected_openclaw_agent, resolve_connector_base_url,
+    resolve_openclaw_hook_token,
 };
 use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::db::SqliteStore;
@@ -87,6 +88,10 @@ fn resolve_openclaw_dir(home_dir: Option<&Path>, override_dir: Option<&Path>) ->
         return Ok(path.to_path_buf());
     }
 
+    if let Some(home_dir) = home_dir {
+        return Ok(explicit_openclaw_dir(home_dir));
+    }
+
     if let Ok(path) = std::env::var("OPENCLAW_STATE_DIR") {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
@@ -102,11 +107,7 @@ fn resolve_openclaw_dir(home_dir: Option<&Path>, override_dir: Option<&Path>) ->
         }
     }
 
-    let home = if let Some(home_dir) = home_dir {
-        home_dir.to_path_buf()
-    } else {
-        dirs::home_dir().ok_or(CoreError::HomeDirectoryUnavailable)?
-    };
+    let home = dirs::home_dir().ok_or(CoreError::HomeDirectoryUnavailable)?;
     Ok(home.join(".openclaw"))
 }
 
@@ -319,10 +320,7 @@ fn run_connector_checks(
             "state.connectorInboundInbox",
             "Connector inbound inbox",
             DoctorCheckStatus::Pass,
-            format!(
-                "pending={} deadLetter={}",
-                inbound_pending, inbound_dead_letter
-            ),
+            format!("pending={inbound_pending} deadLetter={inbound_dead_letter}"),
             None,
             Some(
                 serde_json::json!({ "pendingCount": inbound_pending, "deadLetterCount": inbound_dead_letter }),
@@ -473,9 +471,7 @@ pub fn run_openclaw_doctor(
             "Agent credentials",
             DoctorCheckStatus::Fail,
             "cannot validate credentials without selected agent",
-            Some(
-                "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` first.",
-            ),
+            Some("Run `clawdentity provider setup --for openclaw --agent-name <agentName>` first."),
             None,
         );
     }

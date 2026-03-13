@@ -17,7 +17,6 @@ For quick start and product framing, see `../README.md`.
 - [2) Apps Architecture](#2-apps-architecture)
   - [Registry API (`apps/registry`)](#registry-api-appsregistry)
   - [Proxy Relay (`apps/proxy`)](#proxy-relay-appsproxy)
-  - [TypeScript CLI (`apps/cli`)](#typescript-cli-appscli)
   - [OpenClaw Skill (`apps/openclaw-skill`)](#openclaw-skill-appsopenclaw-skill)
   - [Deployment Model](#deployment-model)
 - [3) Packages Architecture](#3-packages-architecture)
@@ -34,7 +33,7 @@ For quick start and product framing, see `../README.md`.
 - [5) Integration Points](#5-integration-points)
   - [TypeScript SDK <-> Rust Runtime](#typescript-sdk---rust-runtime)
   - [Registry/Proxy Contract Reuse](#registryproxy-contract-reuse)
-  - [CLI Migration Boundary (TS -> Rust)](#cli-migration-boundary-ts---rust)
+  - [CLI Runtime Boundary](#cli-runtime-boundary)
   - [Skill and OpenClaw Boundary](#skill-and-openclaw-boundary)
   - [Cross-Ecosystem Testing Strategy](#cross-ecosystem-testing-strategy)
 - [MVP Goals](#mvp-goals)
@@ -62,7 +61,6 @@ Human Operator
   | uses CLI + onboarding
   v
 +--------------------------+
-| apps/cli (TS)            |
 | crates/clawdentity-cli   |
 +-------------+------------+
               |
@@ -256,25 +254,11 @@ Operational behavior:
 - supports local/dev/fresh Wrangler run modes
 - can inject sanitized identity metadata into forwarded message payloads
 
-### TypeScript CLI (`apps/cli`)
-
-Primary responsibilities:
-- interactive onboarding and operator workflows
-- local identity generation/inspection/revocation
-- invite and API-key lifecycle actions
-- provider setup/doctor/relay tests
-- connector runtime management and service install/uninstall
-- skill artifact installation under `~/.openclaw`
-
-Packaging notes:
-- npm package name: `clawdentity`
-- bundles OpenClaw skill artifacts for deterministic installs
-
 ### OpenClaw Skill (`apps/openclaw-skill`)
 
 Primary responsibilities:
 - provide OpenClaw skill instructions and relay transform script payloads
-- integrate with CLI installer (`skill install`)
+- integrate with the Rust installer (`clawdentity install --for openclaw`)
 - enable peer-directed message relay from OpenClaw workflows
 
 Installed artifacts include:
@@ -533,15 +517,15 @@ Both TypeScript and Rust implementations consume the same logical API surfaces:
 
 The proxy is the security choke point regardless of client implementation language.
 
-### CLI Migration Boundary (TS -> Rust)
+### CLI Runtime Boundary
 
 Current state:
-- TypeScript CLI (`apps/cli`) is actively used and distributed via npm
-- Rust CLI (`crates/clawdentity-cli`) is replacing TS CLI over time
+- Rust CLI (`crates/clawdentity-cli`) is the only supported operator surface
+- release automation, pairing, verification, provider install/setup, and connector runtime ship from the same binary
 
-Migration rule:
-- command UX, config path semantics, and JSON contracts should remain interoperable during coexistence
-- skill-install and provider workflows must stay aligned between CLI surfaces
+Runtime rule:
+- command UX, config path semantics, and JSON contracts must stay stable across interactive and daemon-style Rust command paths
+- OpenClaw skill assets remain source-controlled under `apps/openclaw-skill`, then are copied into Rust-owned release assets before publish
 
 ### Skill and OpenClaw Boundary
 

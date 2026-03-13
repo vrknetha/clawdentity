@@ -26,7 +26,10 @@ pub struct RuntimeServerState {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OutboundRequest {
-    to_agent_did: String,
+    #[serde(default)]
+    to_agent_did: Option<String>,
+    #[serde(default)]
+    peer_did: Option<String>,
     payload: serde_json::Value,
     #[serde(default)]
     conversation_id: Option<String>,
@@ -106,14 +109,24 @@ async fn outbound_handler(
     State(state): State<RuntimeServerState>,
     Json(request): Json<OutboundRequest>,
 ) -> impl IntoResponse {
-    let normalized_to_agent_did = request.to_agent_did.trim().to_string();
+    let Some(normalized_to_agent_did) = request.normalized_to_agent_did() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": {
+                    "code": "INVALID_TO_AGENT_DID",
+                    "message": "toAgentDid or peerDid must be a valid agent DID",
+                }
+            })),
+        );
+    };
     if parse_agent_did(&normalized_to_agent_did).is_err() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": {
                     "code": "INVALID_TO_AGENT_DID",
-                    "message": "toAgentDid must be a valid agent DID",
+                    "message": "toAgentDid or peerDid must be a valid agent DID",
                 }
             })),
         );
@@ -247,6 +260,17 @@ fn normalize_request_ids(request_ids: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+impl OutboundRequest {
+    fn normalized_to_agent_did(&self) -> Option<String> {
+        self.to_agent_did
+            .as_deref()
+            .or(self.peer_did.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::{Body, to_bytes};
@@ -306,6 +330,32 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(Body::from(
                         "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"world\"}}",
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(outbound_count(&store).expect("count"), 1);
+    }
+
+    #[tokio::test]
+    async fn outbound_endpoint_accepts_legacy_peer_did_payload() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+        let app = create_runtime_router(RuntimeServerState {
+            store: store.clone(),
+            relay_sender: None,
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/outbound")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        "{\"peer\":\"beta\",\"peerDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"peerProxyUrl\":\"https://example.test/hooks/agent\",\"payload\":{\"hello\":\"world\"}}",
                     ))
                     .expect("request"),
             )

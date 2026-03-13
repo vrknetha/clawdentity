@@ -11,9 +11,9 @@ Decision:
 - Keep apps, shared TypeScript packages, Rust core, Rust CLI, and local mock services in one repository.
 
 Why:
-- Protocol and security changes must stay synchronized across registry, proxy, SDK, connector, and both CLI implementations.
+- Protocol and security changes must stay synchronized across registry, proxy, SDK, connector, and the Rust CLI/runtime.
 - Release coordination is simpler when cross-language validation runs in one place.
-- Operator workflows (invite, identity, pairing, skill install, connector runtime) depend on tight compatibility.
+- Operator workflows (invite, identity, pairing, OpenClaw asset install, connector runtime) depend on tight compatibility.
 
 Tradeoff:
 - Higher CI complexity and stricter dependency discipline are required.
@@ -44,18 +44,18 @@ Why:
 Tradeoff:
 - Adds an extra integration layer (skill + proxy + connector) that must remain version-compatible.
 
-## 4) Dual CLI strategy during migration
+## 4) Single Rust CLI surface
 
 Decision:
-- Maintain TypeScript CLI (`apps/cli`) while migrating toward Rust CLI (`crates/clawdentity-cli`).
+- Keep `crates/clawdentity-cli` as the only supported operator surface and release path.
 
 Why:
-- Existing users rely on npm-distributed CLI and current automation scripts.
-- Rust CLI improves long-term runtime cohesion with `clawdentity-core`.
-- Gradual migration lowers operational risk.
+- OpenClaw provider setup, pairing, verification, connector runtime, and release assets now ship from one executable.
+- One CLI avoids drift in command semantics, config paths, and release automation.
+- The Rust binary owns the embedded OpenClaw skill artifacts needed for offline and containerized installs.
 
 Tradeoff:
-- Command UX and JSON output compatibility must be maintained across both surfaces.
+- Rust release automation must stay strict because there is no secondary CLI fallback.
 
 ## 5) Shared protocol package as canonical contract
 

@@ -1,0 +1,772 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde_json::{Map, Value, json};
+
+use crate::error::{CoreError, Result};
+use crate::peers::PeersConfig;
+
+pub const SKILL_DIR_NAME: &str = "clawdentity-openclaw-relay";
+pub const RELAY_MODULE_FILE_NAME: &str = "relay-to-peer.mjs";
+pub const RELAY_RUNTIME_FILE_NAME: &str = "clawdentity-relay.json";
+pub const RELAY_PEERS_FILE_NAME: &str = "clawdentity-peers.json";
+const HOOK_MAPPING_ID: &str = "clawdentity-send-to-peer";
+const HOOK_PATH_SEND_TO_PEER: &str = "send-to-peer";
+const DEFAULT_OPENCLAW_MAIN_SESSION_KEY: &str = "main";
+const GATEWAY_TOKEN_BYTES: usize = 32;
+const FILE_MODE: u32 = 0o600;
+const CONNECTOR_HOST_LOOPBACK: &str = "127.0.0.1";
+const CONNECTOR_HOST_LOCALHOST: &str = "localhost";
+const CONNECTOR_HOST_DOCKER: &str = "host.docker.internal";
+const CONNECTOR_HOST_DOCKER_GATEWAY: &str = "gateway.docker.internal";
+const CONNECTOR_HOST_LINUX_BRIDGE: &str = "172.17.0.1";
+const DEFAULT_CONNECTOR_OUTBOUND_PATH: &str = "/v1/outbound";
+
+const SKILL_MD: &str = include_str!("../../../assets/openclaw-skill/skill/SKILL.md");
+const REFERENCE_ENVIRONMENT: &str =
+    include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-environment.md");
+const REFERENCE_PROTOCOL: &str =
+    include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-protocol.md");
+const REFERENCE_REGISTRY: &str =
+    include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-registry.md");
+const RELAY_MODULE: &[u8] =
+    include_bytes!("../../../assets/openclaw-skill/transform/relay-to-peer.mjs");
+
+pub struct OpenclawConfigPatchResult {
+    pub config_changed: bool,
+}
+
+struct OpenclawAsset {
+    path: PathBuf,
+    bytes: &'static [u8],
+    install_note: &'static str,
+}
+
+fn write_secure_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|source| CoreError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    fs::write(path, bytes).map_err(|source| CoreError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(FILE_MODE)).map_err(|source| {
+            CoreError::Io {
+                path: path.to_path_buf(),
+                source,
+            }
+        })?;
+    }
+    Ok(())
+}
+
+fn write_if_changed(path: &Path, bytes: &[u8]) -> Result<bool> {
+    match fs::read(path) {
+        Ok(existing) if existing == bytes => Ok(false),
+        Ok(_) | Err(_) => {
+            write_secure_bytes(path, bytes)?;
+            Ok(true)
+        }
+    }
+}
+
+fn parse_json_or_default(path: &Path) -> Result<Value> {
+    match fs::read_to_string(path) {
+        Ok(raw) => serde_json::from_str::<Value>(&raw).map_err(|source| CoreError::JsonParse {
+            path: path.to_path_buf(),
+            source,
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(source) => Err(CoreError::Io {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn ensure_object(value: &mut Value) -> Result<&mut Map<String, Value>> {
+    if !value.is_object() {
+        *value = json!({});
+    }
+    value.as_object_mut().ok_or_else(|| {
+        CoreError::InvalidInput("OpenClaw config root must be an object".to_string())
+    })
+}
+
+fn ensure_object_key<'a>(
+    parent: &'a mut Map<String, Value>,
+    key: &str,
+) -> Result<&'a mut Map<String, Value>> {
+    let entry = parent.entry(key.to_string()).or_insert_with(|| json!({}));
+    if !entry.is_object() {
+        *entry = json!({});
+    }
+    entry.as_object_mut().ok_or_else(|| {
+        CoreError::InvalidInput(format!("OpenClaw config `{key}` must be an object"))
+    })
+}
+
+fn normalize_string_array_with_values(current: Option<&Value>, extra: &[&str]) -> Vec<Value> {
+    let mut values = current
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+
+    for extra_value in extra {
+        let trimmed = extra_value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !values.iter().any(|value| value == trimmed) {
+            values.push(trimmed.to_string());
+        }
+    }
+
+    values.into_iter().map(Value::String).collect()
+}
+
+fn parse_gateway_auth_mode(value: Option<&Value>) -> Option<&str> {
+    let normalized = value?.as_str()?.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "token" | "password" | "trusted-proxy" => Some(match normalized.as_str() {
+            "token" => "token",
+            "password" => "password",
+            _ => "trusted-proxy",
+        }),
+        _ => None,
+    }
+}
+
+fn generate_token_hex(bytes_len: usize) -> String {
+    let mut bytes = vec![0_u8; bytes_len];
+    getrandom::fill(&mut bytes).expect("token generation should not fail");
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn openclaw_assets(openclaw_dir: &Path) -> [OpenclawAsset; 6] {
+    [
+        OpenclawAsset {
+            path: skill_root(openclaw_dir).join("SKILL.md"),
+            bytes: SKILL_MD.as_bytes(),
+            install_note: "installed OpenClaw skill guide",
+        },
+        OpenclawAsset {
+            path: skill_root(openclaw_dir)
+                .join("references")
+                .join("clawdentity-environment.md"),
+            bytes: REFERENCE_ENVIRONMENT.as_bytes(),
+            install_note: "installed OpenClaw skill environment reference",
+        },
+        OpenclawAsset {
+            path: skill_root(openclaw_dir)
+                .join("references")
+                .join("clawdentity-protocol.md"),
+            bytes: REFERENCE_PROTOCOL.as_bytes(),
+            install_note: "installed OpenClaw skill protocol reference",
+        },
+        OpenclawAsset {
+            path: skill_root(openclaw_dir)
+                .join("references")
+                .join("clawdentity-registry.md"),
+            bytes: REFERENCE_REGISTRY.as_bytes(),
+            install_note: "installed OpenClaw skill registry reference",
+        },
+        OpenclawAsset {
+            path: skill_root(openclaw_dir).join(RELAY_MODULE_FILE_NAME),
+            bytes: RELAY_MODULE,
+            install_note: "installed OpenClaw relay transform bundle",
+        },
+        OpenclawAsset {
+            path: transform_target_path(openclaw_dir),
+            bytes: RELAY_MODULE,
+            install_note: "installed OpenClaw hook relay transform",
+        },
+    ]
+}
+
+fn note_install_result(asset: &OpenclawAsset) -> Result<String> {
+    let changed = write_if_changed(&asset.path, asset.bytes)?;
+    Ok(format!(
+        "{} {}",
+        if changed {
+            asset.install_note
+        } else {
+            "verified"
+        },
+        asset.path.display()
+    ))
+}
+
+fn non_empty_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn resolve_hook_token(hooks: &Map<String, Value>, preferred_hook_token: Option<&str>) -> String {
+    non_empty_string(hooks.get("token"))
+        .or_else(|| preferred_hook_token.map(str::trim).map(ToOwned::to_owned))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| generate_token_hex(GATEWAY_TOKEN_BYTES))
+}
+
+fn resolve_default_session_key(hooks: &Map<String, Value>) -> String {
+    non_empty_string(hooks.get("defaultSessionKey"))
+        .unwrap_or_else(|| DEFAULT_OPENCLAW_MAIN_SESSION_KEY.to_string())
+}
+
+fn relay_mapping_matches(mapping: &Value) -> bool {
+    mapping
+        .get("id")
+        .and_then(Value::as_str)
+        .map(|value| value == HOOK_MAPPING_ID)
+        .unwrap_or(false)
+        || mapping
+            .get("match")
+            .and_then(Value::as_object)
+            .and_then(|value| value.get("path"))
+            .and_then(Value::as_str)
+            .map(|value| value == HOOK_PATH_SEND_TO_PEER)
+            .unwrap_or(false)
+}
+
+fn relay_mapping_definition() -> Value {
+    json!({
+        "id": HOOK_MAPPING_ID,
+        "match": { "path": HOOK_PATH_SEND_TO_PEER },
+        "action": "agent",
+        "wakeMode": "now",
+        "transform": { "module": RELAY_MODULE_FILE_NAME },
+    })
+}
+
+fn upsert_relay_mapping(hooks: &mut Map<String, Value>) {
+    let mut mappings = hooks
+        .get("mappings")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let relay_mapping = relay_mapping_definition();
+    if let Some(index) = mappings.iter().position(relay_mapping_matches) {
+        mappings[index] = relay_mapping;
+    } else {
+        mappings.push(relay_mapping);
+    }
+    hooks.insert("mappings".to_string(), Value::Array(mappings));
+}
+
+fn apply_hook_settings(
+    hooks: &mut Map<String, Value>,
+    resolved_hook_token: &str,
+    default_session_key: &str,
+) {
+    hooks.insert("enabled".to_string(), Value::Bool(true));
+    hooks.insert(
+        "token".to_string(),
+        Value::String(resolved_hook_token.to_string()),
+    );
+    hooks.insert(
+        "defaultSessionKey".to_string(),
+        Value::String(default_session_key.to_string()),
+    );
+    hooks.insert("allowRequestSessionKey".to_string(), Value::Bool(false));
+    hooks.insert(
+        "allowedSessionKeyPrefixes".to_string(),
+        Value::Array(normalize_string_array_with_values(
+            hooks.get("allowedSessionKeyPrefixes"),
+            &["hook:", default_session_key],
+        )),
+    );
+    hooks.remove("agent");
+    upsert_relay_mapping(hooks);
+}
+
+fn resolve_gateway_token(gateway_auth: &Map<String, Value>) -> String {
+    std::env::var("OPENCLAW_GATEWAY_TOKEN")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| non_empty_string(gateway_auth.get("token")))
+        .unwrap_or_else(|| generate_token_hex(GATEWAY_TOKEN_BYTES))
+}
+
+fn apply_gateway_auth(root: &mut Map<String, Value>) -> Result<()> {
+    let gateway = ensure_object_key(root, "gateway")?;
+    let gateway_auth = ensure_object_key(gateway, "auth")?;
+    let configured_mode = parse_gateway_auth_mode(gateway_auth.get("mode"))
+        .unwrap_or("token")
+        .to_string();
+    gateway_auth.insert("mode".to_string(), Value::String(configured_mode.clone()));
+    if configured_mode == "token" {
+        gateway_auth.insert(
+            "token".to_string(),
+            Value::String(resolve_gateway_token(gateway_auth)),
+        );
+    }
+    Ok(())
+}
+
+fn serialize_config(config: &Value) -> Result<Vec<u8>> {
+    Ok(format!("{}\n", serde_json::to_string_pretty(config)?).into_bytes())
+}
+
+fn write_config_if_changed(config_path: &Path, next_bytes: &[u8]) -> Result<bool> {
+    let changed = match fs::read(config_path) {
+        Ok(existing) => existing != next_bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(source) => {
+            return Err(CoreError::Io {
+                path: config_path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    if changed {
+        write_secure_bytes(config_path, next_bytes)?;
+    }
+    Ok(changed)
+}
+
+fn read_hooks(config: &Value) -> Option<&Map<String, Value>> {
+    config.get("hooks").and_then(Value::as_object)
+}
+
+fn hook_mapping_present(hooks: Option<&Map<String, Value>>) -> bool {
+    hooks
+        .and_then(|value| value.get("mappings"))
+        .and_then(Value::as_array)
+        .map(|mappings| {
+            mappings.iter().any(|mapping| {
+                mapping
+                    .get("match")
+                    .and_then(Value::as_object)
+                    .and_then(|value| value.get("path"))
+                    .and_then(Value::as_str)
+                    .map(|value| value == HOOK_PATH_SEND_TO_PEER)
+                    .unwrap_or(false)
+                    && mapping
+                        .get("transform")
+                        .and_then(Value::as_object)
+                        .and_then(|value| value.get("module"))
+                        .and_then(Value::as_str)
+                        .map(|value| value == RELAY_MODULE_FILE_NAME)
+                        .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn gateway_auth_state(config: &Value) -> (String, bool) {
+    let gateway_auth = config
+        .get("gateway")
+        .and_then(Value::as_object)
+        .and_then(|value| value.get("auth"))
+        .and_then(Value::as_object);
+    let mode = gateway_auth
+        .and_then(|value| value.get("mode"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let token_present = gateway_auth
+        .and_then(|value| value.get("token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(|value| !value.is_empty())
+        .unwrap_or(false);
+    (mode, token_present)
+}
+
+fn install_check(
+    id: &str,
+    passed: bool,
+    ok_message: String,
+    error_message: String,
+) -> (String, bool, String) {
+    (
+        id.to_string(),
+        passed,
+        if passed { ok_message } else { error_message },
+    )
+}
+
+fn build_asset_presence_checks(openclaw_dir: &Path) -> Vec<(String, bool, String)> {
+    let transform_path = transform_target_path(openclaw_dir);
+    let skill_path = skill_root(openclaw_dir);
+    let transform_present = transform_path.is_file();
+    let skill_doc_present = skill_path.join("SKILL.md").is_file();
+    vec![
+        install_check(
+            "state.transformMapping",
+            transform_present,
+            format!(
+                "relay transform module is present at {}",
+                transform_path.display()
+            ),
+            format!(
+                "relay transform module is missing at {}",
+                transform_path.display()
+            ),
+        ),
+        install_check(
+            "state.skillArtifacts",
+            skill_doc_present,
+            format!(
+                "OpenClaw skill artifacts are present at {}",
+                skill_path.display()
+            ),
+            format!(
+                "OpenClaw skill artifacts are missing at {}",
+                skill_path.display()
+            ),
+        ),
+    ]
+}
+
+fn hook_token_present(hooks: Option<&Map<String, Value>>) -> bool {
+    hooks
+        .and_then(|value| value.get("token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+}
+
+fn build_config_checks(
+    hooks: Option<&Map<String, Value>>,
+    mapping_present: bool,
+    gateway_mode: &str,
+    gateway_token_present: bool,
+) -> Vec<(String, bool, String)> {
+    vec![
+        install_check(
+            "state.hookToken",
+            hook_token_present(hooks),
+            "OpenClaw hook token is configured".to_string(),
+            "OpenClaw hook token is missing".to_string(),
+        ),
+        install_check(
+            "state.hookMapping",
+            mapping_present,
+            "send-to-peer relay mapping is configured".to_string(),
+            "send-to-peer relay mapping is missing".to_string(),
+        ),
+        install_check(
+            "state.gatewayAuth",
+            gateway_mode == "token" && gateway_token_present,
+            "OpenClaw gateway token auth is configured".to_string(),
+            "OpenClaw gateway token auth is missing or unsupported".to_string(),
+        ),
+    ]
+}
+
+fn build_install_checks(
+    openclaw_dir: &Path,
+    hooks: Option<&Map<String, Value>>,
+    mapping_present: bool,
+    gateway_mode: &str,
+    gateway_token_present: bool,
+) -> Vec<(String, bool, String)> {
+    let mut checks = build_asset_presence_checks(openclaw_dir);
+    checks.extend(build_config_checks(
+        hooks,
+        mapping_present,
+        gateway_mode,
+        gateway_token_present,
+    ));
+    checks
+}
+
+/// Return the OpenClaw skill installation root under the selected home directory.
+pub fn skill_root(openclaw_dir: &Path) -> PathBuf {
+    openclaw_dir.join("skills").join(SKILL_DIR_NAME)
+}
+
+/// Return the canonical OpenClaw transform-module path used by hooks.
+pub fn transform_target_path(openclaw_dir: &Path) -> PathBuf {
+    openclaw_dir
+        .join("hooks")
+        .join("transforms")
+        .join(RELAY_MODULE_FILE_NAME)
+}
+
+fn transform_dir(openclaw_dir: &Path) -> PathBuf {
+    openclaw_dir.join("hooks").join("transforms")
+}
+
+/// Return the runtime metadata file path used by the relay transform.
+pub fn transform_runtime_path(openclaw_dir: &Path) -> PathBuf {
+    transform_dir(openclaw_dir).join(RELAY_RUNTIME_FILE_NAME)
+}
+
+/// Return the peer snapshot file path used by the relay transform.
+pub fn transform_peers_path(openclaw_dir: &Path) -> PathBuf {
+    transform_dir(openclaw_dir).join(RELAY_PEERS_FILE_NAME)
+}
+
+fn is_container_fallback_host(host: &str) -> bool {
+    matches!(
+        host,
+        CONNECTOR_HOST_LOOPBACK
+            | CONNECTOR_HOST_LOCALHOST
+            | CONNECTOR_HOST_DOCKER
+            | CONNECTOR_HOST_DOCKER_GATEWAY
+            | CONNECTOR_HOST_LINUX_BRIDGE
+    )
+}
+
+fn connector_runtime_base_urls(connector_base_url: &str) -> Result<Vec<String>> {
+    let normalized = url::Url::parse(connector_base_url.trim())
+        .map_err(|_| CoreError::InvalidUrl {
+            context: "connectorBaseUrl",
+            value: connector_base_url.to_string(),
+        })?
+        .to_string();
+    let parsed = url::Url::parse(&normalized).map_err(|_| CoreError::InvalidUrl {
+        context: "connectorBaseUrl",
+        value: connector_base_url.to_string(),
+    })?;
+    let Some(host) = parsed.host_str() else {
+        return Ok(vec![normalized]);
+    };
+
+    if !is_container_fallback_host(host) {
+        return Ok(vec![normalized]);
+    }
+
+    let mut urls = vec![normalized];
+    for fallback_host in [
+        CONNECTOR_HOST_DOCKER,
+        CONNECTOR_HOST_DOCKER_GATEWAY,
+        CONNECTOR_HOST_LINUX_BRIDGE,
+        CONNECTOR_HOST_LOOPBACK,
+        CONNECTOR_HOST_LOCALHOST,
+    ] {
+        let mut candidate = parsed.clone();
+        if candidate.set_host(Some(fallback_host)).is_err() {
+            continue;
+        }
+        let candidate = candidate.to_string();
+        if !urls.iter().any(|value| value == &candidate) {
+            urls.push(candidate);
+        }
+    }
+    Ok(urls)
+}
+
+fn runtime_peers_config_path_value(openclaw_dir: &Path, peers_path: &Path) -> String {
+    let transforms_dir = transform_dir(openclaw_dir);
+    peers_path
+        .strip_prefix(&transforms_dir)
+        .map(|relative| relative.to_string_lossy().to_string())
+        .unwrap_or_else(|_| peers_path.to_string_lossy().to_string())
+}
+
+/// Install or verify the OpenClaw skill bundle and relay transform assets.
+pub fn install_openclaw_skill_assets(openclaw_dir: &Path) -> Result<Vec<String>> {
+    openclaw_assets(openclaw_dir)
+        .iter()
+        .map(note_install_result)
+        .collect()
+}
+
+/// Patch the OpenClaw config so Clawdentity relay hooks and gateway auth are present.
+pub fn patch_openclaw_config(
+    config_path: &Path,
+    _hook_url: &str,
+    _hook_host: &str,
+    _hook_port: u16,
+    _hook_path: &str,
+    preferred_hook_token: Option<&str>,
+) -> Result<OpenclawConfigPatchResult> {
+    let mut config = parse_json_or_default(config_path)?;
+    let root = ensure_object(&mut config)?;
+    let hooks = ensure_object_key(root, "hooks")?;
+    let resolved_hook_token = resolve_hook_token(hooks, preferred_hook_token);
+    let default_session_key = resolve_default_session_key(hooks);
+    apply_hook_settings(hooks, &resolved_hook_token, &default_session_key);
+    apply_gateway_auth(root)?;
+    let next_bytes = serialize_config(&config)?;
+    let changed = write_config_if_changed(config_path, &next_bytes)?;
+    Ok(OpenclawConfigPatchResult {
+        config_changed: changed,
+    })
+}
+
+/// Read the configured OpenClaw hook token from the OpenClaw config file.
+pub fn read_openclaw_config_hook_token(config_path: &Path) -> Result<Option<String>> {
+    let config = parse_json_or_default(config_path)?;
+    Ok(config
+        .get("hooks")
+        .and_then(Value::as_object)
+        .and_then(|hooks| hooks.get("token"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned))
+}
+
+/// Write relay runtime metadata consumed by the OpenClaw hook transform.
+pub fn write_transform_runtime_config(
+    openclaw_dir: &Path,
+    connector_base_url: &str,
+    peers_path: &Path,
+) -> Result<PathBuf> {
+    let connector_base_urls = connector_runtime_base_urls(connector_base_url)?;
+    let payload = json!({
+        "version": 1,
+        "connectorBaseUrl": connector_base_urls.first().cloned().unwrap_or_default(),
+        "connectorBaseUrls": connector_base_urls,
+        "connectorPath": DEFAULT_CONNECTOR_OUTBOUND_PATH,
+        "peersConfigPath": runtime_peers_config_path_value(openclaw_dir, peers_path),
+        "updatedAt": chrono::Utc::now().to_rfc3339(),
+    });
+    let target_path = transform_runtime_path(openclaw_dir);
+    write_secure_bytes(
+        &target_path,
+        format!("{}\n", serde_json::to_string_pretty(&payload)?).as_bytes(),
+    )?;
+    Ok(target_path)
+}
+
+/// Write the peer snapshot consumed by the OpenClaw hook transform.
+pub fn write_transform_peers_snapshot(peers_path: &Path, peers: &PeersConfig) -> Result<PathBuf> {
+    write_secure_bytes(
+        peers_path,
+        format!("{}\n", serde_json::to_string_pretty(peers)?).as_bytes(),
+    )?;
+    Ok(peers_path.to_path_buf())
+}
+
+/// Verify that the OpenClaw relay install left the required files and config entries in place.
+pub fn verify_openclaw_install(
+    config_path: &Path,
+    openclaw_dir: &Path,
+) -> Result<Vec<(String, bool, String)>> {
+    let config = parse_json_or_default(config_path)?;
+    let hooks = read_hooks(&config);
+    let mapping_present = hook_mapping_present(hooks);
+    let (gateway_mode, gateway_token_present) = gateway_auth_state(&config);
+    Ok(build_install_checks(
+        openclaw_dir,
+        hooks,
+        mapping_present,
+        &gateway_mode,
+        gateway_token_present,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use serde_json::Value;
+    use tempfile::TempDir;
+
+    use super::{
+        SKILL_DIR_NAME, install_openclaw_skill_assets, patch_openclaw_config, skill_root,
+        transform_runtime_path, verify_openclaw_install, write_transform_peers_snapshot,
+        write_transform_runtime_config,
+    };
+    use crate::peers::PeersConfig;
+
+    #[test]
+    fn installs_skill_assets_and_writes_runtime_files() {
+        let temp = TempDir::new().expect("temp dir");
+        let notes = install_openclaw_skill_assets(temp.path()).expect("install assets");
+        assert!(!notes.is_empty());
+        assert!(skill_root(temp.path()).join("SKILL.md").exists());
+        assert!(
+            skill_root(temp.path())
+                .join("references/clawdentity-protocol.md")
+                .exists()
+        );
+
+        let peers_target = temp.path().join("custom").join("peers.json");
+        let runtime_path = write_transform_runtime_config(
+            temp.path(),
+            "https://relay.example.test:24444",
+            &peers_target,
+        )
+        .expect("runtime");
+        assert_eq!(runtime_path, transform_runtime_path(temp.path()));
+        let runtime_value: Value =
+            serde_json::from_str(&fs::read_to_string(&runtime_path).expect("runtime body"))
+                .expect("runtime json");
+        assert_eq!(
+            runtime_value
+                .get("connectorBaseUrl")
+                .and_then(Value::as_str),
+            Some("https://relay.example.test:24444/")
+        );
+        assert_eq!(
+            runtime_value
+                .get("connectorBaseUrls")
+                .and_then(Value::as_array)
+                .map(|entries| {
+                    entries
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                }),
+            Some(vec!["https://relay.example.test:24444/"])
+        );
+        assert_eq!(
+            runtime_value
+                .get("peersConfigPath")
+                .and_then(Value::as_str),
+            Some(peers_target.to_string_lossy().as_ref())
+        );
+        let peers_path = write_transform_peers_snapshot(
+            &peers_target,
+            &PeersConfig {
+                peers: Default::default(),
+            },
+        )
+        .expect("peers snapshot");
+        assert!(peers_path.exists());
+    }
+
+    #[test]
+    fn patches_config_for_hook_mapping_and_gateway_auth() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_path = temp.path().join("openclaw.json");
+        install_openclaw_skill_assets(temp.path()).expect("install assets");
+        let patched = patch_openclaw_config(
+            &config_path,
+            "http://127.0.0.1:19400/hooks/agent",
+            "127.0.0.1",
+            19400,
+            "/hooks/agent",
+            Some("hook-token"),
+        )
+        .expect("patch config");
+        assert!(patched.config_changed);
+        let checks = verify_openclaw_install(&config_path, temp.path()).expect("verify");
+        assert!(checks.iter().all(|(_, passed, _)| *passed));
+        assert!(
+            temp.path()
+                .join("hooks/transforms/relay-to-peer.mjs")
+                .exists()
+        );
+        assert!(
+            temp.path()
+                .join("skills")
+                .join(SKILL_DIR_NAME)
+                .join("SKILL.md")
+                .exists()
+        );
+    }
+}

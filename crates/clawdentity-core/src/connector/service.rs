@@ -164,19 +164,20 @@ fn resolve_executable_path(override_path: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = override_path {
         return Ok(path);
     }
-    std::env::current_exe().map_err(|error| {
-        CoreError::InvalidInput(format!(
-            "unable to resolve current executable path: {}",
-            error
-        ))
-    })
+    std::env::current_exe()
+        .map_err(|error| CoreError::InvalidInput(format!("unable to resolve current executable path: {error}")))
 }
 
-fn build_connector_start_args(input: &ConnectorServiceInstallInput) -> Vec<String> {
+fn build_connector_start_args(
+    input: &ConnectorServiceInstallInput,
+    home_dir: &Path,
+) -> Vec<String> {
     let mut args = vec![
         "connector".to_string(),
         "start".to_string(),
         input.agent_name.clone(),
+        "--home-dir".to_string(),
+        home_dir.display().to_string(),
     ];
     if let Some(proxy_ws_url) = input
         .proxy_ws_url
@@ -219,7 +220,7 @@ fn build_connector_start_args(input: &ConnectorServiceInstallInput) -> Vec<Strin
 
 fn run_process(program: &str, args: &[String], ignore_failure: bool) -> Result<()> {
     let output = Command::new(program).args(args).output().map_err(|error| {
-        CoreError::InvalidInput(format!("failed to run `{program}`: {}", error))
+        CoreError::InvalidInput(format!("failed to run `{program}`: {error}"))
     })?;
     if output.status.success() || ignore_failure {
         return Ok(());
@@ -377,7 +378,7 @@ pub fn install_connector_service(
     let error_log_path = logs_dir.join(format!("{service_name}.err.log"));
     let executable = resolve_executable_path(input.executable_path.clone())?;
     let mut command = vec![executable.display().to_string()];
-    command.extend(build_connector_start_args(&input));
+    command.extend(build_connector_start_args(&input, &home_dir));
 
     match platform {
         ConnectorServicePlatform::Systemd => {
@@ -561,7 +562,10 @@ mod tests {
         };
         let command = {
             let mut args = vec!["/tmp/clawdentity".to_string()];
-            args.extend(super::build_connector_start_args(&input));
+            args.extend(super::build_connector_start_args(
+                &input,
+                Path::new("/tmp/home"),
+            ));
             args
         };
         let systemd = create_systemd_service_file_content(
@@ -572,6 +576,7 @@ mod tests {
             "alpha",
         );
         assert!(systemd.contains("connector\" \"start\" \"alpha"));
+        assert!(systemd.contains("--home-dir"));
         assert!(systemd.contains("--openclaw-hook-token"));
 
         let launchd = create_launchd_plist_content(
@@ -582,6 +587,7 @@ mod tests {
             Path::new("/tmp/err.log"),
         );
         assert!(launchd.contains("<string>connector</string>"));
+        assert!(launchd.contains("<string>--home-dir</string>"));
         assert!(launchd.contains("<string>--proxy-ws-url</string>"));
     }
 }

@@ -49,7 +49,7 @@ pub trait PlatformProvider {
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult>;
 
     /// Verify the installation is working
-    fn verify(&self) -> Result<VerifyResult>;
+    fn verify(&self, opts: &VerifyOptions) -> Result<VerifyResult>;
 
     /// Run provider-specific diagnostics.
     fn doctor(&self, opts: &ProviderDoctorOptions) -> Result<ProviderDoctorResult>;
@@ -104,6 +104,12 @@ pub struct InstallResult {
 pub struct VerifyResult {
     pub healthy: bool,
     pub checks: Vec<(String, bool, String)>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyOptions {
+    pub home_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

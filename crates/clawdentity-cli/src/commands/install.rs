@@ -2,7 +2,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
-use clawdentity_core::{InstallOptions, all_providers, detect_platform, get_provider};
+use clawdentity_core::{
+    InstallOptions, VerifyOptions, all_providers, detect_platform, get_provider,
+};
 
 #[allow(clippy::too_many_lines)]
 pub(crate) fn execute_install_command(
@@ -73,16 +75,12 @@ pub(crate) fn execute_install_command(
                 .map(|provider| provider.name().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            anyhow!(
-                "unknown platform `{}`. Available platforms: {}",
-                platform_name,
-                available
-            )
+            anyhow!("unknown provider `{platform_name}`. Available providers: {available}")
         })?
     } else {
         detect_platform().ok_or_else(|| {
             anyhow!(
-                "no supported platform detected. Run `clawdentity install --list` and pick one with `--for`."
+                "no supported provider detected. Run `clawdentity install --list` and pick one with `--for`."
             )
         })?
     };
@@ -93,13 +91,15 @@ pub(crate) fn execute_install_command(
     }
 
     let install_result = provider.install(&InstallOptions {
-        home_dir,
+        home_dir: home_dir.clone(),
         webhook_port: port,
         webhook_host: None,
         webhook_token: token,
         connector_url: None,
     })?;
-    let verify_result = provider.verify()?;
+    let verify_result = provider.verify(&VerifyOptions {
+        home_dir: home_dir.clone(),
+    })?;
 
     if json {
         println!(

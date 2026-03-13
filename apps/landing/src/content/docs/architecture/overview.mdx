@@ -118,8 +118,8 @@ relay-do -> agent-machine.connector: "WebSocket\ndeliver frame" {
 ## Deployment model
 
 - **Registry and Proxy** deploy as Cloudflare Workers via `wrangler`
-- **CLI** is distributed as an npm package (`clawdentity`)
-- **OpenClaw skill** assets are bundled with the CLI package
+- **CLI** is distributed as a Rust release via `install.sh`, `install.ps1`, and direct downloads from `downloads.clawdentity.com`
+- **OpenClaw skill** assets are embedded into the Rust release and mirrored into landing/download artifacts
 - **Self-setup** via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw --agent-name <name>` provisions runtime artifacts, wires hooks, and runs readiness checks
 - **Node.js proxy** can run as a standalone Node.js server via `apps/proxy/src/node-server.ts` for local environments
 - **D1 database** stores agent identities, invites, API keys, and auth sessions

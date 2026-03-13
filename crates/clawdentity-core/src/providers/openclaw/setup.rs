@@ -10,7 +10,9 @@ use crate::error::{CoreError, Result};
 pub const OPENCLAW_AGENT_FILE_NAME: &str = "openclaw-agent-name";
 pub const OPENCLAW_RELAY_RUNTIME_FILE_NAME: &str = "openclaw-relay.json";
 pub const OPENCLAW_CONNECTORS_FILE_NAME: &str = "openclaw-connectors.json";
+pub const OPENCLAW_CONFIG_FILE_NAME: &str = "openclaw.json";
 pub const OPENCLAW_DEFAULT_BASE_URL: &str = "http://127.0.0.1:18789";
+pub const DEFAULT_CONNECTOR_PORT: u16 = 19400;
 
 const FILE_MODE: u32 = 0o600;
 
@@ -109,6 +111,91 @@ fn read_json_if_exists<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Opti
 
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+fn env_first_non_empty(keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        std::env::var(key).ok().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    })
+}
+
+fn resolve_fallback_home_dir(home_dir: Option<&Path>) -> Result<PathBuf> {
+    if let Some(home_dir) = home_dir {
+        return Ok(home_dir.to_path_buf());
+    }
+    dirs::home_dir().ok_or(CoreError::HomeDirectoryUnavailable)
+}
+
+fn uses_direct_openclaw_profile(home_dir: &Path) -> bool {
+    home_dir.ends_with(".openclaw")
+        || home_dir.join(OPENCLAW_CONFIG_FILE_NAME).is_file()
+        || home_dir.join("hooks").is_dir()
+        || home_dir.join("skills").is_dir()
+        || home_dir.join("devices").is_dir()
+}
+
+pub(super) fn explicit_openclaw_dir(home_dir: &Path) -> PathBuf {
+    if uses_direct_openclaw_profile(home_dir) {
+        home_dir.to_path_buf()
+    } else {
+        home_dir.join(".openclaw")
+    }
+}
+
+pub(super) fn explicit_openclaw_config_path(home_dir: &Path) -> PathBuf {
+    explicit_openclaw_dir(home_dir).join(OPENCLAW_CONFIG_FILE_NAME)
+}
+
+/// TODO(clawdentity): document `resolve_openclaw_dir`.
+pub fn resolve_openclaw_dir(
+    home_dir: Option<&Path>,
+    override_dir: Option<&Path>,
+) -> Result<PathBuf> {
+    if let Some(path) = override_dir {
+        return Ok(path.to_path_buf());
+    }
+
+    if let Some(home_dir) = home_dir {
+        return Ok(explicit_openclaw_dir(home_dir));
+    }
+
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_STATE_DIR", "CLAWDBOT_STATE_DIR"]) {
+        return Ok(PathBuf::from(path));
+    }
+
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_CONFIG_PATH", "CLAWDBOT_CONFIG_PATH"]) {
+        let path = PathBuf::from(path);
+        return Ok(path.parent().map(Path::to_path_buf).unwrap_or(path));
+    }
+
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_HOME"]) {
+        return Ok(PathBuf::from(path).join(".openclaw"));
+    }
+
+    Ok(resolve_fallback_home_dir(home_dir)?.join(".openclaw"))
+}
+
+/// TODO(clawdentity): document `resolve_openclaw_config_path`.
+pub fn resolve_openclaw_config_path(
+    home_dir: Option<&Path>,
+    override_dir: Option<&Path>,
+) -> Result<PathBuf> {
+    if let Some(home_dir) = home_dir {
+        return Ok(explicit_openclaw_config_path(home_dir));
+    }
+
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_CONFIG_PATH", "CLAWDBOT_CONFIG_PATH"]) {
+        return Ok(PathBuf::from(path));
+    }
+
+    Ok(resolve_openclaw_dir(home_dir, override_dir)?.join(OPENCLAW_CONFIG_FILE_NAME))
 }
 
 /// TODO(clawdentity): document `openclaw_agent_name_path`.
@@ -248,6 +335,53 @@ pub fn save_connector_assignment(
     Ok(path)
 }
 
+/// TODO(clawdentity): document `connector_port_from_base_url`.
+pub fn connector_port_from_base_url(connector_base_url: &str) -> Option<u16> {
+    let parsed = url::Url::parse(connector_base_url.trim()).ok()?;
+    if let Some(port) = parsed.port() {
+        return Some(port);
+    }
+    match parsed.scheme() {
+        "https" => Some(443),
+        "http" => Some(80),
+        _ => None,
+    }
+}
+
+/// TODO(clawdentity): document `build_connector_base_url`.
+pub fn build_connector_base_url(host: &str, port: u16) -> String {
+    format!("http://{host}:{port}")
+}
+
+fn allocate_connector_port(assignments: &OpenclawConnectorsConfig, agent_name: &str) -> u16 {
+    if let Some(existing) = assignments.agents.get(agent_name)
+        && let Some(port) = connector_port_from_base_url(&existing.connector_base_url)
+    {
+        return port;
+    }
+
+    let mut used_ports = assignments
+        .agents
+        .values()
+        .filter_map(|entry| connector_port_from_base_url(&entry.connector_base_url))
+        .collect::<Vec<_>>();
+    used_ports.sort_unstable();
+    used_ports.dedup();
+
+    let mut candidate = DEFAULT_CONNECTOR_PORT;
+    while used_ports.binary_search(&candidate).is_ok() {
+        candidate += 1;
+    }
+    candidate
+}
+
+/// TODO(clawdentity): document `suggest_connector_base_url`.
+pub fn suggest_connector_base_url(config_dir: &Path, agent_name: &str) -> Result<String> {
+    let assignments = load_connector_assignments(config_dir)?;
+    let port = allocate_connector_port(&assignments, agent_name);
+    Ok(build_connector_base_url("127.0.0.1", port))
+}
+
 /// TODO(clawdentity): document `resolve_connector_base_url`.
 pub fn resolve_connector_base_url(
     config_dir: &Path,
@@ -281,9 +415,11 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        OPENCLAW_DEFAULT_BASE_URL, OpenclawRelayRuntimeConfig, load_connector_assignments,
-        load_relay_runtime_config, read_selected_openclaw_agent, resolve_openclaw_base_url,
-        save_connector_assignment, save_relay_runtime_config, write_selected_openclaw_agent,
+        OPENCLAW_DEFAULT_BASE_URL, OpenclawRelayRuntimeConfig, build_connector_base_url,
+        connector_port_from_base_url, load_connector_assignments, load_relay_runtime_config,
+        read_selected_openclaw_agent, resolve_openclaw_base_url, resolve_openclaw_config_path,
+        resolve_openclaw_dir, save_connector_assignment, save_relay_runtime_config,
+        suggest_connector_base_url, write_selected_openclaw_agent,
     };
 
     #[test]
@@ -334,6 +470,97 @@ mod tests {
                 .get("alpha")
                 .map(|entry| entry.connector_base_url.as_str()),
             Some("http://127.0.0.1:19400/")
+        );
+    }
+
+    #[test]
+    fn connector_port_helpers_round_trip() {
+        assert_eq!(
+            connector_port_from_base_url("http://127.0.0.1:19400"),
+            Some(19400)
+        );
+        assert_eq!(
+            build_connector_base_url("127.0.0.1", 19401),
+            "http://127.0.0.1:19401"
+        );
+    }
+
+    #[test]
+    fn connector_suggestion_uses_next_available_port() {
+        let temp = TempDir::new().expect("temp dir");
+        let _ = save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19400")
+            .expect("save alpha");
+        let suggested = suggest_connector_base_url(temp.path(), "beta").expect("suggest");
+        assert_eq!(suggested, "http://127.0.0.1:19401");
+    }
+
+    #[test]
+    fn openclaw_dir_respects_legacy_env_aliases() {
+        let temp = TempDir::new().expect("temp dir");
+        let state_dir = temp.path().join("legacy-state");
+        let config_path = state_dir.join("clawdbot.custom.json");
+        std::fs::create_dir_all(&state_dir).expect("state dir");
+
+        unsafe {
+            std::env::set_var("CLAWDBOT_STATE_DIR", &state_dir);
+            std::env::set_var("CLAWDBOT_CONFIG_PATH", &config_path);
+        }
+
+        let resolved_dir = resolve_openclaw_dir(None, None).expect("dir");
+        let resolved_config = resolve_openclaw_config_path(None, None).expect("config");
+
+        unsafe {
+            std::env::remove_var("CLAWDBOT_STATE_DIR");
+            std::env::remove_var("CLAWDBOT_CONFIG_PATH");
+        }
+
+        assert_eq!(resolved_dir, state_dir);
+        assert_eq!(resolved_config, config_path);
+    }
+
+    #[test]
+    fn explicit_home_dir_beats_legacy_env_aliases() {
+        let temp = TempDir::new().expect("temp dir");
+        let state_dir = temp.path().join("legacy-state");
+        let config_path = state_dir.join("clawdbot.custom.json");
+        std::fs::create_dir_all(&state_dir).expect("state dir");
+
+        unsafe {
+            std::env::set_var("CLAWDBOT_STATE_DIR", &state_dir);
+            std::env::set_var("CLAWDBOT_CONFIG_PATH", &config_path);
+        }
+
+        let resolved_dir = resolve_openclaw_dir(Some(temp.path()), None).expect("dir");
+        let resolved_config =
+            resolve_openclaw_config_path(Some(temp.path()), None).expect("config");
+
+        unsafe {
+            std::env::remove_var("CLAWDBOT_STATE_DIR");
+            std::env::remove_var("CLAWDBOT_CONFIG_PATH");
+        }
+
+        assert_eq!(resolved_dir, temp.path().join(".openclaw"));
+        assert_eq!(
+            resolved_config,
+            temp.path()
+                .join(".openclaw")
+                .join(super::OPENCLAW_CONFIG_FILE_NAME)
+        );
+    }
+
+    #[test]
+    fn explicit_home_dir_uses_direct_profile_root_when_openclaw_files_exist() {
+        let temp = TempDir::new().expect("temp dir");
+        std::fs::write(temp.path().join(super::OPENCLAW_CONFIG_FILE_NAME), "{}\n").expect("config");
+
+        let resolved_dir = resolve_openclaw_dir(Some(temp.path()), None).expect("dir");
+        let resolved_config =
+            resolve_openclaw_config_path(Some(temp.path()), None).expect("config");
+
+        assert_eq!(resolved_dir, temp.path());
+        assert_eq!(
+            resolved_config,
+            temp.path().join(super::OPENCLAW_CONFIG_FILE_NAME)
         );
     }
 }

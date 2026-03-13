@@ -4,9 +4,12 @@ use clap::Subcommand;
 
 pub mod connector;
 pub mod install;
+pub mod pair;
 pub mod provider;
+pub mod verify;
 
 use crate::commands::connector::ConnectorCommand;
+use crate::commands::pair::PairCommand;
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
@@ -43,13 +46,17 @@ pub enum Commands {
         #[command(subcommand)]
         command: ConnectorCommand,
     },
+    Pair {
+        #[command(subcommand)]
+        command: PairCommand,
+    },
     Provider {
         #[command(subcommand)]
         command: ProviderCommand,
     },
     Install {
         /// Target platform (auto-detect if not specified)
-        #[arg(long, alias = "for")]
+        #[arg(long = "for", alias = "platform")]
         platform: Option<String>,
         /// Webhook port override
         #[arg(long)]
@@ -60,6 +67,9 @@ pub enum Commands {
         /// List available platforms
         #[arg(long)]
         list: bool,
+    },
+    Verify {
+        token_or_file: String,
     },
 }
 

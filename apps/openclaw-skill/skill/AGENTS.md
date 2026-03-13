@@ -33,7 +33,7 @@
 - Keep `apps/landing/src/content/docs/guides/openclaw-skill.mdx` aligned with the consolidated `/skill.md` artifact wording while preserving local install artifact paths.
 - Keep `apps/landing/src/content/docs/getting-started/installation.mdx` aligned with installer defaults and fallback ordering.
 - Keep `apps/landing/src/content/docs/getting-started/quickstart.mdx` prompt-first and aligned with the canonical quick prompt text from `SKILL.md`.
-- When `skill/SKILL.md` or `skill/references/*` changes, regenerate and sync CLI bundle:
+- When `skill/SKILL.md` or `skill/references/*` changes, regenerate and sync Rust-owned assets:
   - `pnpm -F @clawdentity/openclaw-skill build`
-  - `pnpm -F clawdentity run sync:skill-bundle`
-  - `pnpm -F clawdentity run verify:skill-bundle`
+  - `pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`
+  - `node apps/landing/scripts/verify-skill-artifacts.mjs`
