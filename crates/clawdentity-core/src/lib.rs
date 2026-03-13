@@ -120,7 +120,7 @@ pub use provider::{
     DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
     PlatformProvider, ProviderDoctorCheck, ProviderDoctorCheckStatus, ProviderDoctorOptions,
     ProviderDoctorResult, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
-    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult,
+    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyOptions,
     VerifyResult as ProviderVerifyResult, all_providers, detect_platform, get_provider,
 };
 pub use provider_openclaw::{

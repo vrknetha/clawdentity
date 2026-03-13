@@ -37,7 +37,7 @@
 - Release automation must stage and publish these skill assets to R2:
   - `skill/v<version>/skill.md`
   - `skill/latest/skill.md`
-- Any release job that runs `apps/landing/scripts/verify-skill-artifacts.mjs` must sync the CLI skill bundle first (`pnpm -F clawdentity run sync:skill-bundle`), because a release-tag checkout does not contain generated bundle artifacts by default.
+- Any release job that runs `apps/landing/scripts/verify-skill-artifacts.mjs` must build `@clawdentity/openclaw-skill` and sync Rust-owned assets first (`pnpm -F @clawdentity/openclaw-skill build && pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`).
 - Installer verification in CI must exercise both paths:
   - manifest-driven latest install
   - explicit `CLAWDENTITY_VERSION` install against staged downloads base URL
@@ -74,6 +74,5 @@
 
 ## Separation of Concerns
 - Keep `.github/workflows/ci.yml` focused on validation gates.
-- Keep `.github/workflows/publish-cli.yml` focused on npm package publishing.
 - Keep `.github/workflows/publish-rust.yml` as the complete Rust release path.
-- Do not couple Rust release workflows with npm publish workflow.
+- Do not add a second CLI publish workflow; all operator release concerns belong in `publish-rust.yml`.

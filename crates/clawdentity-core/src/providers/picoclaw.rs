@@ -182,7 +182,7 @@ impl PlatformProvider for PicoclawProvider {
         })
     }
 
-    fn verify(&self) -> Result<VerifyResult> {
+    fn verify(&self, _opts: &crate::provider::VerifyOptions) -> Result<VerifyResult> {
         let (healthy, detail) =
             health_check(self.default_webhook_host(), self.default_webhook_port())?;
         Ok(VerifyResult {

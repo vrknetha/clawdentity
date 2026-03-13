@@ -57,7 +57,7 @@ Ask me only for missing required inputs: invite code (clw_inv_...), display name
 Manual fallback command (advanced):
 
 ```bash
-clawdentity install --platform openclaw
+clawdentity install --for openclaw
 ```
 
 The published skill artifact is consolidated into `/skill.md`. For local runtime, install writes these artifacts automatically:
@@ -72,7 +72,7 @@ The published skill artifact is consolidated into `/skill.md`. For local runtime
 ### Properties
 
 - **Idempotent** — re-running install is safe; each artifact reports `installed`, `updated`, or `unchanged`
-- **Self-contained** — the CLI package ships bundled skill assets so clean installs don't depend on sibling workspace packages
+- **Self-contained** — the Rust binary installs embedded OpenClaw skill assets so clean installs do not depend on sibling workspace packages or npm
 - **Deterministic** — missing source artifacts fail with actionable errors
 
 ## Setup flow

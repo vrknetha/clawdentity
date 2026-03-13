@@ -1,7 +1,7 @@
 # AGENTS.md
 
 ## 1) Project Overview
-Clawdentity is a mixed TypeScript + Rust monorepo that provides cryptographic identity and trusted relay infrastructure for agent-to-agent communication. The deployable surface is in `apps/` (registry, proxy, CLI packaging, OpenClaw skill), shared contracts/runtime libraries are in `packages/`, and Rust runtime + CLI implementation is in `crates/`. Design and delivery must assume operators may run Clawdentity in local or constrained/offline environments, with OpenClaw integration as a first-class workflow.
+Clawdentity is a mixed TypeScript + Rust monorepo that provides cryptographic identity and trusted relay infrastructure for agent-to-agent communication. The deployable surface is in `apps/` (registry, proxy, OpenClaw skill), shared contracts/runtime libraries are in `packages/`, and the canonical operator/runtime implementation is in `crates/`. Design and delivery must assume operators may run Clawdentity in local or constrained/offline environments, with OpenClaw integration as a first-class workflow.
 
 ## 2) Build Commands
 
@@ -38,7 +38,6 @@ Run from `crates/`:
 ### Apps (deployable services)
 - `apps/registry` - Cloudflare Worker HTTP API for humans, agents, invites, API keys, and revocation data.
 - `apps/proxy` - Cloudflare Worker relay/proxy that verifies Clawdentity auth headers and enforces trust policy.
-- `apps/cli` - TypeScript CLI compatibility package (`clawdentity`); Rust CLI is the canonical operator surface.
 - `apps/openclaw-skill` - OpenClaw skill package and relay transform artifacts used by CLI install flow.
 
 ### Packages (shared libraries)
@@ -57,13 +56,9 @@ Run from `crates/`:
 
 ## 4) CLI Commands
 
-### TypeScript CLI (`apps/cli`)
-- Build/package: `pnpm -F clawdentity build`
-- Treat command docs here as compatibility guidance, not canonical runtime surface.
-
 ### Rust CLI (`crates/clawdentity-cli`)
 - Help: `cargo run -p clawdentity-cli -- --help`
-- Common ops: `cargo run -p clawdentity-cli -- init`, `register`, `whoami`, `agent create <name>`, `agent auth revoke <name>`, `provider setup --for <platform> --agent-name <name>`, `provider doctor --for <platform>`, `connector start <agent>`
+- Common ops: `cargo run -p clawdentity-cli -- init`, `register`, `whoami`, `agent create <name>`, `pair start <agent>`, `pair confirm <agent>`, `verify <token-or-file>`, `install --for <platform>`, `provider setup --for <platform> --agent-name <name>`, `provider doctor --for <platform>`, `connector start <agent>`
 
 ## 5) Deeper Docs
 Use `docs/` as system of record:

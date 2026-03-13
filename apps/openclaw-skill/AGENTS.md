@@ -9,7 +9,7 @@
 - Peer routing map lives at `~/.clawdentity/peers.json` by default.
 - In profile-mounted/containerized runs, skill behavior must support profile-local Clawdentity state at `<openclaw-state>/.clawdentity` when `~/.clawdentity` is absent.
 - When profile-local state is detected, command execution must use `HOME=<openclaw-state>` so CLI resolves a single consistent state root.
-- Default onboarding (`clawdentity install --platform openclaw` + `clawdentity provider setup --for openclaw`) must project peer + relay runtime snapshots into OpenClaw-local transform directory so containerized gateways can read relay state without mounting `~/.clawdentity`:
+- Default onboarding (`clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`) must project peer + relay runtime snapshots into OpenClaw-local transform directory so containerized gateways can read relay state without mounting `~/.clawdentity`:
   - `<openclaw-state>/hooks/transforms/clawdentity-peers.json`
   - `<openclaw-state>/hooks/transforms/clawdentity-relay.json`
 - Local relay handoff uses connector endpoint candidates from `clawdentity-relay.json` and must work across macOS/Linux Docker hosts.
@@ -29,7 +29,7 @@
   - remove `peer` from forwarded application payload and wrap it in connector relay envelope
   - return `null` after successful relay so local handling is skipped
 - If `payload.peer` is absent, return payload unchanged.
-- Keep setup flow CLI-driven via `clawdentity install --platform openclaw` + `clawdentity provider setup --for openclaw`; do not add `configure-hooks.sh`.
+- Keep setup flow CLI-driven via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`; do not add `configure-hooks.sh`.
 - Keep setup flow fully automated via current CLI: provider install/setup provisions/retains `hooks.token`, stabilizes OpenClaw `gateway.auth` token mode for deterministic UI/device auth, starts connector runtime, auto-recovers pending gateway device approvals when possible, verifies websocket readiness, and fails fast only when unrecoverable drift remains.
 - Keep setup/doctor expectations aligned with connector durable inbox semantics: connector can acknowledge persisted inbound relay messages before local OpenClaw hook delivery, with replay status exposed via `/v1/status` and doctor checks.
 - Keep `connector start` documented as advanced/manual recovery only; never require it in the default onboarding flow.
@@ -44,7 +44,7 @@
 - Prefer schema-first runtime validation over ad-hoc guards.
 - Keep skill docs aligned with connector architecture: do not document direct transform-to-peer-proxy signing.
 - Keep user-facing onboarding prompt-first, with `/skill.md` as canonical instruction source.
-- Keep `skill/SKILL.md` command utilization section explicit and executable with current CLI commands used by this skill (`config`, `invite redeem`, `agent`, `install --platform`, `provider {status|setup|doctor|relay-test}`, advanced `connector start`/`connector service install`).
+- Keep `skill/SKILL.md` command utilization section explicit and executable with current CLI commands used by this skill (`config`, `invite redeem`, `agent`, `install --for`, `pair`, `verify`, `provider {status|setup|doctor|relay-test}`, advanced `connector start`/`connector service install`).
 - Keep pairing flow documented as proxy API-based (`POST /pair/start`, `POST /pair/confirm`, `POST /pair/status`), not unsupported CLI `pair` commands.
 - Keep pairing metadata documented and preserved end-to-end: pair APIs exchange `initiatorProfile`/`responderProfile` and peer map stores `agentName` + `humanName`.
 - Keep pairing flow deterministic in docs:
@@ -55,7 +55,7 @@
 - When `src/transforms/relay-to-peer.ts` relay envelope, endpoint defaults, or failure mapping changes, update:
   - `skill/SKILL.md`
   - `skill/references/clawdentity-protocol.md`
-  - regenerate CLI bundle via `pnpm -F @clawdentity/openclaw-skill build && pnpm -F clawdentity run sync:skill-bundle`
+  - sync Rust release assets via `pnpm -F @clawdentity/openclaw-skill build && pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`
 
 ## Validation Commands
 - `pnpm -F @clawdentity/openclaw-skill typecheck`

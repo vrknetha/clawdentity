@@ -395,14 +395,14 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 
 ### 5) Onboarding and Control Model
 
-- Handled by: `apps/registry`, `apps/cli`
+- Handled by: `apps/registry`, `crates/clawdentity-cli`
 - Invite-gated registration model with admin-issued invite codes.
 - One-agent-per-invite policy for simple quota and abuse control.
 - Feature work follows a deployment-first gate tracked in GitHub issues.
 
 ### 6) Discovery and First-Contact Options
 
-- Handled by: `apps/registry`, `apps/proxy`, `apps/cli`
+- Handled by: `apps/registry`, `apps/proxy`, `crates/clawdentity-cli`
 - Out-of-band contact card sharing.
 - Registry `gateway_hint` resolution.
 - Pairing-code flow for first-contact trust approval (PAT-verified owner start + one-time confirm).
@@ -414,7 +414,7 @@ Bob's OpenClaw        relay-to-peer.ts       Alice's Proxy           Alice's Ope
 Expected operator flow starts from the CLI command:
 
 ```bash
-clawdentity install --platform openclaw
+clawdentity install --for openclaw
 clawdentity provider setup --for openclaw --agent-name <agent-name>
 ```
 
@@ -425,17 +425,14 @@ Installer logic prepares OpenClaw runtime artifacts automatically:
 - `~/.openclaw/hooks/transforms/relay-to-peer.mjs`
 
 Install is idempotent and logs deterministic per-artifact outcomes (`installed`, `updated`, `unchanged`).
-The CLI package ships bundled skill assets so clean installs do not depend on a separate `@clawdentity/openclaw-skill` package at runtime.
+The Rust binary installs embedded OpenClaw skill assets so clean installs do not depend on npm packages at runtime.
 
-### CLI npm Release (Manual)
+### CLI Rust Release (Manual)
 
-- GitHub workflow: `.github/workflows/publish-cli.yml`
-- Trigger: `workflow_dispatch` with inputs:
-  - `version` (semver, required)
-  - `dist_tag` (default `latest`)
-- Required GitHub secret: `NPM_TOKEN`
-- Publish target: npm package `clawdentity`
-- Workflow runs CLI lint/typecheck/test/build before publishing.
+- GitHub workflow: `.github/workflows/publish-rust.yml`
+- Trigger: `workflow_dispatch` with semver release inputs
+- Publish target: crates.io for Rust crates plus R2/GitHub release assets for the `clawdentity` binary
+- Workflow runs release verification, checksum generation, installer smoke tests, and skill-asset parity checks before publishing.
 
 ---
 

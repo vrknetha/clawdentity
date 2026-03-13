@@ -447,8 +447,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          pnpm -F @clawdentity/openclaw-skill build
+          pnpm -F @clawdentity/openclaw-skill run sync:rust-assets
           node apps/landing/scripts/build-skill-md.mjs
-          pnpm -F clawdentity run sync:skill-bundle
           node apps/landing/scripts/verify-skill-artifacts.mjs
 
       - name: Verify assets and generate checksums

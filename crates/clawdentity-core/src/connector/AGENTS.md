@@ -1,0 +1,9 @@
+# AGENTS.md (crates/clawdentity-core/src/connector)
+
+## Purpose
+- Guard the Rust connector service/runtime integration points.
+
+## Rules
+- Generated service definitions must pass explicit state roots (`--home-dir`) for isolated-home runs.
+- Service install/uninstall must stay idempotent across macOS launchd and Linux systemd.
+- Keep connector runtime contracts backward compatible with published OpenClaw relay transform payloads unless a coordinated release updates both sides.

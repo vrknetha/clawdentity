@@ -1,13 +1,9 @@
-use std::fs;
 use std::net::{IpAddr, SocketAddr};
-use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Result, anyhow};
 use clap::Subcommand;
-use clawdentity_core::agent::inspect_agent;
-use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config};
-use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
+use clawdentity_core::config::ConfigPathOptions;
 use clawdentity_core::db::now_utc_ms;
 use clawdentity_core::db_inbound::{InboundPendingItem, append_inbound_event, upsert_pending};
 use clawdentity_core::http::client as create_http_client;
@@ -15,10 +11,9 @@ use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientOptions, ConnectorClientSender,
     ConnectorFrame, ConnectorServiceInstallInput, ConnectorServiceUninstallInput, DeliverAckFrame,
-    DeliverFrame, RuntimeServerState, SqliteStore, build_relay_connect_headers,
-    fetch_registry_metadata, flush_outbound_queue_to_relay, install_connector_service,
-    new_frame_id, now_iso, resolve_openclaw_base_url, resolve_openclaw_hook_token,
-    spawn_connector_client, uninstall_connector_service,
+    DeliverFrame, RuntimeServerState, SqliteStore, flush_outbound_queue_to_relay,
+    install_connector_service, new_frame_id, now_iso, spawn_connector_client,
+    uninstall_connector_service,
 };
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -26,10 +21,11 @@ use tokio::task::JoinHandle;
 
 const DEFAULT_CONNECTOR_PORT: u16 = 19400;
 const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
-const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
+
+mod runtime_config;
 
 #[derive(Debug, Subcommand)]
 pub enum ConnectorCommand {
@@ -76,7 +72,7 @@ pub enum ConnectorServiceCommand {
     },
 }
 
-struct StartConnectorInput {
+pub(super) struct StartConnectorInput {
     agent_name: String,
     proxy_ws_url: Option<String>,
     openclaw_base_url: Option<String>,
@@ -86,7 +82,7 @@ struct StartConnectorInput {
     bind: IpAddr,
 }
 
-struct ConnectorRuntimeConfig {
+pub(super) struct ConnectorRuntimeConfig {
     agent_name: String,
     agent_did: String,
     proxy_ws_url: String,
@@ -205,7 +201,7 @@ async fn start_connector_runtime(
         return Err(anyhow!("--port must be a valid TCP port"));
     }
 
-    let runtime = resolve_runtime_config(options, input).await?;
+    let runtime = runtime_config::resolve_runtime_config(options, input).await?;
     let store = SqliteStore::open(options)?;
 
     let client = spawn_connector_client(ConnectorClientOptions::with_defaults(
@@ -279,55 +275,6 @@ async fn start_connector_runtime(
     await_task("outbound flush loop", outbound_flush_task).await?;
 
     Ok(())
-}
-
-async fn resolve_runtime_config(
-    options: &ConfigPathOptions,
-    input: StartConnectorInput,
-) -> Result<ConnectorRuntimeConfig> {
-    let config = resolve_config(options)?;
-    let config_dir = get_config_dir(options)?;
-
-    let inspect = inspect_agent(options, &input.agent_name)
-        .with_context(|| format!("failed to inspect agent `{}`", input.agent_name))?;
-
-    let agent_dir = config_dir.join(AGENTS_DIR).join(&input.agent_name);
-    let ait = read_required_trimmed_file(&agent_dir.join(AIT_FILE_NAME), AIT_FILE_NAME)?;
-    let secret_key =
-        read_required_trimmed_file(&agent_dir.join(SECRET_KEY_FILE_NAME), SECRET_KEY_FILE_NAME)?;
-    let signing_key = clawdentity_core::decode_secret_key(&secret_key)?;
-
-    let proxy_ws_url = resolve_proxy_ws_url(
-        input.proxy_ws_url.as_deref(),
-        config.proxy_url.as_deref(),
-        &config.registry_url,
-    )
-    .await?;
-
-    let relay_headers = build_relay_connect_headers(&proxy_ws_url, &ait, &signing_key)?;
-    let mut connector_headers = Vec::with_capacity(relay_headers.signed_headers.len() + 1);
-    connector_headers.push(("authorization".to_string(), relay_headers.authorization));
-    connector_headers.extend(relay_headers.signed_headers);
-
-    let openclaw_base_url =
-        resolve_openclaw_base_url(&config_dir, input.openclaw_base_url.as_deref())?;
-    let openclaw_hook_path = resolve_openclaw_hook_path(input.openclaw_hook_path.as_deref());
-    let openclaw_hook_token =
-        resolve_openclaw_hook_token(&config_dir, input.openclaw_hook_token.as_deref())?;
-
-    Ok(ConnectorRuntimeConfig {
-        agent_name: input.agent_name,
-        agent_did: inspect.did,
-        proxy_ws_url,
-        relay_headers: connector_headers,
-        openclaw_runtime: OpenclawRuntimeConfig {
-            base_url: openclaw_base_url,
-            hook_path: openclaw_hook_path,
-            hook_token: openclaw_hook_token,
-        },
-        port: input.port,
-        bind: input.bind,
-    })
 }
 
 fn spawn_runtime_server_task(
@@ -650,106 +597,19 @@ async fn send_deliver_ack(
         .map_err(anyhow::Error::from)
 }
 
-fn read_required_trimmed_file(path: &Path, label: &str) -> Result<String> {
-    let raw =
-        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return Err(anyhow!("{label} is empty at {}", path.display()));
-    }
-    Ok(trimmed.to_string())
-}
-
-fn env_trimmed(name: &str) -> Option<String> {
+pub(super) fn env_trimmed(name: &str) -> Option<String> {
     std::env::var(name)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
 }
 
-fn resolve_openclaw_hook_path(override_value: Option<&str>) -> String {
-    override_value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(normalize_hook_path)
-        .or_else(|| env_trimmed("OPENCLAW_HOOK_PATH").map(|value| normalize_hook_path(&value)))
-        .unwrap_or_else(|| DEFAULT_OPENCLAW_HOOK_PATH.to_string())
-}
-
-fn normalize_hook_path(value: &str) -> String {
+pub(super) fn normalize_hook_path(value: &str) -> String {
     if value.starts_with('/') {
         value.to_string()
     } else {
         format!("/{value}")
     }
-}
-
-async fn resolve_proxy_ws_url(
-    explicit_proxy_ws_url: Option<&str>,
-    config_proxy_url: Option<&str>,
-    registry_url: &str,
-) -> Result<String> {
-    if let Some(value) = explicit_proxy_ws_url
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return normalize_proxy_ws_url(value);
-    }
-
-    if let Some(value) = env_trimmed("CLAWDENTITY_PROXY_WS_URL") {
-        return normalize_proxy_ws_url(&value);
-    }
-
-    if let Some(value) = env_trimmed("CLAWDENTITY_PROXY_URL") {
-        return normalize_proxy_ws_url(&value);
-    }
-
-    if let Some(value) = config_proxy_url
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return normalize_proxy_ws_url(value);
-    }
-
-    let metadata_client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|error| anyhow!("failed to create metadata client: {error}"))?;
-
-    let metadata = fetch_registry_metadata(&metadata_client, registry_url)
-        .await
-        .map_err(anyhow::Error::from)?;
-
-    if metadata.proxy_url.trim().is_empty() {
-        return Err(anyhow!(
-            "proxy URL is required for connector startup; set --proxy-ws-url, CLAWDENTITY_PROXY_WS_URL, or CLAWDENTITY_PROXY_URL"
-        ));
-    }
-
-    normalize_proxy_ws_url(&metadata.proxy_url)
-}
-
-fn normalize_proxy_ws_url(value: &str) -> Result<String> {
-    let mut url =
-        reqwest::Url::parse(value).map_err(|_| anyhow!("invalid proxy websocket URL: {value}"))?;
-
-    let target_scheme = match url.scheme() {
-        "ws" | "wss" => None,
-        "http" => Some("ws"),
-        "https" => Some("wss"),
-        _ => return Err(anyhow!("invalid proxy websocket scheme in {value}")),
-    };
-
-    if let Some(scheme) = target_scheme {
-        url.set_scheme(scheme)
-            .map_err(|_| anyhow!("failed to normalize proxy websocket scheme for {value}"))?;
-    }
-
-    if url.path().trim().is_empty() || url.path() == "/" {
-        url.set_path(RELAY_CONNECT_PATH);
-    }
-
-    Ok(url.to_string())
 }
 
 fn describe_task_exit(

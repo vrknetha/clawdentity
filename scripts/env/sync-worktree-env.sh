@@ -78,7 +78,6 @@ INJECT_IDENTITY_INTO_MESSAGE="${INJECT_IDENTITY_INTO_MESSAGE:-true}"
 ROOT_ENV_PATH="$REPO_ROOT/.env"
 REGISTRY_ENV_PATH="$REPO_ROOT/apps/registry/.env"
 PROXY_ENV_PATH="$REPO_ROOT/apps/proxy/.env"
-CLI_ENV_PATH="$REPO_ROOT/apps/cli/.env"
 SKILL_ENV_PATH="$REPO_ROOT/apps/openclaw-skill/.env"
 
 write_header "$ROOT_ENV_PATH"
@@ -147,7 +146,6 @@ for key in "${proxy_optional_keys[@]}"; do
   append_if_set "$PROXY_ENV_PATH" "$key" "${!key:-}"
 done
 
-write_header "$CLI_ENV_PATH"
 cli_keys=(
   "CLAWDENTITY_REGISTRY_URL"
   "CLAWDENTITY_PROXY_URL"

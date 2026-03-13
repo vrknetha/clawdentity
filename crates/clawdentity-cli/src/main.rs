@@ -17,7 +17,9 @@ use clawdentity_core::{
 
 use crate::commands::connector::execute_connector_command;
 use crate::commands::install::execute_install_command;
+use crate::commands::pair::execute_pair_command;
 use crate::commands::provider::execute_provider_command;
+use crate::commands::verify::execute_verify_command;
 use crate::commands::{
     AdminCommand, AgentAuthCommand, AgentCommand, ApiKeyCommand, Commands, ConfigCommand,
     InviteCommand,
@@ -433,16 +435,31 @@ async fn run(cli: Cli) -> Result<()> {
             let state_options = resolve_state_options(&options)?;
             execute_connector_command(&state_options, command, cli.json).await?;
         }
+        Some(Commands::Pair { command }) => {
+            execute_pair_command(&options, command, cli.json).await?;
+        }
         Some(Commands::Install {
             platform,
             port,
             token,
             list,
         }) => {
-            execute_install_command(cli.home_dir.clone(), cli.json, platform, port, token, list)?;
+            let home_dir = cli.home_dir.clone();
+            run_blocking(move || {
+                execute_install_command(home_dir, cli.json, platform, port, token, list)
+            })
+            .await?;
         }
         Some(Commands::Provider { command }) => {
-            execute_provider_command(cli.home_dir.clone(), cli.json, command)?;
+            let home_dir = cli.home_dir.clone();
+            run_blocking(move || execute_provider_command(home_dir, cli.json, command)).await?;
+        }
+        Some(Commands::Verify { token_or_file }) => {
+            let options_for_verify = options.clone();
+            run_blocking(move || {
+                execute_verify_command(&options_for_verify, &token_or_file, cli.json)
+            })
+            .await?;
         }
         None => {
             let mut command = Cli::command();

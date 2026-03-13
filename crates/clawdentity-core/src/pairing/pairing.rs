@@ -351,6 +351,7 @@ fn execute_pair_request(
     let request_body = serde_json::to_string(&body)?;
     let body_bytes = request_body.as_bytes();
     let signed_headers = build_signed_headers("POST", request_url, body_bytes, secret_key)?;
+    tracing::debug!(request_url, "pair request sending");
 
     let mut request = blocking_client()?
         .post(request_url.to_string())
@@ -365,6 +366,7 @@ fn execute_pair_request(
         .send()
         .map_err(|error| CoreError::Http(error.to_string()))?;
     let status = response.status().as_u16();
+    tracing::debug!(request_url, status, "pair request completed");
     let payload: serde_json::Value = response
         .json()
         .map_err(|error| CoreError::Http(error.to_string()))?;
@@ -431,13 +433,21 @@ pub fn start_pairing(
 ) -> Result<PairStartResult> {
     let proof = read_local_agent_proof_material(config_dir, agent_name)?;
     let request_url = to_request_url(proxy_url, PAIR_START_PATH)?;
+    let mut request_body = serde_json::Map::new();
+    request_body.insert(
+        "initiatorProfile".to_string(),
+        serde_json::to_value(parse_pair_profile(&initiator_profile)?)?,
+    );
+    if let Some(ttl_seconds) = ttl_seconds {
+        request_body.insert(
+            "ttlSeconds".to_string(),
+            serde_json::Value::Number(ttl_seconds.into()),
+        );
+    }
     let payload = execute_pair_request(
         &request_url,
         &proof.ait,
-        serde_json::json!({
-            "ttlSeconds": ttl_seconds,
-            "initiatorProfile": parse_pair_profile(&initiator_profile)?,
-        }),
+        serde_json::Value::Object(request_body),
         &proof.secret_key,
     )?;
     let parsed: PairStartResponsePayload = serde_json::from_value(payload)

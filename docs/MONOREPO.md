@@ -15,7 +15,6 @@ Primary reasons:
 apps/
   registry        # Cloudflare Worker API
   proxy           # Cloudflare Worker relay/proxy
-  cli             # TypeScript CLI package
   openclaw-skill  # OpenClaw skill package
 
 packages/
@@ -71,7 +70,7 @@ packages/protocol
   -> packages/sdk
   -> packages/connector
 
-apps/registry, apps/proxy, apps/cli, apps/openclaw-skill
+apps/registry, apps/proxy, apps/openclaw-skill
   -> consume packages/*
 
 crates/clawdentity-core
@@ -93,7 +92,7 @@ Practical build order for local development:
 When protocol/auth behavior changes:
 - update `packages/protocol` and any dependent TypeScript packages/apps
 - update Rust implementation in `clawdentity-core`/`clawdentity-cli` as needed
-- keep CLI UX and config semantics compatible during TS->Rust CLI transition
+- keep CLI UX and config semantics aligned with the Rust CLI as the only supported operator surface
 - document behavior changes in `docs/ARCHITECTURE.md` and `docs/DESIGN_DECISIONS.md`
 
 ## Testing Strategy Across Ecosystems

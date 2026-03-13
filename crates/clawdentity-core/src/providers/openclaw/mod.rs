@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde_json::json;
 
@@ -13,13 +13,21 @@ pub use self::relay_test::{
     run_openclaw_relay_websocket_test,
 };
 pub use self::setup::{
-    OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME, OPENCLAW_DEFAULT_BASE_URL,
-    OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment, OpenclawConnectorsConfig,
-    OpenclawRelayRuntimeConfig, load_connector_assignments, load_relay_runtime_config,
+    OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONFIG_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME,
+    OPENCLAW_DEFAULT_BASE_URL, OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment,
+    OpenclawConnectorsConfig, OpenclawRelayRuntimeConfig, build_connector_base_url,
+    connector_port_from_base_url, load_connector_assignments, load_relay_runtime_config,
     openclaw_agent_name_path, openclaw_connectors_path, openclaw_relay_runtime_path,
     read_selected_openclaw_agent, resolve_connector_base_url, resolve_openclaw_base_url,
-    resolve_openclaw_hook_token, save_connector_assignment, save_relay_runtime_config,
+    resolve_openclaw_config_path, resolve_openclaw_dir, resolve_openclaw_hook_token,
+    save_connector_assignment, save_relay_runtime_config, suggest_connector_base_url,
     write_selected_openclaw_agent,
+};
+
+use self::assets::{
+    install_openclaw_skill_assets, patch_openclaw_config, read_openclaw_config_hook_token,
+    transform_peers_path, verify_openclaw_install, write_transform_peers_snapshot,
+    write_transform_runtime_config,
 };
 use crate::config::{ConfigPathOptions, get_config_dir};
 use crate::db::SqliteStore;
@@ -29,14 +37,11 @@ use crate::provider::{
     PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
     ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
     ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyResult,
-    command_exists, default_webhook_url, ensure_json_object_path, join_url_path, now_iso,
-    read_json_or_default, resolve_home_dir_with_fallback, write_json,
+    command_exists, default_webhook_url, join_url_path, now_iso, resolve_home_dir_with_fallback,
 };
 
 const PROVIDER_NAME: &str = "openclaw";
 const PROVIDER_DISPLAY_NAME: &str = "OpenClaw";
-const OPENCLAW_DIR_NAME: &str = ".openclaw";
-const OPENCLAW_CONFIG_FILE_NAME: &str = "openclaw.json";
 const OPENCLAW_BINARY: &str = "openclaw";
 const OPENCLAW_WEBHOOK_PATH: &str = "/hooks/agent";
 
@@ -46,17 +51,20 @@ pub struct OpenclawProvider {
     path_override: Option<Vec<PathBuf>>,
 }
 
+struct OpenclawSetupContext {
+    state_options: ConfigPathOptions,
+    config_dir: PathBuf,
+    openclaw_dir: PathBuf,
+    store: SqliteStore,
+    agent_name: String,
+}
+
+struct OpenclawSetupArtifacts {
+    notes: Vec<String>,
+    updated_paths: Vec<String>,
+}
+
 impl OpenclawProvider {
-    fn resolve_home_dir(&self) -> Option<PathBuf> {
-        self.home_dir_override.clone().or_else(dirs::home_dir)
-    }
-
-    fn openclaw_config_path_from_home(home_dir: &Path) -> PathBuf {
-        home_dir
-            .join(OPENCLAW_DIR_NAME)
-            .join(OPENCLAW_CONFIG_FILE_NAME)
-    }
-
     fn install_home_dir(&self, opts: &InstallOptions) -> Result<PathBuf> {
         resolve_home_dir_with_fallback(opts.home_dir.as_deref(), self.home_dir_override.as_deref())
     }
@@ -86,6 +94,201 @@ impl OpenclawProvider {
             path_override: Some(path_override),
         }
     }
+
+    fn resolve_provider_state_options(&self, home_dir: Option<PathBuf>) -> ConfigPathOptions {
+        ConfigPathOptions {
+            home_dir: home_dir.or(self.home_dir_override.clone()),
+            registry_url_hint: None,
+        }
+    }
+
+    fn resolve_setup_context(&self, opts: &ProviderSetupOptions) -> Result<OpenclawSetupContext> {
+        let state_options = self.resolve_provider_state_options(opts.home_dir.clone());
+        let config_dir = get_config_dir(&state_options)?;
+        let openclaw_dir = resolve_openclaw_dir(state_options.home_dir.as_deref(), None)?;
+        let store = SqliteStore::open(&state_options)?;
+        let agent_name = opts
+            .agent_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                crate::error::CoreError::InvalidInput("agent name is required".to_string())
+            })?
+            .to_string();
+        Ok(OpenclawSetupContext {
+            state_options,
+            config_dir,
+            openclaw_dir,
+            store,
+            agent_name,
+        })
+    }
+
+    fn resolve_setup_connector_base_url(
+        &self,
+        opts: &ProviderSetupOptions,
+        config_dir: &std::path::Path,
+        agent_name: &str,
+    ) -> String {
+        opts.connector_base_url.clone().unwrap_or_else(|| {
+            suggest_connector_base_url(config_dir, agent_name)
+                .unwrap_or_else(|_| build_connector_base_url("127.0.0.1", 19400))
+        })
+    }
+
+    fn resolve_setup_runtime_paths(
+        &self,
+        opts: &ProviderSetupOptions,
+        config_dir: &std::path::Path,
+        openclaw_dir: &std::path::Path,
+    ) -> (Option<OpenclawRelayRuntimeConfig>, String) {
+        let existing_runtime = load_relay_runtime_config(config_dir).ok().flatten();
+        let peers_path = opts
+            .relay_transform_peers_path
+            .clone()
+            .unwrap_or_else(|| transform_peers_path(openclaw_dir).display().to_string());
+        (existing_runtime, peers_path)
+    }
+
+    fn persist_setup_artifacts(
+        &self,
+        context: &OpenclawSetupContext,
+        opts: &ProviderSetupOptions,
+        connector_base_url: &str,
+        install_notes: Vec<String>,
+    ) -> Result<OpenclawSetupArtifacts> {
+        let marker_path = write_selected_openclaw_agent(&context.config_dir, &context.agent_name)?;
+        let runtime_path = self.save_setup_runtime_config(context, opts, connector_base_url)?;
+        let connector_assignment_path = save_connector_assignment(
+            &context.config_dir,
+            &context.agent_name,
+            connector_base_url,
+        )?;
+        let relay_snapshot_path = write_transform_peers_snapshot(
+            &context.openclaw_dir,
+            &crate::peers::load_peers_config(&context.store)?,
+        )?;
+        let relay_runtime_path = write_transform_runtime_config(
+            &context.openclaw_dir,
+            connector_port_from_base_url(connector_base_url).unwrap_or(19400),
+        )?;
+        Ok(self.finalize_setup_artifacts(
+            context,
+            connector_base_url,
+            install_notes,
+            [
+                marker_path,
+                runtime_path,
+                connector_assignment_path,
+                relay_snapshot_path,
+                relay_runtime_path,
+            ],
+        ))
+    }
+
+    fn save_setup_runtime_config(
+        &self,
+        context: &OpenclawSetupContext,
+        opts: &ProviderSetupOptions,
+        _connector_base_url: &str,
+    ) -> Result<PathBuf> {
+        let resolved_base_url =
+            resolve_openclaw_base_url(&context.config_dir, opts.platform_base_url.as_deref())?;
+        let (existing_runtime, relay_transform_peers_path) =
+            self.resolve_setup_runtime_paths(opts, &context.config_dir, &context.openclaw_dir);
+        let config_path =
+            resolve_openclaw_config_path(context.state_options.home_dir.as_deref(), None)?;
+        save_relay_runtime_config(
+            &context.config_dir,
+            OpenclawRelayRuntimeConfig {
+                openclaw_base_url: resolved_base_url,
+                openclaw_hook_token: opts
+                    .webhook_token
+                    .clone()
+                    .or_else(|| existing_runtime.and_then(|cfg| cfg.openclaw_hook_token))
+                    .or(read_openclaw_config_hook_token(&config_path)?),
+                relay_transform_peers_path: Some(relay_transform_peers_path),
+                updated_at: Some(now_iso()),
+            },
+        )
+    }
+
+    fn finalize_setup_artifacts(
+        &self,
+        context: &OpenclawSetupContext,
+        connector_base_url: &str,
+        install_notes: Vec<String>,
+        paths: [PathBuf; 5],
+    ) -> OpenclawSetupArtifacts {
+        let mut updated_paths = paths
+            .into_iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>();
+        updated_paths.sort();
+        updated_paths.dedup();
+
+        let mut notes = install_notes;
+        notes.push(format!(
+            "selected agent marker saved for `{}`",
+            context.agent_name
+        ));
+        notes.push(format!(
+            "connector assignment saved as `{connector_base_url}`"
+        ));
+        OpenclawSetupArtifacts {
+            notes,
+            updated_paths,
+        }
+    }
+
+    fn map_relay_test_preflight(&self, preflight: OpenclawDoctorResult) -> ProviderDoctorResult {
+        ProviderDoctorResult {
+            platform: self.name().to_string(),
+            status: if preflight.status == DoctorStatus::Healthy {
+                ProviderDoctorStatus::Healthy
+            } else {
+                ProviderDoctorStatus::Unhealthy
+            },
+            checks: preflight
+                .checks
+                .into_iter()
+                .map(|check| crate::provider::ProviderDoctorCheck {
+                    id: check.id,
+                    label: check.label,
+                    status: if check.status == DoctorCheckStatus::Pass {
+                        ProviderDoctorCheckStatus::Pass
+                    } else {
+                        ProviderDoctorCheckStatus::Fail
+                    },
+                    message: check.message,
+                    remediation_hint: check.remediation_hint,
+                    details: check.details,
+                })
+                .collect(),
+        }
+    }
+
+    fn map_relay_test_result(&self, result: OpenclawRelayTestResult) -> ProviderRelayTestResult {
+        ProviderRelayTestResult {
+            platform: self.name().to_string(),
+            status: if result.status == RelayCheckStatus::Success {
+                ProviderRelayTestStatus::Success
+            } else {
+                ProviderRelayTestStatus::Failure
+            },
+            checked_at: result.checked_at,
+            endpoint: result.endpoint,
+            peer_alias: Some(result.peer_alias),
+            http_status: result.http_status,
+            message: result.message,
+            remediation_hint: result.remediation_hint,
+            preflight: result
+                .preflight
+                .map(|preflight| self.map_relay_test_preflight(preflight)),
+            details: None,
+        }
+    }
 }
 
 impl PlatformProvider for OpenclawProvider {
@@ -101,14 +304,16 @@ impl PlatformProvider for OpenclawProvider {
         let mut evidence = Vec::new();
         let mut confidence: f32 = 0.0;
 
-        if let Some(home_dir) = self.resolve_home_dir() {
-            let openclaw_dir = home_dir.join(OPENCLAW_DIR_NAME);
+        if let Ok(openclaw_dir) = resolve_openclaw_dir(self.home_dir_override.as_deref(), None) {
             if openclaw_dir.is_dir() {
                 evidence.push(format!("found {}/", openclaw_dir.display()));
                 confidence += 0.65;
             }
+        }
 
-            let config_path = openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME);
+        if let Ok(config_path) =
+            resolve_openclaw_config_path(self.home_dir_override.as_deref(), None)
+        {
             if config_path.is_file() {
                 evidence.push(format!("found {}", config_path.display()));
                 confidence += 0.1;
@@ -168,124 +373,60 @@ impl PlatformProvider for OpenclawProvider {
     }
 
     fn config_path(&self) -> Option<PathBuf> {
-        self.resolve_home_dir()
-            .map(|home_dir| Self::openclaw_config_path_from_home(&home_dir))
+        resolve_openclaw_config_path(self.home_dir_override.as_deref(), None).ok()
     }
 
-    #[allow(clippy::too_many_lines)]
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
         let home_dir = self.install_home_dir(opts)?;
-        let config_path = Self::openclaw_config_path_from_home(&home_dir);
+        let openclaw_dir = resolve_openclaw_dir(Some(&home_dir), None)?;
+        let config_path = resolve_openclaw_config_path(Some(&home_dir), None)?;
 
         let state_options = ConfigPathOptions {
             home_dir: Some(home_dir.clone()),
             registry_url_hint: None,
         };
         let state_dir = get_config_dir(&state_options)?;
-        let base_url = resolve_openclaw_base_url(&state_dir, None)?;
-
-        let existing_runtime = load_relay_runtime_config(&state_dir)?;
-        let relay_transform_peers_path = existing_runtime
-            .as_ref()
-            .and_then(|config| config.relay_transform_peers_path.clone());
-
         let webhook_token = resolve_openclaw_hook_token(&state_dir, opts.webhook_token.as_deref())?;
         let webhook_url = self.resolve_webhook_url(opts)?;
 
-        let mut config = read_json_or_default(&config_path)?;
-
-        {
-            let clawdentity = ensure_json_object_path(&mut config, &["clawdentity"])?;
-            clawdentity.insert("provider".to_string(), json!(PROVIDER_NAME));
-            clawdentity.insert(
-                "webhook".to_string(),
-                json!({
-                    "enabled": true,
-                    "url": webhook_url,
-                    "host": opts
-                        .webhook_host
-                        .as_deref()
-                        .unwrap_or(self.default_webhook_host()),
-                    "port": opts.webhook_port.unwrap_or(self.default_webhook_port()),
-                    "path": OPENCLAW_WEBHOOK_PATH,
-                    "token": webhook_token,
-                    "connectorUrl": opts.connector_url,
-                }),
-            );
-        }
-
-        {
-            let hooks = ensure_json_object_path(&mut config, &["hooks"])?;
-            hooks.insert(
-                "agent".to_string(),
-                json!({
-                    "url": self.resolve_webhook_url(opts)?,
-                    "token": resolve_openclaw_hook_token(&state_dir, opts.webhook_token.as_deref())?,
-                }),
-            );
-        }
-
-        write_json(&config_path, &config)?;
-
-        let runtime_path = save_relay_runtime_config(
-            &state_dir,
-            OpenclawRelayRuntimeConfig {
-                openclaw_base_url: base_url,
-                openclaw_hook_token: resolve_openclaw_hook_token(
-                    &state_dir,
-                    opts.webhook_token.as_deref(),
-                )?,
-                relay_transform_peers_path,
-                updated_at: None,
-            },
+        let mut notes = install_openclaw_skill_assets(&openclaw_dir)?;
+        let patch_result = patch_openclaw_config(
+            &config_path,
+            &webhook_url,
+            opts.webhook_host
+                .as_deref()
+                .unwrap_or(self.default_webhook_host()),
+            opts.webhook_port.unwrap_or(self.default_webhook_port()),
+            OPENCLAW_WEBHOOK_PATH,
+            webhook_token.as_deref(),
         )?;
+        notes.push(format!(
+            "{} {}",
+            if patch_result.config_changed {
+                "updated"
+            } else {
+                "verified"
+            },
+            config_path.display()
+        ));
+        notes.push(format!("configured webhook path {OPENCLAW_WEBHOOK_PATH}"));
 
         Ok(InstallResult {
             platform: self.name().to_string(),
             config_updated: true,
             service_installed: false,
-            notes: vec![
-                format!("updated {}", config_path.display()),
-                format!("updated {}", runtime_path.display()),
-                format!("configured webhook path {OPENCLAW_WEBHOOK_PATH}"),
-            ],
+            notes,
         })
     }
 
-    fn verify(&self) -> Result<VerifyResult> {
-        let state_options = ConfigPathOptions {
-            home_dir: self.home_dir_override.clone(),
-            registry_url_hint: None,
-        };
-        let state_dir = get_config_dir(&state_options)?;
-        let store = SqliteStore::open(&state_options)?;
-
-        let doctor = run_openclaw_doctor(
-            &state_dir,
-            &store,
-            OpenclawDoctorOptions {
-                home_dir: self.home_dir_override.clone(),
-                include_connector_runtime_check: true,
-                ..OpenclawDoctorOptions::default()
-            },
-        )?;
-
-        let checks = doctor
-            .checks
-            .into_iter()
-            .map(|check| {
-                let passed = check.status == DoctorCheckStatus::Pass;
-                let detail = if let Some(remediation_hint) = check.remediation_hint {
-                    format!("{} | fix: {remediation_hint}", check.message)
-                } else {
-                    check.message
-                };
-                (check.id, passed, detail)
-            })
-            .collect();
+    fn verify(&self, opts: &crate::provider::VerifyOptions) -> Result<VerifyResult> {
+        let home_dir = opts.home_dir.clone().or(self.home_dir_override.clone());
+        let config_path = resolve_openclaw_config_path(home_dir.as_deref(), None)?;
+        let openclaw_dir = resolve_openclaw_dir(home_dir.as_deref(), None)?;
+        let checks = verify_openclaw_install(&config_path, &openclaw_dir)?;
 
         Ok(VerifyResult {
-            healthy: doctor.status == DoctorStatus::Healthy,
+            healthy: checks.iter().all(|(_, passed, _)| *passed),
             checks,
         })
     }
@@ -339,54 +480,10 @@ impl PlatformProvider for OpenclawProvider {
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult> {
-        let state_options = ConfigPathOptions {
-            home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
-            registry_url_hint: None,
-        };
-        let config_dir = get_config_dir(&state_options)?;
-        let agent_name = opts
-            .agent_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                crate::error::CoreError::InvalidInput("agent name is required".to_string())
-            })?;
-
-        let marker_path = write_selected_openclaw_agent(&config_dir, agent_name)?;
-        let resolved_base_url =
-            resolve_openclaw_base_url(&config_dir, opts.platform_base_url.as_deref())?;
-        let existing_runtime = load_relay_runtime_config(&config_dir)?;
-        let runtime_path = save_relay_runtime_config(
-            &config_dir,
-            OpenclawRelayRuntimeConfig {
-                openclaw_base_url: resolved_base_url,
-                openclaw_hook_token: opts.webhook_token.clone().or_else(|| {
-                    existing_runtime
-                        .as_ref()
-                        .and_then(|cfg| cfg.openclaw_hook_token.clone())
-                }),
-                relay_transform_peers_path: opts.relay_transform_peers_path.clone().or_else(|| {
-                    existing_runtime
-                        .as_ref()
-                        .and_then(|cfg| cfg.relay_transform_peers_path.clone())
-                }),
-                updated_at: Some(now_iso()),
-            },
-        )?;
-
-        let connector_assignment_path = if let Some(base_url) = opts.connector_base_url.as_deref() {
-            Some(save_connector_assignment(
-                &config_dir,
-                agent_name,
-                base_url,
-            )?)
-        } else {
-            None
-        };
-
+        let context = self.resolve_setup_context(opts)?;
+        let connector_base_url =
+            self.resolve_setup_connector_base_url(opts, &context.config_dir, &context.agent_name);
         let install_result = self.install(&InstallOptions {
             home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
             webhook_port: opts.webhook_port,
@@ -395,31 +492,23 @@ impl PlatformProvider for OpenclawProvider {
             connector_url: opts
                 .connector_url
                 .clone()
-                .or(opts.connector_base_url.clone()),
+                .or(Some(connector_base_url.clone())),
         })?;
-
-        let mut updated_paths = vec![
-            marker_path.display().to_string(),
-            runtime_path.display().to_string(),
-        ];
-        if let Some(path) = connector_assignment_path {
-            updated_paths.push(path.display().to_string());
-        }
-        let mut notes = install_result.notes;
-        notes.push(format!("selected agent marker saved for `{agent_name}`"));
+        let artifacts = self.persist_setup_artifacts(
+            &context,
+            opts,
+            &connector_base_url,
+            install_result.notes,
+        )?;
         Ok(ProviderSetupResult {
             platform: self.name().to_string(),
-            notes,
-            updated_paths,
+            notes: artifacts.notes,
+            updated_paths: artifacts.updated_paths,
         })
     }
 
-    #[allow(clippy::too_many_lines)]
     fn relay_test(&self, opts: &ProviderRelayTestOptions) -> Result<ProviderRelayTestResult> {
-        let state_options = ConfigPathOptions {
-            home_dir: opts.home_dir.clone().or(self.home_dir_override.clone()),
-            registry_url_hint: None,
-        };
+        let state_options = self.resolve_provider_state_options(opts.home_dir.clone());
         let config_dir = get_config_dir(&state_options)?;
         let store = SqliteStore::open(&state_options)?;
         let result = run_openclaw_relay_test(
@@ -436,48 +525,11 @@ impl PlatformProvider for OpenclawProvider {
                 skip_preflight: opts.skip_preflight,
             },
         )?;
-        Ok(ProviderRelayTestResult {
-            platform: self.name().to_string(),
-            status: if result.status == RelayCheckStatus::Success {
-                ProviderRelayTestStatus::Success
-            } else {
-                ProviderRelayTestStatus::Failure
-            },
-            checked_at: result.checked_at,
-            endpoint: result.endpoint,
-            peer_alias: Some(result.peer_alias),
-            http_status: result.http_status,
-            message: result.message,
-            remediation_hint: result.remediation_hint,
-            preflight: result.preflight.map(|preflight| ProviderDoctorResult {
-                platform: self.name().to_string(),
-                status: if preflight.status == DoctorStatus::Healthy {
-                    ProviderDoctorStatus::Healthy
-                } else {
-                    ProviderDoctorStatus::Unhealthy
-                },
-                checks: preflight
-                    .checks
-                    .into_iter()
-                    .map(|check| crate::provider::ProviderDoctorCheck {
-                        id: check.id,
-                        label: check.label,
-                        status: if check.status == DoctorCheckStatus::Pass {
-                            ProviderDoctorCheckStatus::Pass
-                        } else {
-                            ProviderDoctorCheckStatus::Fail
-                        },
-                        message: check.message,
-                        remediation_hint: check.remediation_hint,
-                        details: check.details,
-                    })
-                    .collect(),
-            }),
-            details: None,
-        })
+        Ok(self.map_relay_test_result(result))
     }
 }
 
+mod assets;
 mod doctor;
 mod relay_test;
 mod setup;
@@ -490,12 +542,12 @@ mod tests {
 
     use crate::provider::{InboundMessage, PlatformProvider};
 
-    use super::{OPENCLAW_CONFIG_FILE_NAME, OPENCLAW_DIR_NAME, OpenclawProvider};
+    use super::{OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider, resolve_openclaw_dir};
 
     #[test]
     fn detection_checks_home_and_path_evidence() {
         let home = TempDir::new().expect("temp home");
-        let openclaw_dir = home.path().join(OPENCLAW_DIR_NAME);
+        let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
         std::fs::create_dir_all(&openclaw_dir).expect("openclaw dir");
         std::fs::write(openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME), "{}\n").expect("config");
 
@@ -559,8 +611,8 @@ mod tests {
         assert_eq!(
             provider.config_path(),
             Some(
-                home.path()
-                    .join(OPENCLAW_DIR_NAME)
+                resolve_openclaw_dir(Some(home.path()), None)
+                    .expect("openclaw dir")
                     .join(OPENCLAW_CONFIG_FILE_NAME)
             )
         );
