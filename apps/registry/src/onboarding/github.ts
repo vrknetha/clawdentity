@@ -44,6 +44,15 @@ type GithubUserResponse = {
   name?: string | null;
 };
 
+function githubOnboardingInvalidStateError(): AppError {
+  return new AppError({
+    code: "GITHUB_ONBOARDING_INVALID_STATE",
+    message: "GitHub onboarding state is invalid",
+    status: 400,
+    expose: true,
+  });
+}
+
 function getGithubStateSecret(config: RegistryConfig): string {
   const secret = config.GITHUB_OAUTH_STATE_SECRET?.trim();
   if (!secret) {
@@ -150,22 +159,12 @@ export async function verifySignedGithubStateCookie(input: {
   nowMs?: number;
 }): Promise<SignedStatePayload> {
   if (!input.cookieValue) {
-    throw new AppError({
-      code: "GITHUB_ONBOARDING_INVALID_STATE",
-      message: "GitHub onboarding state is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw githubOnboardingInvalidStateError();
   }
 
   const [encodedPayload, signature] = input.cookieValue.split(".", 2);
   if (!encodedPayload || !signature) {
-    throw new AppError({
-      code: "GITHUB_ONBOARDING_INVALID_STATE",
-      message: "GitHub onboarding state is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw githubOnboardingInvalidStateError();
   }
 
   const expectedSignature = await signValue(
@@ -173,12 +172,7 @@ export async function verifySignedGithubStateCookie(input: {
     getGithubStateSecret(input.config),
   );
   if (!constantTimeEqual(signature, expectedSignature)) {
-    throw new AppError({
-      code: "GITHUB_ONBOARDING_INVALID_STATE",
-      message: "GitHub onboarding state is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw githubOnboardingInvalidStateError();
   }
 
   let payload: SignedStatePayload;
@@ -187,12 +181,7 @@ export async function verifySignedGithubStateCookie(input: {
       new TextDecoder().decode(decodeBase64url(encodedPayload)),
     ) as SignedStatePayload;
   } catch {
-    throw new AppError({
-      code: "GITHUB_ONBOARDING_INVALID_STATE",
-      message: "GitHub onboarding state is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw githubOnboardingInvalidStateError();
   }
 
   if (
@@ -200,12 +189,7 @@ export async function verifySignedGithubStateCookie(input: {
     typeof payload.expiresAt !== "string" ||
     !constantTimeEqual(payload.nonce, input.state)
   ) {
-    throw new AppError({
-      code: "GITHUB_ONBOARDING_INVALID_STATE",
-      message: "GitHub onboarding state is invalid",
-      status: 400,
-      expose: true,
-    });
+    throw githubOnboardingInvalidStateError();
   }
 
   const nowMs = input.nowMs ?? nowUtcMs();

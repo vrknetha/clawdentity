@@ -74,7 +74,7 @@ describe(`GET ${GITHUB_ONBOARDING_START_PATH}`, () => {
     const bindings = createGithubBindings(database);
 
     const response = await createRegistryApp().request(
-      GITHUB_ONBOARDING_START_PATH,
+      `https://registry.clawdentity.com${GITHUB_ONBOARDING_START_PATH}`,
       {},
       bindings,
     );
@@ -92,7 +92,24 @@ describe(`GET ${GITHUB_ONBOARDING_START_PATH}`, () => {
     const setCookie = response.headers.get("set-cookie");
     expect(setCookie).toContain(getGithubStateCookieName());
     expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("Secure");
     expect(setCookie).toContain("SameSite=Lax");
+  });
+
+  it("does not force Secure on plain-http local deployments", async () => {
+    const { database } = createFakeDb([]);
+    const bindings = createGithubBindings(database);
+
+    const response = await createRegistryApp().request(
+      `http://127.0.0.1:8788${GITHUB_ONBOARDING_START_PATH}`,
+      {},
+      bindings,
+    );
+
+    expect(response.status).toBe(302);
+    const setCookie = response.headers.get("set-cookie");
+    expect(setCookie).toContain(getGithubStateCookieName());
+    expect(setCookie).not.toContain("Secure");
   });
 });
 
@@ -229,6 +246,69 @@ describe(`GET ${GITHUB_ONBOARDING_CALLBACK_PATH}`, () => {
     expect(starterPassInserts).toHaveLength(0);
     const location = new URL(response.headers.get("location") ?? "");
     expect(location.hash).toContain("error=starter_pass_already_used");
+  });
+
+  it("reissues a fresh starter pass after expiry on repeat GitHub login", async () => {
+    const { database, starterPassInserts, starterPassUpdates } = createFakeDb(
+      [],
+      [],
+      {
+        starterPassRows: [
+          {
+            id: "01HF7YAT31JZHSMW1CG6Q6MHC4",
+            code: "clw_stp_expired_old",
+            provider: "github",
+            providerSubject: "42",
+            providerLogin: "octocat",
+            displayName: "Old Name",
+            redeemedBy: null,
+            issuedAt: "2026-01-01T00:00:00.000Z",
+            redeemedAt: null,
+            expiresAt: "2000-01-01T00:00:00.000Z",
+            status: "active",
+          },
+        ],
+      },
+    );
+    const bindings = createGithubBindings(database);
+    const config = parseRegistryConfig(bindings);
+    const cookieValue = await createSignedGithubStateCookie({
+      config,
+      nonce: "01HF7YAT31JZHSMW1CG6Q6MHC5",
+    });
+    mockGithubFetch();
+
+    const response = await createRegistryApp().request(
+      `https://registry.clawdentity.com${GITHUB_ONBOARDING_CALLBACK_PATH}?state=01HF7YAT31JZHSMW1CG6Q6MHC5&code=github-code`,
+      {
+        headers: {
+          cookie: `${getGithubStateCookieName()}=${cookieValue}`,
+        },
+      },
+      bindings,
+    );
+
+    expect(response.status).toBe(302);
+    expect(starterPassInserts).toHaveLength(0);
+    expect(starterPassUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "active",
+          provider_login: "octocat",
+          display_name: "The Octocat",
+          redeemed_by: null,
+          redeemed_at: null,
+          matched_rows: 1,
+        }),
+      ]),
+    );
+
+    const location = new URL(response.headers.get("location") ?? "");
+    const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
+    expect(fragment.get("code")).toMatch(/^clw_stp_/);
+    expect(fragment.get("code")).not.toBe("clw_stp_expired_old");
+    expect(fragment.get("displayName")).toBe("The Octocat");
+    expect(fragment.get("providerLogin")).toBe("octocat");
   });
 });
 

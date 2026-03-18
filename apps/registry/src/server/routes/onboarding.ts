@@ -93,9 +93,10 @@ export function registerOnboardingRoutes(
       config,
       nonce,
     });
+    const isHttpsRequest = new URL(c.req.url).protocol === "https:";
     setCookie(c, getGithubStateCookieName(), cookieValue, {
       httpOnly: true,
-      secure: true,
+      secure: isHttpsRequest,
       sameSite: "Lax",
       path: GITHUB_ONBOARDING_CALLBACK_PATH,
       maxAge: 10 * 60,
@@ -150,6 +151,10 @@ export function registerOnboardingRoutes(
       const githubProfile = await fetchGithubProfile({ accessToken });
       const nowMillis = nowUtcMs();
       const db = createDb(c.env.DB);
+      const displayName = normalizeStarterDisplayName(
+        githubProfile.displayName,
+      );
+      const providerLogin = normalizeGithubLogin(githubProfile.login);
       const existingStarterPass = await findStarterPassByProviderSubject({
         db,
         provider: GITHUB_STARTER_PASS_PROVIDER,
@@ -177,22 +182,42 @@ export function registerOnboardingRoutes(
           );
         }
 
-        if (status === "expired" && existingStarterPass.status !== "expired") {
+        if (status === "expired") {
+          const refreshedCode = generateStarterPassCode();
+          const refreshedIssuedAt = nowIso();
+          const refreshedExpiresAt = computeStarterPassExpiry(nowMillis);
+
           await db
             .update(starter_passes)
             .set({
-              status: "expired",
+              code: refreshedCode,
+              provider_login: providerLogin,
+              display_name: displayName,
+              issued_at: refreshedIssuedAt,
+              expires_at: refreshedExpiresAt,
+              redeemed_by: null,
+              redeemed_at: null,
+              status: "active",
             })
             .where(eq(starter_passes.id, existingStarterPass.id));
+
+          return c.redirect(
+            buildOnboardingRedirectUrl({
+              config,
+              fragment: {
+                code: refreshedCode,
+                displayName,
+                providerLogin,
+                expiresAt: refreshedExpiresAt,
+              },
+            }),
+            302,
+          );
         }
 
         return redirectWithError(
-          status === "redeemed"
-            ? "starter_pass_already_used"
-            : "starter_pass_already_issued",
-          status === "redeemed"
-            ? "This GitHub account has already redeemed its one starter pass"
-            : "This GitHub account has already been issued a starter pass",
+          "starter_pass_already_used",
+          "This GitHub account has already redeemed its one starter pass",
         );
       }
 
@@ -201,10 +226,6 @@ export function registerOnboardingRoutes(
       const starterPassCode = generateStarterPassCode();
       const issuedAt = nowIso();
       const expiresAt = computeStarterPassExpiry(nowMillis);
-      const displayName = normalizeStarterDisplayName(
-        githubProfile.displayName,
-      );
-      const providerLogin = normalizeGithubLogin(githubProfile.login);
 
       await db.insert(starter_passes).values({
         id: starterPassId,

@@ -7,20 +7,12 @@ import Nav from "../../components/landing/Nav.astro";
 import {
   CANONICAL_SKILL_URL,
   GITHUB_ONBOARDING_START_URL,
-  buildStarterPassCommand,
-  buildStarterPassPrompt,
 } from "../../components/landing/onboarding";
 
-const defaultCode = "clw_stp_...";
+const defaultCode = "Not loaded yet";
 const defaultDisplayName = "Your Name";
-const defaultPrompt = buildStarterPassPrompt({
-  code: defaultCode,
-  displayName: defaultDisplayName,
-});
-const defaultCommand = buildStarterPassCommand({
-  code: defaultCode,
-  displayName: defaultDisplayName,
-});
+const lockedPrompt = "Sign in with GitHub first to load your starter-pass prompt.";
+const lockedCommand = "GitHub sign-in is required before the starter-pass redeem command is available.";
 ---
 
 <LandingLayout
@@ -84,9 +76,9 @@ const defaultCommand = buildStarterPassCommand({
             <div class="starter-panel__header">
               <span class="starter-panel__label">STEP 1</span>
               <h2>Paste this into OpenClaw</h2>
-              <button id="copy-prompt" class="starter-copy" type="button">Copy prompt</button>
+              <button id="copy-prompt" class="starter-copy" type="button" disabled>Copy prompt</button>
             </div>
-            <pre id="starter-prompt" class="starter-code-block">{defaultPrompt}</pre>
+            <pre id="starter-prompt" class="starter-code-block">{lockedPrompt}</pre>
             <p class="starter-panel__note">
               Your agent should use <a href={CANONICAL_SKILL_URL}>{CANONICAL_SKILL_URL}</a> as the source
               of truth. If agent name is blank, it should ask once and keep going.
@@ -97,9 +89,9 @@ const defaultCommand = buildStarterPassCommand({
             <div class="starter-panel__header">
               <span class="starter-panel__label">STEP 2</span>
               <h2>Manual fallback</h2>
-              <button id="copy-command" class="starter-copy" type="button">Copy command</button>
+              <button id="copy-command" class="starter-copy" type="button" disabled>Copy command</button>
             </div>
-            <pre id="starter-command" class="starter-code-block">{defaultCommand}</pre>
+            <pre id="starter-command" class="starter-code-block">{lockedCommand}</pre>
             <p class="starter-panel__note">
               This only redeems the starter pass. If you skip the prompt-first path, continue with the
               <a href="/getting-started/quickstart/">Quick Start guide</a> to create and wire the agent manually.
@@ -121,13 +113,14 @@ const defaultCommand = buildStarterPassCommand({
   is:inline
   define:vars={{
     canonicalSkillUrl: CANONICAL_SKILL_URL,
-    defaultCommand,
     defaultDisplayName,
-    defaultPrompt,
+    lockedCommand,
+    lockedPrompt,
   }}
 >
   (function () {
     const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const fragmentDisplayName = fragment.get("displayName")?.trim();
     const codeEl = document.getElementById("starter-code");
     const expiryEl = document.getElementById("starter-expiry");
     const statusEl = document.getElementById("starter-status");
@@ -140,6 +133,12 @@ const defaultCommand = buildStarterPassCommand({
     const agentNameInput = document.getElementById("agent-name-input");
     const copyPromptButton = document.getElementById("copy-prompt");
     const copyCommandButton = document.getElementById("copy-command");
+    let didHydrateDisplayNameFromFragment = false;
+
+    function setCopyState(button, enabled) {
+      if (!(button instanceof HTMLButtonElement)) return;
+      button.disabled = !enabled;
+    }
 
     function shellQuote(value) {
       return `'${value.replaceAll("'", `'\"'\"'`)}'`;
@@ -175,7 +174,21 @@ const defaultCommand = buildStarterPassCommand({
       }, 1800);
     }
 
+    function hydrateDisplayNameFromFragment() {
+      if (didHydrateDisplayNameFromFragment) {
+        return;
+      }
+      didHydrateDisplayNameFromFragment = true;
+      if (
+        fragmentDisplayName &&
+        displayNameInput instanceof HTMLInputElement
+      ) {
+        displayNameInput.value = fragmentDisplayName;
+      }
+    }
+
     function renderState() {
+      hydrateDisplayNameFromFragment();
       const code = fragment.get("code")?.trim() || "clw_stp_...";
       const displayName = displayNameInput instanceof HTMLInputElement
         ? displayNameInput.value.trim() || defaultDisplayName
@@ -185,11 +198,26 @@ const defaultCommand = buildStarterPassCommand({
       const expiresAt = fragment.get("expiresAt")?.trim();
       const error = fragment.get("error")?.trim();
       const errorMessage = fragment.get("message")?.trim();
+      const hasStarterPass = fragment.has("code");
 
-      if (codeEl) codeEl.textContent = code;
-      if (expiryEl) expiryEl.textContent = expiresAt || "Not returned";
-      if (promptEl) promptEl.textContent = buildPrompt(code, displayName, agentName);
-      if (commandEl) commandEl.textContent = buildCommand(code, displayName);
+      if (codeEl) codeEl.textContent = hasStarterPass ? code : "Not loaded yet";
+      if (expiryEl) {
+        expiryEl.textContent = hasStarterPass
+          ? (expiresAt || "Not returned")
+          : "Returned by GitHub redirect";
+      }
+      if (promptEl) {
+        promptEl.textContent = hasStarterPass
+          ? buildPrompt(code, displayName, agentName)
+          : lockedPrompt;
+      }
+      if (commandEl) {
+        commandEl.textContent = hasStarterPass
+          ? buildCommand(code, displayName)
+          : lockedCommand;
+      }
+      setCopyState(copyPromptButton, hasStarterPass);
+      setCopyState(copyCommandButton, hasStarterPass);
 
       if (error) {
         statusEl?.classList.add("starter-badge--error");
@@ -201,10 +229,12 @@ const defaultCommand = buildStarterPassCommand({
             errorMessage || "GitHub onboarding did not return a starter pass. Sign in again or use the operator fallback.";
           messageEl.classList.add("starter-message--error");
         }
+        setCopyState(copyPromptButton, false);
+        setCopyState(copyCommandButton, false);
         return;
       }
 
-      if (fragment.has("code")) {
+      if (hasStarterPass) {
         statusEl?.classList.remove("starter-badge--error");
         if (statusEl) statusEl.textContent = "Starter pass ready";
         if (statusLabelEl) statusLabelEl.textContent = "GitHub sign-in completed";
@@ -232,13 +262,15 @@ const defaultCommand = buildStarterPassCommand({
 
     copyPromptButton?.addEventListener("click", async () => {
       if (!(promptEl instanceof HTMLElement)) return;
-      await navigator.clipboard.writeText(promptEl.textContent || defaultPrompt);
+      if (copyPromptButton instanceof HTMLButtonElement && copyPromptButton.disabled) return;
+      await navigator.clipboard.writeText(promptEl.textContent || "");
       setCopied(copyPromptButton);
     });
 
     copyCommandButton?.addEventListener("click", async () => {
       if (!(commandEl instanceof HTMLElement)) return;
-      await navigator.clipboard.writeText(commandEl.textContent || defaultCommand);
+      if (copyCommandButton instanceof HTMLButtonElement && copyCommandButton.disabled) return;
+      await navigator.clipboard.writeText(commandEl.textContent || "");
       setCopied(copyCommandButton);
     });
 
@@ -423,6 +455,11 @@ const defaultCommand = buildStarterPassCommand({
     font-size: 0.75rem;
     padding: 0.55rem 0.75rem;
     cursor: pointer;
+  }
+
+  .starter-copy:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .starter-code-block {

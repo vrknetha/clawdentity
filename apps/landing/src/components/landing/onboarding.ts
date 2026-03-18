@@ -1,8 +1,10 @@
 export const CANONICAL_SKILL_URL = "https://clawdentity.com/skill.md";
-export const GITHUB_ONBOARDING_START_URL =
-  "https://registry.clawdentity.com/v1/onboarding/github/start";
-
-export const GENERIC_AGENT_PROMPT = `Read the instructions from ${CANONICAL_SKILL_URL} and follow the instructions`;
+const REGISTRY_URL =
+  import.meta.env.PUBLIC_REGISTRY_URL ?? "https://registry.clawdentity.com";
+export const GITHUB_ONBOARDING_START_URL = new URL(
+  "/v1/onboarding/github/start",
+  REGISTRY_URL,
+).toString();
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll(`'`, String.raw`'"'"'`)}'`;

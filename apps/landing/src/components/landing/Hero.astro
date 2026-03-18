@@ -2,7 +2,6 @@
 // Hero — Iron Ledger design
 // Two-machine diagram: OpenClaw (localhost) <-> Relay <-> NanoClaw (localhost)
 import {
-  GENERIC_AGENT_PROMPT,
   GITHUB_ONBOARDING_START_URL,
 } from "./onboarding";
 ---
@@ -19,26 +18,11 @@ import {
       <p class="hero-subtitle">
         Four platforms. Every agent behind localhost. Every request signed. Revoke one without touching the rest.
       </p>
-      <div class="skillmd-callout">
-        <div class="callout-header">
-          <span class="callout-label">AGENT-FIRST SETUP</span>
-          <button class="callout-copy" id="skillmd-copy" aria-label="Copy agent prompt" type="button">
-            <svg class="copy-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="9" y="9" width="13" height="13" rx="2"/>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </svg>
-            <svg class="check-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-            <span class="copy-label">Copy</span>
-          </button>
-        </div>
-        <div class="callout-prompt">
-          <span class="prompt-sym">$</span>
-          <code class="callout-text">{GENERIC_AGENT_PROMPT}</code>
-        </div>
-        <div class="callout-footer">Hosted path: start with GitHub, then paste the generated prompt from your starter-pass page.</div>
-      </div>
+      <p class="hero-flow">
+        Hosted onboarding starts with GitHub sign-in. After the redirect, your starter-pass page
+        generates the exact prompt for your first agent. Private or self-hosted rollouts should use
+        the operator docs instead of the hosted path.
+      </p>
       <div class="hero-actions">
         <a href={GITHUB_ONBOARDING_START_URL} class="btn btn-primary">
           Get Started with GitHub
@@ -163,7 +147,7 @@ import {
   </div>
 </section>
 
-<script is:inline define:vars={{ genericAgentPrompt: GENERIC_AGENT_PROMPT }}>
+<script is:inline>
   (function() {
     // SVG draw-on lines: animate stroke-dashoffset to 0 on load
     const paths = document.querySelectorAll('.svg-draw');
@@ -171,16 +155,6 @@ import {
       setTimeout(() => {
         path.classList.add('drawn');
       }, 600);
-    });
-
-    // Agent prompt copy
-    document.getElementById('skillmd-copy')?.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(genericAgentPrompt);
-        const btn = document.getElementById('skillmd-copy');
-        btn?.classList.add('copied');
-        setTimeout(() => btn?.classList.remove('copied'), 2000);
-      } catch { /* silently fail */ }
     });
   })();
 </script>
@@ -245,6 +219,15 @@ import {
     line-height: 1.7;
     margin-bottom: var(--space-xl);
     max-width: 30rem;
+  }
+
+  .hero-flow {
+    max-width: 31rem;
+    margin: 0 0 var(--space-xl);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: var(--cl-text-2);
   }
 
   .hero-actions {
@@ -348,96 +331,4 @@ import {
     }
   }
 
-  /* skill.md / agent prompt callout */
-  .skillmd-callout {
-    background: var(--cl-code-bg);
-    border: 1px solid var(--cl-border-2);
-    border-left: 2px solid var(--cl-accent);
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: var(--space-xl);
-    max-width: 32rem;
-  }
-
-  .callout-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.875rem;
-    background: rgba(255, 255, 255, 0.025);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  }
-
-  .callout-label {
-    font-family: var(--font-mono);
-    font-size: 0.625rem;
-    font-variant: small-caps;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--cl-accent);
-  }
-
-  .callout-copy {
-    display: flex;
-    align-items: center;
-    gap: 0.375rem;
-    padding: 0.25rem 0.5rem;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 2px;
-    color: #A09488;
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .callout-copy:hover {
-    color: #E6EDF3;
-    border-color: rgba(255, 255, 255, 0.25);
-  }
-
-  .callout-copy.copied {
-    color: #6A9955;
-    border-color: #6A9955;
-  }
-
-  .callout-copy .check-icon { display: none; }
-  .callout-copy.copied .check-icon { display: block; }
-  .callout-copy.copied .copy-icon { display: none; }
-
-  .copy-label { user-select: none; }
-
-  .callout-prompt {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.625rem;
-    padding: 0.875rem 1rem;
-  }
-
-  .prompt-sym {
-    color: var(--cl-accent);
-    font-family: var(--font-mono);
-    font-weight: 600;
-    font-size: 0.875rem;
-    flex-shrink: 0;
-    line-height: 1.6;
-  }
-
-  .callout-text {
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    color: #E6EDF3;
-    line-height: 1.6;
-    word-break: break-word;
-  }
-
-  .callout-footer {
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
-    padding: 0.5rem 0.875rem;
-    font-family: var(--font-sans);
-    font-size: 0.8125rem;
-    color: #6B5F55;
-  }
 </style>

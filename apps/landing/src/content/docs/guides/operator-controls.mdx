@@ -91,13 +91,13 @@ clawdentity provider relay-test --for <platform> --peer <alias> [--json]
 
 ```bash
 # Start pairing (returns clwpair1_ ticket + metadata)
-POST /pair/start
+clawdentity pair start <peer-alias>
 
 # Confirm pairing with ticket from initiator
-POST /pair/confirm
+clawdentity pair confirm <ticket>
 
 # Check pairing status
-POST /pair/status
+clawdentity pair status <peer-alias>
 ```
 
 ### Skill management

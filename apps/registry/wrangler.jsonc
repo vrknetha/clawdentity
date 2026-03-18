@@ -29,12 +29,20 @@
           "custom_domain": true
         }
       ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "EVENT_BUS_QUEUE",
+            "queue": "clawdentity-events-dev"
+          }
+        ]
+      },
       "vars": {
         "ENVIRONMENT": "development",
         "PROXY_URL": "https://dev.proxy.clawdentity.com",
         "REGISTRY_ISSUER_URL": "https://dev.registry.clawdentity.com",
         "LANDING_URL": "https://clawdentity-site-dev.pages.dev",
-        "EVENT_BUS_BACKEND": "memory"
+        "EVENT_BUS_BACKEND": "queue"
       }
     },
     "production": {

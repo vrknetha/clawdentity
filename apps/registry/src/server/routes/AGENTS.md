@@ -9,5 +9,7 @@
 - New route-level readiness or metadata fields must be additive and must not break existing clients that only read `status`, `version`, or `environment`.
 - Keep GitHub onboarding starter-pass logic in dedicated onboarding routes; do not overload invite routes with public hosted onboarding behavior.
 - Public hosted onboarding must stay additive: admin invites remain available for operator/self-hosted flows even when landing/docs prefer GitHub starter passes.
+- For repeat GitHub login, reissue an expired starter pass for the same provider subject instead of returning an "already issued" dead-end.
+- GitHub OAuth state cookies must set `Secure` only on HTTPS requests so local/plain-HTTP deployments can complete callback state validation.
 - Enforce human-level agent quotas server-side in agent registration routes before challenge finalization; UI copy is not a substitute for quota enforcement.
 - Enforce starter-pass agent quotas inside the guarded registration mutation itself so parallel `/v1/agents` requests cannot bypass the cap between challenge verification and insert.

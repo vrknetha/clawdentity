@@ -10,3 +10,4 @@
 - Reuse an existing active starter pass for the same GitHub subject when possible; never mint a second pass after a redeemed/expired pass exists.
 - When onboarding config is missing, fail with a stable disabled error code instead of partially running OAuth.
 - Keep provider-specific fetch/parsing logic small and isolated so additional providers can be added without leaking GitHub assumptions across routes.
+- Centralize repeated onboarding error constructors (for example invalid OAuth state) behind small helpers so message/code/status cannot drift across branches.
