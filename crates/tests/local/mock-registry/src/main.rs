@@ -87,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/api-keys/{id}", delete(revoke_api_key_handler))
         .route("/v1/invites", post(create_invite_handler))
         .route("/v1/invites/redeem", post(redeem_invite_handler))
+        .route("/v1/starter-passes/redeem", post(redeem_invite_handler))
         .route("/pair/start", post(pair_start_handler))
         .route("/pair/confirm", post(pair_confirm_handler))
         .route("/pair/status", post(pair_status_post_handler))

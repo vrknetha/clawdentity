@@ -12,3 +12,6 @@
 ## Release Alignment
 - CLI crate version must align with the release tag used in GitHub release workflow (`rust/vX.Y.Z`).
 - Do not introduce Node/TypeScript-only release instructions in this crate; Rust release flow is canonical.
+
+## Onboarding Compatibility
+- Keep the public command surface stable for onboarding. `clawdentity invite redeem <code>` must continue to work for both admin invites (`clw_inv_...`) and GitHub starter passes (`clw_stp_...`).

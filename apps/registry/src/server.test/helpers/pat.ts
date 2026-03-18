@@ -18,6 +18,8 @@ export function makeValidPatContext(token = "clw_pat_valid-token-value") {
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",
+      humanOnboardingSource: "admin_bootstrap",
+      humanAgentLimit: null,
     };
 
     return { token, authRow };

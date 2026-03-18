@@ -194,7 +194,7 @@ Known defaults:
 | `https://registry.clawdentity.com` | `https://proxy.clawdentity.com` |
 | `https://dev.registry.clawdentity.com` | `https://dev.proxy.clawdentity.com` |
 
-Recovery: rerun onboarding (`clawdentity invite redeem <clw_inv_...> --display-name <human-name>`) so local config aligns to registry metadata.
+Recovery: rerun onboarding (`clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name>`) so local config aligns to registry metadata.
 
 ## Identity Injection
 

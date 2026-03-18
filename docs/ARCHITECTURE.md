@@ -126,17 +126,23 @@ Rust runtime side:
                            +-----------------------------+
 ```
 
-#### Step 1: Human Onboarding (Invite-Gated)
+#### Step 1: Human Onboarding (Starter Pass or Invite)
 
-Admin creates invite code; operator redeems invite and stores API key locally.
+Hosted public onboarding uses GitHub OAuth to mint a one-time starter pass. Private and self-hosted
+operators can still create invite codes for controlled onboarding.
 
 ```text
+Hosted public path:
+User -> registry OAuth -> starter pass -> redeem -> persist API key + human config
+
+Private/self-hosted path:
 Admin -> registry: create invite
 Operator -> registry: redeem invite
 Operator local state: persist API key + human config
 ```
 
 Security notes:
+- starter passes are one-time codes tied to a GitHub account and limited to one agent ever
 - invite codes are intended for controlled onboarding and may expire
 - API key is displayed once and stored locally
 

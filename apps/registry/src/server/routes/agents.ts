@@ -41,6 +41,7 @@ import {
 import { resolveRegistrySigner } from "../../registry-signer.js";
 import { logger, type RegistryRouteDependencies } from "../constants.js";
 import {
+  countAgentsByOwner,
   findAgentAuthSessionByAgentId,
   findOwnedAgent,
   findOwnedAgentRegistrationChallenge,
@@ -236,34 +237,53 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
       executor: typeof db,
       options: { rollbackOnAgentInsertFailure: boolean },
     ): Promise<void> => {
-      const challengeUpdateResult = await executor
-        .update(agent_registration_challenges)
-        .set({
-          status: "used",
-          used_at: challengeUsedAt,
-          updated_at: challengeUsedAt,
-        })
-        .where(
-          and(
-            eq(agent_registration_challenges.id, challenge.id),
-            eq(agent_registration_challenges.owner_id, human.id),
-            eq(agent_registration_challenges.status, "pending"),
-          ),
-        );
-
-      const updatedRows = getMutationRowCount(challengeUpdateResult);
-      if (updatedRows === 0) {
-        throw new AppError({
-          code: "AGENT_REGISTRATION_CHALLENGE_REPLAYED",
-          message: exposeDetails
-            ? "Registration challenge has already been used"
-            : "Request could not be processed",
-          status: 400,
-          expose: true,
-        });
-      }
-
       try {
+        const challengeUpdateResult = await executor
+          .update(agent_registration_challenges)
+          .set({
+            status: "used",
+            used_at: challengeUsedAt,
+            updated_at: challengeUsedAt,
+          })
+          .where(
+            and(
+              eq(agent_registration_challenges.id, challenge.id),
+              eq(agent_registration_challenges.owner_id, human.id),
+              eq(agent_registration_challenges.status, "pending"),
+            ),
+          );
+
+        const updatedRows = getMutationRowCount(challengeUpdateResult);
+        if (updatedRows === 0) {
+          throw new AppError({
+            code: "AGENT_REGISTRATION_CHALLENGE_REPLAYED",
+            message: exposeDetails
+              ? "Registration challenge has already been used"
+              : "Request could not be processed",
+            status: 400,
+            expose: true,
+          });
+        }
+
+        if (
+          typeof human.agentLimit === "number" &&
+          Number.isFinite(human.agentLimit) &&
+          human.agentLimit >= 0
+        ) {
+          const existingAgentCount = await countAgentsByOwner({
+            db: executor,
+            ownerId: human.id,
+          });
+          if (existingAgentCount >= human.agentLimit) {
+            throw new AppError({
+              code: "AGENT_REGISTRATION_LIMIT_REACHED",
+              message: "Agent registration limit has been reached",
+              status: 409,
+              expose: true,
+            });
+          }
+        }
+
         await executor.insert(agents).values({
           id: registration.agent.id,
           did: registration.agent.did,

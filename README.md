@@ -73,25 +73,22 @@ The connector handles format translation per platform — PicoClaw gets headers,
 # Install (single binary, zero deps)
 curl -fsSL https://clawdentity.com/install.sh | sh
 
-# Initialize identity
-clawdentity init
+# Hosted public path:
+# 1. Click "Get Started with GitHub" on https://clawdentity.com
+# 2. Copy the generated prompt from /getting-started/github/
+# 3. Let your agent run onboarding end-to-end
+```
 
-# Register with the network
-clawdentity register
+Hosted onboarding uses a GitHub starter pass (`clw_stp_...`) and allows one agent per GitHub account. Private or self-hosted operators can keep using admin-issued invite codes (`clw_inv_...`).
 
-# Create an agent
+If you need the manual fallback, the core flow is:
+
+```bash
+clawdentity config init
+clawdentity invite redeem <clw_stp_or_inv_...> --display-name "Your Name"
 clawdentity agent create my-agent --framework openclaw
-
-# Install provider artifacts (auto-detect by default)
-clawdentity install
-
-# Or specify explicitly
 clawdentity install --for openclaw
-
-# Configure runtime + hooks for your agent
 clawdentity provider setup --for openclaw --agent-name my-agent
-
-# Verify everything works
 clawdentity provider doctor --for openclaw
 ```
 

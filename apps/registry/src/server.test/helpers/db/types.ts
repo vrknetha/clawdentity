@@ -10,6 +10,8 @@ export type FakeD1Row = {
   humanDisplayName: string;
   humanRole: "admin" | "user";
   humanStatus: "active" | "suspended";
+  humanOnboardingSource?: string | null;
+  humanAgentLimit?: number | null;
 };
 
 export type FakeHumanRow = {
@@ -18,6 +20,8 @@ export type FakeHumanRow = {
   displayName: string;
   role: "admin" | "user";
   status: "active" | "suspended";
+  onboardingSource: string | null;
+  agentLimit: number | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -90,6 +94,8 @@ export type FakeAgentRegistrationChallengeInsertRow = Record<string, unknown>;
 export type FakeAgentRegistrationChallengeUpdateRow = Record<string, unknown>;
 export type FakeInviteInsertRow = Record<string, unknown>;
 export type FakeInviteUpdateRow = Record<string, unknown>;
+export type FakeStarterPassInsertRow = Record<string, unknown>;
+export type FakeStarterPassUpdateRow = Record<string, unknown>;
 export type FakeRevocationRow = {
   id: string;
   jti: string;
@@ -130,6 +136,19 @@ export type FakeInviteRow = {
   expiresAt: string | null;
   createdAt: string;
 };
+export type FakeStarterPassRow = {
+  id: string;
+  code: string;
+  provider: "github";
+  providerSubject: string;
+  providerLogin: string;
+  displayName: string;
+  redeemedBy: string | null;
+  issuedAt: string;
+  redeemedAt: string | null;
+  expiresAt: string;
+  status: "active" | "redeemed" | "expired";
+};
 
 export type FakeAgentSelectRow = {
   id: string;
@@ -148,6 +167,10 @@ export type FakeAgentSelectRow = {
 
 export type FakeDbOptions = {
   beforeFirstAgentUpdate?: (agentRows: FakeAgentRow[]) => void;
+  beforeFirstAgentRegistrationChallengeUpdate?: (
+    agentRows: FakeAgentRow[],
+    challengeRows: FakeAgentRegistrationChallengeRow[],
+  ) => void;
   beforeFirstAgentAuthSessionUpdate?: (
     sessionRows: FakeAgentAuthSessionRow[],
   ) => void;
@@ -156,6 +179,8 @@ export type FakeDbOptions = {
   failBeginTransaction?: boolean;
   internalServiceRows?: FakeInternalServiceRow[];
   inviteRows?: FakeInviteRow[];
+  starterPassRows?: FakeStarterPassRow[];
+  humanRows?: FakeHumanRow[];
   revocationRows?: FakeRevocationRow[];
   registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
   agentAuthSessionRows?: FakeAgentAuthSessionRow[];
@@ -188,14 +213,18 @@ export type FakeDbState = {
   agentAuthEventInserts: FakeAgentAuthEventInsertRow[];
   inviteInserts: FakeInviteInsertRow[];
   inviteUpdates: FakeInviteUpdateRow[];
+  starterPassInserts: FakeStarterPassInsertRow[];
+  starterPassUpdates: FakeStarterPassUpdateRow[];
   revocationRows: FakeRevocationRow[];
   registrationChallengeRows: FakeAgentRegistrationChallengeRow[];
   agentAuthSessionRows: FakeAgentAuthSessionRow[];
   inviteRows: FakeInviteRow[];
+  starterPassRows: FakeStarterPassRow[];
   humanRows: FakeHumanRow[];
   apiKeyRows: FakeApiKeyRow[];
   internalServiceRows: FakeInternalServiceRow[];
   beforeFirstAgentUpdateApplied: boolean;
+  beforeFirstAgentRegistrationChallengeUpdateApplied: boolean;
   beforeFirstAgentAuthSessionUpdateApplied: boolean;
   remainingApiKeyInsertFailures: number;
   remainingInternalServiceInsertFailures: number;

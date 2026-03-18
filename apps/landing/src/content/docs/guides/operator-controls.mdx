@@ -60,8 +60,8 @@ Rotation baseline: keep one primary key + one standby key, rotate at least every
 # Create a registry onboarding invite (admin only)
 clawdentity invite create
 
-# Redeem an invite to create an account
-clawdentity invite redeem <code>
+# Redeem a starter pass or invite to create an account
+clawdentity invite redeem <clw_stp_...|clw_inv_...>
 ```
 
 ### Connector management
@@ -91,13 +91,13 @@ clawdentity provider relay-test --for <platform> --peer <alias> [--json]
 
 ```bash
 # Start pairing (returns clwpair1_ ticket + metadata)
-POST /pair/start
+clawdentity pair start <peer-alias>
 
 # Confirm pairing with ticket from initiator
-POST /pair/confirm
+clawdentity pair confirm <ticket>
 
 # Check pairing status
-POST /pair/status
+clawdentity pair status <peer-alias>
 ```
 
 ### Skill management
@@ -132,7 +132,7 @@ clawdentity install --for <platform>
 | Command | Idempotent? | Note |
 |---------|-------------|------|
 | `config init` | Yes | Safe to re-run |
-| `invite redeem` | **No** | One-time; invite consumed on success |
+| `invite redeem` | **No** | One-time; starter pass or invite is consumed on success |
 | `agent create` | No | Fails if agent directory exists |
 | `agent auth revoke` | Yes | Safe to repeat; session remains revoked |
 | `provider setup --for <platform>` | Usually yes | Primary reconciliation re-entry point |

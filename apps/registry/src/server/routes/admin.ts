@@ -194,6 +194,8 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
           display_name: bootstrapPayload.displayName,
           role: "admin",
           status: "active",
+          onboarding_source: "admin_bootstrap",
+          agent_limit: null,
           created_at: createdAt,
           updated_at: createdAt,
         })

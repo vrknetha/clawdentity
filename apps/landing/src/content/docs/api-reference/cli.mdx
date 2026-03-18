@@ -82,7 +82,7 @@ Returns a single-use, time-limited invite code (`clw_inv_<random>`).
 
 ### `invite redeem`
 
-Redeems an invite code to create an account and receive an API key.
+Redeems a hosted starter pass (`clw_stp_...`) or operator invite (`clw_inv_...`) to create an account and receive an API key.
 
 ```bash
 clawdentity invite redeem <code> [--display-name <name>] [--registry-url <url>]
@@ -92,7 +92,7 @@ Options:
 - `--display-name <name>` — human display name for onboarding
 - `--registry-url <url>` — override registry URL
 
-The plaintext PAT is printed before config persistence so operators can recover from local write failures.
+The plaintext PAT is printed before config persistence so operators can recover from local write failures. Successful redemption also persists the resolved `proxyUrl` into local config when the registry returns it.
 
 ## Agent commands
 
@@ -246,9 +246,33 @@ clawdentity provider relay-test \
 
 ## Pairing and cross-agent trust
 
-Proxy trust pairing is supported through proxy API routes (`POST /pair/start`, `POST /pair/confirm`, `POST /pair/status`).
+The CLI exposes the proxy trust pairing flow directly.
 
-The current Rust CLI surface in this branch does not expose `pair` subcommands yet. Use the proxy API/SDK flow documented in:
+### `pair start`
+
+Starts a pairing flow with a peer alias and returns a pairing ticket (`clwpair1_...`).
+
+```bash
+clawdentity pair start <peer-alias>
+```
+
+### `pair confirm`
+
+Confirms a pairing ticket shared out-of-band by the initiating operator.
+
+```bash
+clawdentity pair confirm <ticket>
+```
+
+### `pair status`
+
+Checks the trust status for a peer alias until the pair is confirmed.
+
+```bash
+clawdentity pair status <peer-alias>
+```
+
+The underlying proxy APIs are still documented in:
 - [/api-reference/proxy/](/api-reference/proxy/)
 - [/guides/discovery/](/guides/discovery/)
 
@@ -308,7 +332,7 @@ Options:
 | Command | Idempotent? | Note |
 |---------|-------------|------|
 | `config init` | Yes | Safe to re-run |
-| `invite redeem` | **No** | One-time; invite consumed on success |
+| `invite redeem` | **No** | One-time; starter pass or invite is consumed on success |
 | `agent create` | No | Fails if agent directory exists |
 | `agent auth revoke` | Yes | Safe to re-run; token state remains revoked |
 | `install --for <platform>` | Yes | Reports platform install and verify status |

@@ -20,6 +20,8 @@ type ApiKeyQueryRow = {
   human_display_name: string;
   human_role: "admin" | "user";
   human_status: "active" | "suspended";
+  human_onboarding_source: string | null;
+  human_agent_limit: number | null;
 };
 
 export type AuthenticatedHuman = {
@@ -27,6 +29,8 @@ export type AuthenticatedHuman = {
   did: string;
   displayName: string;
   role: "admin" | "user";
+  onboardingSource: string | null;
+  agentLimit: number | null;
   apiKey: {
     id: string;
     name: string;
@@ -54,6 +58,8 @@ export function createApiKeyAuth() {
         human_display_name: humans.display_name,
         human_role: humans.role,
         human_status: humans.status,
+        human_onboarding_source: humans.onboarding_source,
+        human_agent_limit: humans.agent_limit,
       })
       .from(api_keys)
       .innerJoin(humans, eq(humans.id, api_keys.human_id))
@@ -101,6 +107,8 @@ export function createApiKeyAuth() {
       did: matchedRow.human_did,
       displayName: matchedRow.human_display_name,
       role: matchedRow.human_role,
+      onboardingSource: matchedRow.human_onboarding_source,
+      agentLimit: matchedRow.human_agent_limit,
       apiKey: {
         id: matchedRow.api_key_id,
         name: matchedRow.api_key_name,

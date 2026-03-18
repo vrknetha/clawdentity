@@ -37,6 +37,7 @@ import { registerHealthRoutes } from "./routes/health.js";
 import { registerInternalServiceRoutes } from "./routes/internal-services.js";
 import { registerInviteRoutes } from "./routes/invites.js";
 import { registerMeApiKeyRoutes } from "./routes/me-api-keys.js";
+import { registerOnboardingRoutes } from "./routes/onboarding.js";
 
 export function createRegistryApp(options: CreateRegistryAppOptions = {}) {
   let cachedConfig: RegistryConfig | undefined;
@@ -145,6 +146,11 @@ export function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     getEventBus,
   });
   registerInviteRoutes({
+    app,
+    getConfig,
+    getEventBus,
+  });
+  registerOnboardingRoutes({
     app,
     getConfig,
     getEventBus,

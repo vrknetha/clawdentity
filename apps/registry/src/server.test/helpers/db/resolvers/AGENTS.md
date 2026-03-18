@@ -9,3 +9,4 @@
 - Keep functions data-in/data-out only; no external state.
 - Re-export all resolver APIs from `index.ts` and keep naming consistent for discoverability.
 - If SQL filter parsing needs new behavior, extend shared parser helpers instead of duplicating condition parsing in multiple modules.
+- Resolver coverage must include onboarding-era fields (`onboarding_source`, `agent_limit`, starter-pass columns) so fake DB reads match production schema changes.

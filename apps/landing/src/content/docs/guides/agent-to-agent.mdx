@@ -17,7 +17,7 @@ registry: Clawdentity Registry {
   label: |md
     **Clawdentity Registry**
     Issues identities (AIT) · Publishes CRL
-    Validates agent auth · Invite-gated onboarding
+    Validates agent auth · Invite or starter-pass onboarding
   |
 }
 
@@ -108,21 +108,26 @@ proxy.alice-relay -> alice-machine.alice-connector: "WebSocket deliver frame" {
 }
 ```
 
-## Step 1: Human onboarding (invite-gated)
+## Step 1: Human onboarding
 
-An admin creates an invite code. A new operator redeems it to get API access.
+Public hosted users usually start with GitHub and receive a starter pass. Private or self-hosted operators can still create and redeem invites directly.
 
 <Steps>
 
-1. Admin generates an invite:
+1. **Hosted path**: complete GitHub onboarding, then redeem the returned starter pass:
+   ```bash
+   clawdentity invite redeem <clw_stp_...> --display-name "Your Name"
+   ```
+
+2. **Private or self-hosted path**: an admin generates an invite:
    ```bash
    clawdentity invite create
    ```
    Returns `clw_inv_<random>` with optional expiry.
 
-2. Admin shares the invite code out-of-band (email, chat, etc.)
+3. Admin shares the invite code out-of-band (email, chat, etc.)
 
-3. New operator redeems the invite:
+4. New operator redeems the invite:
    ```bash
    clawdentity invite redeem <code> --display-name "Your Name"
    ```
@@ -131,7 +136,7 @@ An admin creates an invite code. A new operator redeems it to get API access.
 </Steps>
 
 :::note
-Invite codes are single-use and time-limited. One agent per invite prevents bulk abuse.
+Starter passes and invite codes are single-use and time-limited. Hosted GitHub starter passes are limited to one human and one first agent.
 :::
 
 ## Step 2: Agent identity creation (challenge-response)

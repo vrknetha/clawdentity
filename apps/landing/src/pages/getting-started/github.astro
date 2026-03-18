@@ -1,0 +1,500 @@
+---
+import LandingLayout from "../../layouts/LandingLayout.astro";
+import "../../styles/landing.css";
+import "../../styles/landing-motion.css";
+import Footer from "../../components/landing/Footer.astro";
+import Nav from "../../components/landing/Nav.astro";
+import {
+  CANONICAL_SKILL_URL,
+  GITHUB_ONBOARDING_START_URL,
+} from "../../components/landing/onboarding";
+
+const defaultCode = "Not loaded yet";
+const defaultDisplayName = "Your Name";
+const lockedPrompt = "Sign in with GitHub first to load your starter-pass prompt.";
+const lockedCommand = "GitHub sign-in is required before the starter-pass redeem command is available.";
+---
+
+<LandingLayout
+  title="GitHub Starter Pass | Clawdentity"
+  description="Finish GitHub starter-pass onboarding for your first Clawdentity agent."
+>
+  <Nav />
+  <main class="starter-page">
+    <section class="starter-hero">
+      <div class="container starter-hero__grid">
+        <div class="starter-hero__copy">
+          <span class="starter-kicker">GITHUB STARTER PASS</span>
+          <h1>One sign-in. One pass. One first agent.</h1>
+          <p class="starter-lead">
+            This page reads the redirect fragment from GitHub onboarding, lets you tweak the display
+            name, and builds a ready-to-paste prompt for OpenClaw. Operator invites remain the
+            fallback for private or self-hosted rollouts.
+          </p>
+          <div class="starter-badges">
+            <span id="starter-status" class="starter-badge">Waiting for starter pass</span>
+            <span id="starter-login" class="starter-badge starter-badge--muted">GitHub sign-in required</span>
+          </div>
+        </div>
+        <aside class="starter-card">
+          <div class="starter-card__row">
+            <span class="starter-card__label">Status</span>
+            <strong id="starter-status-label">No redirect fragment detected</strong>
+          </div>
+          <div class="starter-card__row">
+            <span class="starter-card__label">Display name</span>
+            <input id="display-name-input" class="starter-input" type="text" value={defaultDisplayName} />
+          </div>
+          <div class="starter-card__row">
+            <span class="starter-card__label">Agent name</span>
+            <input id="agent-name-input" class="starter-input" type="text" value="" placeholder="Optional, or let the agent ask" />
+          </div>
+          <div class="starter-card__row">
+            <span class="starter-card__label">Starter pass</span>
+            <code id="starter-code" class="starter-inline-code">{defaultCode}</code>
+          </div>
+          <div class="starter-card__row">
+            <span class="starter-card__label">Expires</span>
+            <span id="starter-expiry">Returned by GitHub redirect</span>
+          </div>
+          <div class="starter-card__actions">
+            <a href={GITHUB_ONBOARDING_START_URL} class="btn btn-primary">Sign in with GitHub</a>
+            <a href="/getting-started/quickstart/" class="btn btn-secondary">Operator fallback</a>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section starter-flow">
+      <div class="container">
+        <div id="starter-message" class="starter-message">
+          Sign in with GitHub first, then this page will load your one-time starter pass automatically.
+        </div>
+
+        <div class="starter-grid">
+          <article class="starter-panel">
+            <div class="starter-panel__header">
+              <span class="starter-panel__label">STEP 1</span>
+              <h2>Paste this into OpenClaw</h2>
+              <button id="copy-prompt" class="starter-copy" type="button" disabled>Copy prompt</button>
+            </div>
+            <pre id="starter-prompt" class="starter-code-block">{lockedPrompt}</pre>
+            <p class="starter-panel__note">
+              Your agent should use <a href={CANONICAL_SKILL_URL}>{CANONICAL_SKILL_URL}</a> as the source
+              of truth. If agent name is blank, it should ask once and keep going.
+            </p>
+          </article>
+
+          <article class="starter-panel starter-panel--secondary">
+            <div class="starter-panel__header">
+              <span class="starter-panel__label">STEP 2</span>
+              <h2>Manual fallback</h2>
+              <button id="copy-command" class="starter-copy" type="button" disabled>Copy command</button>
+            </div>
+            <pre id="starter-command" class="starter-code-block">{lockedCommand}</pre>
+            <p class="starter-panel__note">
+              This only redeems the starter pass. If you skip the prompt-first path, continue with the
+              <a href="/getting-started/quickstart/">Quick Start guide</a> to create and wire the agent manually.
+            </p>
+          </article>
+        </div>
+
+        <div class="starter-limit">
+          <strong>One-agent limit:</strong> GitHub starter passes are for one human and one agent ever.
+          If you need broader onboarding, use operator-created invites instead.
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</LandingLayout>
+
+<script
+  is:inline
+  define:vars={{
+    canonicalSkillUrl: CANONICAL_SKILL_URL,
+    defaultDisplayName,
+    lockedCommand,
+    lockedPrompt,
+  }}
+>
+  (function () {
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const fragmentDisplayName = fragment.get("displayName")?.trim();
+    const codeEl = document.getElementById("starter-code");
+    const expiryEl = document.getElementById("starter-expiry");
+    const statusEl = document.getElementById("starter-status");
+    const statusLabelEl = document.getElementById("starter-status-label");
+    const loginEl = document.getElementById("starter-login");
+    const messageEl = document.getElementById("starter-message");
+    const promptEl = document.getElementById("starter-prompt");
+    const commandEl = document.getElementById("starter-command");
+    const displayNameInput = document.getElementById("display-name-input");
+    const agentNameInput = document.getElementById("agent-name-input");
+    const copyPromptButton = document.getElementById("copy-prompt");
+    const copyCommandButton = document.getElementById("copy-command");
+    let didHydrateDisplayNameFromFragment = false;
+
+    function setCopyState(button, enabled) {
+      if (!(button instanceof HTMLButtonElement)) return;
+      button.disabled = !enabled;
+    }
+
+    function shellQuote(value) {
+      return `'${value.replaceAll("'", `'\"'\"'`)}'`;
+    }
+
+    function buildPrompt(code, displayName, agentName) {
+      const trimmedAgent = agentName.trim();
+      const agentInstruction = trimmedAgent.length > 0
+        ? `Use agent name ${JSON.stringify(trimmedAgent)}.`
+        : "Ask me for the agent name if it is missing.";
+
+      return [
+        `Set up Clawdentity relay using ${canonicalSkillUrl} as the source of truth.`,
+        "Run required onboarding end-to-end and execute commands directly.",
+        "Auto-detect provider when possible; ask me only for missing required inputs.",
+        `I already have a registry onboarding code: ${code}.`,
+        `Use display name ${JSON.stringify(displayName)}.`,
+        agentInstruction,
+        "This code is a GitHub starter pass, so create exactly one agent and stop after setup is complete.",
+      ].join("\n");
+    }
+
+    function buildCommand(code, displayName) {
+      return `clawdentity invite redeem ${shellQuote(code)} --display-name ${shellQuote(displayName)}`;
+    }
+
+    function setCopied(button) {
+      if (!(button instanceof HTMLElement)) return;
+      const previous = button.textContent;
+      button.textContent = "Copied";
+      window.setTimeout(() => {
+        button.textContent = previous ?? "Copy";
+      }, 1800);
+    }
+
+    function hydrateDisplayNameFromFragment() {
+      if (didHydrateDisplayNameFromFragment) {
+        return;
+      }
+      didHydrateDisplayNameFromFragment = true;
+      if (
+        fragmentDisplayName &&
+        displayNameInput instanceof HTMLInputElement
+      ) {
+        displayNameInput.value = fragmentDisplayName;
+      }
+    }
+
+    function renderState() {
+      hydrateDisplayNameFromFragment();
+      const code = fragment.get("code")?.trim() || "clw_stp_...";
+      const displayName = displayNameInput instanceof HTMLInputElement
+        ? displayNameInput.value.trim() || defaultDisplayName
+        : defaultDisplayName;
+      const agentName = agentNameInput instanceof HTMLInputElement ? agentNameInput.value : "";
+      const providerLogin = fragment.get("providerLogin")?.trim();
+      const expiresAt = fragment.get("expiresAt")?.trim();
+      const error = fragment.get("error")?.trim();
+      const errorMessage = fragment.get("message")?.trim();
+      const hasStarterPass = fragment.has("code");
+
+      if (codeEl) codeEl.textContent = hasStarterPass ? code : "Not loaded yet";
+      if (expiryEl) {
+        expiryEl.textContent = hasStarterPass
+          ? (expiresAt || "Not returned")
+          : "Returned by GitHub redirect";
+      }
+      if (promptEl) {
+        promptEl.textContent = hasStarterPass
+          ? buildPrompt(code, displayName, agentName)
+          : lockedPrompt;
+      }
+      if (commandEl) {
+        commandEl.textContent = hasStarterPass
+          ? buildCommand(code, displayName)
+          : lockedCommand;
+      }
+      setCopyState(copyPromptButton, hasStarterPass);
+      setCopyState(copyCommandButton, hasStarterPass);
+
+      if (error) {
+        statusEl?.classList.add("starter-badge--error");
+        if (statusEl) statusEl.textContent = "Onboarding needs retry";
+        if (statusLabelEl) statusLabelEl.textContent = "Redirect returned an error";
+        if (loginEl) loginEl.textContent = providerLogin ? `GitHub @${providerLogin}` : "GitHub sign-in incomplete";
+        if (messageEl) {
+          messageEl.textContent =
+            errorMessage || "GitHub onboarding did not return a starter pass. Sign in again or use the operator fallback.";
+          messageEl.classList.add("starter-message--error");
+        }
+        setCopyState(copyPromptButton, false);
+        setCopyState(copyCommandButton, false);
+        return;
+      }
+
+      if (hasStarterPass) {
+        statusEl?.classList.remove("starter-badge--error");
+        if (statusEl) statusEl.textContent = "Starter pass ready";
+        if (statusLabelEl) statusLabelEl.textContent = "GitHub sign-in completed";
+        if (loginEl) loginEl.textContent = providerLogin ? `Signed in as @${providerLogin}` : "GitHub sign-in complete";
+        if (messageEl) {
+          messageEl.textContent =
+            "Your starter pass is loaded. Copy the prompt into OpenClaw, let the agent redeem it, and it can create exactly one agent.";
+          messageEl.classList.remove("starter-message--error");
+        }
+        return;
+      }
+
+      if (statusEl) statusEl.textContent = "Waiting for starter pass";
+      if (statusLabelEl) statusLabelEl.textContent = "No redirect fragment detected";
+      if (loginEl) loginEl.textContent = "GitHub sign-in required";
+      if (messageEl) {
+        messageEl.textContent =
+          "Sign in with GitHub first, then this page will load your starter pass automatically.";
+        messageEl.classList.remove("starter-message--error");
+      }
+    }
+
+    displayNameInput?.addEventListener("input", renderState);
+    agentNameInput?.addEventListener("input", renderState);
+
+    copyPromptButton?.addEventListener("click", async () => {
+      if (!(promptEl instanceof HTMLElement)) return;
+      if (copyPromptButton instanceof HTMLButtonElement && copyPromptButton.disabled) return;
+      await navigator.clipboard.writeText(promptEl.textContent || "");
+      setCopied(copyPromptButton);
+    });
+
+    copyCommandButton?.addEventListener("click", async () => {
+      if (!(commandEl instanceof HTMLElement)) return;
+      if (copyCommandButton instanceof HTMLButtonElement && copyCommandButton.disabled) return;
+      await navigator.clipboard.writeText(commandEl.textContent || "");
+      setCopied(copyCommandButton);
+    });
+
+    renderState();
+  })();
+</script>
+
+<style>
+  .starter-page {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top left, color-mix(in srgb, var(--cl-accent) 12%, transparent), transparent 34%),
+      radial-gradient(circle at top right, color-mix(in srgb, var(--cl-accent-2) 10%, transparent), transparent 26%),
+      var(--cl-bg);
+  }
+
+  .starter-hero {
+    padding-top: calc(var(--nav-height) + var(--space-2xl));
+    padding-bottom: var(--space-2xl);
+  }
+
+  .starter-hero__grid,
+  .starter-grid {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .starter-hero__grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(20rem, 0.8fr);
+    align-items: start;
+  }
+
+  .starter-kicker,
+  .starter-panel__label {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--cl-accent);
+  }
+
+  .starter-hero__copy h1 {
+    margin: 0.75rem 0 1rem;
+    font-family: var(--font-serif);
+    font-size: clamp(2.5rem, 4vw, 4rem);
+    line-height: 1.02;
+  }
+
+  .starter-lead {
+    max-width: 42rem;
+    color: var(--cl-text-2);
+    font-size: 1.04rem;
+    line-height: 1.7;
+  }
+
+  .starter-badges,
+  .starter-card__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .starter-badges {
+    margin-top: 1.5rem;
+  }
+
+  .starter-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid color-mix(in srgb, var(--cl-accent) 40%, var(--cl-border-3));
+    background: color-mix(in srgb, var(--cl-accent) 10%, var(--cl-surface-2));
+    color: var(--cl-text);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+  }
+
+  .starter-badge--muted {
+    border-color: var(--cl-border-3);
+    background: var(--cl-surface-2);
+    color: var(--cl-text-2);
+  }
+
+  .starter-badge--error {
+    border-color: rgba(190, 56, 52, 0.55);
+    background: rgba(190, 56, 52, 0.14);
+    color: #ffb7b1;
+  }
+
+  .starter-card,
+  .starter-panel,
+  .starter-limit {
+    border: 1px solid var(--cl-border-3);
+    background: color-mix(in srgb, var(--cl-surface-2) 90%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .starter-card,
+  .starter-panel {
+    padding: 1rem;
+  }
+
+  .starter-card__row {
+    display: grid;
+    gap: 0.45rem;
+    margin-bottom: 1rem;
+  }
+
+  .starter-card__label {
+    color: var(--cl-text-3);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .starter-input,
+  .starter-inline-code {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.85rem 0.9rem;
+    border: 1px solid var(--cl-border-3);
+    background: var(--cl-surface);
+    color: var(--cl-text);
+    font: inherit;
+  }
+
+  .starter-inline-code {
+    display: block;
+    font-family: var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .starter-flow {
+    padding-top: 0;
+  }
+
+  .starter-message {
+    margin-bottom: 1rem;
+    padding: 1rem 1.1rem;
+    border-left: 3px solid var(--cl-accent);
+    background: color-mix(in srgb, var(--cl-accent) 8%, var(--cl-surface-2));
+    color: var(--cl-text-2);
+  }
+
+  .starter-message--error {
+    border-left-color: #be3834;
+    background: rgba(190, 56, 52, 0.14);
+    color: #ffd3cf;
+  }
+
+  .starter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .starter-panel--secondary {
+    background: color-mix(in srgb, var(--cl-surface-3) 85%, transparent);
+  }
+
+  .starter-panel__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .starter-panel__header h2 {
+    margin: 0;
+    font-family: var(--font-serif);
+    font-size: 1.6rem;
+  }
+
+  .starter-copy {
+    border: 1px solid var(--cl-border-3);
+    background: transparent;
+    color: var(--cl-text-2);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    cursor: pointer;
+  }
+
+  .starter-copy:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .starter-code-block {
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--cl-border-2);
+    background: var(--cl-code-bg);
+    color: #e6edf3;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    line-height: 1.7;
+  }
+
+  .starter-panel__note,
+  .starter-limit {
+    color: var(--cl-text-2);
+    line-height: 1.7;
+  }
+
+  .starter-panel__note {
+    margin: 0.85rem 0 0;
+  }
+
+  .starter-limit {
+    margin-top: 1rem;
+    padding: 1rem 1.1rem;
+  }
+
+  @media (max-width: 900px) {
+    .starter-hero__grid,
+    .starter-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

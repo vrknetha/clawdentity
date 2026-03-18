@@ -32,8 +32,8 @@
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/registry run types:dev`) after `wrangler.jsonc` or binding changes.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `PROXY_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 - Generate local `apps/registry/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
-- Use memory event bus in `development` while no downstream consumers exist (`EVENT_BUS_BACKEND=memory`).
-- Keep production queue-backed (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`) until rollout policy changes.
+- Use memory event bus only for local-only development sessions (`wrangler dev` with local `.env` / `.dev.vars`) where no cross-instance delivery is expected.
+- Keep every deployed environment queue-backed, including remote `dev` and `production` (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`).
 - Keep queue-backed event bus validation fail-fast in production-like runtime paths; do not silently fallback to memory when `EVENT_BUS_QUEUE` is missing.
 
 ## Validation

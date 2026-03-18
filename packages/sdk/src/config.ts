@@ -92,12 +92,16 @@ export const registryConfigSchema = z.object({
   APP_VERSION: z.string().min(1).optional(),
   PROXY_URL: z.string().url().optional(),
   REGISTRY_ISSUER_URL: z.string().url().optional(),
+  LANDING_URL: z.string().url().optional(),
   EVENT_BUS_BACKEND: registryEventBusBackendSchema.optional(),
   BOOTSTRAP_SECRET: z.string().min(1).optional(),
   BOOTSTRAP_INTERNAL_SERVICE_ID: z.string().min(1),
   BOOTSTRAP_INTERNAL_SERVICE_SECRET: z.string().min(1),
   REGISTRY_SIGNING_KEY: z.string().min(1).optional(),
   REGISTRY_SIGNING_KEYS: registrySigningKeysEnvSchema.optional(),
+  GITHUB_CLIENT_ID: z.string().min(1).optional(),
+  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+  GITHUB_OAUTH_STATE_SECRET: z.string().min(1).optional(),
 });
 
 export type RegistryConfig = z.infer<typeof registryConfigSchema>;

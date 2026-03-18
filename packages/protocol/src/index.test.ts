@@ -15,6 +15,8 @@ import {
   crlClaimsSchema,
   decodeBase64url,
   encodeBase64url,
+  GITHUB_ONBOARDING_CALLBACK_PATH,
+  GITHUB_ONBOARDING_START_PATH,
   generateUlid,
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   INVITES_PATH,
@@ -35,6 +37,7 @@ import {
   REGISTRY_METADATA_PATH,
   RELAY_CONNECT_PATH,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
+  STARTER_PASSES_REDEEM_PATH,
   validateAgentName,
 } from "./index.js";
 
@@ -51,6 +54,11 @@ describe("protocol", () => {
     expect(AGENT_AUTH_VALIDATE_PATH).toBe("/v1/agents/auth/validate");
     expect(INVITES_PATH).toBe("/v1/invites");
     expect(INVITES_REDEEM_PATH).toBe("/v1/invites/redeem");
+    expect(STARTER_PASSES_REDEEM_PATH).toBe("/v1/starter-passes/redeem");
+    expect(GITHUB_ONBOARDING_START_PATH).toBe("/v1/onboarding/github/start");
+    expect(GITHUB_ONBOARDING_CALLBACK_PATH).toBe(
+      "/v1/onboarding/github/callback",
+    );
     expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");
     expect(REGISTRY_METADATA_PATH).toBe("/v1/metadata");
     expect(INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH).toBe(

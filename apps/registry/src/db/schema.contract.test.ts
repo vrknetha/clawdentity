@@ -2,6 +2,7 @@ import { getTableName } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import migrationSql from "../../drizzle/0000_common_marrow.sql?raw";
 import authMigrationSql from "../../drizzle/0002_agent_auth_refresh.sql?raw";
+import starterPassMigrationSql from "../../drizzle/0005_github_starter_passes.sql?raw";
 import {
   agent_auth_events,
   agent_auth_sessions,
@@ -9,6 +10,7 @@ import {
   api_keys,
   humans,
   revocations,
+  starter_passes,
 } from "./schema.js";
 
 const t10RequiredTables = [
@@ -18,6 +20,7 @@ const t10RequiredTables = [
   "api_keys",
   "agent_auth_sessions",
   "agent_auth_events",
+  "starter_passes",
 ] as const;
 describe("T10 schema contract", () => {
   it("defines required table names in schema source", () => {
@@ -27,13 +30,14 @@ describe("T10 schema contract", () => {
     expect(getTableName(api_keys)).toBe("api_keys");
     expect(getTableName(agent_auth_sessions)).toBe("agent_auth_sessions");
     expect(getTableName(agent_auth_events)).toBe("agent_auth_events");
+    expect(getTableName(starter_passes)).toBe("starter_passes");
   });
 
   it("contains required tables in baseline migration SQL", () => {
     for (const tableName of t10RequiredTables) {
-      expect(`${migrationSql}\n${authMigrationSql}`).toMatch(
-        new RegExp(String.raw`CREATE TABLE \`${tableName}\``),
-      );
+      expect(
+        `${migrationSql}\n${authMigrationSql}\n${starterPassMigrationSql}`,
+      ).toMatch(new RegExp(String.raw`CREATE TABLE \`${tableName}\``));
     }
   });
 
@@ -55,6 +59,21 @@ describe("T10 schema contract", () => {
     );
     expect(authMigrationSql).toMatch(
       /CREATE INDEX `idx_agent_auth_sessions_refresh_prefix` ON `agent_auth_sessions` \(`refresh_key_prefix`\);/,
+    );
+  });
+
+  it("adds human onboarding metadata columns and starter-pass indexes", () => {
+    expect(starterPassMigrationSql).toMatch(
+      /ALTER TABLE `humans` ADD `onboarding_source` text;/,
+    );
+    expect(starterPassMigrationSql).toMatch(
+      /ALTER TABLE `humans` ADD `agent_limit` integer;/,
+    );
+    expect(starterPassMigrationSql).toMatch(
+      /CREATE UNIQUE INDEX `starter_passes_provider_subject_unique` ON `starter_passes` \(`provider`,`provider_subject`\);/,
+    );
+    expect(starterPassMigrationSql).toMatch(
+      /CREATE INDEX `idx_starter_passes_code_status` ON `starter_passes` \(`code`,`status`\);/,
     );
   });
 });

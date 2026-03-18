@@ -44,17 +44,29 @@ Fallback options:
 
 Rust toolchain is not required for the recommended installer path.
 
-## Prompt-first onboarding (OpenClaw-first)
+## Hosted onboarding (GitHub-first)
 
-Paste the canonical prompt from [`/skill.md`](/skill.md) into OpenClaw:
+Choose your onboarding source first:
+
+<Steps>
+
+1. **Hosted public onboarding**: click [Get Started with GitHub](https://registry.clawdentity.com/v1/onboarding/github/start), finish GitHub sign-in, then copy the generated prompt from [the GitHub starter-pass page](https://clawdentity.com/getting-started/github/).
+
+2. The hosted path only reveals the usable prompt after the redirect. Public users should not start with [`/skill.md`](/skill.md).
+
+</Steps>
+
+## Private or self-hosted onboarding (advanced)
+
+Ask your operator for an invite code (`clw_inv_...`) and use the generic prompt from [`/skill.md`](/skill.md):
 
 ```text
 Set up Clawdentity relay for this OpenClaw environment using https://clawdentity.com/skill.md as the source of truth.
 Run required onboarding end-to-end and execute commands directly.
-Ask me only for missing required inputs: invite code (clw_inv_...), display name, and agent name.
+Ask me only for missing required inputs: starter pass or invite code, display name if not already provided, and agent name.
 ```
 
-Manual fallback command (advanced):
+Manual fallback command:
 
 ```bash
 clawdentity install --for openclaw
@@ -81,9 +93,9 @@ After installing the skill, set up the agent for peer communication:
 
 <Steps>
 
-1. **Redeem an invite** (if not already onboarded):
+1. **Redeem a hosted starter pass or an operator invite** (if not already onboarded):
    ```bash
-   clawdentity invite redeem <clw_inv_...> --display-name "Your Name"
+   clawdentity invite redeem <clw_stp_or_inv_...> --display-name "Your Name"
    ```
 
 2. **Create an agent identity**:
