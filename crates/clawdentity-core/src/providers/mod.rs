@@ -284,29 +284,37 @@ pub(crate) fn resolve_home_dir_with_fallback(
 }
 
 pub(crate) fn command_exists(command: &str, path_override: Option<&[PathBuf]>) -> bool {
+    resolve_command_path(command, path_override).is_some()
+}
+
+pub(crate) fn resolve_command_path(
+    command: &str,
+    path_override: Option<&[PathBuf]>,
+) -> Option<PathBuf> {
     if command.trim().is_empty() {
-        return false;
+        return None;
     }
 
     if let Some(paths) = path_override {
         return paths
             .iter()
-            .any(|path| command_exists_in_directory(path, command));
+            .find_map(|path| command_path_in_directory(path, command));
     }
 
     match env::var_os("PATH") {
         Some(paths) => {
-            env::split_paths(&paths).any(|path| command_exists_in_directory(&path, command))
+            env::split_paths(&paths).find_map(|path| command_path_in_directory(&path, command))
         }
-        None => false,
+        None => None,
     }
 }
 
-fn command_exists_in_directory(path: &Path, command: &str) -> bool {
+fn command_path_in_directory(path: &Path, command: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
         if Path::new(command).extension().is_some() {
-            return path.join(command).is_file();
+            let candidate = path.join(command);
+            return candidate.is_file().then_some(candidate);
         }
 
         if let Some(pathext) = env::var_os("PATHEXT") {
@@ -316,17 +324,19 @@ fn command_exists_in_directory(path: &Path, command: &str) -> bool {
                 let normalized = ext.trim_start_matches('.');
                 let candidate = path.join(format!("{command}.{normalized}"));
                 if candidate.is_file() {
-                    return true;
+                    return Some(candidate);
                 }
             }
         }
 
-        path.join(command).is_file()
+        let candidate = path.join(command);
+        candidate.is_file().then_some(candidate)
     }
 
     #[cfg(not(windows))]
     {
-        path.join(command).is_file()
+        let candidate = path.join(command);
+        candidate.is_file().then_some(candidate)
     }
 }
 

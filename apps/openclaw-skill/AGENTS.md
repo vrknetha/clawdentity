@@ -30,12 +30,13 @@
   - return `null` after successful relay so local handling is skipped
 - If `payload.peer` is absent, return payload unchanged.
 - Keep setup flow CLI-driven via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`; do not add `configure-hooks.sh`.
-- Keep setup flow fully automated via current CLI: provider install/setup provisions/retains `hooks.token`, stabilizes OpenClaw `gateway.auth` token mode for deterministic UI/device auth, starts connector runtime, auto-recovers pending gateway device approvals when possible, verifies websocket readiness, and fails fast only when unrecoverable drift remains.
+- Keep setup flow OpenClaw-first: OpenClaw owns OpenClaw auth and base config, while Clawdentity only installs relay assets, hook mapping, and local runtime metadata.
+- If OpenClaw is missing or broken, recovery must point to `openclaw onboard`, `openclaw doctor --fix`, or `openclaw dashboard` before suggesting Clawdentity setup again.
 - Keep setup/doctor expectations aligned with connector durable inbox semantics: connector can acknowledge persisted inbound relay messages before local OpenClaw hook delivery, with replay status exposed via `/v1/status` and doctor checks.
 - Keep `connector start` documented as advanced/manual recovery only; never require it in the default onboarding flow.
 - Keep setup/doctor path resolution compatible with OpenClaw runtime env overrides:
-  - `OPENCLAW_CONFIG_PATH` and compat alias `CLAWDBOT_CONFIG_PATH`
-  - `OPENCLAW_STATE_DIR` and compat alias `CLAWDBOT_STATE_DIR`
+  - `OPENCLAW_CONFIG_PATH`
+  - `OPENCLAW_STATE_DIR`
   - `OPENCLAW_HOME` when explicit config/state overrides are unset
 
 ## Maintainability
@@ -110,7 +111,7 @@
 - Use this snapshot as the starting point for every skill onboarding regression run.
 - Pairing troubleshooting:
   - If UI shows `Disconnected (1008): pairing required`, OpenClaw device approval is pending.
-  - `openclaw doctor` surfaces this as `state.gatewayDevicePairing`.
-  - First-line recovery is always `clawdentity provider setup --for openclaw --agent-name <agent-name>` (auto-approval path).
+  - `clawdentity provider doctor --for openclaw` surfaces this as `state.gatewayDevicePairing`.
+  - First-line recovery is `openclaw dashboard` so the operator can review the pending device approval in OpenClaw itself.
   - This is not Clawdentity proxy trust pairing (`/pair/start` + `/pair/confirm`); it is only OpenClaw UI/device approval.
-  - Manual device approval commands are operator fallback only when setup reports the local `openclaw` command is unavailable.
+  - If device/auth state is broken, use `openclaw doctor --fix` before re-running Clawdentity setup.

@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use serde_json::json;
@@ -29,6 +31,7 @@ use self::assets::{
     transform_peers_path, verify_openclaw_install, write_transform_peers_snapshot,
     write_transform_runtime_config,
 };
+use self::cli::ensure_openclaw_cli_available;
 use crate::config::{ConfigPathOptions, get_config_dir};
 use crate::db::SqliteStore;
 use crate::error::Result;
@@ -37,7 +40,7 @@ use crate::provider::{
     PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
     ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
     ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyResult,
-    command_exists, default_webhook_url, join_url_path, now_iso, resolve_home_dir_with_fallback,
+    command_exists, now_iso, resolve_home_dir_with_fallback,
 };
 
 const PROVIDER_NAME: &str = "openclaw";
@@ -69,22 +72,31 @@ impl OpenclawProvider {
         resolve_home_dir_with_fallback(opts.home_dir.as_deref(), self.home_dir_override.as_deref())
     }
 
-    fn resolve_webhook_url(&self, opts: &InstallOptions) -> Result<String> {
-        if let Some(connector_url) = opts
-            .connector_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return join_url_path(connector_url, OPENCLAW_WEBHOOK_PATH, "connectorUrl");
-        }
+    fn ensure_openclaw_cli(&self) -> Result<PathBuf> {
+        ensure_openclaw_cli_available(self.path_override.as_deref())
+    }
 
-        let host = opts
-            .webhook_host
-            .as_deref()
-            .unwrap_or(self.default_webhook_host());
-        let port = opts.webhook_port.unwrap_or(self.default_webhook_port());
-        default_webhook_url(host, port, OPENCLAW_WEBHOOK_PATH)
+    fn ensure_openclaw_base_ready(&self, config_path: &Path) -> Result<()> {
+        let raw = fs::read_to_string(config_path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                crate::error::CoreError::InvalidInput(
+                    "OpenClaw is not initialized yet. Run `openclaw onboard`, confirm OpenClaw works, then retry Clawdentity setup.".to_string(),
+                )
+            } else {
+                crate::error::CoreError::Io {
+                    path: config_path.to_path_buf(),
+                    source: error,
+                }
+            }
+        })?;
+
+        json5::from_str::<serde_json::Value>(&raw).map_err(|error| {
+            crate::error::CoreError::InvalidInput(format!(
+                "OpenClaw config is unreadable. Run `openclaw doctor --fix`, confirm OpenClaw works, then retry Clawdentity setup. ({error})"
+            ))
+        })?;
+
+        Ok(())
     }
 
     #[cfg(test)]
@@ -175,8 +187,12 @@ impl OpenclawProvider {
         let (_, relay_snapshot_path) =
             self.resolve_setup_runtime_paths(opts, &context.config_dir, &context.openclaw_dir);
         let marker_path = write_selected_openclaw_agent(&context.config_dir, &context.agent_name)?;
-        let runtime_path =
-            self.save_setup_runtime_config(context, opts, connector_base_url, &relay_snapshot_path)?;
+        let runtime_path = self.save_setup_runtime_config(
+            context,
+            opts,
+            connector_base_url,
+            &relay_snapshot_path,
+        )?;
         let connector_assignment_path = save_connector_assignment(
             &context.config_dir,
             &context.agent_name,
@@ -214,7 +230,9 @@ impl OpenclawProvider {
     ) -> Result<PathBuf> {
         let resolved_base_url =
             resolve_openclaw_base_url(&context.config_dir, opts.platform_base_url.as_deref())?;
-        let existing_runtime = load_relay_runtime_config(&context.config_dir).ok().flatten();
+        let existing_runtime = load_relay_runtime_config(&context.config_dir)
+            .ok()
+            .flatten();
         let config_path =
             resolve_openclaw_config_path(context.state_options.home_dir.as_deref(), None)?;
         save_relay_runtime_config(
@@ -254,6 +272,11 @@ impl OpenclawProvider {
         notes.push(format!(
             "connector assignment saved as `{connector_base_url}`"
         ));
+        notes.push("next: run `openclaw dashboard` for a quick OpenClaw UI check".to_string());
+        notes.push(
+            "next: run `clawdentity provider doctor --for openclaw` to validate relay readiness"
+                .to_string(),
+        );
         OpenclawSetupArtifacts {
             notes,
             updated_paths,
@@ -394,9 +417,11 @@ impl PlatformProvider for OpenclawProvider {
     }
 
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
+        let command_path = self.ensure_openclaw_cli()?;
         let home_dir = self.install_home_dir(opts)?;
         let openclaw_dir = resolve_openclaw_dir(Some(&home_dir), None)?;
         let config_path = resolve_openclaw_config_path(Some(&home_dir), None)?;
+        self.ensure_openclaw_base_ready(&config_path)?;
 
         let state_options = ConfigPathOptions {
             home_dir: Some(home_dir.clone()),
@@ -404,17 +429,12 @@ impl PlatformProvider for OpenclawProvider {
         };
         let state_dir = get_config_dir(&state_options)?;
         let webhook_token = resolve_openclaw_hook_token(&state_dir, opts.webhook_token.as_deref())?;
-        let webhook_url = self.resolve_webhook_url(opts)?;
 
         let mut notes = install_openclaw_skill_assets(&openclaw_dir)?;
         let patch_result = patch_openclaw_config(
+            &command_path,
+            &openclaw_dir,
             &config_path,
-            &webhook_url,
-            opts.webhook_host
-                .as_deref()
-                .unwrap_or(self.default_webhook_host()),
-            opts.webhook_port.unwrap_or(self.default_webhook_port()),
-            OPENCLAW_WEBHOOK_PATH,
             webhook_token.as_deref(),
         )?;
         notes.push(format!(
@@ -430,7 +450,7 @@ impl PlatformProvider for OpenclawProvider {
 
         Ok(InstallResult {
             platform: self.name().to_string(),
-            config_updated: true,
+            config_updated: patch_result.config_changed,
             service_installed: false,
             notes,
         })
@@ -498,6 +518,7 @@ impl PlatformProvider for OpenclawProvider {
     }
 
     fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult> {
+        self.ensure_openclaw_cli()?;
         let context = self.resolve_setup_context(opts)?;
         let connector_base_url =
             self.resolve_setup_connector_base_url(opts, &context.config_dir, &context.agent_name);
@@ -547,170 +568,13 @@ impl PlatformProvider for OpenclawProvider {
 }
 
 mod assets;
+mod cli;
 mod doctor;
 mod relay_test;
 mod setup;
 
 #[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-    use std::fs;
+pub(crate) mod test_support;
 
-    use serde_json::Value;
-    use tempfile::TempDir;
-
-    use crate::{
-        config::{ConfigPathOptions, get_config_dir},
-        provider::{InboundMessage, PlatformProvider, ProviderSetupOptions},
-    };
-
-    use super::{
-        assets::{transform_peers_path, transform_runtime_path},
-        OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider, load_connector_assignments,
-        resolve_openclaw_dir,
-    };
-
-    #[test]
-    fn detection_checks_home_and_path_evidence() {
-        let home = TempDir::new().expect("temp home");
-        let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
-        std::fs::create_dir_all(&openclaw_dir).expect("openclaw dir");
-        std::fs::write(openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME), "{}\n").expect("config");
-
-        let bin_dir = TempDir::new().expect("temp bin");
-        std::fs::write(bin_dir.path().join("openclaw"), "#!/bin/sh\n").expect("binary");
-
-        let provider = OpenclawProvider::with_test_context(
-            home.path().to_path_buf(),
-            vec![bin_dir.path().to_path_buf()],
-        );
-        let detection = provider.detect();
-
-        assert!(detection.detected);
-        assert!(detection.confidence > 0.9);
-        assert!(
-            detection
-                .evidence
-                .iter()
-                .any(|entry| entry.contains("openclaw binary in PATH"))
-        );
-    }
-
-    #[test]
-    fn format_inbound_uses_openclaw_webhook_shape() {
-        let provider = OpenclawProvider::default();
-        let mut metadata = HashMap::new();
-        metadata.insert("thread".to_string(), "relay".to_string());
-
-        let request = provider.format_inbound(&InboundMessage {
-            sender_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB"
-                .to_string(),
-            recipient_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTC"
-                .to_string(),
-            content: "hello".to_string(),
-            request_id: Some("req-123".to_string()),
-            metadata,
-        });
-
-        assert_eq!(
-            request
-                .headers
-                .get("x-webhook-sender-id")
-                .map(String::as_str),
-            Some("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB")
-        );
-        assert_eq!(
-            request.body.get("content").and_then(|value| value.as_str()),
-            Some("hello")
-        );
-        assert_eq!(
-            request.body.get("path").and_then(|value| value.as_str()),
-            Some("/hooks/agent")
-        );
-    }
-
-    #[test]
-    fn config_path_points_to_openclaw_json() {
-        let home = TempDir::new().expect("temp home");
-        let provider = OpenclawProvider::with_test_context(home.path().to_path_buf(), Vec::new());
-
-        assert_eq!(
-            provider.config_path(),
-            Some(
-                resolve_openclaw_dir(Some(home.path()), None)
-                    .expect("openclaw dir")
-                    .join(OPENCLAW_CONFIG_FILE_NAME)
-            )
-        );
-    }
-
-    #[test]
-    fn setup_honors_explicit_connector_url_and_custom_peers_path() {
-        let home = TempDir::new().expect("temp home");
-        let provider = OpenclawProvider::with_test_context(home.path().to_path_buf(), Vec::new());
-        let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
-        let custom_peers_path = home.path().join("runtime").join("custom-peers.json");
-
-        let result = provider
-            .setup(&ProviderSetupOptions {
-                home_dir: None,
-                agent_name: Some("alpha".to_string()),
-                platform_base_url: Some("http://127.0.0.1:19001".to_string()),
-                webhook_host: None,
-                webhook_port: None,
-                webhook_token: Some("hook-token".to_string()),
-                connector_base_url: Some("https://relay.example.test:24444".to_string()),
-                connector_url: None,
-                relay_transform_peers_path: Some(custom_peers_path.display().to_string()),
-            })
-            .expect("setup");
-
-        assert!(
-            result
-                .updated_paths
-                .iter()
-                .any(|path| path == &custom_peers_path.display().to_string())
-        );
-        assert!(custom_peers_path.exists());
-        assert!(!transform_peers_path(&openclaw_dir).exists());
-
-        let runtime_path = transform_runtime_path(&openclaw_dir);
-        let runtime: Value =
-            serde_json::from_str(&fs::read_to_string(&runtime_path).expect("runtime body"))
-                .expect("runtime json");
-        assert_eq!(
-            runtime.get("connectorBaseUrl").and_then(Value::as_str),
-            Some("https://relay.example.test:24444/")
-        );
-        assert_eq!(
-            runtime
-                .get("connectorBaseUrls")
-                .and_then(Value::as_array)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                }),
-            Some(vec!["https://relay.example.test:24444/"])
-        );
-        assert_eq!(
-            runtime.get("peersConfigPath").and_then(Value::as_str),
-            Some(custom_peers_path.to_string_lossy().as_ref())
-        );
-
-        let config_dir = get_config_dir(&ConfigPathOptions {
-            home_dir: Some(home.path().to_path_buf()),
-            registry_url_hint: None,
-        })
-        .expect("config dir");
-        let assignments = load_connector_assignments(&config_dir).expect("assignments");
-        assert_eq!(
-            assignments
-                .agents
-                .get("alpha")
-                .map(|entry| entry.connector_base_url.as_str()),
-            Some("https://relay.example.test:24444/")
-        );
-    }
-}
+#[cfg(test)]
+mod mod_tests;

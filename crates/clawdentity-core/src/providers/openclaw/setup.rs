@@ -166,11 +166,11 @@ pub fn resolve_openclaw_dir(
         return Ok(explicit_openclaw_dir(home_dir));
     }
 
-    if let Some(path) = env_first_non_empty(&["OPENCLAW_STATE_DIR", "CLAWDBOT_STATE_DIR"]) {
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_STATE_DIR"]) {
         return Ok(PathBuf::from(path));
     }
 
-    if let Some(path) = env_first_non_empty(&["OPENCLAW_CONFIG_PATH", "CLAWDBOT_CONFIG_PATH"]) {
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_CONFIG_PATH"]) {
         let path = PathBuf::from(path);
         return Ok(path.parent().map(Path::to_path_buf).unwrap_or(path));
     }
@@ -191,7 +191,7 @@ pub fn resolve_openclaw_config_path(
         return Ok(explicit_openclaw_config_path(home_dir));
     }
 
-    if let Some(path) = env_first_non_empty(&["OPENCLAW_CONFIG_PATH", "CLAWDBOT_CONFIG_PATH"]) {
+    if let Some(path) = env_first_non_empty(&["OPENCLAW_CONFIG_PATH"]) {
         return Ok(PathBuf::from(path));
     }
 
@@ -495,23 +495,23 @@ mod tests {
     }
 
     #[test]
-    fn openclaw_dir_respects_legacy_env_aliases() {
+    fn openclaw_dir_respects_openclaw_env_overrides() {
         let temp = TempDir::new().expect("temp dir");
-        let state_dir = temp.path().join("legacy-state");
-        let config_path = state_dir.join("clawdbot.custom.json");
+        let state_dir = temp.path().join("openclaw-state");
+        let config_path = state_dir.join("openclaw.custom.json");
         std::fs::create_dir_all(&state_dir).expect("state dir");
 
         unsafe {
-            std::env::set_var("CLAWDBOT_STATE_DIR", &state_dir);
-            std::env::set_var("CLAWDBOT_CONFIG_PATH", &config_path);
+            std::env::set_var("OPENCLAW_STATE_DIR", &state_dir);
+            std::env::set_var("OPENCLAW_CONFIG_PATH", &config_path);
         }
 
         let resolved_dir = resolve_openclaw_dir(None, None).expect("dir");
         let resolved_config = resolve_openclaw_config_path(None, None).expect("config");
 
         unsafe {
-            std::env::remove_var("CLAWDBOT_STATE_DIR");
-            std::env::remove_var("CLAWDBOT_CONFIG_PATH");
+            std::env::remove_var("OPENCLAW_STATE_DIR");
+            std::env::remove_var("OPENCLAW_CONFIG_PATH");
         }
 
         assert_eq!(resolved_dir, state_dir);
@@ -519,15 +519,15 @@ mod tests {
     }
 
     #[test]
-    fn explicit_home_dir_beats_legacy_env_aliases() {
+    fn explicit_home_dir_beats_openclaw_env_overrides() {
         let temp = TempDir::new().expect("temp dir");
-        let state_dir = temp.path().join("legacy-state");
-        let config_path = state_dir.join("clawdbot.custom.json");
+        let state_dir = temp.path().join("openclaw-state");
+        let config_path = state_dir.join("openclaw.custom.json");
         std::fs::create_dir_all(&state_dir).expect("state dir");
 
         unsafe {
-            std::env::set_var("CLAWDBOT_STATE_DIR", &state_dir);
-            std::env::set_var("CLAWDBOT_CONFIG_PATH", &config_path);
+            std::env::set_var("OPENCLAW_STATE_DIR", &state_dir);
+            std::env::set_var("OPENCLAW_CONFIG_PATH", &config_path);
         }
 
         let resolved_dir = resolve_openclaw_dir(Some(temp.path()), None).expect("dir");
@@ -535,8 +535,8 @@ mod tests {
             resolve_openclaw_config_path(Some(temp.path()), None).expect("config");
 
         unsafe {
-            std::env::remove_var("CLAWDBOT_STATE_DIR");
-            std::env::remove_var("CLAWDBOT_CONFIG_PATH");
+            std::env::remove_var("OPENCLAW_STATE_DIR");
+            std::env::remove_var("OPENCLAW_CONFIG_PATH");
         }
 
         assert_eq!(resolved_dir, temp.path().join(".openclaw"));

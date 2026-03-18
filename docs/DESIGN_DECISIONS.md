@@ -39,6 +39,7 @@ Decision:
 Why:
 - Avoid maintaining an OpenClaw fork.
 - Keep OpenClaw hook token private while exposing only signed Clawdentity request surface.
+- Keep OpenClaw as the owner of OpenClaw config and gateway auth semantics.
 - Preserve local/offline-friendly operator behavior with minimal platform intrusion.
 
 Tradeoff:
@@ -82,6 +83,7 @@ Why:
 - Identity/config/state handling is shared across interactive commands and long-running connector mode.
 - Users can bootstrap, configure, inspect, and run relay on machines that may be offline or minimally provisioned.
 - Operationally simpler distribution: one binary, one version, one upgrade surface.
+- OpenClaw setup still stays first-party: operators repair OpenClaw with `openclaw onboard` or `openclaw doctor --fix` before layering Clawdentity relay setup.
 
 Evidence in code:
 - `crates/clawdentity-cli/src/main.rs` dispatches both command-style operations and `connector start` daemon path.

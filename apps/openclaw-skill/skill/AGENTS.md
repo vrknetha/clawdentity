@@ -11,6 +11,7 @@
 - `SKILL.md` and `references/*.md` must use command-first remediation with executable Rust CLI commands.
 - Treat Rust CLI command surfaces as the source of truth for this skill. Do not add npm or TS-only execution steps.
 - Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor|relay-test}`.
+- OpenClaw wording must stay OpenClaw-first: OpenClaw owns OpenClaw setup and auth, Clawdentity adds relay setup after OpenClaw is healthy.
 - When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
 - Keep a single canonical skill URL path:
   - `https://clawdentity.com/skill.md`
@@ -39,4 +40,5 @@
 - When `skill/SKILL.md` or `skill/references/*` changes, regenerate and sync Rust-owned assets:
   - `pnpm -F @clawdentity/openclaw-skill build`
   - `pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`
+  - `pnpm -F @clawdentity/landing build:skill-md`
   - `node apps/landing/scripts/verify-skill-artifacts.mjs`

@@ -17,7 +17,7 @@
   - `clawdentity-relay.json` for connector endpoint candidates/path
   - `clawdentity-peers.json` for peer alias map snapshot visible inside containerized OpenClaw runtimes
 - `peersConfigPath` from relay runtime config may be absolute or transform-relative; honor explicit absolute overrides exactly.
-- Assume default onboarding runs `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw` end-to-end (including runtime startup); direct `connector start` is manual recovery only.
+- Assume default onboarding requires a healthy OpenClaw base first; `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw` layer relay assets on top but do not take over OpenClaw auth or imply runtime startup.
 - Connector endpoint fallback order must remain container-safe for macOS/Linux hosts, but any explicit connector base URL from setup/runtime config must stay first and exact.
 - Keep peer alias semantics deterministic: validate `payload.peer` against peers config before connector handoff.
 - Keep connector failure mapping deterministic (`404` endpoint unavailable, `409` peer alias conflict, network failure generic outage).
