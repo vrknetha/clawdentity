@@ -5,10 +5,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::assets::verify_openclaw_install;
 use super::setup::{
     OPENCLAW_DEFAULT_BASE_URL, explicit_openclaw_dir, load_relay_runtime_config,
     openclaw_agent_name_path, read_selected_openclaw_agent, resolve_connector_base_url,
-    resolve_openclaw_hook_token,
+    resolve_openclaw_hook_token, OPENCLAW_CONFIG_FILE_NAME,
 };
 use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::db::SqliteStore;
@@ -16,7 +17,6 @@ use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 use crate::peers::load_peers_config;
 
-const RELAY_TRANSFORM_MODULE_RELATIVE_PATH: &str = "hooks/transforms/relay-to-peer.mjs";
 const OPENCLAW_PENDING_DEVICES_RELATIVE_PATH: &str = "devices/pending.json";
 const STATUS_PATH: &str = "/v1/status";
 
@@ -161,6 +161,31 @@ fn parse_pending_approvals_count(path: &Path) -> Result<usize> {
         return Ok(array.len());
     }
     Ok(0)
+}
+
+fn install_check_label(id: &str) -> &'static str {
+    match id {
+        "state.transform" => "Relay transform",
+        "state.skillArtifacts" => "OpenClaw skill artifacts",
+        "state.hookToken" => "OpenClaw hook token",
+        "state.hookMapping" => "OpenClaw hook mapping",
+        "state.hookSessionRouting" => "OpenClaw hook session routing",
+        "state.gatewayAuth" => "OpenClaw gateway auth",
+        _ => "OpenClaw install state",
+    }
+}
+
+fn install_check_remediation(id: &str) -> Option<&'static str> {
+    match id {
+        "state.gatewayAuth" => Some(
+            "Fix OpenClaw auth first with `openclaw onboard` or `openclaw doctor --fix`, then rerun `clawdentity provider setup --for openclaw --agent-name <agentName>`.",
+        ),
+        "state.transform" | "state.skillArtifacts" | "state.hookToken" | "state.hookMapping"
+        | "state.hookSessionRouting" => Some(
+            "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` after OpenClaw itself is healthy.",
+        ),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -393,6 +418,77 @@ pub fn run_openclaw_doctor(
     let openclaw_dir =
         resolve_openclaw_dir(options.home_dir.as_deref(), options.openclaw_dir.as_deref())?;
     let mut checks = Vec::<OpenclawDoctorCheck>::new();
+    let config_path = openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME);
+    let config_path_display = config_path.display().to_string();
+
+    let openclaw_config_ready = match fs::read_to_string(&config_path) {
+        Ok(raw) => match json5::from_str::<Value>(&raw) {
+            Ok(_) => {
+                push_check(
+                    &mut checks,
+                    "state.openclawConfig",
+                    "OpenClaw config",
+                    DoctorCheckStatus::Pass,
+                    "OpenClaw config is present and readable",
+                    None,
+                    Some(serde_json::json!({ "configPath": config_path_display.clone() })),
+                );
+                true
+            }
+            Err(error) => {
+                push_check(
+                    &mut checks,
+                    "state.openclawConfig",
+                    "OpenClaw config",
+                    DoctorCheckStatus::Fail,
+                    format!("OpenClaw config is unreadable: {error}"),
+                    Some("Run `openclaw doctor --fix`, confirm OpenClaw works, then retry Clawdentity."),
+                    Some(serde_json::json!({ "configPath": config_path_display.clone() })),
+                );
+                false
+            }
+        },
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            push_check(
+                &mut checks,
+                "state.openclawConfig",
+                "OpenClaw config",
+                DoctorCheckStatus::Fail,
+                "OpenClaw config is missing",
+                Some("Run `openclaw onboard`, confirm OpenClaw works, then retry Clawdentity."),
+                Some(serde_json::json!({ "configPath": config_path_display.clone() })),
+            );
+            false
+        }
+        Err(source) => {
+            return Err(CoreError::Io {
+                path: config_path,
+                source,
+            });
+        }
+    };
+
+    if openclaw_config_ready {
+        for (id, passed, message) in verify_openclaw_install(&config_path, &openclaw_dir)? {
+            push_check(
+                &mut checks,
+                &id,
+                install_check_label(&id),
+                if passed {
+                    DoctorCheckStatus::Pass
+                } else {
+                    DoctorCheckStatus::Fail
+                },
+                message,
+                if passed {
+                    None
+                } else {
+                    install_check_remediation(&id)
+                },
+                Some(serde_json::json!({ "configPath": config_path_display.clone() })),
+            );
+        }
+    }
 
     let selected_agent = options
         .selected_agent
@@ -541,50 +637,27 @@ pub fn run_openclaw_doctor(
         }
     }
 
-    let transform_path = openclaw_dir.join(RELAY_TRANSFORM_MODULE_RELATIVE_PATH);
-    if transform_path.exists() {
-        push_check(
-            &mut checks,
-            "state.transformMapping",
-            "Relay transform mapping",
-            DoctorCheckStatus::Pass,
-            "relay transform module is present",
-            None,
-            Some(serde_json::json!({ "transformPath": transform_path })),
-        );
-    } else {
-        push_check(
-            &mut checks,
-            "state.transformMapping",
-            "Relay transform mapping",
-            DoctorCheckStatus::Fail,
-            "relay transform module is missing",
-            Some("Install OpenClaw relay skill or run setup to restore mapping."),
-            Some(serde_json::json!({ "transformPath": transform_path })),
-        );
-    }
-
     let runtime_config = load_relay_runtime_config(config_dir)?;
     let hook_token = resolve_openclaw_hook_token(config_dir, None)?;
     if hook_token.is_some() {
         push_check(
             &mut checks,
-            "state.hookToken",
-            "OpenClaw hook token",
+            "state.relayRuntime",
+            "Relay runtime",
             DoctorCheckStatus::Pass,
-            "hook token is configured",
+            "relay runtime metadata is configured",
             None,
             runtime_config.map(|config| serde_json::to_value(config).unwrap_or(Value::Null)),
         );
     } else {
         push_check(
             &mut checks,
-            "state.hookToken",
-            "OpenClaw hook token",
+            "state.relayRuntime",
+            "Relay runtime",
             DoctorCheckStatus::Fail,
-            "hook token is missing",
+            "relay runtime metadata is missing hook token",
             Some(
-                "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` to persist runtime hook token.",
+                "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` after OpenClaw itself is healthy.",
             ),
             None,
         );
@@ -595,7 +668,7 @@ pub fn run_openclaw_doctor(
     if pending_count == 0 {
         push_check(
             &mut checks,
-            "state.gatewayPairing",
+            "state.gatewayDevicePairing",
             "OpenClaw gateway pairing",
             DoctorCheckStatus::Pass,
             "no pending OpenClaw device approvals",
@@ -605,11 +678,11 @@ pub fn run_openclaw_doctor(
     } else {
         push_check(
             &mut checks,
-            "state.gatewayPairing",
+            "state.gatewayDevicePairing",
             "OpenClaw gateway pairing",
             DoctorCheckStatus::Fail,
             format!("{pending_count} pending OpenClaw device approval(s)"),
-            Some("Approve pending devices in OpenClaw before relay diagnostics."),
+            Some("Approve pending devices in OpenClaw, or run `openclaw dashboard` to review them."),
             Some(serde_json::json!({ "pendingPath": pending_path, "pendingCount": pending_count })),
         );
     }
@@ -652,12 +725,13 @@ mod tests {
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     use super::super::setup::{
-        OpenclawRelayRuntimeConfig, save_connector_assignment, save_relay_runtime_config,
-        write_selected_openclaw_agent,
+        OPENCLAW_CONFIG_FILE_NAME, OpenclawRelayRuntimeConfig, save_connector_assignment,
+        save_relay_runtime_config, write_selected_openclaw_agent,
     };
     use crate::db::SqliteStore;
     use crate::peers::{PersistPeerInput, persist_peer};
 
+    use super::super::assets::install_openclaw_skill_assets;
     use super::{DoctorStatus, OpenclawDoctorOptions, run_openclaw_doctor};
 
     #[tokio::test]
@@ -686,6 +760,36 @@ mod tests {
             "export default {}",
         )
         .expect("transform");
+        install_openclaw_skill_assets(&openclaw_dir).expect("skill assets");
+        std::fs::write(
+            openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME),
+            r#"{
+  "hooks": {
+    "enabled": true,
+    "token": "token",
+    "defaultSessionKey": "main",
+    "allowRequestSessionKey": false,
+    "allowedSessionKeyPrefixes": ["hook:", "main"],
+    "mappings": [
+      {
+        "id": "clawdentity-send-to-peer",
+        "match": { "path": "send-to-peer" },
+        "action": "agent",
+        "wakeMode": "now",
+        "transform": { "module": "relay-to-peer.mjs" }
+      }
+    ]
+  },
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+        )
+        .expect("config");
         std::fs::create_dir_all(openclaw_dir.join("devices")).expect("devices dir");
         std::fs::write(openclaw_dir.join("devices/pending.json"), "[]").expect("pending");
 

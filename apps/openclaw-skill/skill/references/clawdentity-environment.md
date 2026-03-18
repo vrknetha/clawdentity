@@ -16,7 +16,7 @@ Complete reference for CLI environment variable overrides. When env overrides ar
 | `CLAWDENTITY_AGENT_NAME` | Override agent name resolution | provider (`--for openclaw`), transform |
 | `OPENCLAW_BASE_URL` | Override OpenClaw upstream URL | provider setup (`--for openclaw`) |
 | `OPENCLAW_HOOK_TOKEN` | Override hook auth token | provider setup (`--for openclaw`) |
-| `OPENCLAW_GATEWAY_TOKEN` | Override gateway auth token | provider setup (`--for openclaw`) |
+| `OPENCLAW_GATEWAY_TOKEN` | Override OpenClaw gateway token auth | OpenClaw-owned gateway auth |
 | `OPENCLAW_CONFIG_PATH` | Override OpenClaw config file path | provider (`--for openclaw`) |
 | `OPENCLAW_STATE_DIR` | Override OpenClaw state directory | provider (`--for openclaw`) |
 | `OPENCLAW_HOME` | Override OpenClaw home directory (used when explicit config/state overrides are unset) | provider (`--for openclaw`) |

@@ -267,10 +267,13 @@ Optional:
 - Validate with `clawdentity agent inspect <agent-name>`.
 
 5. Configure provider.
+- OpenClaw only: if `openclaw` is missing or your OpenClaw profile is not ready, run `openclaw onboard` first.
+- OpenClaw only: if `openclaw.json` or local auth/device state is broken, run `openclaw doctor --fix` before Clawdentity setup.
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
 
 6. Validate provider health.
+- OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
 - Run `clawdentity provider doctor --for <platform>`.
 - Use `--json` for automation and `--peer <alias>` when testing targeted routing.
 
@@ -316,8 +319,12 @@ Do not ask for:
   - Run `clawdentity install --list` and choose a valid `--for` value.
 
 ### Setup/doctor failures
+- OpenClaw base missing or broken:
+  - Run `openclaw onboard` if OpenClaw has not been initialized yet.
+  - Run `openclaw doctor --fix` if OpenClaw config or local auth/device state is broken.
+  - Run `openclaw dashboard` for the first local UI/device check.
 - If `provider doctor` is unhealthy:
-  - Re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
+  - Re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>` only after the provider itself is healthy.
   - Re-run `provider doctor` and follow remediation output.
 
 ### Auth errors
@@ -374,7 +381,7 @@ Canonical paths are defined in SKILL.md § Filesystem Truth. Refer there for all
 Rules:
 - setup must succeed without any peer metadata
 - peers config snapshot still exists and may be empty until pairing is completed
-- setup is expected to bring connector runtime to a websocket-connected state (unless explicitly disabled by advanced flags)
+- setup assumes OpenClaw itself is already healthy and only layers Clawdentity relay assets on top
 
 ## Peer Map Schema
 
@@ -496,7 +503,7 @@ The transform does not send directly to the peer proxy. It posts to the local co
 - Runtime may also use:
   - `CLAWDENTITY_CONNECTOR_BASE_URL`
   - `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH`
-- `provider setup --for openclaw --agent-name <agent-name>` is the primary self-setup path and should leave runtime healthy.
+- `provider setup --for openclaw --agent-name <agent-name>` is the primary self-setup path after OpenClaw itself is healthy.
 - `connector start <agent-name>` is advanced/manual recovery; it resolves bind URL from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
 
 Outbound JSON body sent by transform:
@@ -675,19 +682,21 @@ Run `clawdentity provider doctor --for openclaw --json` for machine-readable dia
 | Check ID | Validates | Remediation on Failure |
 |---|---|---|
 | `config.registry` | `registryUrl`, `apiKey`, and `proxyUrl` in config (or proxy env override) | `clawdentity config init` or `invite redeem` |
+| `state.openclawConfig` | `openclaw.json` exists and is readable | `openclaw onboard` or `openclaw doctor --fix` |
 | `state.selectedAgent` | Agent marker at `~/.clawdentity/openclaw-agent-name` | `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
 | `state.credentials` | `ait.jwt` and `secret.key` exist and non-empty | `clawdentity agent create <agent-name>` or `agent auth refresh <agent-name>` |
 | `state.peers` | Peers config valid; requested `--peer` alias exists | Populate peers via pairing API flow |
-| `state.transform` | Relay transform artifacts in OpenClaw hooks dir | Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
-| `state.hookMapping` | `send-to-peer` hook mapping in OpenClaw config | `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
-| `state.hookToken` | Hooks enabled with token in OpenClaw config | `clawdentity provider setup --for openclaw --agent-name <agent-name>` then restart OpenClaw |
-| `state.hookSessionRouting` | `hooks.defaultSessionKey`, `hooks.allowRequestSessionKey=false`, and required prefixes | `clawdentity provider setup --for openclaw --agent-name <agent-name>` then restart OpenClaw |
-| `state.gatewayAuth` | OpenClaw `gateway.auth` readiness (`mode` + required credential) | `clawdentity provider setup --for openclaw --agent-name <agent-name>` to re-sync gateway auth |
-| `state.gatewayDevicePairing` | Pending OpenClaw device approvals | Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>` so setup auto-recovers approvals |
-| `state.openclawBaseUrl` | OpenClaw base URL resolvable | `clawdentity provider setup --for openclaw --agent-name <agent-name> --platform-base-url <url>` |
-| `state.connectorRuntime` | Local connector runtime reachable and websocket-connected | `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
-| `state.connectorInboundInbox` | Connector local inbound inbox backlog and replay queue state | Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>` and verify connector runtime health |
-| `state.openclawHookHealth` | Connector replay status for local OpenClaw hook delivery | Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>` and restart OpenClaw if hook replay stays failed |
+| `state.transform` | Relay transform artifacts in OpenClaw hooks dir | `clawdentity provider setup --for openclaw --agent-name <agent-name>` after OpenClaw is healthy |
+| `state.skillArtifacts` | OpenClaw skill docs and relay bundle are installed | `clawdentity install --for openclaw` or `clawdentity provider setup --for openclaw --agent-name <agent-name>` |
+| `state.hookMapping` | `send-to-peer` hook mapping in OpenClaw config | `clawdentity provider setup --for openclaw --agent-name <agent-name>` after OpenClaw is healthy |
+| `state.hookToken` | Hooks enabled with token in OpenClaw config | `clawdentity provider setup --for openclaw --agent-name <agent-name>` after OpenClaw is healthy, then restart OpenClaw if needed |
+| `state.hookSessionRouting` | `hooks.defaultSessionKey`, `hooks.allowRequestSessionKey=false`, and required prefixes | `clawdentity provider setup --for openclaw --agent-name <agent-name>` after OpenClaw is healthy |
+| `state.gatewayAuth` | OpenClaw `gateway.auth` readiness for the current auth mode | `openclaw onboard` or `openclaw doctor --fix` |
+| `state.gatewayDevicePairing` | Pending OpenClaw device approvals | `openclaw dashboard` |
+| `state.relayRuntime` | Clawdentity relay runtime metadata has the hook token needed by the connector | `clawdentity provider setup --for openclaw --agent-name <agent-name>` after OpenClaw is healthy |
+| `state.connectorRuntime` | Local connector runtime reachable and websocket-connected | `clawdentity connector service install <agent-name>` or manual `clawdentity connector start <agent-name>` |
+| `state.connectorInboundInbox` | Connector local inbound inbox backlog and replay queue state | Verify connector runtime health, then replay or clear backlog as needed |
+| `state.openclawHookHealth` | Connector replay status for local OpenClaw hook delivery | Restart OpenClaw and the connector runtime, then retry delivery |
 
 ---
 
@@ -920,7 +929,7 @@ Complete reference for CLI environment variable overrides. When env overrides ar
 | `CLAWDENTITY_AGENT_NAME` | Override agent name resolution | provider (`--for openclaw`), transform |
 | `OPENCLAW_BASE_URL` | Override OpenClaw upstream URL | provider setup (`--for openclaw`) |
 | `OPENCLAW_HOOK_TOKEN` | Override hook auth token | provider setup (`--for openclaw`) |
-| `OPENCLAW_GATEWAY_TOKEN` | Override gateway auth token | provider setup (`--for openclaw`) |
+| `OPENCLAW_GATEWAY_TOKEN` | Override OpenClaw gateway token auth | OpenClaw-owned gateway auth |
 | `OPENCLAW_CONFIG_PATH` | Override OpenClaw config file path | provider (`--for openclaw`) |
 | `OPENCLAW_STATE_DIR` | Override OpenClaw state directory | provider (`--for openclaw`) |
 | `OPENCLAW_HOME` | Override OpenClaw home directory (used when explicit config/state overrides are unset) | provider (`--for openclaw`) |

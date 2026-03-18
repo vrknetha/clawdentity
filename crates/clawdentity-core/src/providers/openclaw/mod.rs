@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use serde_json::json;
@@ -29,6 +31,7 @@ use self::assets::{
     transform_peers_path, verify_openclaw_install, write_transform_peers_snapshot,
     write_transform_runtime_config,
 };
+use self::cli::ensure_openclaw_cli_available;
 use crate::config::{ConfigPathOptions, get_config_dir};
 use crate::db::SqliteStore;
 use crate::error::Result;
@@ -85,6 +88,33 @@ impl OpenclawProvider {
             .unwrap_or(self.default_webhook_host());
         let port = opts.webhook_port.unwrap_or(self.default_webhook_port());
         default_webhook_url(host, port, OPENCLAW_WEBHOOK_PATH)
+    }
+
+    fn ensure_openclaw_cli(&self) -> Result<PathBuf> {
+        ensure_openclaw_cli_available(self.path_override.as_deref())
+    }
+
+    fn ensure_openclaw_base_ready(&self, config_path: &Path) -> Result<()> {
+        let raw = fs::read_to_string(config_path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                crate::error::CoreError::InvalidInput(
+                    "OpenClaw is not initialized yet. Run `openclaw onboard`, confirm OpenClaw works, then retry Clawdentity setup.".to_string(),
+                )
+            } else {
+                crate::error::CoreError::Io {
+                    path: config_path.to_path_buf(),
+                    source: error,
+                }
+            }
+        })?;
+
+        json5::from_str::<serde_json::Value>(&raw).map_err(|error| {
+            crate::error::CoreError::InvalidInput(format!(
+                "OpenClaw config is unreadable. Run `openclaw doctor --fix`, confirm OpenClaw works, then retry Clawdentity setup. ({error})"
+            ))
+        })?;
+
+        Ok(())
     }
 
     #[cfg(test)]
@@ -254,6 +284,11 @@ impl OpenclawProvider {
         notes.push(format!(
             "connector assignment saved as `{connector_base_url}`"
         ));
+        notes.push("next: run `openclaw dashboard` for a quick OpenClaw UI check".to_string());
+        notes.push(
+            "next: run `clawdentity provider doctor --for openclaw` to validate relay readiness"
+                .to_string(),
+        );
         OpenclawSetupArtifacts {
             notes,
             updated_paths,
@@ -394,9 +429,11 @@ impl PlatformProvider for OpenclawProvider {
     }
 
     fn install(&self, opts: &InstallOptions) -> Result<InstallResult> {
+        let command_path = self.ensure_openclaw_cli()?;
         let home_dir = self.install_home_dir(opts)?;
         let openclaw_dir = resolve_openclaw_dir(Some(&home_dir), None)?;
         let config_path = resolve_openclaw_config_path(Some(&home_dir), None)?;
+        self.ensure_openclaw_base_ready(&config_path)?;
 
         let state_options = ConfigPathOptions {
             home_dir: Some(home_dir.clone()),
@@ -408,6 +445,8 @@ impl PlatformProvider for OpenclawProvider {
 
         let mut notes = install_openclaw_skill_assets(&openclaw_dir)?;
         let patch_result = patch_openclaw_config(
+            &command_path,
+            &openclaw_dir,
             &config_path,
             &webhook_url,
             opts.webhook_host
@@ -430,7 +469,7 @@ impl PlatformProvider for OpenclawProvider {
 
         Ok(InstallResult {
             platform: self.name().to_string(),
-            config_updated: true,
+            config_updated: patch_result.config_changed,
             service_installed: false,
             notes,
         })
@@ -498,6 +537,7 @@ impl PlatformProvider for OpenclawProvider {
     }
 
     fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult> {
+        self.ensure_openclaw_cli()?;
         let context = self.resolve_setup_context(opts)?;
         let connector_base_url =
             self.resolve_setup_connector_base_url(opts, &context.config_dir, &context.agent_name);
@@ -547,9 +587,108 @@ impl PlatformProvider for OpenclawProvider {
 }
 
 mod assets;
+mod cli;
 mod doctor;
 mod relay_test;
 mod setup;
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use tempfile::TempDir;
+
+    use super::{OPENCLAW_CONFIG_FILE_NAME, resolve_openclaw_dir};
+
+    pub(crate) fn install_mock_openclaw_cli() -> TempDir {
+        let bin_dir = TempDir::new().expect("temp bin");
+        let script_path = bin_dir.path().join("openclaw");
+        let script = r#"#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+
+const args = process.argv.slice(2);
+const configPath = process.env.OPENCLAW_CONFIG_PATH;
+
+if (!configPath) {
+  console.error("OPENCLAW_CONFIG_PATH is required");
+  process.exit(1);
+}
+
+function readConfig() {
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+  const raw = fs.readFileSync(configPath, "utf8").trim();
+  return raw ? JSON.parse(raw) : {};
+}
+
+function writeConfig(value) {
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function setPath(target, dottedPath, value) {
+  const parts = dottedPath.split(".");
+  let cursor = target;
+  for (const part of parts.slice(0, -1)) {
+    if (!cursor[part] || typeof cursor[part] !== "object" || Array.isArray(cursor[part])) {
+      cursor[part] = {};
+    }
+    cursor = cursor[part];
+  }
+  cursor[parts[parts.length - 1]] = value;
+}
+
+function getPath(target, dottedPath) {
+  return dottedPath.split(".").reduce((cursor, part) => {
+    if (cursor === undefined || cursor === null) {
+      return undefined;
+    }
+    return cursor[part];
+  }, target);
+}
+
+if (args[0] === "config" && args[1] === "set") {
+  const config = readConfig();
+  setPath(config, args[2], JSON.parse(args[3]));
+  writeConfig(config);
+  process.exit(0);
+}
+
+if (args[0] === "config" && args[1] === "get") {
+  const value = getPath(readConfig(), args[2]);
+  if (value === undefined) {
+    console.error("Config path not found");
+    process.exit(1);
+  }
+  process.stdout.write(`${JSON.stringify(value)}\n`);
+  process.exit(0);
+}
+
+console.error(`unsupported mock openclaw command: ${args.join(" ")}`);
+process.exit(1);
+"#;
+        fs::write(&script_path, script).expect("mock openclaw script");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&script_path).expect("metadata").permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&script_path, permissions).expect("chmod");
+        }
+        bin_dir
+    }
+
+    pub(crate) fn write_openclaw_profile(home_dir: &Path, config_body: &str) -> PathBuf {
+        let openclaw_dir = resolve_openclaw_dir(Some(home_dir), None).expect("openclaw dir");
+        fs::create_dir_all(&openclaw_dir).expect("openclaw dir");
+        let config_path = openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME);
+        fs::write(&config_path, config_body).expect("openclaw config");
+        config_path
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -561,24 +700,24 @@ mod tests {
 
     use crate::{
         config::{ConfigPathOptions, get_config_dir},
-        provider::{InboundMessage, PlatformProvider, ProviderSetupOptions},
+        provider::{
+            InboundMessage, InstallOptions, PlatformProvider, ProviderDoctorOptions,
+            ProviderSetupOptions,
+        },
     };
 
     use super::{
         assets::{transform_peers_path, transform_runtime_path},
-        OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider, load_connector_assignments,
+        OpenclawProvider, OPENCLAW_CONFIG_FILE_NAME, load_connector_assignments,
         resolve_openclaw_dir,
+        test_support::{install_mock_openclaw_cli, write_openclaw_profile},
     };
 
     #[test]
     fn detection_checks_home_and_path_evidence() {
         let home = TempDir::new().expect("temp home");
-        let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
-        std::fs::create_dir_all(&openclaw_dir).expect("openclaw dir");
-        std::fs::write(openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME), "{}\n").expect("config");
-
-        let bin_dir = TempDir::new().expect("temp bin");
-        std::fs::write(bin_dir.path().join("openclaw"), "#!/bin/sh\n").expect("binary");
+        write_openclaw_profile(home.path(), "{}\n");
+        let bin_dir = install_mock_openclaw_cli();
 
         let provider = OpenclawProvider::with_test_context(
             home.path().to_path_buf(),
@@ -647,7 +786,23 @@ mod tests {
     #[test]
     fn setup_honors_explicit_connector_url_and_custom_peers_path() {
         let home = TempDir::new().expect("temp home");
-        let provider = OpenclawProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+        let bin_dir = install_mock_openclaw_cli();
+        write_openclaw_profile(
+            home.path(),
+            r#"{
+  "gateway": {
+    "auth": {
+      "mode": "password",
+      "password": "existing-password"
+    }
+  }
+}
+"#,
+        );
+        let provider = OpenclawProvider::with_test_context(
+            home.path().to_path_buf(),
+            vec![bin_dir.path().to_path_buf()],
+        );
         let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
         let custom_peers_path = home.path().join("runtime").join("custom-peers.json");
 
@@ -712,5 +867,88 @@ mod tests {
                 .map(|entry| entry.connector_base_url.as_str()),
             Some("https://relay.example.test:24444/")
         );
+
+        let config_body =
+            fs::read_to_string(openclaw_dir.join(super::OPENCLAW_CONFIG_FILE_NAME)).expect("config");
+        let config: Value = serde_json::from_str(&config_body).expect("config json");
+        assert_eq!(
+            config
+                .get("gateway")
+                .and_then(Value::as_object)
+                .and_then(|value| value.get("auth"))
+                .and_then(Value::as_object)
+                .and_then(|value| value.get("mode"))
+                .and_then(Value::as_str),
+            Some("password")
+        );
+    }
+
+    #[test]
+    fn install_requires_openclaw_cli() {
+        let home = TempDir::new().expect("temp home");
+        write_openclaw_profile(
+            home.path(),
+            r#"{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+        );
+        let provider = OpenclawProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+
+        let error = provider
+            .install(&InstallOptions {
+                home_dir: Some(home.path().to_path_buf()),
+                ..InstallOptions::default()
+            })
+            .expect_err("missing openclaw CLI should fail");
+
+        assert!(error.to_string().contains("OpenClaw CLI is required"));
+    }
+
+    #[test]
+    fn doctor_does_not_require_openclaw_cli() {
+        let home = TempDir::new().expect("temp home");
+        let provider = OpenclawProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+
+        let result = provider
+            .doctor(&ProviderDoctorOptions {
+                home_dir: Some(home.path().to_path_buf()),
+                include_connector_runtime_check: false,
+                ..ProviderDoctorOptions::default()
+            })
+            .expect("doctor should inspect local state without the openclaw CLI");
+
+        assert_eq!(
+            result
+                .checks
+                .iter()
+                .find(|check| check.id == "state.openclawConfig")
+                .map(|check| check.message.as_str()),
+            Some("OpenClaw config is missing")
+        );
+    }
+
+    #[test]
+    fn setup_requires_openclaw_onboarding_first() {
+        let home = TempDir::new().expect("temp home");
+        let bin_dir = install_mock_openclaw_cli();
+        let provider = OpenclawProvider::with_test_context(
+            home.path().to_path_buf(),
+            vec![bin_dir.path().to_path_buf()],
+        );
+
+        let error = provider
+            .setup(&ProviderSetupOptions {
+                agent_name: Some("alpha".to_string()),
+                ..ProviderSetupOptions::default()
+            })
+            .expect_err("missing openclaw config should fail");
+
+        assert!(error.to_string().contains("openclaw onboard"));
     }
 }

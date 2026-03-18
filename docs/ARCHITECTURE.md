@@ -266,6 +266,7 @@ Primary responsibilities:
 - provide OpenClaw skill instructions and relay transform script payloads
 - integrate with the Rust installer (`clawdentity install --for openclaw`)
 - enable peer-directed message relay from OpenClaw workflows
+- preserve OpenClaw-owned config and auth semantics while layering Clawdentity relay assets on top
 
 Installed artifacts include:
 - `~/.openclaw/skills/clawdentity-openclaw-relay/SKILL.md`
@@ -454,6 +455,12 @@ connector start
  -> inbound loop + outbound flush loop
  -> graceful shutdown on signal
 ```
+
+For OpenClaw specifically, `connector start` is the manual/advanced runtime path. The normal recovery order is:
+- `openclaw onboard` if OpenClaw has not been initialized yet
+- `openclaw doctor --fix` if `openclaw.json` or device/auth state is broken
+- `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw --agent-name <agent-name>` once OpenClaw itself is healthy
+- `openclaw dashboard` for a quick local UI check
 
 ### Rust Types, Storage, and Security
 

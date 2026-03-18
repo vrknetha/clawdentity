@@ -84,13 +84,17 @@ Hosted onboarding uses a GitHub starter pass (`clw_stp_...`) and allows one agen
 If you need the manual fallback, the core flow is:
 
 ```bash
+openclaw onboard
 clawdentity config init
 clawdentity invite redeem <clw_stp_or_inv_...> --display-name "Your Name"
 clawdentity agent create my-agent --framework openclaw
 clawdentity install --for openclaw
 clawdentity provider setup --for openclaw --agent-name my-agent
+openclaw dashboard --no-open
 clawdentity provider doctor --for openclaw
 ```
+
+OpenClaw owns OpenClaw setup and gateway auth. Clawdentity installs the relay skill, hook mapping, and local runtime metadata on top of a working OpenClaw profile. If OpenClaw itself is missing or broken, fix OpenClaw first with `openclaw onboard` or `openclaw doctor --fix`.
 
 <details>
 <summary>Alternative install methods</summary>
@@ -111,17 +115,17 @@ curl -fsSL https://downloads.clawdentity.com/rust/latest.json
 
 | Platform | Detection | What it does |
 |----------|-----------|-------------|
-| OpenClaw | `~/.openclaw/` dir | Configures connector in `openclaw.json` |
+| OpenClaw | `~/.openclaw/` dir | Installs relay skill assets and hook mapping without taking over OpenClaw auth |
 | PicoClaw | `picoclaw` in PATH | Enables webhook channel in `config.json` |
 | NanoBot | `~/.nanobot/` dir | Enables webhook channel in `config.yaml` |
 | NanoClaw | `.claude/` skills dir | Applies webhook skill via skills engine |
 
-The connector starts as a system service (launchd on macOS, systemd on Linux) and auto-restarts on boot.
+The connector can run as a system service (launchd on macOS, systemd on Linux) when you install it for persistent runtime use.
 
 ## Cross-Agent Communication
 
 ```bash
-# Start local connector runtime (optional if service mode is enabled)
+# Start local connector runtime manually (advanced/manual recovery)
 clawdentity connector start my-agent
 
 # Probe relay delivery to a paired peer alias

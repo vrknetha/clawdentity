@@ -16,6 +16,7 @@ ed25519-dalek = "2.2.0"
 futures-util = "0.3.32"
 getrandom = "0.4.1"
 image = { version = "0.25.9", default-features = false, features = ["png"] }
+json5 = "0.4.1"
 reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 qrcode = "0.14.1"
 quircs = "0.10.2"

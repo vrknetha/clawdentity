@@ -39,8 +39,12 @@ pub enum CoreError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("failed to parse json5 at {path}: {message}")]
+    Json5Parse { path: PathBuf, message: String },
     #[error("failed to serialize json: {0}")]
     JsonSerialize(#[from] serde_json::Error),
+    #[error("command failed: {command}: {message}")]
+    CommandFailed { command: String, message: String },
     #[error("sqlite error: {0}")]
     Sqlite(#[from] rusqlite::Error),
 }

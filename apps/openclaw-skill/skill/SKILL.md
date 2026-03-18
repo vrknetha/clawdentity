@@ -267,10 +267,13 @@ Optional:
 - Validate with `clawdentity agent inspect <agent-name>`.
 
 5. Configure provider.
+- OpenClaw only: if `openclaw` is missing or your OpenClaw profile is not ready, run `openclaw onboard` first.
+- OpenClaw only: if `openclaw.json` or local auth/device state is broken, run `openclaw doctor --fix` before Clawdentity setup.
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
 
 6. Validate provider health.
+- OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
 - Run `clawdentity provider doctor --for <platform>`.
 - Use `--json` for automation and `--peer <alias>` when testing targeted routing.
 
@@ -316,8 +319,12 @@ Do not ask for:
   - Run `clawdentity install --list` and choose a valid `--for` value.
 
 ### Setup/doctor failures
+- OpenClaw base missing or broken:
+  - Run `openclaw onboard` if OpenClaw has not been initialized yet.
+  - Run `openclaw doctor --fix` if OpenClaw config or local auth/device state is broken.
+  - Run `openclaw dashboard` for the first local UI/device check.
 - If `provider doctor` is unhealthy:
-  - Re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
+  - Re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>` only after the provider itself is healthy.
   - Re-run `provider doctor` and follow remediation output.
 
 ### Auth errors
