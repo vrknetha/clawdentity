@@ -40,7 +40,7 @@ use crate::provider::{
     PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
     ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
     ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyResult,
-    command_exists, default_webhook_url, join_url_path, now_iso, resolve_home_dir_with_fallback,
+    command_exists, now_iso, resolve_home_dir_with_fallback,
 };
 
 const PROVIDER_NAME: &str = "openclaw";
@@ -70,24 +70,6 @@ struct OpenclawSetupArtifacts {
 impl OpenclawProvider {
     fn install_home_dir(&self, opts: &InstallOptions) -> Result<PathBuf> {
         resolve_home_dir_with_fallback(opts.home_dir.as_deref(), self.home_dir_override.as_deref())
-    }
-
-    fn resolve_webhook_url(&self, opts: &InstallOptions) -> Result<String> {
-        if let Some(connector_url) = opts
-            .connector_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return join_url_path(connector_url, OPENCLAW_WEBHOOK_PATH, "connectorUrl");
-        }
-
-        let host = opts
-            .webhook_host
-            .as_deref()
-            .unwrap_or(self.default_webhook_host());
-        let port = opts.webhook_port.unwrap_or(self.default_webhook_port());
-        default_webhook_url(host, port, OPENCLAW_WEBHOOK_PATH)
     }
 
     fn ensure_openclaw_cli(&self) -> Result<PathBuf> {
@@ -441,19 +423,12 @@ impl PlatformProvider for OpenclawProvider {
         };
         let state_dir = get_config_dir(&state_options)?;
         let webhook_token = resolve_openclaw_hook_token(&state_dir, opts.webhook_token.as_deref())?;
-        let webhook_url = self.resolve_webhook_url(opts)?;
 
         let mut notes = install_openclaw_skill_assets(&openclaw_dir)?;
         let patch_result = patch_openclaw_config(
             &command_path,
             &openclaw_dir,
             &config_path,
-            &webhook_url,
-            opts.webhook_host
-                .as_deref()
-                .unwrap_or(self.default_webhook_host()),
-            opts.webhook_port.unwrap_or(self.default_webhook_port()),
-            OPENCLAW_WEBHOOK_PATH,
             webhook_token.as_deref(),
         )?;
         notes.push(format!(

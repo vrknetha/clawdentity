@@ -649,10 +649,6 @@ pub fn patch_openclaw_config(
     command_path: &Path,
     openclaw_dir: &Path,
     config_path: &Path,
-    _hook_url: &str,
-    _hook_host: &str,
-    _hook_port: u16,
-    _hook_path: &str,
     preferred_hook_token: Option<&str>,
 ) -> Result<OpenclawConfigPatchResult> {
     let mut config = parse_json_or_default(config_path)?;
@@ -871,10 +867,6 @@ mod tests {
             bin_dir.path().join("openclaw").as_path(),
             temp.path(),
             &config_path,
-            "http://127.0.0.1:19400/hooks/agent",
-            "127.0.0.1",
-            19400,
-            "/hooks/agent",
             Some("hook-token"),
         )
         .expect("patch config");
