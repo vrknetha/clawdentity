@@ -3,14 +3,17 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
+#[path = "asset_bundle.rs"]
+mod asset_bundle;
+
+use self::asset_bundle::{OpenclawAsset, openclaw_assets};
+pub use self::asset_bundle::{
+    RELAY_MODULE_FILE_NAME, RELAY_PEERS_FILE_NAME, RELAY_RUNTIME_FILE_NAME, SKILL_DIR_NAME,
+};
 use super::cli::run_openclaw_config_set_json;
 use crate::error::{CoreError, Result};
 use crate::peers::PeersConfig;
 
-pub const SKILL_DIR_NAME: &str = "clawdentity-openclaw-relay";
-pub const RELAY_MODULE_FILE_NAME: &str = "relay-to-peer.mjs";
-pub const RELAY_RUNTIME_FILE_NAME: &str = "clawdentity-relay.json";
-pub const RELAY_PEERS_FILE_NAME: &str = "clawdentity-peers.json";
 const HOOK_MAPPING_ID: &str = "clawdentity-send-to-peer";
 const HOOK_PATH_SEND_TO_PEER: &str = "send-to-peer";
 const DEFAULT_OPENCLAW_MAIN_SESSION_KEY: &str = "main";
@@ -23,24 +26,8 @@ const CONNECTOR_HOST_DOCKER_GATEWAY: &str = "gateway.docker.internal";
 const CONNECTOR_HOST_LINUX_BRIDGE: &str = "172.17.0.1";
 const DEFAULT_CONNECTOR_OUTBOUND_PATH: &str = "/v1/outbound";
 
-const SKILL_MD: &str = include_str!("../../../assets/openclaw-skill/skill/SKILL.md");
-const REFERENCE_ENVIRONMENT: &str =
-    include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-environment.md");
-const REFERENCE_PROTOCOL: &str =
-    include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-protocol.md");
-const REFERENCE_REGISTRY: &str =
-    include_str!("../../../assets/openclaw-skill/skill/references/clawdentity-registry.md");
-const RELAY_MODULE: &[u8] =
-    include_bytes!("../../../assets/openclaw-skill/transform/relay-to-peer.mjs");
-
 pub struct OpenclawConfigPatchResult {
     pub config_changed: bool,
-}
-
-struct OpenclawAsset {
-    path: PathBuf,
-    bytes: &'static [u8],
-    install_note: &'static str,
 }
 
 fn write_secure_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -154,47 +141,6 @@ fn generate_token_hex(bytes_len: usize) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn openclaw_assets(openclaw_dir: &Path) -> [OpenclawAsset; 6] {
-    [
-        OpenclawAsset {
-            path: skill_root(openclaw_dir).join("SKILL.md"),
-            bytes: SKILL_MD.as_bytes(),
-            install_note: "installed OpenClaw skill guide",
-        },
-        OpenclawAsset {
-            path: skill_root(openclaw_dir)
-                .join("references")
-                .join("clawdentity-environment.md"),
-            bytes: REFERENCE_ENVIRONMENT.as_bytes(),
-            install_note: "installed OpenClaw skill environment reference",
-        },
-        OpenclawAsset {
-            path: skill_root(openclaw_dir)
-                .join("references")
-                .join("clawdentity-protocol.md"),
-            bytes: REFERENCE_PROTOCOL.as_bytes(),
-            install_note: "installed OpenClaw skill protocol reference",
-        },
-        OpenclawAsset {
-            path: skill_root(openclaw_dir)
-                .join("references")
-                .join("clawdentity-registry.md"),
-            bytes: REFERENCE_REGISTRY.as_bytes(),
-            install_note: "installed OpenClaw skill registry reference",
-        },
-        OpenclawAsset {
-            path: skill_root(openclaw_dir).join(RELAY_MODULE_FILE_NAME),
-            bytes: RELAY_MODULE,
-            install_note: "installed OpenClaw relay transform bundle",
-        },
-        OpenclawAsset {
-            path: transform_target_path(openclaw_dir),
-            bytes: RELAY_MODULE,
-            install_note: "installed OpenClaw hook relay transform",
-        },
-    ]
-}
-
 fn note_install_result(asset: &OpenclawAsset) -> Result<String> {
     let changed = write_if_changed(&asset.path, asset.bytes)?;
     Ok(format!(
@@ -294,8 +240,12 @@ fn hook_settings_match(
             .get("allowedSessionKeyPrefixes")
             .and_then(Value::as_array)
             .cloned()
-            == Some(target_allowed_session_key_prefixes(hooks, default_session_key))
-        && read_existing_mappings(hooks) == relay_mappings_with_upsert(read_existing_mappings(hooks))
+            == Some(target_allowed_session_key_prefixes(
+                hooks,
+                default_session_key,
+            ))
+        && read_existing_mappings(hooks)
+            == relay_mappings_with_upsert(read_existing_mappings(hooks))
 }
 
 fn hook_session_routing_ready(hooks: Option<&Map<String, Value>>) -> bool {
@@ -313,7 +263,10 @@ fn hook_session_routing_ready(hooks: Option<&Map<String, Value>>) -> bool {
             .get("allowedSessionKeyPrefixes")
             .and_then(Value::as_array)
             .cloned()
-            == Some(target_allowed_session_key_prefixes(hooks, &default_session_key))
+            == Some(target_allowed_session_key_prefixes(
+                hooks,
+                &default_session_key,
+            ))
 }
 
 fn read_hooks(config: &Value) -> Option<&Map<String, Value>> {
@@ -362,7 +315,9 @@ fn has_non_empty_env(name: &str) -> bool {
 
 fn trusted_proxy_ready(config: &Value) -> bool {
     let gateway = config.get("gateway").and_then(Value::as_object);
-    let auth = gateway.and_then(|value| value.get("auth")).and_then(Value::as_object);
+    let auth = gateway
+        .and_then(|value| value.get("auth"))
+        .and_then(Value::as_object);
     let user_header_ready = auth
         .and_then(|value| value.get("trustedProxy"))
         .and_then(Value::as_object)
@@ -377,6 +332,71 @@ fn trusted_proxy_ready(config: &Value) -> bool {
     user_header_ready && trusted_proxies_ready
 }
 
+fn explicit_gateway_auth_state(
+    mode: &str,
+    config: &Value,
+    token_configured: bool,
+    password_configured: bool,
+) -> Option<(bool, String)> {
+    match mode {
+        "token" => Some((
+            token_configured,
+            if token_configured {
+                "OpenClaw gateway token auth is configured".to_string()
+            } else {
+                "OpenClaw gateway token auth is missing".to_string()
+            },
+        )),
+        "password" => Some((
+            password_configured,
+            if password_configured {
+                "OpenClaw gateway password auth is configured".to_string()
+            } else {
+                "OpenClaw gateway password auth is missing".to_string()
+            },
+        )),
+        "trusted-proxy" => {
+            let trusted_proxy_ready = trusted_proxy_ready(config);
+            Some((
+                trusted_proxy_ready,
+                if trusted_proxy_ready {
+                    "OpenClaw trusted-proxy auth is configured".to_string()
+                } else {
+                    "OpenClaw trusted-proxy auth is missing required trusted proxy settings"
+                        .to_string()
+                },
+            ))
+        }
+        "none" => Some((
+            false,
+            "OpenClaw gateway auth is disabled (`mode=none`)".to_string(),
+        )),
+        _ => None,
+    }
+}
+
+fn inferred_gateway_auth_state(
+    token_configured: bool,
+    password_configured: bool,
+) -> (bool, String) {
+    match (token_configured, password_configured) {
+        (true, false) => (
+            true,
+            "OpenClaw gateway auth is configured and will use token auth".to_string(),
+        ),
+        (false, true) => (
+            true,
+            "OpenClaw gateway auth is configured and will use password auth".to_string(),
+        ),
+        (true, true) => (
+            false,
+            "OpenClaw gateway auth has both token and password configured but no explicit mode"
+                .to_string(),
+        ),
+        (false, false) => (false, "OpenClaw gateway auth is not configured".to_string()),
+    }
+}
+
 fn gateway_auth_state(config: &Value) -> (bool, String) {
     let gateway_auth = config
         .get("gateway")
@@ -388,61 +408,16 @@ fn gateway_auth_state(config: &Value) -> (bool, String) {
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let token_configured =
-        has_non_empty_env("OPENCLAW_GATEWAY_TOKEN")
-            || has_configured_secret_input(gateway_auth.and_then(|value| value.get("token")));
-    let password_configured =
-        has_non_empty_env("OPENCLAW_GATEWAY_PASSWORD")
-            || has_configured_secret_input(gateway_auth.and_then(|value| value.get("password")));
+    let token_configured = has_non_empty_env("OPENCLAW_GATEWAY_TOKEN")
+        || has_configured_secret_input(gateway_auth.and_then(|value| value.get("token")));
+    let password_configured = has_non_empty_env("OPENCLAW_GATEWAY_PASSWORD")
+        || has_configured_secret_input(gateway_auth.and_then(|value| value.get("password")));
 
-    match parse_gateway_auth_mode(mode) {
-        Some("token") => (
-            token_configured,
-            if token_configured {
-                "OpenClaw gateway token auth is configured".to_string()
-            } else {
-                "OpenClaw gateway token auth is missing".to_string()
-            },
-        ),
-        Some("password") => (
-            password_configured,
-            if password_configured {
-                "OpenClaw gateway password auth is configured".to_string()
-            } else {
-                "OpenClaw gateway password auth is missing".to_string()
-            },
-        ),
-        Some("trusted-proxy") => (
-            trusted_proxy_ready(config),
-            if trusted_proxy_ready(config) {
-                "OpenClaw trusted-proxy auth is configured".to_string()
-            } else {
-                "OpenClaw trusted-proxy auth is missing required trusted proxy settings".to_string()
-            },
-        ),
-        Some("none") => (
-            false,
-            "OpenClaw gateway auth is disabled (`mode=none`)".to_string(),
-        ),
-        _ => match (token_configured, password_configured) {
-            (true, false) => (
-                true,
-                "OpenClaw gateway auth is configured and will use token auth".to_string(),
-            ),
-            (false, true) => (
-                true,
-                "OpenClaw gateway auth is configured and will use password auth".to_string(),
-            ),
-            (true, true) => (
-                false,
-                "OpenClaw gateway auth has both token and password configured but no explicit mode".to_string(),
-            ),
-            (false, false) => (
-                false,
-                "OpenClaw gateway auth is not configured".to_string(),
-            ),
-        },
-    }
+    parse_gateway_auth_mode(mode)
+        .and_then(|mode| {
+            explicit_gateway_auth_state(mode, config, token_configured, password_configured)
+        })
+        .unwrap_or_else(|| inferred_gateway_auth_state(token_configured, password_configured))
 }
 
 fn install_check(
@@ -636,6 +611,46 @@ fn runtime_peers_config_path_value(openclaw_dir: &Path, peers_path: &Path) -> St
         .unwrap_or_else(|_| peers_path.to_string_lossy().to_string())
 }
 
+fn hook_config_updates(
+    hooks: &Map<String, Value>,
+    preferred_hook_token: Option<&str>,
+) -> Vec<(&'static str, Value)> {
+    let resolved_hook_token = resolve_hook_token(hooks, preferred_hook_token);
+    let default_session_key = resolve_default_session_key(hooks);
+    let allowed_session_key_prefixes = Value::Array(target_allowed_session_key_prefixes(
+        hooks,
+        &default_session_key,
+    ));
+    let mappings = Value::Array(relay_mappings_with_upsert(read_existing_mappings(hooks)));
+
+    vec![
+        ("hooks.enabled", Value::Bool(true)),
+        ("hooks.token", Value::String(resolved_hook_token)),
+        (
+            "hooks.defaultSessionKey",
+            Value::String(default_session_key),
+        ),
+        ("hooks.allowRequestSessionKey", Value::Bool(false)),
+        (
+            "hooks.allowedSessionKeyPrefixes",
+            allowed_session_key_prefixes,
+        ),
+        ("hooks.mappings", mappings),
+    ]
+}
+
+fn apply_hook_config_updates(
+    command_path: &Path,
+    config_path: &Path,
+    openclaw_dir: &Path,
+    updates: &[(&str, Value)],
+) -> Result<()> {
+    for (path, value) in updates {
+        run_openclaw_config_set_json(command_path, config_path, openclaw_dir, path, value)?;
+    }
+    Ok(())
+}
+
 /// Install or verify the OpenClaw skill bundle and relay transform assets.
 pub fn install_openclaw_skill_assets(openclaw_dir: &Path) -> Result<Vec<String>> {
     openclaw_assets(openclaw_dir)
@@ -654,55 +669,24 @@ pub fn patch_openclaw_config(
     let mut config = parse_json_or_default(config_path)?;
     let root = ensure_object(&mut config)?;
     let hooks = ensure_object_key(root, "hooks")?;
-    let resolved_hook_token = resolve_hook_token(hooks, preferred_hook_token);
-    let default_session_key = resolve_default_session_key(hooks);
-    let changed = !hook_settings_match(hooks, &resolved_hook_token, &default_session_key);
+    let updates = hook_config_updates(hooks, preferred_hook_token);
+    let hook_token = updates
+        .iter()
+        .find_map(|(path, value)| match (*path, value) {
+            ("hooks.token", Value::String(token)) => Some(token.as_str()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let default_session_key = updates
+        .iter()
+        .find_map(|(path, value)| match (*path, value) {
+            ("hooks.defaultSessionKey", Value::String(session_key)) => Some(session_key.as_str()),
+            _ => None,
+        })
+        .unwrap_or(DEFAULT_OPENCLAW_MAIN_SESSION_KEY);
+    let changed = !hook_settings_match(hooks, hook_token, default_session_key);
     if changed {
-        let allowed_session_key_prefixes =
-            Value::Array(target_allowed_session_key_prefixes(hooks, &default_session_key));
-        let mappings = Value::Array(relay_mappings_with_upsert(read_existing_mappings(hooks)));
-        run_openclaw_config_set_json(
-            command_path,
-            config_path,
-            openclaw_dir,
-            "hooks.enabled",
-            &Value::Bool(true),
-        )?;
-        run_openclaw_config_set_json(
-            command_path,
-            config_path,
-            openclaw_dir,
-            "hooks.token",
-            &Value::String(resolved_hook_token),
-        )?;
-        run_openclaw_config_set_json(
-            command_path,
-            config_path,
-            openclaw_dir,
-            "hooks.defaultSessionKey",
-            &Value::String(default_session_key),
-        )?;
-        run_openclaw_config_set_json(
-            command_path,
-            config_path,
-            openclaw_dir,
-            "hooks.allowRequestSessionKey",
-            &Value::Bool(false),
-        )?;
-        run_openclaw_config_set_json(
-            command_path,
-            config_path,
-            openclaw_dir,
-            "hooks.allowedSessionKeyPrefixes",
-            &allowed_session_key_prefixes,
-        )?;
-        run_openclaw_config_set_json(
-            command_path,
-            config_path,
-            openclaw_dir,
-            "hooks.mappings",
-            &mappings,
-        )?;
+        apply_hook_config_updates(command_path, config_path, openclaw_dir, &updates)?;
     }
     Ok(OpenclawConfigPatchResult {
         config_changed: changed,
@@ -773,130 +757,5 @@ pub fn verify_openclaw_install(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-
-    use serde_json::Value;
-    use tempfile::TempDir;
-
-    use super::{
-        SKILL_DIR_NAME, install_openclaw_skill_assets, patch_openclaw_config, skill_root,
-        transform_runtime_path, verify_openclaw_install, write_transform_peers_snapshot,
-        write_transform_runtime_config,
-    };
-    use crate::peers::PeersConfig;
-    use crate::providers::openclaw::test_support::{
-        install_mock_openclaw_cli, write_openclaw_profile,
-    };
-
-    #[test]
-    fn installs_skill_assets_and_writes_runtime_files() {
-        let temp = TempDir::new().expect("temp dir");
-        let notes = install_openclaw_skill_assets(temp.path()).expect("install assets");
-        assert!(!notes.is_empty());
-        assert!(skill_root(temp.path()).join("SKILL.md").exists());
-        assert!(
-            skill_root(temp.path())
-                .join("references/clawdentity-protocol.md")
-                .exists()
-        );
-
-        let peers_target = temp.path().join("custom").join("peers.json");
-        let runtime_path = write_transform_runtime_config(
-            temp.path(),
-            "https://relay.example.test:24444",
-            &peers_target,
-        )
-        .expect("runtime");
-        assert_eq!(runtime_path, transform_runtime_path(temp.path()));
-        let runtime_value: Value =
-            serde_json::from_str(&fs::read_to_string(&runtime_path).expect("runtime body"))
-                .expect("runtime json");
-        assert_eq!(
-            runtime_value
-                .get("connectorBaseUrl")
-                .and_then(Value::as_str),
-            Some("https://relay.example.test:24444/")
-        );
-        assert_eq!(
-            runtime_value
-                .get("connectorBaseUrls")
-                .and_then(Value::as_array)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .collect::<Vec<_>>()
-                }),
-            Some(vec!["https://relay.example.test:24444/"])
-        );
-        assert_eq!(
-            runtime_value
-                .get("peersConfigPath")
-                .and_then(Value::as_str),
-            Some(peers_target.to_string_lossy().as_ref())
-        );
-        let peers_path = write_transform_peers_snapshot(
-            &peers_target,
-            &PeersConfig {
-                peers: Default::default(),
-            },
-        )
-        .expect("peers snapshot");
-        assert!(peers_path.exists());
-    }
-
-    #[test]
-    fn patches_config_for_hook_mapping_without_overwriting_gateway_auth() {
-        let temp = TempDir::new().expect("temp dir");
-        let bin_dir = install_mock_openclaw_cli();
-        let config_path = write_openclaw_profile(
-            temp.path(),
-            r#"{
-  "gateway": {
-    "auth": {
-      "mode": "password",
-      "password": "existing-password"
-    }
-  }
-}
-"#,
-        );
-        install_openclaw_skill_assets(temp.path()).expect("install assets");
-        let patched = patch_openclaw_config(
-            bin_dir.path().join("openclaw").as_path(),
-            temp.path(),
-            &config_path,
-            Some("hook-token"),
-        )
-        .expect("patch config");
-        assert!(patched.config_changed);
-        let checks = verify_openclaw_install(&config_path, temp.path()).expect("verify");
-        assert!(checks.iter().all(|(_, passed, _)| *passed));
-        let config: Value =
-            serde_json::from_str(&fs::read_to_string(&config_path).expect("config body"))
-                .expect("config json");
-        assert_eq!(
-            config
-                .get("gateway")
-                .and_then(Value::as_object)
-                .and_then(|value| value.get("auth"))
-                .and_then(Value::as_object)
-                .and_then(|value| value.get("mode"))
-                .and_then(Value::as_str),
-            Some("password")
-        );
-        assert!(
-            temp.path()
-                .join("hooks/transforms/relay-to-peer.mjs")
-                .exists()
-        );
-        assert!(
-            temp.path()
-                .join("skills")
-                .join(SKILL_DIR_NAME)
-                .join("SKILL.md")
-                .exists()
-        );
-    }
-}
+#[path = "assets_tests.rs"]
+mod tests;

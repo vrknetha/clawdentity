@@ -12,6 +12,8 @@
 - Explicit CLI home/state roots must beat ambient `OPENCLAW_*` env vars; isolated-home runs are a release gate.
 - When an explicit home already looks like an OpenClaw profile root (`openclaw.json`, `hooks/`, `skills/`), write directly into that root instead of inventing an extra `.openclaw/` layer.
 - Never rewrite `gateway.auth` from Clawdentity. OpenClaw owns token/password/trusted-proxy/SecretRef auth decisions.
+- Keep runtime files under the repo structural limits: move test-only fixtures into sibling `*_tests.rs` or `test_support.rs` modules instead of leaving large `#[cfg(test)]` blocks inline.
+- Public OpenClaw helper functions need `///` docs, and runtime helpers that start repeating config writes or branch-heavy auth logic should be split before they cross the 50-line rule.
 - Use `openclaw onboard`, `openclaw doctor --fix`, and `openclaw dashboard` in remediation text when OpenClaw itself is broken.
 - Keep detection and setup helpers `clippy -D warnings` clean; prefer flattened `if let ... && ...` control flow over nested single-branch checks.
 - Do not reintroduce JS CLI bundle dependencies.
