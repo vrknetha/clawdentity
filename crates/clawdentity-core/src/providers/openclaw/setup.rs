@@ -62,6 +62,24 @@ fn normalize_http_url(value: &str, field: &'static str) -> Result<String> {
     Ok(parsed.to_string())
 }
 
+fn parse_http_url(value: &str, field: &'static str) -> Result<url::Url> {
+    let normalized = normalize_http_url(value, field)?;
+    url::Url::parse(&normalized).map_err(|_| CoreError::InvalidUrl {
+        context: field,
+        value: value.to_string(),
+    })
+}
+
+pub(crate) fn urls_share_service_target(left: &str, right: &str) -> bool {
+    let Ok(left) = parse_http_url(left, "leftUrl") else {
+        return false;
+    };
+    let Ok(right) = parse_http_url(right, "rightUrl") else {
+        return false;
+    };
+    left.origin() == right.origin()
+}
+
 fn write_secure_text(path: &Path, content: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| CoreError::Io {
@@ -131,6 +149,27 @@ fn resolve_fallback_home_dir(home_dir: Option<&Path>) -> Result<PathBuf> {
         return Ok(home_dir.to_path_buf());
     }
     dirs::home_dir().ok_or(CoreError::HomeDirectoryUnavailable)
+}
+
+#[cfg(test)]
+mod service_target_tests {
+    use super::urls_share_service_target;
+
+    #[test]
+    fn urls_share_service_target_ignores_path_suffixes() {
+        assert!(urls_share_service_target(
+            "https://proxy.example.test/hooks/wake",
+            "https://proxy.example.test/v1/relay/connect",
+        ));
+    }
+
+    #[test]
+    fn urls_share_service_target_respects_distinct_origins() {
+        assert!(!urls_share_service_target(
+            "https://proxy.example.test/hooks/wake",
+            "https://registry.example.test/v1/metadata",
+        ));
+    }
 }
 
 fn uses_direct_openclaw_profile(home_dir: &Path) -> bool {

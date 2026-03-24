@@ -62,6 +62,41 @@ fn installs_skill_assets_and_writes_runtime_files() {
 }
 
 #[test]
+fn installs_skill_assets_with_local_site_urls_when_profile_env_overrides_them() {
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(
+        temp.path().join(".env"),
+        "CLAWDENTITY_SITE_BASE_URL=http://localhost:4321\n",
+    )
+    .expect("profile env");
+
+    install_openclaw_skill_assets(temp.path()).expect("install assets");
+
+    let skill_markdown =
+        fs::read_to_string(skill_root(temp.path()).join("SKILL.md")).expect("skill markdown");
+    assert!(skill_markdown.contains("http://localhost:4321/skill.md"));
+    assert!(skill_markdown.contains("http://localhost:4321/install.sh"));
+    assert!(skill_markdown.contains("http://localhost:4321/install.ps1"));
+}
+
+#[test]
+fn installs_skill_assets_when_profile_env_value_has_inline_comment() {
+    let temp = TempDir::new().expect("temp dir");
+    fs::write(
+        temp.path().join(".env"),
+        "CLAWDENTITY_SITE_BASE_URL=http://localhost:4321 # local preview\n",
+    )
+    .expect("profile env");
+
+    install_openclaw_skill_assets(temp.path()).expect("install assets");
+
+    let skill_markdown =
+        fs::read_to_string(skill_root(temp.path()).join("SKILL.md")).expect("skill markdown");
+    assert!(skill_markdown.contains("http://localhost:4321/skill.md"));
+    assert!(!skill_markdown.contains("# local preview"));
+}
+
+#[test]
 fn patches_config_for_hook_mapping_without_overwriting_gateway_auth() {
     let temp = TempDir::new().expect("temp dir");
     let bin_dir = install_mock_openclaw_cli();

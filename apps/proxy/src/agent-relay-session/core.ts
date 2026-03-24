@@ -1,6 +1,9 @@
 import { generateUlid, RELAY_CONNECT_PATH } from "@clawdentity/protocol";
 import { nowUtcMs, toIso } from "@clawdentity/sdk";
 import { parseProxyConfig } from "../config.js";
+import type { ProxyTrustStore } from "../proxy-trust-store.js";
+import { assertTrustedPair } from "../trust-policy.js";
+import { resolveWorkerTrustStore } from "../trust-store-backend.js";
 import {
   CONNECTOR_AGENT_DID_HEADER,
   RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
@@ -12,7 +15,10 @@ import {
 } from "./constants.js";
 import { RelayDeliveryTransport } from "./delivery.js";
 import { RelayQueueFullError } from "./errors.js";
-import { toRelayDeliveryResult } from "./frames.js";
+import {
+  toRelayDeliveryInputFromEnqueueFrame,
+  toRelayDeliveryResult,
+} from "./frames.js";
 import {
   parseDeliveryInput,
   parseReceiptLookupInput,
@@ -21,9 +27,10 @@ import {
 import { computeRetryDelayMs } from "./policy.js";
 import { RelayQueueManager } from "./queue-manager.js";
 import { upsertReceipt } from "./queue-state.js";
-import { toErrorResponse } from "./rpc.js";
+import { deliverToRelaySession, toErrorResponse } from "./rpc.js";
 import { RelaySocketTracker } from "./socket-tracker.js";
 import type {
+  AgentRelaySessionNamespace,
   DurableObjectStateLike,
   QueuedRelayDelivery,
   RelayDeliveryInput,
@@ -41,14 +48,27 @@ import {
 
 export class AgentRelaySession {
   private readonly deliveryPolicy: RelayDeliveryPolicy;
+  private readonly relaySessionNamespace:
+    | AgentRelaySessionNamespace
+    | undefined;
   private readonly socketTracker: RelaySocketTracker;
   private readonly deliveryTransport: RelayDeliveryTransport;
   private readonly queueManager: RelayQueueManager;
   private readonly state: DurableObjectStateLike;
+  private readonly trustStore: ProxyTrustStore | undefined;
+  private readonly socketAgentDidBySocket = new WeakMap<WebSocket, string>();
 
-  constructor(state: DurableObjectStateLike, env?: unknown) {
+  constructor(
+    state: DurableObjectStateLike,
+    env?: unknown,
+    dependencies?: {
+      relaySessionNamespace?: AgentRelaySessionNamespace;
+      trustStore?: ProxyTrustStore;
+    },
+  ) {
     this.state = state;
-    const config = parseProxyConfig(env ?? {});
+    const relayEnv = readRelaySessionEnv(env);
+    const config = parseProxyConfig(relayEnv);
     this.deliveryPolicy = {
       maxFrameBytes: config.relayMaxFrameBytes,
       maxInFlightDeliveries: config.relayMaxInFlightDeliveries,
@@ -59,6 +79,14 @@ export class AgentRelaySession {
       retryMaxAttempts: config.relayRetryMaxAttempts,
       retryMaxMs: config.relayRetryMaxMs,
     };
+    this.relaySessionNamespace =
+      dependencies?.relaySessionNamespace ?? relayEnv.AGENT_RELAY_SESSION;
+    this.trustStore =
+      dependencies?.trustStore ??
+      resolveRelayTrustStore({
+        environment: config.environment,
+        trustStateNamespace: relayEnv.PROXY_TRUST_STATE,
+      });
     this.socketTracker = new RelaySocketTracker({
       heartbeatAckTimeoutMs: RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
       staleCloseCode: RELAY_SOCKET_STALE_CLOSE_CODE,
@@ -331,6 +359,9 @@ export class AgentRelaySession {
       onDeliverAck: (ackId, accepted) => {
         this.deliveryTransport.resolveDeliverAck(ackId, accepted);
       },
+      onEnqueueFrame: async (socket, frame) => {
+        return this.handleEnqueueFrame(socket, frame);
+      },
       onSchedule: async () => {
         await this.queueManager.scheduleFromStorage(nowUtcMs());
       },
@@ -343,6 +374,9 @@ export class AgentRelaySession {
     _reason?: string,
     wasClean?: boolean,
   ): Promise<void> {
+    if (ws !== undefined) {
+      this.forgetSocketAgentDid(ws);
+    }
     await handleRelayWebSocketClose({
       ws,
       code,
@@ -359,6 +393,9 @@ export class AgentRelaySession {
   }
 
   async webSocketError(ws?: WebSocket): Promise<void> {
+    if (ws !== undefined) {
+      this.forgetSocketAgentDid(ws);
+    }
     await handleRelayWebSocketError({
       ws,
       socketTracker: this.socketTracker,
@@ -399,6 +436,7 @@ export class AgentRelaySession {
     const server = pair[1];
 
     this.state.acceptWebSocket(server, [connectorAgentDid]);
+    this.rememberSocketAgentDid(server, connectorAgentDid);
     this.socketTracker.touchSocketAck(server, nowMs);
     void this.queueManager.drainQueueOnReconnect(nowMs);
 
@@ -419,7 +457,141 @@ export class AgentRelaySession {
     this.socketTracker.sendHeartbeatFrame(socket, nowMs);
   }
 
+  private async handleEnqueueFrame(
+    socket: WebSocket,
+    frame: Parameters<typeof toRelayDeliveryInputFromEnqueueFrame>[0]["frame"],
+  ): Promise<{ accepted: boolean; reason?: string }> {
+    const senderAgentDid = this.readSocketAgentDid(socket);
+    if (senderAgentDid === undefined) {
+      return {
+        accepted: false,
+        reason: "Relay sender identity is unavailable for this websocket",
+      };
+    }
+
+    if (this.relaySessionNamespace === undefined) {
+      return {
+        accepted: false,
+        reason: "Relay session namespace is unavailable",
+      };
+    }
+
+    if (this.trustStore === undefined) {
+      return {
+        accepted: false,
+        reason: "Relay trust state is unavailable",
+      };
+    }
+
+    try {
+      await assertTrustedPair({
+        trustStore: this.trustStore,
+        initiatorAgentDid: senderAgentDid,
+        responderAgentDid: frame.toAgentDid,
+      });
+    } catch (error) {
+      return {
+        accepted: false,
+        reason:
+          error instanceof Error ? error.message : "Relay pair is not trusted",
+      };
+    }
+
+    try {
+      const recipientRelay = this.relaySessionNamespace.get(
+        this.relaySessionNamespace.idFromName(frame.toAgentDid),
+      );
+      await deliverToRelaySession(
+        recipientRelay,
+        toRelayDeliveryInputFromEnqueueFrame({
+          frame,
+          senderAgentDid,
+        }),
+      );
+      return { accepted: true };
+    } catch (error) {
+      return {
+        accepted: false,
+        reason: error instanceof Error ? error.message : "Relay enqueue failed",
+      };
+    }
+  }
+
+  private rememberSocketAgentDid(socket: WebSocket, agentDid: string): void {
+    this.socketAgentDidBySocket.set(socket, agentDid);
+    const attachableSocket = socket as WebSocket & {
+      serializeAttachment?: (value: unknown) => void;
+    };
+    attachableSocket.serializeAttachment?.({ connectorAgentDid: agentDid });
+  }
+
+  private readSocketAgentDid(socket: WebSocket): string | undefined {
+    const remembered = this.socketAgentDidBySocket.get(socket);
+    if (remembered !== undefined) {
+      return remembered;
+    }
+
+    const attachableSocket = socket as WebSocket & {
+      deserializeAttachment?: () => unknown;
+    };
+    const attachment = attachableSocket.deserializeAttachment?.();
+    if (
+      typeof attachment === "object" &&
+      attachment !== null &&
+      typeof (attachment as { connectorAgentDid?: unknown })
+        .connectorAgentDid === "string"
+    ) {
+      const agentDid = (attachment as { connectorAgentDid: string })
+        .connectorAgentDid;
+      this.socketAgentDidBySocket.set(socket, agentDid);
+      return agentDid;
+    }
+
+    return undefined;
+  }
+
+  private forgetSocketAgentDid(socket: WebSocket): void {
+    this.socketAgentDidBySocket.delete(socket);
+  }
+
   private closeSocket(socket: WebSocket, code: number, reason: string): void {
     this.socketTracker.closeSocket(socket, code, reason);
   }
+}
+
+function readRelaySessionEnv(env: unknown): {
+  AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+  PROXY_TRUST_STATE?: Parameters<
+    typeof resolveWorkerTrustStore
+  >[0]["trustStateNamespace"];
+  [key: string]: unknown;
+} {
+  if (typeof env !== "object" || env === null) {
+    return {};
+  }
+
+  return env as {
+    AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+    PROXY_TRUST_STATE?: Parameters<
+      typeof resolveWorkerTrustStore
+    >[0]["trustStateNamespace"];
+    [key: string]: unknown;
+  };
+}
+
+function resolveRelayTrustStore(input: {
+  environment: Parameters<typeof resolveWorkerTrustStore>[0]["environment"];
+  trustStateNamespace?: Parameters<
+    typeof resolveWorkerTrustStore
+  >[0]["trustStateNamespace"];
+}): ProxyTrustStore | undefined {
+  if (input.environment === "local") {
+    try {
+      return resolveWorkerTrustStore(input).trustStore;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return resolveWorkerTrustStore(input).trustStore;
 }

@@ -38,13 +38,11 @@ pub(super) async fn resolve_runtime_config(
         &runtime_inputs.config.registry_url,
     )
     .await?;
-    let relay_headers = build_connector_headers(&proxy_ws_url, &runtime_inputs)?;
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
         agent_did: runtime_inputs.agent_did,
-        proxy_ws_url: proxy_ws_url.clone(),
-        relay_headers,
+        proxy_ws_url,
         openclaw_runtime: clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig {
             base_url: resolve_openclaw_base_url(
                 &runtime_inputs.config_dir,
@@ -59,6 +57,15 @@ pub(super) async fn resolve_runtime_config(
         port: input.port,
         bind: input.bind,
     })
+}
+
+pub(super) fn load_connector_headers(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    proxy_ws_url: &str,
+) -> Result<Vec<(String, String)>> {
+    let runtime_inputs = resolve_runtime_inputs(options, agent_name)?;
+    build_connector_headers(proxy_ws_url, &runtime_inputs)
 }
 
 async fn load_runtime_inputs(

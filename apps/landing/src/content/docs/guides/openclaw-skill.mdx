@@ -192,6 +192,8 @@ After `provider setup --for openclaw`, the relay runtime config is stored at `~/
 }
 ```
 
+`openclawBaseUrl` is the local OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the normal local OpenClaw flow this should stay at `http://127.0.0.1:18789` unless the operator intentionally moved the OpenClaw gateway elsewhere.
+
 ## Provider doctor
 
 The `provider doctor --for openclaw` command verifies that all components are healthy before relay work runs:

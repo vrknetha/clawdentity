@@ -37,3 +37,10 @@ export async function parseJsonResponseSafe(
     return undefined;
   }
 }
+
+export {
+  firstHeaderValue,
+  isLoopbackHostname,
+  normalizeHostname,
+  resolveRequestOrigin,
+} from "./request-origin.js";

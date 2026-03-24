@@ -19,13 +19,16 @@
 - Keep runtime `ENVIRONMENT` explicit and validated to supported values: `local`, `development`, `production` (default `development`).
 - Keep deployment intent explicit: Wrangler `dev` maps to runtime `ENVIRONMENT=development`; `local` is for local Wrangler dev runs only, and `production` is the live cloud environment.
 - Keep script intent explicit: `pnpm -F @clawdentity/proxy run dev` must run Wrangler with `--env dev --port 8787`, and `dev:local` is the only script that should run `--env local --port 8787`.
+- Local Wrangler dev must listen on `0.0.0.0` so Dockerized OpenClaw agents can reach the host proxy via `host.docker.internal`.
+- Keep proxy `env.local.REGISTRY_URL` pointed at the local registry listener (`http://127.0.0.1:8788`), never the dev cloud domain, so local onboarding and trust checks validate the same stack they are talking to.
 - Keep trust-store backend policy environment-scoped:
   - `local`: allow in-memory trust-store fallback when `PROXY_TRUST_STATE` binding is unavailable.
   - `development` and `production`: require `PROXY_TRUST_STATE`; fail startup when missing.
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
 - Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (registry URL, optional OpenClaw base URL, and policy/rate-limit vars).
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (optional OpenClaw base URL, shared credentials, and policy/rate-limit vars).
 - Generate local `apps/proxy/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
+- Generated `apps/proxy/.env` must not override Wrangler env identity/routing (`ENVIRONMENT`, `REGISTRY_URL`); keep those in `wrangler.jsonc` so `dev` and `local` stay distinct.
 - Load env files with OpenClaw precedence and no overrides:
   - first `./.env` from the proxy working directory
   - then `$OPENCLAW_STATE_DIR/.env` (or default state dir: `~/.openclaw`)
@@ -38,6 +41,7 @@
 - Route relay sessions via Durable Objects:
   - `GET /v1/relay/connect` keys connector sessions by authenticated caller agent DID.
   - `POST /hooks/agent` keys recipient delivery by `x-claw-recipient-agent-did`.
+  - Connector websocket `enqueue` frames must be consumed by the relay session and forwarded to the recipient session; do not treat websocket connect as inbound-only.
   - Do not route sessions via `OWNER_AGENT_DID`.
 - Keep env input contract explicit for operator UX:
   - `LISTEN_PORT` or `PORT`

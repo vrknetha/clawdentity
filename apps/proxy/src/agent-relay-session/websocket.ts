@@ -1,5 +1,9 @@
 import { parseFrame } from "@clawdentity/connector";
-import { getWebSocketMessageBytes, toHeartbeatAckFrame } from "./frames.js";
+import {
+  getWebSocketMessageBytes,
+  toEnqueueAckFrame,
+  toHeartbeatAckFrame,
+} from "./frames.js";
 import type { RelaySocketTracker } from "./socket-tracker.js";
 
 type RelayWebSocketMessageInput = {
@@ -10,6 +14,10 @@ type RelayWebSocketMessageInput = {
   closeSocket: (socket: WebSocket, code: number, reason: string) => void;
   now: () => number;
   onDeliverAck: (ackId: string, accepted: boolean) => void;
+  onEnqueueFrame: (
+    ws: WebSocket,
+    frame: Extract<ReturnType<typeof parseFrame>, { type: "enqueue" }>,
+  ) => Promise<{ accepted: boolean; reason?: string }>;
   onSchedule: () => Promise<void>;
 };
 
@@ -47,6 +55,30 @@ export async function handleRelayWebSocketMessage(
   if (frameResult.type === "deliver_ack") {
     input.socketTracker.touchSocketAck(input.ws, nowMs);
     input.onDeliverAck(frameResult.ackId, frameResult.accepted);
+    await input.onSchedule();
+    return;
+  }
+
+  if (frameResult.type === "enqueue") {
+    input.socketTracker.touchSocketAck(input.ws, nowMs);
+    let accepted = false;
+    let reason: string | undefined;
+
+    try {
+      const result = await input.onEnqueueFrame(input.ws, frameResult);
+      accepted = result.accepted;
+      reason = result.reason;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : "Relay enqueue failed";
+    }
+
+    input.ws.send(
+      toEnqueueAckFrame({
+        ackId: frameResult.id,
+        accepted,
+        reason,
+      }),
+    );
     await input.onSchedule();
     return;
   }

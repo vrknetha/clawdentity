@@ -56,9 +56,35 @@ const references = [
 ];
 
 const outputPath = path.resolve(landingRoot, "public", "skill.md");
+const defaultSiteBaseUrl = "https://clawdentity.com";
 
 function withTrailingNewline(content) {
   return content.endsWith("\n") ? content : `${content}\n`;
+}
+
+function trimTrailingSlash(value) {
+  return value.replace(/\/+$/u, "");
+}
+
+function resolveSiteBaseUrl() {
+  const rawOverride = process.env.CLAWDENTITY_SITE_BASE_URL?.trim();
+  if (!rawOverride) {
+    return defaultSiteBaseUrl;
+  }
+  return trimTrailingSlash(rawOverride);
+}
+
+function renderSkillContent(baseSkill, siteBaseUrl) {
+  const replacements = [
+    ["https://clawdentity.com/skill.md", `${siteBaseUrl}/skill.md`],
+    ["https://clawdentity.com/install.sh", `${siteBaseUrl}/install.sh`],
+    ["https://clawdentity.com/install.ps1", `${siteBaseUrl}/install.ps1`],
+  ];
+
+  return replacements.reduce(
+    (rendered, [from, to]) => rendered.replaceAll(from, to),
+    baseSkill,
+  );
 }
 
 async function readUtf8(filePath) {
@@ -66,7 +92,11 @@ async function readUtf8(filePath) {
 }
 
 async function buildSkillMarkdown() {
-  const baseSkill = await readUtf8(skillSourcePath);
+  const siteBaseUrl = resolveSiteBaseUrl();
+  const baseSkill = renderSkillContent(
+    await readUtf8(skillSourcePath),
+    siteBaseUrl,
+  );
 
   const referenceBlocks = [];
   for (const reference of references) {

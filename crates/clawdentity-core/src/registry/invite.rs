@@ -409,10 +409,7 @@ pub fn redeem_invite(
     }
 
     let response = blocking_client()?
-        .post(to_request_url(
-            &runtime.registry_url,
-            redeem_path,
-        )?)
+        .post(to_request_url(&runtime.registry_url, redeem_path)?)
         .header("content-type", "application/json")
         .json(&Value::Object(payload))
         .send()

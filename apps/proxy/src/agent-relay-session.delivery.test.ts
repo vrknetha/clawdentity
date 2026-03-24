@@ -5,15 +5,18 @@ import { AgentRelaySession } from "./agent-relay-session.js";
 import {
   createMockSocket,
   createStateHarness,
+  LOCAL_RELAY_ENV,
   RECIPIENT_AGENT_DID,
   SENDER_AGENT_DID,
   withMockWebSocketPair,
 } from "./agent-relay-session.test-helpers.js";
+import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
 
 describe("AgentRelaySession delivery", () => {
   it("delivers relay frames to active websocket connectors", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();
@@ -65,6 +68,7 @@ describe("AgentRelaySession delivery", () => {
   it("queues relay frames when no connector socket is active", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
 
@@ -82,6 +86,132 @@ describe("AgentRelaySession delivery", () => {
     expect(result.connectedSockets).toBe(0);
   });
 
+  it("routes enqueue frames from sender sockets to the recipient session", async () => {
+    const senderHarness = createStateHarness();
+    const recipientHarness = createStateHarness();
+    const trustStore = createInMemoryProxyTrustStore();
+    await trustStore.upsertPair({
+      initiatorAgentDid: SENDER_AGENT_DID,
+      responderAgentDid: RECIPIENT_AGENT_DID,
+    });
+
+    let senderSession: AgentRelaySession;
+    let recipientSession: AgentRelaySession;
+    const relayNamespace = {
+      idFromName: (name: string) => name as unknown as DurableObjectId,
+      get: (id: DurableObjectId) => {
+        const name = id as unknown as string;
+        if (name === RECIPIENT_AGENT_DID) {
+          return recipientSession;
+        }
+        if (name === SENDER_AGENT_DID) {
+          return senderSession;
+        }
+        throw new Error(`unexpected relay session id: ${name}`);
+      },
+    };
+
+    recipientSession = new AgentRelaySession(
+      recipientHarness.state,
+      { ...LOCAL_RELAY_ENV, RELAY_RETRY_JITTER_RATIO: "0" },
+      { trustStore },
+    );
+    senderSession = new AgentRelaySession(
+      senderHarness.state,
+      {
+        ...LOCAL_RELAY_ENV,
+        RELAY_RETRY_JITTER_RATIO: "0",
+        AGENT_RELAY_SESSION: relayNamespace,
+      },
+      {
+        relaySessionNamespace: relayNamespace,
+        trustStore,
+      },
+    );
+
+    const recipientConnectorSocket = createMockSocket();
+    const recipientWs = recipientConnectorSocket as unknown as WebSocket;
+    recipientHarness.connectedSockets.push(recipientWs);
+    recipientConnectorSocket.send.mockImplementation((payload: unknown) => {
+      const frame = parseFrame(payload);
+      if (frame.type !== "deliver") {
+        return;
+      }
+
+      void recipientSession.webSocketMessage(
+        recipientWs,
+        JSON.stringify({
+          v: 1,
+          type: "deliver_ack",
+          id: generateUlid(Date.now() + 10),
+          ts: new Date().toISOString(),
+          ackId: frame.id,
+          accepted: true,
+        }),
+      );
+    });
+
+    const senderPairClient = createMockSocket();
+    const senderPairServer = createMockSocket();
+    const senderWs = senderPairServer as unknown as WebSocket;
+    await withMockWebSocketPair(
+      senderPairClient,
+      senderPairServer,
+      async () => {
+        let connectError: unknown;
+        try {
+          await senderSession.fetch(
+            new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
+              method: "GET",
+              headers: {
+                upgrade: "websocket",
+                "x-claw-connector-agent-did": SENDER_AGENT_DID,
+              },
+            }),
+          );
+        } catch (error) {
+          connectError = error;
+        }
+
+        if (connectError !== undefined) {
+          expect(connectError).toBeInstanceOf(RangeError);
+        }
+      },
+    );
+
+    await senderSession.webSocketMessage(
+      senderWs,
+      JSON.stringify({
+        v: 1,
+        type: "enqueue",
+        id: generateUlid(Date.now() + 20),
+        ts: new Date().toISOString(),
+        toAgentDid: RECIPIENT_AGENT_DID,
+        payload: { message: "hello from sender websocket" },
+      }),
+    );
+
+    expect(recipientConnectorSocket.send).toHaveBeenCalled();
+    const deliveredFrame = parseFrame(
+      recipientConnectorSocket.send.mock.calls[0]?.[0],
+    );
+    expect(deliveredFrame.type).toBe("deliver");
+    if (deliveredFrame.type === "deliver") {
+      expect(deliveredFrame.fromAgentDid).toBe(SENDER_AGENT_DID);
+      expect(deliveredFrame.toAgentDid).toBe(RECIPIENT_AGENT_DID);
+      expect(deliveredFrame.payload).toEqual({
+        message: "hello from sender websocket",
+      });
+    }
+
+    const senderAckFrame = parseFrame(senderPairServer.send.mock.calls[0]?.[0]);
+    expect(senderAckFrame.type).toBe("enqueue_ack");
+    if (senderAckFrame.type === "enqueue_ack") {
+      expect(senderAckFrame.ackId).toBeTruthy();
+      expect(senderAckFrame.accepted).toBe(true);
+    }
+  });
+
   it("evicts stale sockets during alarm heartbeat sweep", async () => {
     vi.useFakeTimers();
     const nowMs = Date.now();
@@ -90,6 +220,7 @@ describe("AgentRelaySession delivery", () => {
     try {
       const harness = createStateHarness();
       const relaySession = new AgentRelaySession(harness.state, {
+        ...LOCAL_RELAY_ENV,
         RELAY_RETRY_JITTER_RATIO: "0",
       });
       const staleSocket = createMockSocket();
@@ -132,6 +263,7 @@ describe("AgentRelaySession delivery", () => {
   it("keeps superseded sockets inactive even when late frames arrive", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const oldSocket = createMockSocket();
@@ -215,6 +347,7 @@ describe("AgentRelaySession delivery", () => {
   it("does not reject pending deliveries on clean close code 1000", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();
@@ -254,6 +387,7 @@ describe("AgentRelaySession delivery", () => {
   it("rejects pending deliveries on unclean close when no sockets remain", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();

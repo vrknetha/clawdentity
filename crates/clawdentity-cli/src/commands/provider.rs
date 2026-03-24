@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Result, anyhow};
 use clawdentity_core::{
     ProviderDoctorOptions, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestStatus,
-    ProviderSetupOptions, all_providers, detect_platform, get_provider,
+    ProviderSetupOptions, ProviderSetupStatus, all_providers, detect_platform, get_provider,
 };
 
 use crate::commands::ProviderCommand;
@@ -85,7 +85,14 @@ pub(crate) fn execute_provider_command(
             if json {
                 println!("{}", serde_json::to_string_pretty(&result)?);
             } else {
-                println!("Provider setup completed: {}", result.platform);
+                println!(
+                    "Provider setup {}: {}",
+                    match result.status {
+                        ProviderSetupStatus::Ready => "ready",
+                        ProviderSetupStatus::ActionRequired => "requires action",
+                    },
+                    result.platform
+                );
                 for note in result.notes {
                     println!("- {note}");
                 }

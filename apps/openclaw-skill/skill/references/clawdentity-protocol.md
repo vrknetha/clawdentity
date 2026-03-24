@@ -96,6 +96,10 @@ Rules:
 
 The OpenClaw transform reads `ctx.payload`.
 
+The `send-to-peer` OpenClaw hook mapping is a `wake` mapping, not an `agent` mapping.
+That keeps the request payload stable enough for the relay transform to read the raw `peer`
+and `message` fields before local handling is skipped.
+
 - If `payload.peer` is absent:
   - return payload unchanged
   - do not relay
@@ -127,6 +131,7 @@ Relay resolves local agent name in this order:
 
 Rules:
 - `openclawBaseUrl` must be absolute `http` or `https`.
+- `openclawBaseUrl` must point at the OpenClaw gateway itself. Do not reuse the Clawdentity registry URL or proxy URL here.
 - `openclawHookToken` is optional in schema but should be present after `clawdentity provider setup --for openclaw --agent-name <agent-name>`; connector runtime uses it for `/hooks/*` auth when no explicit hook token option/env is provided.
 - `updatedAt` is ISO-8601 UTC timestamp.
 - Proxy runtime precedence is: `OPENCLAW_BASE_URL` env first, then `openclaw-relay.json`, then built-in default.

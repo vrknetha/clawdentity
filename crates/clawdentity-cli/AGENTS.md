@@ -15,3 +15,4 @@
 
 ## Onboarding Compatibility
 - Keep the public command surface stable for onboarding. `clawdentity invite redeem <code>` must continue to work for both admin invites (`clw_inv_...`) and GitHub starter passes (`clw_stp_...`).
+- `whoami` must not pretend modern onboarding created the legacy root identity file; either surface the real legacy identity or report config-only onboarding state with an explicit explanation.

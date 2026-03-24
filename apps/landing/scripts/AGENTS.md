@@ -6,6 +6,7 @@
 ## Rules
 - `build-skill-md.mjs` is the only supported generator for `apps/landing/public/skill.md`.
 - `build-skill-md.mjs` must keep `SKILL.md` first and append the protocol, registry, and environment references in that fixed order.
+- `build-skill-md.mjs` may rewrite the canonical site origin only when `CLAWDENTITY_SITE_BASE_URL` is explicitly set for local preview/testing; release and CI paths must keep `https://clawdentity.com`.
 - `create-release-manifest.mjs` is the source of truth for the installer manifest contract:
   - `version`
   - `tag`

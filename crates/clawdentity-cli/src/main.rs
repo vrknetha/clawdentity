@@ -7,12 +7,12 @@ use anyhow::{Result, anyhow};
 use clap::{CommandFactory, Parser};
 use clawdentity_core::{
     AdminBootstrapInput, ApiKeyCreateInput, ApiKeyListInput, ApiKeyRevokeInput, CliConfig,
-    ConfigKey, ConfigPathOptions, CreateAgentInput, InviteCreateInput, InviteRedeemInput,
-    bootstrap_admin, create_agent, create_api_key, create_invite, fetch_registry_metadata,
-    get_config_file_path, get_config_value, init_identity, inspect_agent, list_api_keys,
-    persist_bootstrap_config, persist_redeem_config, read_config, read_identity, redeem_invite,
-    refresh_agent_auth, register_identity, resolve_config, revoke_agent_auth, revoke_api_key,
-    set_config_value, write_config,
+    ConfigKey, ConfigPathOptions, CoreError, CreateAgentInput, InviteCreateInput,
+    InviteRedeemInput, bootstrap_admin, create_agent, create_api_key, create_invite,
+    fetch_registry_metadata, get_config_file_path, get_config_value, init_identity, inspect_agent,
+    list_api_keys, persist_bootstrap_config, persist_redeem_config, read_config, read_identity,
+    redeem_invite, refresh_agent_auth, register_identity, resolve_config, revoke_agent_auth,
+    revoke_api_key, set_config_value, write_config,
 };
 
 use crate::commands::connector::execute_connector_command;
@@ -64,14 +64,42 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Some(Commands::Whoami) => {
             let config = resolve_config(&options)?;
-            let state_options = options.with_registry_hint(config.registry_url);
-            let identity = read_identity(&state_options)?;
-            if cli.json {
-                println!("{}", serde_json::to_string_pretty(&identity.public_view())?);
-            } else {
-                println!("DID: {}", identity.did);
-                println!("Public Key: {}", identity.public_key);
-                println!("Registry URL: {}", identity.registry_url);
+            let state_options = options.with_registry_hint(config.registry_url.clone());
+            match read_identity(&state_options) {
+                Ok(identity) => {
+                    if cli.json {
+                        println!("{}", serde_json::to_string_pretty(&identity.public_view())?);
+                    } else {
+                        println!("DID: {}", identity.did);
+                        println!("Public Key: {}", identity.public_key);
+                        println!("Registry URL: {}", identity.registry_url);
+                    }
+                }
+                Err(CoreError::IdentityNotFound(_))
+                    if config.human_name.is_some() || config.api_key.is_some() =>
+                {
+                    let human_name = config.human_name.as_deref().unwrap_or("unknown");
+                    let message = "Modern onboarding is complete, but no legacy root identity exists for this state. Use `agent inspect <name>` for agent DID details or run `clawdentity init` if you need a local human identity.";
+                    if cli.json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&serde_json::json!({
+                                "did": serde_json::Value::Null,
+                                "publicKey": serde_json::Value::Null,
+                                "registryUrl": config.registry_url,
+                                "humanName": human_name,
+                                "identityInitialized": false,
+                                "message": message,
+                            }))?
+                        );
+                    } else {
+                        println!("Human Name: {human_name}");
+                        println!("Registry URL: {}", config.registry_url);
+                        println!("Human identity: not initialized");
+                        println!("Note: {message}");
+                    }
+                }
+                Err(error) => return Err(error.into()),
             }
         }
         Some(Commands::Register { registry_url }) => {

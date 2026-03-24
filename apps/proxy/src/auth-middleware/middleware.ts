@@ -42,6 +42,7 @@ import {
   type VerificationKey,
 } from "./types.js";
 import {
+  isLoopbackRegistryUrl,
   normalizeRegistryUrl,
   resolveExpectedIssuer,
   shouldSkipKnownAgentCheck,
@@ -62,7 +63,9 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
   const registryKeysCacheTtlMs =
     options.registryKeysCacheTtlMs ?? DEFAULT_REGISTRY_KEYS_CACHE_TTL_MS;
   const registryUrl = normalizeRegistryUrl(options.config.registryUrl);
-  const expectedIssuer = resolveExpectedIssuer(registryUrl);
+  const crlExpectedIssuer = isLoopbackRegistryUrl(registryUrl)
+    ? undefined
+    : resolveExpectedIssuer(registryUrl);
   const agentAuthValidateUrl = toRegistryUrl(
     registryUrl,
     AGENT_AUTH_VALIDATE_PATH,
@@ -157,7 +160,7 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       verifyCRL({
         token: crlToken,
         registryKeys,
-        expectedIssuer,
+        expectedIssuer: crlExpectedIssuer,
       });
 
     try {
@@ -199,7 +202,8 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       clock,
     });
 
-  async function verifyAitClaims(token: string) {
+  async function verifyAitClaims(token: string, request: Request) {
+    const expectedIssuer = resolveExpectedIssuer(registryUrl, request);
     const verifyWithKeys = async (registryKeys: VerificationKey[]) =>
       verifyAIT({
         token,
@@ -246,7 +250,7 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       }
       const authorizationHeader = c.req.header("authorization");
       const token = parseClawAuthorizationHeader(authorizationHeader);
-      const claims = await verifyAitClaims(token);
+      const claims = await verifyAitClaims(token, c.req.raw);
 
       const timestampHeader = c.req.header("x-claw-timestamp");
       if (typeof timestampHeader !== "string") {

@@ -1,4 +1,5 @@
 use std::cmp;
+use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -20,14 +21,35 @@ const DEFAULT_HEARTBEAT_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_RECONNECT_MIN_DELAY: Duration = Duration::from_millis(500);
 const DEFAULT_RECONNECT_MAX_DELAY: Duration = Duration::from_secs(15);
 
-#[derive(Debug, Clone)]
+pub type ConnectorHeadersProvider =
+    Arc<dyn Fn() -> Result<Vec<(String, String)>> + Send + Sync + 'static>;
+
+#[derive(Clone)]
 pub struct ConnectorClientOptions {
     pub relay_connect_url: String,
     pub headers: Vec<(String, String)>,
+    pub headers_provider: Option<ConnectorHeadersProvider>,
     pub heartbeat_interval: Duration,
     pub heartbeat_ack_timeout: Duration,
     pub reconnect_min_delay: Duration,
     pub reconnect_max_delay: Duration,
+}
+
+impl fmt::Debug for ConnectorClientOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ConnectorClientOptions")
+            .field("relay_connect_url", &self.relay_connect_url)
+            .field("headers", &self.headers)
+            .field(
+                "headers_provider",
+                &self.headers_provider.as_ref().map(|_| "<dynamic>"),
+            )
+            .field("heartbeat_interval", &self.heartbeat_interval)
+            .field("heartbeat_ack_timeout", &self.heartbeat_ack_timeout)
+            .field("reconnect_min_delay", &self.reconnect_min_delay)
+            .field("reconnect_max_delay", &self.reconnect_max_delay)
+            .finish()
+    }
 }
 
 impl ConnectorClientOptions {
@@ -39,11 +61,18 @@ impl ConnectorClientOptions {
         Self {
             relay_connect_url: relay_connect_url.into(),
             headers,
+            headers_provider: None,
             heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
             heartbeat_ack_timeout: DEFAULT_HEARTBEAT_ACK_TIMEOUT,
             reconnect_min_delay: DEFAULT_RECONNECT_MIN_DELAY,
             reconnect_max_delay: DEFAULT_RECONNECT_MAX_DELAY,
         }
+    }
+
+    /// TODO(clawdentity): document `with_headers_provider`.
+    pub fn with_headers_provider(mut self, headers_provider: ConnectorHeadersProvider) -> Self {
+        self.headers_provider = Some(headers_provider);
+        self
     }
 }
 
@@ -259,13 +288,14 @@ async fn connect_socket(
 ) -> Result<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
 > {
+    let headers = resolve_connect_headers(options).await?;
     let mut request = options
         .relay_connect_url
         .clone()
         .into_client_request()
         .map_err(|error| CoreError::InvalidInput(error.to_string()))?;
 
-    for (name, value) in &options.headers {
+    for (name, value) in &headers {
         let header_name =
             tokio_tungstenite::tungstenite::http::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|error| CoreError::InvalidInput(error.to_string()))?;
@@ -279,6 +309,20 @@ async fn connect_socket(
         .await
         .map_err(|error| CoreError::Http(error.to_string()))?;
     Ok(stream)
+}
+
+async fn resolve_connect_headers(
+    options: &ConnectorClientOptions,
+) -> Result<Vec<(String, String)>> {
+    let Some(headers_provider) = options.headers_provider.clone() else {
+        return Ok(options.headers.clone());
+    };
+
+    tokio::task::spawn_blocking(move || headers_provider())
+        .await
+        .map_err(|error| {
+            CoreError::InvalidInput(format!("connector header refresh task failed: {error}"))
+        })?
 }
 
 #[allow(clippy::too_many_lines)]
@@ -438,6 +482,10 @@ async fn handle_incoming_frame(
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, Instant};
+    use std::{
+        sync::Arc,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
 
     use super::{ConnectorClientOptions, heartbeat_ack_timed_out, spawn_connector_client};
 
@@ -451,6 +499,29 @@ mod tests {
         let snapshot = client.sender().metrics_snapshot();
         assert!(!snapshot.connected);
         assert!(snapshot.reconnect_attempts >= 1);
+        client.sender().shutdown();
+    }
+
+    #[tokio::test]
+    async fn client_refreshes_headers_on_reconnect_attempts() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_for_provider = attempts.clone();
+
+        let mut options =
+            ConnectorClientOptions::with_defaults("ws://127.0.0.1:9/v1/relay/connect", vec![])
+                .with_headers_provider(Arc::new(move || {
+                    let attempt = attempts_for_provider.fetch_add(1, Ordering::SeqCst) + 1;
+                    Ok(vec![(
+                        "x-claw-nonce".to_string(),
+                        format!("nonce-{attempt}"),
+                    )])
+                }));
+        options.reconnect_min_delay = Duration::from_millis(1);
+        options.reconnect_max_delay = Duration::from_millis(1);
+
+        let client = spawn_connector_client(options);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert!(attempts.load(Ordering::SeqCst) >= 2);
         client.sender().shutdown();
     }
 

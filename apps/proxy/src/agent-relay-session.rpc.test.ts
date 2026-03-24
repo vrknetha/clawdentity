@@ -5,6 +5,7 @@ import { AgentRelaySession } from "./agent-relay-session.js";
 import {
   createMockSocket,
   createStateHarness,
+  LOCAL_RELAY_ENV,
   RECIPIENT_AGENT_DID,
   SENDER_AGENT_DID,
 } from "./agent-relay-session.test-helpers.js";
@@ -13,6 +14,7 @@ describe("AgentRelaySession RPC", () => {
   it("supports fetch RPC delivery endpoint for compatibility", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();
@@ -67,6 +69,7 @@ describe("AgentRelaySession RPC", () => {
   it("returns queue-full error from RPC when buffer is full", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_QUEUE_MAX_MESSAGES_PER_AGENT: "1",
       RELAY_RETRY_JITTER_RATIO: "0",
     });

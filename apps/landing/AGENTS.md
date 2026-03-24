@@ -15,6 +15,8 @@
 - `CLAWDENTITY_DOWNLOADS_BASE_URL` is optional and overrides the default downloads origin (`https://downloads.clawdentity.com`).
 - `CLAWDENTITY_RELEASE_MANIFEST_URL` is optional and overrides the latest manifest URL.
 - `CLAWDENTITY_INSTALL_DIR` is optional and overrides the destination directory.
+- `CLAWDENTITY_SITE_BASE_URL` is optional and overrides the onboarding guide origin used by generated local `skill.md` content and installer next-step messaging.
+- `CLAWDENTITY_SKILL_URL` is optional and overrides the exact onboarding guide URL printed by the installers.
 - `CLAWDENTITY_INSTALL_DRY_RUN=1` performs a no-write simulation.
 - `CLAWDENTITY_NO_VERIFY=1` is the only allowed checksum bypass.
 - Checksum verification is enabled by default and must validate against `clawdentity-<version>-checksums.txt`.
@@ -37,6 +39,7 @@
 
 ## Script and Build Expectations
 - Keep `build:skill-md` as the single helper for generation.
+- `build:skill-md` may render local `localhost` URLs only when `CLAWDENTITY_SITE_BASE_URL` is explicitly set for local preview/testing; production builds must keep the canonical `https://clawdentity.com` URLs.
 - `dev`, `build`, `preview`, and `check` must run `build:skill-md` first.
 - If source skill files or generator logic changes, regenerate `public/skill.md` before shipping.
 - Nx landing targets must invoke package scripts (`pnpm run build|dev|preview|check`) instead of calling `astro` directly, so pre-steps always run.

@@ -26,7 +26,7 @@ describe("POST /v1/agents registration limits", () => {
       [
         {
           id: "01HF7YAT31JZHSMW1CG6Q6MHQ1",
-          did: "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHQ1",
+          did: "did:cdi:127.0.0.1:agent:01HF7YAT31JZHSMW1CG6Q6MHQ1",
           ownerId: authRow.humanId,
           name: "existing-agent",
           framework: "openclaw",
@@ -96,7 +96,7 @@ describe("POST /v1/agents registration limits", () => {
       [
         {
           id: "01HF7YAT31JZHSMW1CG6Q6MHQ2",
-          did: "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHQ2",
+          did: "did:cdi:127.0.0.1:agent:01HF7YAT31JZHSMW1CG6Q6MHQ2",
           ownerId: authRow.humanId,
           name: "existing-agent",
           framework: "openclaw",
@@ -168,7 +168,7 @@ describe("POST /v1/agents registration limits", () => {
         beforeFirstAgentRegistrationChallengeUpdate(agentRows) {
           agentRows.push({
             id: "01HF7YAT31JZHSMW1CG6Q6MHQ9",
-            did: "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHQ9",
+            did: "did:cdi:127.0.0.1:agent:01HF7YAT31JZHSMW1CG6Q6MHQ9",
             ownerId: authRow.humanId,
             name: "raced-agent",
             framework: "openclaw",

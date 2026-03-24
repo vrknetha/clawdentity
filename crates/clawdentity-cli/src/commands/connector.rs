@@ -1,31 +1,35 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
 use clawdentity_core::config::ConfigPathOptions;
-use clawdentity_core::db::now_utc_ms;
-use clawdentity_core::db_inbound::{InboundPendingItem, append_inbound_event, upsert_pending};
-use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
-    CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientOptions, ConnectorClientSender,
-    ConnectorFrame, ConnectorServiceInstallInput, ConnectorServiceUninstallInput, DeliverAckFrame,
-    DeliverFrame, RuntimeServerState, SqliteStore, flush_outbound_queue_to_relay,
-    install_connector_service, new_frame_id, now_iso, spawn_connector_client,
+    ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
+    ConnectorServiceUninstallInput, CoreError, RuntimeServerState, SqliteStore,
+    flush_outbound_queue_to_relay, install_connector_service, spawn_connector_client,
     uninstall_connector_service,
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const DEFAULT_CONNECTOR_PORT: u16 = 19400;
-const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
-const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
+const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/wake";
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
 
+mod delivery;
 mod runtime_config;
+
+use delivery::{run_inbound_loop, run_inbound_retry_loop};
+
+#[cfg(test)]
+use delivery::{
+    build_deliver_ack_reason, build_openclaw_hook_payload, should_dead_letter_after_failure,
+};
 
 #[derive(Debug, Subcommand)]
 pub enum ConnectorCommand {
@@ -86,7 +90,6 @@ pub(super) struct ConnectorRuntimeConfig {
     agent_name: String,
     agent_did: String,
     proxy_ws_url: String,
-    relay_headers: Vec<(String, String)>,
     openclaw_runtime: OpenclawRuntimeConfig,
     port: u16,
     bind: IpAddr,
@@ -204,10 +207,24 @@ async fn start_connector_runtime(
     let runtime = runtime_config::resolve_runtime_config(options, input).await?;
     let store = SqliteStore::open(options)?;
 
-    let client = spawn_connector_client(ConnectorClientOptions::with_defaults(
-        runtime.proxy_ws_url.clone(),
-        runtime.relay_headers,
-    ));
+    let header_options = options.clone();
+    let header_agent_name = runtime.agent_name.clone();
+    let header_proxy_ws_url = runtime.proxy_ws_url.clone();
+    let client = spawn_connector_client(
+        ConnectorClientOptions::with_defaults(runtime.proxy_ws_url.clone(), vec![])
+            .with_headers_provider(Arc::new(move || {
+                runtime_config::load_connector_headers(
+                    &header_options,
+                    &header_agent_name,
+                    &header_proxy_ws_url,
+                )
+                .map_err(|error| {
+                    CoreError::InvalidInput(format!(
+                        "failed to build connector relay headers: {error}"
+                    ))
+                })
+            })),
+    );
     let relay_sender = client.sender();
 
     let bind_addr = SocketAddr::new(runtime.bind, runtime.port);
@@ -225,6 +242,12 @@ async fn start_connector_runtime(
     let mut inbound_loop_task = spawn_inbound_loop_task(
         client,
         relay_sender.clone(),
+        store.clone(),
+        runtime.openclaw_runtime.clone(),
+        shutdown_rx.clone(),
+    );
+
+    let mut inbound_retry_task = spawn_inbound_retry_task(
         store.clone(),
         runtime.openclaw_runtime.clone(),
         shutdown_rx.clone(),
@@ -262,6 +285,9 @@ async fn start_connector_runtime(
         result = &mut inbound_loop_task => {
             return Err(describe_task_exit("inbound loop", result));
         }
+        result = &mut inbound_retry_task => {
+            return Err(describe_task_exit("inbound retry loop", result));
+        }
         result = &mut outbound_flush_task => {
             return Err(describe_task_exit("outbound flush loop", result));
         }
@@ -272,6 +298,7 @@ async fn start_connector_runtime(
 
     await_task("runtime server", runtime_server_task).await?;
     await_task("inbound loop", inbound_loop_task).await?;
+    await_task("inbound retry loop", inbound_retry_task).await?;
     await_task("outbound flush loop", outbound_flush_task).await?;
 
     Ok(())
@@ -323,41 +350,12 @@ fn spawn_outbound_flush_task(
     tokio::spawn(async move { run_outbound_flush_loop(store, relay_sender, shutdown_rx).await })
 }
 
-async fn run_inbound_loop(
-    mut connector_client: ConnectorClient,
-    relay_sender: ConnectorClientSender,
+fn spawn_inbound_retry_task(
     store: SqliteStore,
     openclaw_runtime: OpenclawRuntimeConfig,
-    mut shutdown_rx: watch::Receiver<bool>,
-) -> Result<()> {
-    let hook_url = openclaw_runtime.hook_url()?;
-    let http_client = create_http_client()?;
-
-    loop {
-        tokio::select! {
-            _ = shutdown_rx.changed() => {
-                if *shutdown_rx.borrow() {
-                    return Ok(());
-                }
-            }
-            frame = connector_client.recv_frame() => {
-                let Some(frame) = frame else {
-                    return Ok(());
-                };
-                if let ConnectorFrame::Deliver(deliver) = frame {
-                    handle_deliver_frame(
-                        &store,
-                        &relay_sender,
-                        &http_client,
-                        &hook_url,
-                        &openclaw_runtime,
-                        deliver,
-                    )
-                    .await;
-                }
-            }
-        }
-    }
+    shutdown_rx: watch::Receiver<bool>,
+) -> JoinHandle<Result<()>> {
+    tokio::spawn(async move { run_inbound_retry_loop(store, openclaw_runtime, shutdown_rx).await })
 }
 
 async fn run_outbound_flush_loop(
@@ -392,247 +390,6 @@ async fn run_outbound_flush_loop(
             }
         }
     }
-}
-
-async fn handle_deliver_frame(
-    store: &SqliteStore,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    deliver: DeliverFrame,
-) {
-    let delivery_result =
-        forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await;
-
-    let persistence_result =
-        persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
-    if let Err(error) = persistence_result.as_ref() {
-        tracing::warn!(error = %error, request_id = %deliver.id, "failed to persist inbound delivery result");
-    }
-
-    let ack_reason = build_deliver_ack_reason(
-        delivery_result.as_ref().err(),
-        persistence_result.as_ref().err(),
-    );
-    let ack_accepted = ack_reason.is_none();
-    if let Err(error) = send_deliver_ack(relay_sender, &deliver.id, ack_accepted, ack_reason).await
-    {
-        tracing::warn!(error = %error, request_id = %deliver.id, "failed to send deliver ack");
-    }
-
-    if let Err(error) = delivery_result {
-        tracing::warn!(error = %error, request_id = %deliver.id, to_agent_did = %deliver.to_agent_did, "failed to forward inbound payload to OpenClaw hook");
-    }
-}
-
-fn build_deliver_ack_reason(
-    delivery_error: Option<&anyhow::Error>,
-    persistence_error: Option<&anyhow::Error>,
-) -> Option<String> {
-    match (delivery_error, persistence_error) {
-        (Some(delivery_error), Some(persistence_error)) => Some(format!(
-            "{delivery_error}; failed to persist inbound delivery result: {persistence_error}"
-        )),
-        _ => None,
-    }
-}
-
-async fn forward_deliver_to_openclaw(
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    deliver: &DeliverFrame,
-) -> Result<()> {
-    let mut request = http_client
-        .post(hook_url)
-        .header("content-type", "application/json")
-        .header("x-clawdentity-agent-did", &deliver.from_agent_did)
-        .header("x-clawdentity-to-agent-did", &deliver.to_agent_did)
-        .json(&build_openclaw_hook_payload(deliver));
-
-    if let Some(token) = openclaw_runtime
-        .hook_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request = request.header("x-openclaw-token", token);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|error| anyhow!("openclaw hook request failed: {error}"))?;
-
-    if !response.status().is_success() {
-        return Err(anyhow!("openclaw hook returned HTTP {}", response.status()));
-    }
-
-    Ok(())
-}
-
-fn build_openclaw_hook_payload(deliver: &DeliverFrame) -> Value {
-    let wake_text = render_openclaw_wake_text(deliver);
-    let session_id = deliver
-        .payload
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let mut payload = json!({
-        "message": wake_text,
-        "text": wake_text,
-        "mode": "now",
-    });
-    if let Some(session_id) = session_id {
-        payload["sessionId"] = Value::String(session_id.to_string());
-    }
-    payload
-}
-
-fn render_openclaw_wake_text(deliver: &DeliverFrame) -> String {
-    let message = extract_content(&deliver.payload);
-    let mut lines = vec![format!(
-        "Clawdentity peer message from {}",
-        deliver.from_agent_did
-    )];
-
-    if !message.trim().is_empty() {
-        lines.push(String::new());
-        lines.push(message);
-    }
-
-    if let Some(request_id) = Some(deliver.id.as_str()).filter(|value| !value.trim().is_empty()) {
-        lines.push(String::new());
-        lines.push(format!("Request ID: {request_id}"));
-    }
-    if let Some(conversation_id) = deliver
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        lines.push(format!("Conversation ID: {conversation_id}"));
-    }
-    if let Some(reply_to) = deliver
-        .reply_to
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        lines.push(format!("Reply To: {reply_to}"));
-    }
-
-    lines.join("\n")
-}
-
-fn extract_content(payload: &Value) -> String {
-    if let Some(content) = payload.get("content").and_then(Value::as_str) {
-        return content.to_string();
-    }
-    if let Some(message) = payload.get("message").and_then(Value::as_str) {
-        return message.to_string();
-    }
-    if let Some(text) = payload.get("text").and_then(Value::as_str) {
-        return text.to_string();
-    }
-    if let Some(text) = payload.as_str() {
-        return text.to_string();
-    }
-    payload.to_string()
-}
-
-#[allow(clippy::too_many_lines)]
-async fn persist_inbound_delivery_result(
-    store: &SqliteStore,
-    deliver: &DeliverFrame,
-    delivery_result: std::result::Result<&(), &anyhow::Error>,
-) -> Result<()> {
-    let received_at_ms = now_utc_ms();
-    let payload_json = deliver.payload.to_string();
-
-    append_inbound_event(
-        store,
-        "received",
-        Some(deliver.id.clone()),
-        Some(
-            json!({
-                "frameId": deliver.id,
-                "fromAgentDid": deliver.from_agent_did,
-                "toAgentDid": deliver.to_agent_did,
-            })
-            .to_string(),
-        ),
-    )?;
-
-    if delivery_result.is_ok() {
-        append_inbound_event(
-            store,
-            "delivered",
-            Some(deliver.id.clone()),
-            Some(json!({ "frameId": deliver.id }).to_string()),
-        )?;
-        return Ok(());
-    }
-
-    let last_error = delivery_result
-        .err()
-        .map(ToString::to_string)
-        .unwrap_or_else(|| "delivery failed".to_string());
-
-    upsert_pending(
-        store,
-        InboundPendingItem {
-            request_id: deliver.id.clone(),
-            frame_id: deliver.id.clone(),
-            from_agent_did: deliver.from_agent_did.clone(),
-            to_agent_did: deliver.to_agent_did.clone(),
-            payload_json,
-            payload_bytes: i64::try_from(deliver.payload.to_string().len()).unwrap_or(i64::MAX),
-            received_at_ms,
-            next_attempt_at_ms: received_at_ms + CONNECTOR_RETRY_DELAY_MS,
-            attempt_count: 1,
-            last_error: Some(last_error),
-            last_attempt_at_ms: Some(received_at_ms),
-            conversation_id: deliver.conversation_id.clone(),
-            reply_to: deliver.reply_to.clone(),
-        },
-    )?;
-
-    append_inbound_event(
-        store,
-        "pending",
-        Some(deliver.id.clone()),
-        Some(
-            json!({
-                "frameId": deliver.id,
-                "nextAttemptAtMs": received_at_ms + CONNECTOR_RETRY_DELAY_MS,
-            })
-            .to_string(),
-        ),
-    )?;
-
-    Ok(())
-}
-
-async fn send_deliver_ack(
-    relay_sender: &ConnectorClientSender,
-    ack_id: &str,
-    accepted: bool,
-    reason: Option<String>,
-) -> Result<()> {
-    relay_sender
-        .send_frame(ConnectorFrame::DeliverAck(DeliverAckFrame {
-            v: CONNECTOR_FRAME_VERSION,
-            id: new_frame_id(),
-            ts: now_iso(),
-            ack_id: ack_id.to_string(),
-            accepted,
-            reason,
-        }))
-        .await
-        .map_err(anyhow::Error::from)
 }
 
 pub(super) fn env_trimmed(name: &str) -> Option<String> {

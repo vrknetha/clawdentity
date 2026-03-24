@@ -8,6 +8,7 @@ use super::super::setup::{
     save_relay_runtime_config, write_selected_openclaw_agent,
 };
 use super::{DoctorStatus, OpenclawDoctorOptions, run_openclaw_doctor};
+use crate::config::{CliConfig, ConfigPathOptions, write_config};
 use crate::db::SqliteStore;
 use crate::peers::{PersistPeerInput, persist_peer};
 
@@ -51,7 +52,7 @@ async fn doctor_reports_healthy_when_runtime_is_ready() {
       {
         "id": "clawdentity-send-to-peer",
         "match": { "path": "send-to-peer" },
-        "action": "agent",
+        "action": "wake",
         "wakeMode": "now",
         "transform": { "module": "relay-to-peer.mjs" }
       }
@@ -136,4 +137,65 @@ fn doctor_fails_when_selected_agent_marker_is_missing() {
             .any(|check| check.id == "state.selectedAgent"
                 && check.status == super::DoctorCheckStatus::Fail)
     );
+}
+
+#[test]
+fn doctor_flags_runtime_when_openclaw_base_url_matches_proxy_url() {
+    let temp = TempDir::new().expect("temp dir");
+    let config_dir = temp.path().join("state");
+    std::fs::create_dir_all(&config_dir).expect("state dir");
+    write_config(
+        &CliConfig {
+            registry_url: "https://registry.example.test".to_string(),
+            proxy_url: Some("https://proxy.example.test".to_string()),
+            api_key: None,
+            human_name: Some("Ravi Kiran".to_string()),
+        },
+        &ConfigPathOptions {
+            home_dir: Some(temp.path().to_path_buf()),
+            registry_url_hint: None,
+        },
+    )
+    .expect("config");
+    write_selected_openclaw_agent(&config_dir, "alpha").expect("selected");
+    save_relay_runtime_config(
+        &config_dir,
+        OpenclawRelayRuntimeConfig {
+            openclaw_base_url: "https://proxy.example.test".to_string(),
+            openclaw_hook_token: Some("token".to_string()),
+            relay_transform_peers_path: None,
+            updated_at: None,
+        },
+    )
+    .expect("runtime");
+
+    let openclaw_dir = temp.path().join("openclaw");
+    std::fs::create_dir_all(openclaw_dir.join("hooks/transforms")).expect("transform dir");
+    std::fs::write(
+        openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME),
+        "{\n  \"hooks\": {\"token\": \"token\"}\n}\n",
+    )
+    .expect("config");
+    std::fs::create_dir_all(openclaw_dir.join("devices")).expect("devices dir");
+    std::fs::write(openclaw_dir.join("devices/pending.json"), "[]").expect("pending");
+
+    let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("db");
+    let result = run_openclaw_doctor(
+        &config_dir,
+        &store,
+        OpenclawDoctorOptions {
+            home_dir: Some(temp.path().to_path_buf()),
+            openclaw_dir: Some(openclaw_dir),
+            include_connector_runtime_check: false,
+            ..OpenclawDoctorOptions::default()
+        },
+    )
+    .expect("doctor");
+
+    assert_eq!(result.status, DoctorStatus::Unhealthy);
+    assert!(result.checks.iter().any(|check| {
+        check.id == "state.openclawBaseUrl"
+            && check.status == super::DoctorCheckStatus::Fail
+            && check.message.contains("Clawdentity proxy")
+    }));
 }

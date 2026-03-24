@@ -142,7 +142,7 @@ fn generate_token_hex(bytes_len: usize) -> String {
 }
 
 fn note_install_result(asset: &OpenclawAsset) -> Result<String> {
-    let changed = write_if_changed(&asset.path, asset.bytes)?;
+    let changed = write_if_changed(&asset.path, &asset.bytes)?;
     Ok(format!(
         "{} {}",
         if changed {
@@ -193,7 +193,7 @@ fn relay_mapping_definition() -> Value {
     json!({
         "id": HOOK_MAPPING_ID,
         "match": { "path": HOOK_PATH_SEND_TO_PEER },
-        "action": "agent",
+        "action": "wake",
         "wakeMode": "now",
         "transform": { "module": RELAY_MODULE_FILE_NAME },
     })
@@ -653,7 +653,7 @@ fn apply_hook_config_updates(
 
 /// Install or verify the OpenClaw skill bundle and relay transform assets.
 pub fn install_openclaw_skill_assets(openclaw_dir: &Path) -> Result<Vec<String>> {
-    openclaw_assets(openclaw_dir)
+    openclaw_assets(openclaw_dir)?
         .iter()
         .map(note_install_result)
         .collect()

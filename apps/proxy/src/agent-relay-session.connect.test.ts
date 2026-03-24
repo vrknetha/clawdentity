@@ -5,16 +5,18 @@ import { AgentRelaySession } from "./agent-relay-session.js";
 import {
   createMockSocket,
   createStateHarness,
+  LOCAL_RELAY_ENV,
   RECIPIENT_AGENT_DID,
   RELAY_QUEUE_STORAGE_KEY,
   SENDER_AGENT_DID,
   withMockWebSocketPair,
 } from "./agent-relay-session.test-helpers.js";
+import { ProxyConfigError } from "./config.js";
 
 describe("AgentRelaySession connect", () => {
   it("accepts websocket connects with hibernation state and schedules heartbeat alarm", async () => {
     const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
+    const relaySession = new AgentRelaySession(harness.state, LOCAL_RELAY_ENV);
 
     const pairClient = createMockSocket();
     const pairServer = createMockSocket();
@@ -58,7 +60,7 @@ describe("AgentRelaySession connect", () => {
 
   it("returns 426 for non-websocket connect requests", async () => {
     const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
+    const relaySession = new AgentRelaySession(harness.state, LOCAL_RELAY_ENV);
 
     const response = await relaySession.fetch(
       new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
@@ -73,6 +75,7 @@ describe("AgentRelaySession connect", () => {
   it("returns websocket upgrade quickly while reconnect drain runs in background", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
       RELAY_RETRY_INITIAL_MS: "1",
     });
@@ -119,9 +122,34 @@ describe("AgentRelaySession connect", () => {
     expect(connectState).toBe("settled");
   });
 
+  it("fails fast in development when durable trust state is missing", () => {
+    const harness = createStateHarness();
+
+    let thrown: unknown;
+    try {
+      new AgentRelaySession(harness.state, {
+        ENVIRONMENT: "development",
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ProxyConfigError);
+    const proxyTrustStateError = (
+      thrown as ProxyConfigError & {
+        details?: {
+          fieldErrors?: Record<string, string[]>;
+        };
+      }
+    ).details?.fieldErrors?.PROXY_TRUST_STATE?.[0];
+    expect(proxyTrustStateError).toContain(
+      "PROXY_TRUST_STATE is required when ENVIRONMENT is 'development'",
+    );
+  });
+
   it("supersedes an existing socket when a new connector session connects", async () => {
     const harness = createStateHarness();
-    const relaySession = new AgentRelaySession(harness.state);
+    const relaySession = new AgentRelaySession(harness.state, LOCAL_RELAY_ENV);
     const oldSocket = createMockSocket();
     const oldWs = oldSocket as unknown as WebSocket;
     oldSocket.close.mockImplementation(() => {
@@ -172,6 +200,7 @@ describe("AgentRelaySession connect", () => {
   it("drains queued messages immediately after connector reconnects", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
       RELAY_RETRY_INITIAL_MS: "1",
     });

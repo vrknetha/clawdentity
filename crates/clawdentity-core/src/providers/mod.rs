@@ -176,8 +176,16 @@ pub struct ProviderSetupOptions {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderSetupResult {
     pub platform: String,
+    pub status: ProviderSetupStatus,
     pub notes: Vec<String>,
     pub updated_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderSetupStatus {
+    Ready,
+    ActionRequired,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

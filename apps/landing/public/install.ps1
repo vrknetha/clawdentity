@@ -4,6 +4,7 @@ Set-StrictMode -Version Latest
 
 $BinaryName = "clawdentity.exe"
 $DefaultDownloadsBaseUrl = "https://downloads.clawdentity.com"
+$DefaultSiteBaseUrl = "https://clawdentity.com"
 
 $DryRun = $env:CLAWDENTITY_INSTALL_DRY_RUN -eq "1"
 $NoVerify = $env:CLAWDENTITY_NO_VERIFY -eq "1"
@@ -11,6 +12,8 @@ $VersionInput = $env:CLAWDENTITY_VERSION
 $InstallDir = $env:CLAWDENTITY_INSTALL_DIR
 $DownloadsBaseUrl = $env:CLAWDENTITY_DOWNLOADS_BASE_URL
 $ManifestUrlInput = $env:CLAWDENTITY_RELEASE_MANIFEST_URL
+$SiteBaseUrlInput = $env:CLAWDENTITY_SITE_BASE_URL
+$SkillUrlInput = $env:CLAWDENTITY_SKILL_URL
 
 $script:Tag = ""
 $script:Version = ""
@@ -77,6 +80,21 @@ function Resolve-LatestReleaseInfo {
   $script:Tag = $manifest.tag.Trim()
   $script:AssetBaseUrl = $manifest.assetBaseUrl.Trim()
   $script:ChecksumsUrl = $manifest.checksumsUrl.Trim()
+}
+
+function Resolve-SkillUrl {
+  if (-not [string]::IsNullOrWhiteSpace($SkillUrlInput)) {
+    return $SkillUrlInput.Trim()
+  }
+
+  $siteBaseUrl = if ([string]::IsNullOrWhiteSpace($SiteBaseUrlInput)) {
+    $DefaultSiteBaseUrl
+  }
+  else {
+    $SiteBaseUrlInput
+  }
+
+  return "$(Trim-TrailingSlash $siteBaseUrl)/skill.md"
 }
 
 function Set-VersionInfo {
@@ -174,6 +192,7 @@ $checksumName = "clawdentity-$Version-checksums.txt"
 $assetUrl = "$script:AssetBaseUrl/$assetName"
 $checksumUrl = $script:ChecksumsUrl
 $targetPath = Join-Path $InstallDir $BinaryName
+$skillUrl = Resolve-SkillUrl
 
 $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) ("clawdentity-" + [Guid]::NewGuid().ToString("N"))
 $assetPath = Join-Path $tempDir $assetName
@@ -218,7 +237,7 @@ try {
   if ($DryRun) {
     Write-Info "[dry-run] expand archive '$assetPath' -> '$extractDir'"
     Write-Info "[dry-run] install binary to '$targetPath'"
-    Write-Info "[dry-run] next step: use the onboarding prompt in https://clawdentity.com/skill.md"
+    Write-Info "[dry-run] next step: use the onboarding prompt in $skillUrl"
     Write-Info "[dry-run] complete"
     exit 0
   }
@@ -235,7 +254,7 @@ try {
   Copy-Item -Path $binary.FullName -Destination $targetPath -Force
 
   Write-Info "installed $BinaryName to $targetPath"
-  Write-Info "next step: use the onboarding prompt in https://clawdentity.com/skill.md"
+  Write-Info "next step: use the onboarding prompt in $skillUrl"
 
   $pathEntries = $env:Path -split ";"
   $normalizedInstall = $InstallDir.TrimEnd("\")
