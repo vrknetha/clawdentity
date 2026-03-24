@@ -14,7 +14,7 @@ import {
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, createSignedAgentRefreshRequest } from "./helpers.js";
 
-const DID_AUTHORITY = "dev.registry.clawdentity.com";
+const DID_AUTHORITY = "127.0.0.1";
 
 describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
   async function buildRefreshFixture() {
@@ -29,7 +29,7 @@ describe(`POST ${AGENT_AUTH_REFRESH_PATH}`, () => {
     const refreshTokenHash = await hashAgentToken(refreshToken);
     const ait = await signAIT({
       claims: {
-        iss: "https://dev.registry.clawdentity.com",
+        iss: "http://127.0.0.1:8788",
         sub: agentDid,
         ownerDid: makeHumanDid(DID_AUTHORITY, generateUlid(Date.now() + 2)),
         name: "agent-refresh-01",

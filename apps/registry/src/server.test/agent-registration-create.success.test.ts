@@ -203,7 +203,7 @@ describe("POST /v1/agents", () => {
 
     const claims = await verifyAIT({
       token: registerBody.ait,
-      expectedIssuer: "https://dev.registry.clawdentity.com",
+      expectedIssuer: "http://127.0.0.1:8788",
       registryKeys: keysBody.keys
         .filter((key) => key.status === "active")
         .map((key) => ({
@@ -216,7 +216,7 @@ describe("POST /v1/agents", () => {
         })),
     });
 
-    expect(claims.iss).toBe("https://dev.registry.clawdentity.com");
+    expect(claims.iss).toBe("http://127.0.0.1:8788");
     expect(claims.sub).toBe(registerBody.agent.did);
     expect(claims.ownerDid).toBe(registerBody.agent.ownerDid);
     expect(claims.name).toBe(registerBody.agent.name);

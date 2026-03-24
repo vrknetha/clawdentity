@@ -15,3 +15,4 @@
 - Preserve environment-aware validation error exposure rules (`shouldExposeVerboseErrors`) for parse failures.
 - Preserve challenge nonce length, TTL, and proof canonicalization inputs exactly; changes here are auth-sensitive.
 - Preserve reissue expiry behavior: do not extend lifetime beyond prior valid expiry when previous expiry is still active.
+- Keep the `local` issuer default aligned with the local Docker registry authority (`http://127.0.0.1:8788`) so issued AITs stay consistent with stored local DIDs.

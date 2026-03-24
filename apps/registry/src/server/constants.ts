@@ -145,7 +145,7 @@ export const PROXY_URL_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
 > = {
-  local: "https://dev.proxy.clawdentity.com",
+  local: "http://127.0.0.1:8787",
   development: "https://dev.proxy.clawdentity.com",
   production: "https://proxy.clawdentity.com",
 };
@@ -154,7 +154,7 @@ export const LANDING_URL_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
 > = {
-  local: "https://clawdentity-site-dev.pages.dev",
+  local: "http://localhost:4321",
   development: "https://clawdentity-site-dev.pages.dev",
   production: "https://clawdentity.com",
 };

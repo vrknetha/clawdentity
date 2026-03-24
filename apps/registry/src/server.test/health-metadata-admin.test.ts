@@ -135,6 +135,49 @@ describe(`GET ${REGISTRY_METADATA_PATH}`, () => {
       proxyUrl: "https://dev.proxy.clawdentity.com",
     });
   });
+
+  it("returns caller-facing local registry and proxy URLs when runtime uses loopback", async () => {
+    const res = await createRegistryApp().request(
+      `https://dev.registry.clawdentity.com${REGISTRY_METADATA_PATH}`,
+      {
+        headers: {
+          host: "host.docker.internal:8788",
+          "x-forwarded-host": "host.docker.internal:8788",
+          "x-forwarded-proto": "http",
+        },
+      },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+        APP_VERSION: "sha-meta-local",
+        PROXY_URL: "http://127.0.0.1:8787",
+        REGISTRY_ISSUER_URL: "https://dev.registry.clawdentity.com",
+        EVENT_BUS_BACKEND: "memory",
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+        REGISTRY_SIGNING_KEY: "test-signing-key",
+        REGISTRY_SIGNING_KEYS: JSON.stringify([
+          {
+            kid: "reg-key-1",
+            alg: "EdDSA",
+            crv: "Ed25519",
+            x: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
+            status: "active",
+          },
+        ]),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      registryUrl: string;
+      proxyUrl: string;
+    };
+    expect(body.registryUrl).toBe("http://host.docker.internal:8788");
+    expect(body.proxyUrl).toBe("http://host.docker.internal:8787");
+  });
 });
 
 describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
@@ -357,7 +400,7 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
 
     expect(body.human.id).toBe("00000000000000000000000000");
     expect(body.human.did).toBe(
-      "did:cdi:dev.registry.clawdentity.com:human:00000000000000000000000000",
+      "did:cdi:127.0.0.1:human:00000000000000000000000000",
     );
     expect(body.human.displayName).toBe("Primary Admin");
     expect(body.human.role).toBe("admin");

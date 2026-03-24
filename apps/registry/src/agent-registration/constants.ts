@@ -15,7 +15,7 @@ const REGISTRY_ISSUER_BY_ENVIRONMENT: Record<
   RegistryConfig["ENVIRONMENT"],
   string
 > = {
-  local: "https://dev.registry.clawdentity.com",
+  local: "http://127.0.0.1:8788",
   development: "https://dev.registry.clawdentity.com",
   production: "https://registry.clawdentity.com",
 };
