@@ -49,6 +49,23 @@ fn classify_connector_runtime_target_marks_non_loopback_hosts_external() {
 }
 
 #[test]
+fn classify_connector_runtime_target_accepts_implicit_default_ports() {
+    assert_eq!(
+        classify_connector_runtime_target("http://localhost").expect("implicit http"),
+        ConnectorRuntimeTarget::Local(LocalConnectorTarget {
+            bind: "127.0.0.1".parse().expect("ip"),
+            port: 80,
+        })
+    );
+    assert_eq!(
+        classify_connector_runtime_target("https://relay.example.test").expect("implicit https"),
+        ConnectorRuntimeTarget::External {
+            host: "relay.example.test".to_string(),
+        }
+    );
+}
+
+#[test]
 fn local_connector_autostart_runs_when_probe_starts_unhealthy() {
     let launch_calls = Mutex::new(Vec::<String>::new());
     let probe_calls = Mutex::new(0usize);

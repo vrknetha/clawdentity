@@ -16,6 +16,7 @@
 - Provider setup must surface readiness honestly: if relay metadata was saved but the connector hop is still dead, return an action-required setup status instead of reporting success.
 - Provider setup must propagate explicit `connector_base_url` and `relay_transform_peers_path` overrides unchanged into every persisted artifact; do not recompute host lists or fallback file paths from partial inputs.
 - Explicit non-loopback connector URLs are operator-owned runtimes; setup may verify but must not pretend they are ready when the probe still fails.
+- Connector runtime target classification may rely on implicit HTTP/HTTPS default ports when operators omit `:80` or `:443`; do not regress this to explicit-port-only parsing unless every caller is updated together.
 - Keep doctor and relay-test compatible with container-mounted OpenClaw homes and explicit env overrides.
 - Keep `provider doctor --for openclaw` read-only and CLI-free: diagnostics that only inspect local state or HTTP endpoints must not require the `openclaw` binary on PATH.
 - Explicit CLI home/state roots must beat ambient `OPENCLAW_*` env vars; isolated-home runs are a release gate.
