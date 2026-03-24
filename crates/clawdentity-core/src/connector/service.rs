@@ -164,8 +164,11 @@ fn resolve_executable_path(override_path: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(path) = override_path {
         return Ok(path);
     }
-    std::env::current_exe()
-        .map_err(|error| CoreError::InvalidInput(format!("unable to resolve current executable path: {error}")))
+    std::env::current_exe().map_err(|error| {
+        CoreError::InvalidInput(format!(
+            "unable to resolve current executable path: {error}"
+        ))
+    })
 }
 
 fn build_connector_start_args(
@@ -219,9 +222,10 @@ fn build_connector_start_args(
 }
 
 fn run_process(program: &str, args: &[String], ignore_failure: bool) -> Result<()> {
-    let output = Command::new(program).args(args).output().map_err(|error| {
-        CoreError::InvalidInput(format!("failed to run `{program}`: {error}"))
-    })?;
+    let output = Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| CoreError::InvalidInput(format!("failed to run `{program}`: {error}")))?;
     if output.status.success() || ignore_failure {
         return Ok(());
     }

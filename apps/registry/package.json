@@ -14,14 +14,15 @@
   "scripts": {
     "build": "tsup",
     "types:dev": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev",
+    "types:local": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env local",
     "format": "biome format .",
     "lint": "biome lint .",
     "dev": "wrangler dev --env dev --port 8788",
-    "dev:local": "wrangler d1 migrations apply clawdentity-db-dev --local --env dev && wrangler dev --env dev --port 8788",
+    "dev:local": "wrangler d1 migrations apply clawdentity-db-dev --local --env local && wrangler dev --env local --ip 0.0.0.0 --port 8788",
     "deploy:dev": "wrangler d1 migrations apply clawdentity-db-dev --remote --env dev && wrangler deploy --env dev",
     "deploy:production": "wrangler d1 migrations apply clawdentity-db --remote --env production && wrangler deploy --env production",
     "db:generate": "drizzle-kit generate",
-    "db:migrate:local": "wrangler d1 migrations apply clawdentity-db-dev --local --env dev",
+    "db:migrate:local": "wrangler d1 migrations apply clawdentity-db-dev --local --env local",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

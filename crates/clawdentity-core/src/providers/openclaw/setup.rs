@@ -62,6 +62,16 @@ fn normalize_http_url(value: &str, field: &'static str) -> Result<String> {
     Ok(parsed.to_string())
 }
 
+pub(crate) fn urls_share_service_target(left: &str, right: &str) -> bool {
+    let Ok(left) = normalize_http_url(left, "leftUrl") else {
+        return false;
+    };
+    let Ok(right) = normalize_http_url(right, "rightUrl") else {
+        return false;
+    };
+    left == right
+}
+
 fn write_secure_text(path: &Path, content: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| CoreError::Io {

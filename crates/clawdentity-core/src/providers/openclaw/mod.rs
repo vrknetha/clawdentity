@@ -32,21 +32,23 @@ use self::assets::{
     write_transform_runtime_config,
 };
 use self::cli::ensure_openclaw_cli_available;
-use crate::config::{ConfigPathOptions, get_config_dir};
+use self::connector_runtime::{ConnectorRuntimeEnsureStatus, ensure_local_connector_runtime};
+use self::setup::urls_share_service_target;
+use crate::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use crate::db::SqliteStore;
 use crate::error::Result;
 use crate::provider::{
     DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
     PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
     ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
-    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyResult,
-    command_exists, now_iso, resolve_home_dir_with_fallback,
+    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, ProviderSetupStatus,
+    VerifyResult, command_exists, now_iso, resolve_home_dir_with_fallback,
 };
 
 const PROVIDER_NAME: &str = "openclaw";
 const PROVIDER_DISPLAY_NAME: &str = "OpenClaw";
 const OPENCLAW_BINARY: &str = "openclaw";
-const OPENCLAW_WEBHOOK_PATH: &str = "/hooks/agent";
+const OPENCLAW_WEBHOOK_PATH: &str = "/hooks/wake";
 
 #[derive(Debug, Clone, Default)]
 pub struct OpenclawProvider {
@@ -230,6 +232,7 @@ impl OpenclawProvider {
     ) -> Result<PathBuf> {
         let resolved_base_url =
             resolve_openclaw_base_url(&context.config_dir, opts.platform_base_url.as_deref())?;
+        self.validate_setup_openclaw_base_url(context, &resolved_base_url)?;
         let existing_runtime = load_relay_runtime_config(&context.config_dir)
             .ok()
             .flatten();
@@ -248,6 +251,29 @@ impl OpenclawProvider {
                 updated_at: Some(now_iso()),
             },
         )
+    }
+
+    fn validate_setup_openclaw_base_url(
+        &self,
+        context: &OpenclawSetupContext,
+        openclaw_base_url: &str,
+    ) -> Result<()> {
+        let config = resolve_config(&context.state_options)?;
+        if let Some(proxy_url) = config.proxy_url.as_deref()
+            && urls_share_service_target(openclaw_base_url, proxy_url)
+        {
+            return Err(crate::error::CoreError::InvalidInput(format!(
+                "OpenClaw base URL `{openclaw_base_url}` points at the Clawdentity proxy, not the OpenClaw gateway. Use the local OpenClaw gateway URL and rerun `clawdentity provider setup --for openclaw --agent-name {}`.",
+                context.agent_name
+            )));
+        }
+        if urls_share_service_target(openclaw_base_url, &config.registry_url) {
+            return Err(crate::error::CoreError::InvalidInput(format!(
+                "OpenClaw base URL `{openclaw_base_url}` points at the Clawdentity registry, not the OpenClaw gateway. Use the local OpenClaw gateway URL and rerun `clawdentity provider setup --for openclaw --agent-name {}`.",
+                context.agent_name
+            )));
+        }
+        Ok(())
     }
 
     fn finalize_setup_artifacts(
@@ -373,6 +399,10 @@ impl PlatformProvider for OpenclawProvider {
     }
 
     fn format_inbound(&self, message: &InboundMessage) -> InboundRequest {
+        let wake_text = format!(
+            "Clawdentity peer message from {}\n\n{}",
+            message.sender_did, message.content
+        );
         let mut headers = HashMap::new();
         headers.insert(
             "x-webhook-sender-id".to_string(),
@@ -398,7 +428,10 @@ impl PlatformProvider for OpenclawProvider {
         InboundRequest {
             headers,
             body: json!({
-                "content": message.content,
+                "message": wake_text,
+                "text": wake_text,
+                "mode": "now",
+                "sessionId": "main",
                 "senderDid": message.sender_did,
                 "recipientDid": message.recipient_did,
                 "requestId": message.request_id,
@@ -538,9 +571,21 @@ impl PlatformProvider for OpenclawProvider {
             &connector_base_url,
             install_result.notes,
         )?;
+        let connector_runtime = ensure_local_connector_runtime(
+            &context.state_options,
+            &context.agent_name,
+            &connector_base_url,
+        )?;
+        let mut notes = artifacts.notes;
+        notes.extend(connector_runtime.notes);
         Ok(ProviderSetupResult {
             platform: self.name().to_string(),
-            notes: artifacts.notes,
+            status: if connector_runtime.status == ConnectorRuntimeEnsureStatus::Ready {
+                ProviderSetupStatus::Ready
+            } else {
+                ProviderSetupStatus::ActionRequired
+            },
+            notes,
             updated_paths: artifacts.updated_paths,
         })
     }
@@ -569,12 +614,16 @@ impl PlatformProvider for OpenclawProvider {
 
 mod assets;
 mod cli;
+mod connector_runtime;
 mod doctor;
 mod relay_test;
 mod setup;
 
 #[cfg(test)]
 pub(crate) mod test_support;
+
+#[cfg(test)]
+mod connector_runtime_tests;
 
 #[cfg(test)]
 mod mod_tests;

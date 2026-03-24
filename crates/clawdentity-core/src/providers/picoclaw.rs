@@ -9,12 +9,12 @@ use crate::provider::{
     DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
     PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
     ProviderRelayRuntimeConfig, ProviderRelayTestOptions, ProviderRelayTestResult,
-    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, VerifyResult,
-    check_connector_runtime, command_exists, default_webhook_url, doctor_status_from_checks,
-    ensure_json_object_path, health_check, join_url_path, load_provider_runtime_config, now_iso,
-    push_doctor_check, read_json_or_default, read_provider_agent_marker,
-    resolve_home_dir_with_fallback, resolve_state_dir, save_provider_runtime_config, write_json,
-    write_provider_agent_marker,
+    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, ProviderSetupStatus,
+    VerifyResult, check_connector_runtime, command_exists, default_webhook_url,
+    doctor_status_from_checks, ensure_json_object_path, health_check, join_url_path,
+    load_provider_runtime_config, now_iso, push_doctor_check, read_json_or_default,
+    read_provider_agent_marker, resolve_home_dir_with_fallback, resolve_state_dir,
+    save_provider_runtime_config, write_json, write_provider_agent_marker,
 };
 
 const PROVIDER_NAME: &str = "picoclaw";
@@ -371,6 +371,7 @@ impl PlatformProvider for PicoclawProvider {
         notes.push("saved provider relay runtime".to_string());
         Ok(ProviderSetupResult {
             platform: self.name().to_string(),
+            status: ProviderSetupStatus::Ready,
             notes,
             updated_paths: vec![
                 marker_path.display().to_string(),

@@ -6,6 +6,10 @@ import {
 } from "@clawdentity/protocol";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_AGENT_LIST_LIMIT } from "../agent-list.js";
+import {
+  deriveInternalServiceSecretPrefix,
+  hashInternalServiceSecret,
+} from "../auth/service-auth.js";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
@@ -574,6 +578,90 @@ describe("internal service-auth routes", () => {
       error: { code: string };
     };
     expect(body.error.code).toBe("INTERNAL_SERVICE_UNAUTHORIZED");
+  });
+
+  it("accepts local Docker authority DIDs for internal ownership checks", async () => {
+    const ownerId = generateUlid(1700100010000);
+    const agentId = generateUlid(1700100011000);
+    const ownerDid = `did:cdi:host.docker.internal:human:${ownerId}`;
+    const agentDid = `did:cdi:host.docker.internal:agent:${agentId}`;
+    const serviceSecret = "clw_srv_bootstrap-test-secret";
+    const { database } = createFakeDb(
+      [
+        {
+          apiKeyId: "pat-1",
+          keyPrefix: "clw_pat_test",
+          keyHash: "hash-1",
+          apiKeyStatus: "active",
+          apiKeyName: "invite",
+          humanId: ownerId,
+          humanDid: ownerDid,
+          humanDisplayName: "Ravi Kiran",
+          humanRole: "user",
+          humanStatus: "active",
+        },
+      ],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId,
+          name: "docker-local-agent",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+      {
+        internalServiceRows: [
+          {
+            id: "proxy-pairing",
+            name: "proxy-pairing",
+            secretHash: await hashInternalServiceSecret(serviceSecret),
+            secretPrefix: deriveInternalServiceSecretPrefix(serviceSecret),
+            scopesJson: JSON.stringify(["identity.read"]),
+            status: "active",
+            createdBy: "bootstrap",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+            rotatedAt: null,
+            lastUsedAt: null,
+          },
+        ],
+      },
+    );
+
+    const res = await createRegistryApp().request(
+      INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-service-id": "proxy-pairing",
+          "x-claw-service-secret": serviceSecret,
+        },
+        body: JSON.stringify({
+          ownerDid,
+          agentDid,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      ownsAgent: boolean;
+      agentStatus: "active" | "revoked" | null;
+    };
+    expect(body).toEqual({
+      ownsAgent: true,
+      agentStatus: "active",
+    });
   });
 
   // Service-scope and payload-validation integration is covered by

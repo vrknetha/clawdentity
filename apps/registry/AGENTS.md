@@ -6,18 +6,21 @@
 
 ## Wrangler Configuration
 - Use `wrangler.jsonc` as the source of truth for worker config.
-- Keep `dev` and `production` environments explicit and isolated in config.
+- Keep `local`, `dev`, and `production` environments explicit and isolated in config.
 - Keep D1 database IDs version-controlled; manage secrets with `wrangler secret put`.
 - Keep `migrations_dir` aligned with Drizzle output directory (`drizzle`).
 - Prefer branded custom domains over `*.workers.dev` for public endpoints.
+  - Local: loopback-only Wrangler dev on `127.0.0.1:8788`
   - Development: `dev.registry.clawdentity.com`
   - Production: `registry.clawdentity.com`
+- Keep local `REGISTRY_ISSUER_URL` loopback-based (`http://127.0.0.1:8788`) and let route code translate it to the caller-facing origin (`localhost` on host, `host.docker.internal` in Docker) when minting tokens or DIDs.
 
 ## Deployment Rules
 - Always deploy with explicit environment: `--env dev` or `--env production`.
 - Deploy scripts must run D1 migrations before Worker deployment.
-- For local development, run local migrations before `wrangler dev --env dev --port 8788` (use `pnpm -F @clawdentity/registry run dev:local`).
-- Verify `GET /health` returns `status: "ok"` and environment (`development` or `production`).
+- For local development, run local migrations before `wrangler dev --env local --port 8788` (use `pnpm -F @clawdentity/registry run dev:local`).
+- Local Wrangler dev must listen on `0.0.0.0` so Dockerized OpenClaw agents can reach the host registry via `host.docker.internal`.
+- Verify `GET /health` returns `status: "ok"` and the expected environment (`local`, `development`, or `production`).
 - Production deploy verification must also assert `/health.ready == true` and the expected readiness keys for DB, queue/event bus, signing config, and internal service credentials.
 
 ## Runtime and API
@@ -30,8 +33,9 @@
 - Keep environment variables non-secret in `wrangler.jsonc` and secret values out of git.
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`, `invocation_logs=true`) so deploy/runtime failures are visible without ad-hoc debugging.
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/registry run types:dev`) after `wrangler.jsonc` or binding changes.
-- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`ENVIRONMENT`, `APP_VERSION`, `PROXY_URL`, `EVENT_BUS_BACKEND`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
+- Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`APP_VERSION`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 - Generate local `apps/registry/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
+- Generated `apps/registry/.env` must carry shared secrets/overrides only; keep `ENVIRONMENT`, public registry/proxy URLs, landing URL, and event-bus mode in Wrangler env blocks so `dev` and `local` do not override each other.
 - Use memory event bus only for local-only development sessions (`wrangler dev` with local `.env` / `.dev.vars`) where no cross-instance delivery is expected.
 - Keep every deployed environment queue-backed, including remote `dev` and `production` (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`).
 - Keep queue-backed event bus validation fail-fast in production-like runtime paths; do not silently fallback to memory when `EVENT_BUS_QUEUE` is missing.
@@ -62,7 +66,7 @@
 - Keep schema, migration SQL, and `src/db/schema.contract.test.ts` synchronized in the same change.
 - Migration verification command path:
   - local apply: `pnpm -F @clawdentity/registry run db:migrate:local`
-  - fresh local smoke (non-destructive): `pnpm -F @clawdentity/registry exec wrangler d1 migrations apply clawdentity-db-dev --local --env dev --persist-to .wrangler/t10-fresh-smoke`
+  - fresh local smoke (non-destructive): `pnpm -F @clawdentity/registry exec wrangler d1 migrations apply clawdentity-db-dev --local --env local --persist-to .wrangler/t10-fresh-smoke`
 
 ## Rollback and Safety
 - For CI deploys, capture pre-deploy artifacts (deployments list, D1 time-travel marker, D1 export).

@@ -64,6 +64,8 @@ Installer environment controls:
 
 - `CLAWDENTITY_VERSION` (optional, defaults to `https://downloads.clawdentity.com/rust/latest.json`)
 - `CLAWDENTITY_INSTALL_DIR` (optional custom install path)
+- `CLAWDENTITY_SITE_BASE_URL` (optional local/operator override for the onboarding guide URL printed by the installer)
+- `CLAWDENTITY_SKILL_URL` (optional exact override for the onboarding guide URL printed by the installer)
 - `CLAWDENTITY_INSTALL_DRY_RUN=1`
 - `CLAWDENTITY_NO_VERIFY=1` (skip checksum verification; use only when required)
 - `CLAWDENTITY_RELEASE_MANIFEST_URL` (optional override for CI/private mirrors)
@@ -271,6 +273,7 @@ Optional:
 - OpenClaw only: if `openclaw.json` or local auth/device state is broken, run `openclaw doctor --fix` before Clawdentity setup.
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
+- OpenClaw only: `--platform-base-url` is the OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the standard local OpenClaw flow, leave it unset so Clawdentity keeps the default `http://127.0.0.1:18789`.
 
 6. Validate provider health.
 - OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.

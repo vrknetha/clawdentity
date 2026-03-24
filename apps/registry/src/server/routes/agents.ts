@@ -49,7 +49,10 @@ import {
   isUnsupportedLocalTransactionError,
 } from "../helpers/db-queries.js";
 import { insertAgentAuthEvent } from "../helpers/event-bus.js";
-import { requireCurrentJti } from "../helpers/parsers.js";
+import {
+  requireCurrentJti,
+  resolvePublicRegistryIssuer,
+} from "../helpers/parsers.js";
 
 export function registerAgentRoutes(input: RegistryRouteDependencies): void {
   const { app, getConfig, getEventBus } = input;
@@ -222,7 +225,10 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
     const registration = buildAgentRegistrationFromParsed({
       parsedBody,
       ownerDid: human.did,
-      issuer: resolveRegistryIssuer(config),
+      issuer: resolvePublicRegistryIssuer({
+        request: c.req.raw,
+        config,
+      }),
     });
     const signer = await resolveRegistrySigner(config);
     const ait = await signAIT({

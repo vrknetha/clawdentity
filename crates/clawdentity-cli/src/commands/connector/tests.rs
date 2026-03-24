@@ -5,7 +5,10 @@ use clawdentity_core::agent::AgentAuthRecord;
 use serde_json::json;
 
 use super::runtime_config::{agent_access_requires_refresh, normalize_proxy_ws_url};
-use super::{build_deliver_ack_reason, build_openclaw_hook_payload, normalize_hook_path};
+use super::{
+    build_deliver_ack_reason, build_openclaw_hook_payload, normalize_hook_path,
+    should_dead_letter_after_failure,
+};
 
 #[test]
 fn normalizes_hook_path_with_leading_slash() {
@@ -62,7 +65,7 @@ fn deliver_ack_reason_is_none_when_delivery_failed_but_retry_was_persisted() {
 }
 
 #[test]
-fn openclaw_hook_payload_uses_wake_message_contract() {
+fn openclaw_hook_payload_uses_message_field() {
     let deliver = DeliverFrame {
         v: 1,
         id: "req-1".to_string(),
@@ -71,30 +74,32 @@ fn openclaw_hook_payload_uses_wake_message_contract() {
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
         payload: json!({
             "content": "hello from alpha",
+            "kind": "relay-test",
         }),
         content_type: Some("application/json".to_string()),
         conversation_id: Some("conv-1".to_string()),
         reply_to: Some("reply-1".to_string()),
     };
 
-    let payload = build_openclaw_hook_payload(&deliver);
+    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver);
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
-        payload.get("text").and_then(|value| value.as_str())
+        Some("hello from alpha")
     );
-    let text = payload
-        .get("text")
-        .and_then(|value| value.as_str())
-        .expect("wake text");
-    assert!(text.contains("Clawdentity peer message from did:cdi:test:agent:sender"));
-    assert!(text.contains("hello from alpha"));
-    assert!(text.contains("Request ID: req-1"));
-    assert!(text.contains("Conversation ID: conv-1"));
-    assert!(text.contains("Reply To: reply-1"));
+    assert_eq!(
+        payload.get("content").and_then(|value| value.as_str()),
+        Some("hello from alpha")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("payload")),
+        Some(&deliver.payload)
+    );
 }
 
 #[test]
-fn openclaw_wake_payload_omits_default_session_override() {
+fn openclaw_hook_payload_stringifies_non_string_payloads() {
     let deliver = DeliverFrame {
         v: 1,
         id: "req-2".to_string(),
@@ -102,18 +107,18 @@ fn openclaw_wake_payload_omits_default_session_override() {
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
         payload: json!({
-            "message": "plain peer text",
+            "structured": true,
+            "count": 2,
         }),
         content_type: Some("application/json".to_string()),
         conversation_id: None,
         reply_to: None,
     };
 
-    let payload = build_openclaw_hook_payload(&deliver);
-    assert!(payload.get("sessionId").is_none());
+    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver);
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
-        payload.get("text").and_then(|value| value.as_str())
+        Some("{\"count\":2,\"structured\":true}")
     );
 }
 
@@ -126,19 +131,103 @@ fn openclaw_wake_payload_preserves_explicit_session_id() {
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
         payload: json!({
-            "content": "hello in explicit session",
-            "sessionId": "agent:main:main",
+            "content": "hello from alpha",
+            "sessionId": "main",
+        }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: Some("conv-1".to_string()),
+        reply_to: Some("reply-1".to_string()),
+    };
+
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver);
+    assert_eq!(
+        payload.get("mode").and_then(|value| value.as_str()),
+        Some("now")
+    );
+    assert_eq!(
+        payload.get("message").and_then(|value| value.as_str()),
+        payload.get("text").and_then(|value| value.as_str())
+    );
+    assert_eq!(
+        payload.get("sessionId").and_then(|value| value.as_str()),
+        Some("main")
+    );
+    let text = payload
+        .get("text")
+        .and_then(|value| value.as_str())
+        .expect("wake text");
+    assert!(text.contains("Clawdentity peer message from did:cdi:test:agent:sender"));
+    assert!(text.contains("hello from alpha"));
+    assert!(text.contains("Request ID: req-3"));
+    assert!(text.contains("Conversation ID: conv-1"));
+    assert!(text.contains("Reply To: reply-1"));
+}
+
+#[test]
+fn openclaw_wake_payload_omits_default_session_override() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-4".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({
+            "message": "plain peer text",
         }),
         content_type: Some("application/json".to_string()),
         conversation_id: None,
         reply_to: None,
     };
 
-    let payload = build_openclaw_hook_payload(&deliver);
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver);
+    assert!(payload.get("sessionId").is_none());
     assert_eq!(
-        payload.get("sessionId").and_then(|value| value.as_str()),
-        Some("agent:main:main")
+        payload.get("message").and_then(|value| value.as_str()),
+        payload.get("text").and_then(|value| value.as_str())
     );
+    assert_eq!(
+        payload.get("text").and_then(|value| value.as_str()),
+        Some(
+            "Clawdentity peer message from did:cdi:test:agent:sender\n\nplain peer text\n\nRequest ID: req-4"
+        )
+    );
+}
+
+#[test]
+fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-5".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({
+            "message": "plain peer text",
+        }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver);
+    assert!(payload.get("sessionId").is_none());
+    assert_eq!(
+        payload.get("message").and_then(|value| value.as_str()),
+        payload.get("text").and_then(|value| value.as_str())
+    );
+    assert_eq!(
+        payload.get("text").and_then(|value| value.as_str()),
+        Some(
+            "Clawdentity peer message from did:cdi:test:agent:sender\n\nplain peer text\n\nRequest ID: req-5"
+        )
+    );
+}
+
+#[test]
+fn pending_retry_dead_letters_at_max_attempt_threshold() {
+    assert!(!should_dead_letter_after_failure(0));
+    assert!(!should_dead_letter_after_failure(1));
+    assert!(should_dead_letter_after_failure(2));
 }
 
 fn sample_auth_record(access_token: &str, expires_at: chrono::DateTime<Utc>) -> AgentAuthRecord {

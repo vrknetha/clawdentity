@@ -13,6 +13,24 @@
     }
   },
   "env": {
+    "local": {
+      "name": "clawdentity-registry-local",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "clawdentity-db-dev",
+          "database_id": "7d06305b-47ec-47be-9e3c-4cec93156d3e",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "vars": {
+        "ENVIRONMENT": "local",
+        "PROXY_URL": "http://127.0.0.1:8787",
+        "REGISTRY_ISSUER_URL": "http://127.0.0.1:8788",
+        "LANDING_URL": "http://localhost:4321",
+        "EVENT_BUS_BACKEND": "memory"
+      }
+    },
     "dev": {
       "name": "clawdentity-registry-dev",
       "d1_databases": [

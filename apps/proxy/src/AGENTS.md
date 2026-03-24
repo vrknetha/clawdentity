@@ -53,13 +53,14 @@
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep relay websocket connect handling isolated in `relay-connect-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
+- Keep websocket relay behavior complete inside `agent-relay-session/`: sender-side `enqueue` frames from authenticated connector sockets must be authorized, routed to the recipient session, and answered with `enqueue_ack` rather than being dropped silently.
 - Keep relay delivery-receipt HTTP handlers isolated in `relay-delivery-receipt-route.ts`; `server.ts` should only compose `POST/GET /v1/relay/delivery-receipts`.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep production request logging policy in `server.ts` restrictive (`onlyErrors` with a slow-request threshold) and keep development/local verbose for debugging.
 - When production keeps `minLevel: "warn"`, request completion logs that survive the filter (slow requests and handled `4xx/5xx`) must be emitted at `warn`, not `info`.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
-- Keep proxy expected issuer derivation based on `new URL(resolvedRegistryUrl).origin`; do not branch on hardcoded hostnames.
+- Keep proxy expected issuer derivation based on the configured registry origin for remote environments and the caller-facing request host when the configured registry URL is local loopback (`127.0.0.1`/`localhost`). Proxy fetches may stay on loopback, but connector AIT validation must match the public local registry origin seen by Docker clients (`host.docker.internal`).
 - Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.
 - Keep `/pair/start` ownership validation against registry `/internal/v1/identity/agent-ownership` using internal service credentials (`x-claw-service-id` + `x-claw-service-secret`), and map dependency failures to `503`.
 - Keep `/pair/start` fail-closed: do not bypass registry ownership dependencies.

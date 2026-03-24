@@ -3,6 +3,7 @@ set -eu
 
 BIN_NAME="clawdentity"
 DEFAULT_DOWNLOADS_BASE_URL="https://downloads.clawdentity.com"
+DEFAULT_SITE_BASE_URL="https://clawdentity.com"
 
 DRY_RUN="${CLAWDENTITY_INSTALL_DRY_RUN:-0}"
 NO_VERIFY="${CLAWDENTITY_NO_VERIFY:-0}"
@@ -10,6 +11,8 @@ VERSION_INPUT="${CLAWDENTITY_VERSION:-}"
 INSTALL_DIR="${CLAWDENTITY_INSTALL_DIR:-}"
 DOWNLOADS_BASE_URL="${CLAWDENTITY_DOWNLOADS_BASE_URL:-$DEFAULT_DOWNLOADS_BASE_URL}"
 MANIFEST_URL_INPUT="${CLAWDENTITY_RELEASE_MANIFEST_URL:-}"
+SITE_BASE_URL_INPUT="${CLAWDENTITY_SITE_BASE_URL:-}"
+SKILL_URL_INPUT="${CLAWDENTITY_SKILL_URL:-}"
 
 TAG=""
 VERSION=""
@@ -52,6 +55,21 @@ resolve_manifest_url() {
 
   base_url="$(trim_trailing_slash "$DOWNLOADS_BASE_URL")"
   printf '%s\n' "${base_url}/rust/latest.json"
+}
+
+resolve_skill_url() {
+  if [ -n "$SKILL_URL_INPUT" ]; then
+    printf '%s\n' "$SKILL_URL_INPUT"
+    return 0
+  fi
+
+  base_url="$DEFAULT_SITE_BASE_URL"
+  if [ -n "$SITE_BASE_URL_INPUT" ]; then
+    base_url="$SITE_BASE_URL_INPUT"
+  fi
+
+  base_url="$(trim_trailing_slash "$base_url")"
+  printf '%s\n' "${base_url}/skill.md"
 }
 
 extract_manifest_string() {
@@ -190,6 +208,7 @@ main() {
   asset_url="${ASSET_BASE_URL}/${asset_name}"
   checksum_url="${CHECKSUM_URL}"
   target_path="${INSTALL_DIR}/${BIN_NAME}"
+  skill_url="$(resolve_skill_url)"
 
   tmp_dir="$(mktemp -d)"
   asset_path="${tmp_dir}/${asset_name}"
@@ -244,7 +263,7 @@ main() {
     info "[dry-run] mkdir -p '${INSTALL_DIR}'"
     info "[dry-run] tar -xzf '${asset_path}' -C '${extract_dir}'"
     info "[dry-run] install binary to '${target_path}'"
-    info "[dry-run] next step: use the onboarding prompt in https://clawdentity.com/skill.md"
+    info "[dry-run] next step: use the onboarding prompt in ${skill_url}"
     info "[dry-run] complete"
     exit 0
   fi
@@ -266,7 +285,7 @@ main() {
   fi
 
   info "installed ${BIN_NAME} to ${target_path}"
-  info "next step: use the onboarding prompt in https://clawdentity.com/skill.md"
+  info "next step: use the onboarding prompt in ${skill_url}"
   case ":${PATH:-}:" in
     *":${INSTALL_DIR}:"*) ;;
     *) warn "${INSTALL_DIR} is not on PATH; add it to your shell profile" ;;

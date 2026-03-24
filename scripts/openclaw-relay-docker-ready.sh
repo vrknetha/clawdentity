@@ -5,6 +5,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CLAWDENTITY_ENV_FILE="${CLAWDENTITY_ENV_FILE:-$REPO_ROOT/.env}"
+LOCAL_PROFILE_DIR="${LOCAL_PROFILE_DIR:-$SCRIPT_DIR/openclaw-local-profile}"
+LOCAL_OPENCLAW_POLICY_FILE="${LOCAL_OPENCLAW_POLICY_FILE:-$LOCAL_PROFILE_DIR/openclaw.json}"
+LOCAL_EXEC_APPROVALS_FILE="${LOCAL_EXEC_APPROVALS_FILE:-$LOCAL_PROFILE_DIR/exec-approvals.json}"
+HOST_CODEX_AUTH_FILE="${HOST_CODEX_AUTH_FILE:-$HOME/.codex/auth.json}"
+LOCAL_OPENCLAW_MODEL="${LOCAL_OPENCLAW_MODEL:-openai-codex/gpt-5.4}"
 
 load_dotenv() {
   local env_file="$1"
@@ -29,10 +34,15 @@ BASELINE_BETA="${BASELINE_BETA:-$HOME/.openclaw-baselines/beta-kimi-preskill}"
 
 PRESERVE_ENV="${PRESERVE_ENV:-1}"
 WAIT_TIMEOUT_SECONDS="${WAIT_TIMEOUT_SECONDS:-90}"
+DEVICE_AUTO_APPROVE_SECONDS="${DEVICE_AUTO_APPROVE_SECONDS:-180}"
 ALPHA_CONTAINER="${ALPHA_CONTAINER:-clawdbot-agent-alpha-1}"
 BETA_CONTAINER="${BETA_CONTAINER:-clawdbot-agent-beta-1}"
+ALPHA_UI_PORT="${ALPHA_UI_PORT:-18789}"
+BETA_UI_PORT="${BETA_UI_PORT:-19001}"
 DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://host.docker.internal:8788}}"
 DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://host.docker.internal:8787}}"
+CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
+DOCKER_SITE_BASE_URL="${DOCKER_SITE_BASE_URL:-http://host.docker.internal:4321}"
 
 log() {
   printf '[openclaw-relay-ready] %s\n' "$*"
@@ -41,6 +51,61 @@ log() {
 fail() {
   printf '[openclaw-relay-ready] ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+copy_preserved_env_values() {
+  local source_env="$1"
+  local target_env="$2"
+
+  node -e '
+    const fs = require("fs");
+    const sourcePath = process.argv[1];
+    const targetPath = process.argv[2];
+    const preservedKeys = new Set([
+      "KIMI_API_KEY",
+      "KIMICODE_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENCLAW_GATEWAY_TOKEN",
+    ]);
+
+    const parseEnv = (raw) => {
+      const lines = raw.split(/\r?\n/);
+      const entries = [];
+      for (const line of lines) {
+        const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/);
+        if (!match) {
+          continue;
+        }
+        entries.push([match[1], match[2]]);
+      }
+      return entries;
+    };
+
+    const upsertEnv = (raw, key, value) => {
+      const replacement = `${key}=${value}`;
+      const keyPattern = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
+      if (keyPattern.test(raw)) {
+        const next = raw.replace(keyPattern, replacement);
+        return next.endsWith("\n") ? next : `${next}\n`;
+      }
+      if (raw.trim().length === 0) {
+        return `${replacement}\n`;
+      }
+      return raw.endsWith("\n") ? `${raw}${replacement}\n` : `${raw}\n${replacement}\n`;
+    };
+
+    const sourceRaw = fs.existsSync(sourcePath) ? fs.readFileSync(sourcePath, "utf8") : "";
+    let targetRaw = fs.existsSync(targetPath) ? fs.readFileSync(targetPath, "utf8") : "";
+
+    for (const [key, value] of parseEnv(sourceRaw)) {
+      if (!preservedKeys.has(key)) {
+        continue;
+      }
+      targetRaw = upsertEnv(targetRaw, key, value);
+    }
+
+    fs.writeFileSync(targetPath, targetRaw);
+  ' "$source_env" "$target_env"
 }
 
 require_command() {
@@ -52,9 +117,34 @@ require_dir() {
   [[ -d "$path" ]] || fail "Directory not found: $path"
 }
 
+require_file() {
+  local path="$1"
+  [[ -f "$path" ]] || fail "File not found: $path"
+}
+
 docker_compose_dual() {
   [[ -f "$DOCKER_COMPOSE_FILE" ]] || fail "docker compose file not found: $DOCKER_COMPOSE_FILE"
   docker compose -f "$DOCKER_COMPOSE_FILE" "$@"
+}
+
+start_device_pairing_autoapprove() {
+  local container="$1"
+  local duration_seconds="$2"
+  local log_file="/tmp/${container}-device-autoapprove.log"
+  local pid_file="/tmp/${container}-device-autoapprove.pid"
+
+  nohup bash -lc "
+    set -euo pipefail
+    echo \$\$ > '${pid_file}'
+    echo 'started container=${container} duration=${duration_seconds}s' >> '${log_file}'
+    deadline=\$((SECONDS + ${duration_seconds}))
+
+    while (( SECONDS < deadline )); do
+      docker exec '${container}' sh -lc 'openclaw devices approve --latest --json >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
+      sleep 1
+    done
+    echo 'finished' >> '${log_file}'
+  " >"$log_file" 2>&1 &
 }
 
 wait_for_ui() {
@@ -85,9 +175,16 @@ write_gateway_defaults() {
   node -e '
     const fs = require("fs");
     const crypto = require("crypto");
-    const paths = process.argv.slice(1, 3);
-    const registryUrl = process.argv[3];
-    const proxyUrl = process.argv[4];
+    const profileArgs = [
+      { configPath: process.argv[1], uiPort: process.argv[2] },
+      { configPath: process.argv[3], uiPort: process.argv[4] },
+    ];
+    const registryUrl = process.argv[5];
+    const proxyUrl = process.argv[6];
+    const siteBaseUrl = process.argv[7];
+    const openclawPolicyPath = process.argv[8];
+    const execApprovalsPolicyPath = process.argv[9];
+    const modelRef = process.argv[10];
 
     const readEnvFile = (envPath) => (fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "");
 
@@ -118,20 +215,78 @@ write_gateway_defaults() {
       return raw.endsWith("\n") ? `${raw}${line}\n` : `${raw}\n${line}\n`;
     };
 
-    for (const configPath of paths) {
+    const allowedOriginsForPort = (uiPort) => [
+      `http://localhost:${uiPort}`,
+      `http://127.0.0.1:${uiPort}`,
+    ];
+    const openclawPolicy = JSON.parse(fs.readFileSync(openclawPolicyPath, "utf8"));
+    const execApprovalsPolicy = JSON.parse(fs.readFileSync(execApprovalsPolicyPath, "utf8"));
+
+    for (const { configPath, uiPort } of profileArgs) {
       const envPath = configPath.replace(/openclaw\.json$/, ".env");
+      const profileHome = configPath.replace(/\/openclaw\.json$/, "");
       const envRaw = readEnvFile(envPath);
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      cfg.agents = cfg.agents || {};
+      cfg.agents.defaults = cfg.agents.defaults || {};
+      if (typeof openclawPolicy.agents?.defaults?.elevatedDefault === "string") {
+        cfg.agents.defaults.elevatedDefault = openclawPolicy.agents.defaults.elevatedDefault;
+      }
+      cfg.agents.defaults.model = {
+        ...(typeof cfg.agents.defaults.model === "object" && cfg.agents.defaults.model !== null
+          ? cfg.agents.defaults.model
+          : {}),
+        primary: modelRef,
+      };
+      cfg.agents.defaults.sandbox = {
+        ...(typeof cfg.agents.defaults.sandbox === "object" && cfg.agents.defaults.sandbox !== null
+          ? cfg.agents.defaults.sandbox
+          : {}),
+        ...(openclawPolicy.agents?.defaults?.sandbox || {}),
+      };
       cfg.gateway = cfg.gateway || {};
-      cfg.gateway.mode = "local";
-      cfg.gateway.bind = "lan";
+      cfg.gateway.mode = openclawPolicy.gateway?.mode || "local";
+      cfg.gateway.bind = openclawPolicy.gateway?.bind || "lan";
+      cfg.gateway.auth = {
+        ...(typeof cfg.gateway.auth === "object" && cfg.gateway.auth !== null ? cfg.gateway.auth : {}),
+        ...(openclawPolicy.gateway?.auth || {}),
+      };
       cfg.gateway.controlUi = {
         ...(cfg.gateway.controlUi || {}),
-        allowInsecureAuth: true,
+        ...(openclawPolicy.gateway?.controlUi || {}),
+        allowedOrigins: allowedOriginsForPort(uiPort),
       };
-      if (typeof cfg.gateway.auth !== "object" || cfg.gateway.auth === null) {
-        cfg.gateway.auth = {};
+      if (openclawPolicy.gateway?.controlUi?.dangerouslyDisableDeviceAuth !== true) {
+        delete cfg.gateway.controlUi.dangerouslyDisableDeviceAuth;
       }
+      cfg.tools = cfg.tools || {};
+      cfg.tools.elevated = {
+        ...(typeof cfg.tools.elevated === "object" && cfg.tools.elevated !== null
+          ? cfg.tools.elevated
+          : {}),
+        ...(openclawPolicy.tools?.elevated || {}),
+      };
+      cfg.tools.exec = {
+        ...(typeof cfg.tools.exec === "object" && cfg.tools.exec !== null ? cfg.tools.exec : {}),
+        ...(openclawPolicy.tools?.exec || {}),
+      };
+      cfg.browser = cfg.browser || {};
+      cfg.browser.ssrfPolicy = {
+        ...(typeof cfg.browser.ssrfPolicy === "object" && cfg.browser.ssrfPolicy !== null
+          ? cfg.browser.ssrfPolicy
+          : {}),
+        ...(openclawPolicy.browser?.ssrfPolicy || {}),
+        allowedHostnames: Array.from(
+          new Set([
+            ...(Array.isArray(cfg.browser.ssrfPolicy?.allowedHostnames)
+              ? cfg.browser.ssrfPolicy.allowedHostnames
+              : []),
+            ...(Array.isArray(openclawPolicy.browser?.ssrfPolicy?.allowedHostnames)
+              ? openclawPolicy.browser.ssrfPolicy.allowedHostnames
+              : []),
+          ]),
+        ),
+      };
       const envToken = readEnvToken(envRaw);
       const configToken =
         typeof cfg.gateway.auth.token === "string" && cfg.gateway.auth.token.trim().length > 0
@@ -143,13 +298,42 @@ write_gateway_defaults() {
       let nextEnvRaw = upsertEnvValue(envRaw, "OPENCLAW_GATEWAY_TOKEN", token);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_REGISTRY_URL", registryUrl);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_PROXY_URL", proxyUrl);
+      nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_SITE_BASE_URL", siteBaseUrl);
+      nextEnvRaw = upsertEnvValue(nextEnvRaw, "CODEX_HOME", "/home/node/.openclaw/.codex");
       fs.writeFileSync(envPath, nextEnvRaw);
+      const approvalsPath = `${profileHome}/exec-approvals.json`;
+      let currentApprovals = {};
+      if (fs.existsSync(approvalsPath)) {
+        try {
+          currentApprovals = JSON.parse(fs.readFileSync(approvalsPath, "utf8"));
+        } catch {
+          currentApprovals = {};
+        }
+      }
+      const approvalsToken =
+        typeof currentApprovals?.socket?.token === "string" && currentApprovals.socket.token.trim().length > 0
+          ? currentApprovals.socket.token.trim()
+          : crypto.randomBytes(24).toString("base64url");
+      const nextApprovals = {
+        ...execApprovalsPolicy,
+        socket: {
+          ...(execApprovalsPolicy.socket || {}),
+          token: approvalsToken,
+        },
+      };
+      fs.writeFileSync(approvalsPath, `${JSON.stringify(nextApprovals, null, 2)}\n`);
     }
   ' \
     "$OPENCLAW_ALPHA_HOME/openclaw.json" \
+    "$ALPHA_UI_PORT" \
     "$OPENCLAW_BETA_HOME/openclaw.json" \
+    "$BETA_UI_PORT" \
     "$DOCKER_REGISTRY_URL" \
-    "$DOCKER_PROXY_URL"
+    "$DOCKER_PROXY_URL" \
+    "$DOCKER_SITE_BASE_URL" \
+    "$LOCAL_OPENCLAW_POLICY_FILE" \
+    "$LOCAL_EXEC_APPROVALS_FILE" \
+    "$LOCAL_OPENCLAW_MODEL"
 }
 
 remove_skill_artifacts() {
@@ -163,9 +347,19 @@ remove_skill_artifacts() {
 clear_runtime_state() {
   local profile_path="$1"
   rm -f "$profile_path/memory/main.sqlite"
+  rm -f "$profile_path/workspace/.openclaw/workspace-state.json"
   if [[ -d "$profile_path/agents/main/sessions" ]]; then
     find "$profile_path/agents/main/sessions" -type f -delete
   fi
+}
+
+install_host_codex_auth() {
+  local profile_path="$1"
+  local target_dir="$profile_path/.codex"
+
+  mkdir -p "$target_dir"
+  cp "$HOST_CODEX_AUTH_FILE" "$target_dir/auth.json"
+  chmod 600 "$target_dir/auth.json"
 }
 
 print_urls() {
@@ -195,8 +389,8 @@ print_urls() {
 
     const alphaToken = tokenFromEnvFile(alphaHome) || tokenFromConfig(alphaHome);
     const betaToken = tokenFromEnvFile(betaHome) || tokenFromConfig(betaHome);
-    console.log(`alpha_url=http://localhost:18789/#token=${alphaToken}`);
-    console.log(`beta_url=http://localhost:19001/#token=${betaToken}`);
+    console.log(`alpha_url=http://127.0.0.1:18789/#token=${alphaToken}`);
+    console.log(`beta_url=http://127.0.0.1:19001/#token=${betaToken}`);
   ' \
     "$OPENCLAW_ALPHA_HOME" \
     "$OPENCLAW_BETA_HOME"
@@ -209,6 +403,9 @@ run() {
   require_command curl
   require_dir "$BASELINE_ALPHA"
   require_dir "$BASELINE_BETA"
+  require_file "$LOCAL_OPENCLAW_POLICY_FILE"
+  require_file "$LOCAL_EXEC_APPROVALS_FILE"
+  require_file "$HOST_CODEX_AUTH_FILE"
 
   local tmp_dir
   tmp_dir="$(mktemp -d)"
@@ -229,13 +426,15 @@ run() {
   rsync -a --delete "$BASELINE_BETA/" "$OPENCLAW_BETA_HOME/"
 
   if [[ "$PRESERVE_ENV" == "1" ]]; then
-    log "Restoring preserved .env API configuration"
-    cp "$tmp_dir/alpha.env" "$OPENCLAW_ALPHA_HOME/.env"
-    cp "$tmp_dir/beta.env" "$OPENCLAW_BETA_HOME/.env"
+    log "Restoring preserved secret env configuration"
+    copy_preserved_env_values "$tmp_dir/alpha.env" "$OPENCLAW_ALPHA_HOME/.env"
+    copy_preserved_env_values "$tmp_dir/beta.env" "$OPENCLAW_BETA_HOME/.env"
   fi
 
   log "Applying gateway defaults + clearing runtime state"
   write_gateway_defaults
+  install_host_codex_auth "$OPENCLAW_ALPHA_HOME"
+  install_host_codex_auth "$OPENCLAW_BETA_HOME"
   clear_runtime_state "$OPENCLAW_ALPHA_HOME"
   clear_runtime_state "$OPENCLAW_BETA_HOME"
   remove_skill_artifacts "$OPENCLAW_ALPHA_HOME"
@@ -246,6 +445,9 @@ run() {
 
   wait_for_ui 18789 "$ALPHA_CONTAINER"
   wait_for_ui 19001 "$BETA_CONTAINER"
+  log "Starting temporary Control UI device auto-approval watchers"
+  start_device_pairing_autoapprove "$ALPHA_CONTAINER" "$DEVICE_AUTO_APPROVE_SECONDS"
+  start_device_pairing_autoapprove "$BETA_CONTAINER" "$DEVICE_AUTO_APPROVE_SECONDS"
 
   print_urls
 

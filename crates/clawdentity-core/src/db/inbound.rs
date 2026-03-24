@@ -214,6 +214,21 @@ pub fn get_pending(store: &SqliteStore, request_id: &str) -> Result<Option<Inbou
     })
 }
 
+/// TODO(clawdentity): document `delete_pending`.
+pub fn delete_pending(store: &SqliteStore, request_id: &str) -> Result<bool> {
+    let request_id = request_id.trim();
+    if request_id.is_empty() {
+        return Ok(false);
+    }
+    store.with_connection(|connection| {
+        let affected = connection.execute(
+            "DELETE FROM inbound_pending WHERE request_id = ?1",
+            [request_id],
+        )?;
+        Ok(affected > 0)
+    })
+}
+
 /// TODO(clawdentity): document `mark_pending_attempt`.
 pub fn mark_pending_attempt(
     store: &SqliteStore,
@@ -537,7 +552,7 @@ mod tests {
     use crate::db::SqliteStore;
 
     use super::{
-        InboundPendingItem, append_inbound_event, get_pending, list_dead_letter,
+        InboundPendingItem, append_inbound_event, delete_pending, get_pending, list_dead_letter,
         list_inbound_events, list_pending_due, mark_pending_attempt, move_pending_to_dead_letter,
         purge_dead_letter, replay_dead_letter, upsert_pending,
     };
@@ -606,6 +621,21 @@ mod tests {
 
         let purged_none = purge_dead_letter(&store, None).expect("purge none");
         assert_eq!(purged_none, 0);
+    }
+
+    #[test]
+    fn delete_pending_removes_existing_row() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+
+        upsert_pending(&store, fixture_pending("req-delete")).expect("upsert");
+        let deleted = delete_pending(&store, "req-delete").expect("delete pending");
+        assert!(deleted);
+        assert!(
+            get_pending(&store, "req-delete")
+                .expect("get pending")
+                .is_none()
+        );
     }
 
     #[test]

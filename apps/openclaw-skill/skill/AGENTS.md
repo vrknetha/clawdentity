@@ -12,6 +12,8 @@
 - Treat Rust CLI command surfaces as the source of truth for this skill. Do not add npm or TS-only execution steps.
 - Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor|relay-test}`.
 - OpenClaw wording must stay OpenClaw-first: OpenClaw owns OpenClaw setup and auth, Clawdentity adds relay setup after OpenClaw is healthy.
+- Keep OpenClaw base URL guidance explicit: `--platform-base-url` / `openclawBaseUrl` refer only to the OpenClaw gateway, never the Clawdentity registry or proxy.
+- Keep local harness/testing instructions out of user-facing documentation; those belong in internal testing skills or operator runbooks, not the published skill/docs.
 - When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
 - Keep a single canonical skill URL path:
   - `https://clawdentity.com/skill.md`
@@ -25,7 +27,7 @@
 - Keep CLI install guidance deterministic and fallback-safe:
   - primary path: hosted installers `https://clawdentity.com/install.sh` and `https://clawdentity.com/install.ps1`
   - do not state or imply Rust toolchain is required for the recommended install path
-  - installer env contract must stay documented: `CLAWDENTITY_VERSION`, `CLAWDENTITY_DOWNLOADS_BASE_URL`, `CLAWDENTITY_RELEASE_MANIFEST_URL`, `CLAWDENTITY_INSTALL_DIR`, `CLAWDENTITY_INSTALL_DRY_RUN=1`, `CLAWDENTITY_NO_VERIFY=1`
+  - installer env contract must stay documented: `CLAWDENTITY_VERSION`, `CLAWDENTITY_DOWNLOADS_BASE_URL`, `CLAWDENTITY_RELEASE_MANIFEST_URL`, `CLAWDENTITY_SITE_BASE_URL`, `CLAWDENTITY_SKILL_URL`, `CLAWDENTITY_INSTALL_DIR`, `CLAWDENTITY_INSTALL_DRY_RUN=1`, `CLAWDENTITY_NO_VERIFY=1`
   - installer checksum verification is default; bypass only when `CLAWDENTITY_NO_VERIFY=1`
   - fallback path: `rustup` + `cargo install --locked clawdentity-cli`
   - optional deterministic pin: `cargo install --locked --version <version> clawdentity-cli`

@@ -5,7 +5,7 @@
 
 ## DID v2 Handling
 - Use protocol entity parsers (`parseHumanDid`, `parseAgentDid`) for role validation; avoid ad-hoc DID field checks in route code.
-- Derive DID authority from `resolveRegistryIssuer(config)` host and pass it to DID constructors when issuing humans/agents.
+- Derive DID authority from the caller-facing registry issuer (`resolvePublicRegistryIssuer` in route/auth code, `resolveRegistryIssuer(config)` only for environment defaults) and pass it to DID constructors when issuing humans/agents.
 - Keep authority checks centralized in ownership/internal identity parsing so non-local authority DIDs are rejected consistently.
 
 ## Entrypoints
@@ -92,7 +92,7 @@
 ## POST /internal/v1/ownership/check Contract
 - Require service auth via internal service token middleware.
 - Validate `ownerDid` and `agentDid` with protocol entity parsers (`human` and `agent` respectively).
-- Reject ownership checks when DID authority does not match this registry's local authority (derived from resolved issuer host).
+- Answer ownership from the stored agent row plus owner DID match; do not reject otherwise-valid local alias authorities (for example `host.docker.internal` vs loopback) before the lookup runs.
 - Return `{ ownsAgent, agentStatus }` where `agentStatus` is `active | revoked | null`.
 - Keep this endpoint internal-only for proxy service-to-service ownership checks.
 
@@ -162,7 +162,7 @@
 - Consume challenge with guarded state transition (`pending` -> `used`) in the same mutation unit as agent insert; reject zero-row updates as replayed challenge.
 - Use shared SDK datetime helpers (`nowUtcMs`, `toIso`, `nowIso`, `addSeconds`) for issuance/expiry math and timestamp serialization in route logic.
 - Resolve signing material through a reusable signer helper (`registry-signer.ts`) that derives the public key from `REGISTRY_SIGNING_KEY` and matches it to an `active` `kid` in `REGISTRY_SIGNING_KEYS` before signing.
-- Keep AIT `iss` deterministic from environment mapping (`local`/`development` -> `https://dev.registry.clawdentity.com`, `production` -> `https://registry.clawdentity.com`) rather than request-origin inference.
+- Keep AIT `iss` deterministic from configured environment defaults for remote environments, but for `local` translate loopback config to the caller-facing origin so host and Docker clients see matching issuer/DID authority (`localhost` vs `host.docker.internal`) without hardcoded dev-host leakage.
 - Keep issued human/agent DID authority aligned to the resolved issuer host so AIT issuer and DID authority stay consistent.
 - Bootstrap agent auth refresh material in the same mutation unit as agent creation by inserting an active `agent_auth_sessions` row.
 - Response shape is `{ agent, ait, agentAuth }` where `agentAuth` returns short-lived access credentials and rotating refresh credentials.

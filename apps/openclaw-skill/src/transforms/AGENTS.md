@@ -8,6 +8,7 @@
 - Keep connector endpoint candidates stable: exact override first, container-safe fallbacks after it.
 - Do not bypass `peers-config.ts` for peer alias loading or validation.
 - Keep transform logic free of direct registry/proxy calls; local connector handoff is the only outbound path here.
+- The `send-to-peer` OpenClaw mapping is a `wake`-action side-effect hook: keep transform input compatible with raw `ctx.payload`, and do not assume `agent` mappings still execute null-return relay transforms safely.
 
 ## Testing
 - Cover both default runtime metadata and explicit override behavior in transform tests.

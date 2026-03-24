@@ -5,10 +5,10 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 use crate::{
-    config::{ConfigPathOptions, get_config_dir},
+    config::{CliConfig, ConfigPathOptions, get_config_dir, write_config},
     provider::{
         InboundMessage, InstallOptions, PlatformProvider, ProviderDoctorOptions,
-        ProviderSetupOptions,
+        ProviderSetupOptions, ProviderSetupStatus,
     },
 };
 
@@ -64,12 +64,26 @@ fn format_inbound_uses_openclaw_webhook_shape() {
         Some("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB")
     );
     assert_eq!(
-        request.body.get("content").and_then(|value| value.as_str()),
-        Some("hello")
+        request.body.get("text").and_then(|value| value.as_str()),
+        Some(
+            "Clawdentity peer message from did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB\n\nhello"
+        )
+    );
+    assert_eq!(
+        request.body.get("message").and_then(|value| value.as_str()),
+        request.body.get("text").and_then(|value| value.as_str())
+    );
+    assert_eq!(
+        request.body.get("mode").and_then(|value| value.as_str()),
+        Some("now")
+    );
+    assert_eq!(
+        request.body.get("sessionId").and_then(|value| value.as_str()),
+        Some("main")
     );
     assert_eq!(
         request.body.get("path").and_then(|value| value.as_str()),
-        Some("/hooks/agent")
+        Some("/hooks/wake")
     );
 }
 
@@ -124,6 +138,8 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
             relay_transform_peers_path: Some(custom_peers_path.display().to_string()),
         })
         .expect("setup");
+
+    assert_eq!(result.status, ProviderSetupStatus::ActionRequired);
 
     assert!(
         result
@@ -250,4 +266,102 @@ fn setup_requires_openclaw_onboarding_first() {
         .expect_err("missing openclaw config should fail");
 
     assert!(error.to_string().contains("openclaw onboard"));
+}
+
+#[test]
+fn setup_rejects_proxy_url_as_openclaw_base_url() {
+    let home = TempDir::new().expect("temp home");
+    let bin_dir = install_mock_openclaw_cli();
+    write_openclaw_profile(
+        home.path(),
+        r#"{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+    );
+    write_config(
+        &CliConfig {
+            registry_url: "https://registry.example.test".to_string(),
+            proxy_url: Some("https://proxy.example.test".to_string()),
+            api_key: None,
+            human_name: Some("Ravi Kiran".to_string()),
+        },
+        &ConfigPathOptions {
+            home_dir: Some(home.path().to_path_buf()),
+            registry_url_hint: None,
+        },
+    )
+    .expect("config");
+    let provider = OpenclawProvider::with_test_context(
+        home.path().to_path_buf(),
+        vec![bin_dir.path().to_path_buf()],
+    );
+
+    let error = provider
+        .setup(&ProviderSetupOptions {
+            agent_name: Some("alpha".to_string()),
+            platform_base_url: Some("https://proxy.example.test".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect_err("proxy url should be rejected as openclaw base url");
+
+    assert!(
+        error
+            .to_string()
+            .contains("points at the Clawdentity proxy")
+    );
+}
+
+#[test]
+fn setup_rejects_registry_url_as_openclaw_base_url() {
+    let home = TempDir::new().expect("temp home");
+    let bin_dir = install_mock_openclaw_cli();
+    write_openclaw_profile(
+        home.path(),
+        r#"{
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+    );
+    write_config(
+        &CliConfig {
+            registry_url: "https://registry.example.test".to_string(),
+            proxy_url: Some("https://proxy.example.test".to_string()),
+            api_key: None,
+            human_name: Some("Ravi Kiran".to_string()),
+        },
+        &ConfigPathOptions {
+            home_dir: Some(home.path().to_path_buf()),
+            registry_url_hint: None,
+        },
+    )
+    .expect("config");
+    let provider = OpenclawProvider::with_test_context(
+        home.path().to_path_buf(),
+        vec![bin_dir.path().to_path_buf()],
+    );
+
+    let error = provider
+        .setup(&ProviderSetupOptions {
+            agent_name: Some("alpha".to_string()),
+            platform_base_url: Some("https://registry.example.test".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect_err("registry url should be rejected as openclaw base url");
+
+    assert!(
+        error
+            .to_string()
+            .contains("points at the Clawdentity registry")
+    );
 }

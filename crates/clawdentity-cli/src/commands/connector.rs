@@ -1,17 +1,21 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
 use clawdentity_core::config::ConfigPathOptions;
 use clawdentity_core::db::now_utc_ms;
-use clawdentity_core::db_inbound::{InboundPendingItem, append_inbound_event, upsert_pending};
+use clawdentity_core::db_inbound::{
+    InboundPendingItem, append_inbound_event, delete_pending, list_pending_due,
+    mark_pending_attempt, move_pending_to_dead_letter, upsert_pending,
+};
 use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientOptions, ConnectorClientSender,
-    ConnectorFrame, ConnectorServiceInstallInput, ConnectorServiceUninstallInput, DeliverAckFrame,
-    DeliverFrame, RuntimeServerState, SqliteStore, flush_outbound_queue_to_relay,
+    ConnectorFrame, ConnectorServiceInstallInput, ConnectorServiceUninstallInput, CoreError,
+    DeliverAckFrame, DeliverFrame, RuntimeServerState, SqliteStore, flush_outbound_queue_to_relay,
     install_connector_service, new_frame_id, now_iso, spawn_connector_client,
     uninstall_connector_service,
 };
@@ -20,8 +24,11 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const DEFAULT_CONNECTOR_PORT: u16 = 19400;
-const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
+const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/wake";
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
+const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
+const INBOUND_RETRY_BATCH_SIZE: usize = 50;
+const INBOUND_MAX_ATTEMPTS: i64 = 3;
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
 
@@ -86,7 +93,6 @@ pub(super) struct ConnectorRuntimeConfig {
     agent_name: String,
     agent_did: String,
     proxy_ws_url: String,
-    relay_headers: Vec<(String, String)>,
     openclaw_runtime: OpenclawRuntimeConfig,
     port: u16,
     bind: IpAddr,
@@ -204,10 +210,24 @@ async fn start_connector_runtime(
     let runtime = runtime_config::resolve_runtime_config(options, input).await?;
     let store = SqliteStore::open(options)?;
 
-    let client = spawn_connector_client(ConnectorClientOptions::with_defaults(
-        runtime.proxy_ws_url.clone(),
-        runtime.relay_headers,
-    ));
+    let header_options = options.clone();
+    let header_agent_name = runtime.agent_name.clone();
+    let header_proxy_ws_url = runtime.proxy_ws_url.clone();
+    let client = spawn_connector_client(
+        ConnectorClientOptions::with_defaults(runtime.proxy_ws_url.clone(), vec![])
+            .with_headers_provider(Arc::new(move || {
+                runtime_config::load_connector_headers(
+                    &header_options,
+                    &header_agent_name,
+                    &header_proxy_ws_url,
+                )
+                .map_err(|error| {
+                    CoreError::InvalidInput(format!(
+                        "failed to build connector relay headers: {error}"
+                    ))
+                })
+            })),
+    );
     let relay_sender = client.sender();
 
     let bind_addr = SocketAddr::new(runtime.bind, runtime.port);
@@ -225,6 +245,12 @@ async fn start_connector_runtime(
     let mut inbound_loop_task = spawn_inbound_loop_task(
         client,
         relay_sender.clone(),
+        store.clone(),
+        runtime.openclaw_runtime.clone(),
+        shutdown_rx.clone(),
+    );
+
+    let mut inbound_retry_task = spawn_inbound_retry_task(
         store.clone(),
         runtime.openclaw_runtime.clone(),
         shutdown_rx.clone(),
@@ -262,6 +288,9 @@ async fn start_connector_runtime(
         result = &mut inbound_loop_task => {
             return Err(describe_task_exit("inbound loop", result));
         }
+        result = &mut inbound_retry_task => {
+            return Err(describe_task_exit("inbound retry loop", result));
+        }
         result = &mut outbound_flush_task => {
             return Err(describe_task_exit("outbound flush loop", result));
         }
@@ -272,6 +301,7 @@ async fn start_connector_runtime(
 
     await_task("runtime server", runtime_server_task).await?;
     await_task("inbound loop", inbound_loop_task).await?;
+    await_task("inbound retry loop", inbound_retry_task).await?;
     await_task("outbound flush loop", outbound_flush_task).await?;
 
     Ok(())
@@ -323,6 +353,14 @@ fn spawn_outbound_flush_task(
     tokio::spawn(async move { run_outbound_flush_loop(store, relay_sender, shutdown_rx).await })
 }
 
+fn spawn_inbound_retry_task(
+    store: SqliteStore,
+    openclaw_runtime: OpenclawRuntimeConfig,
+    shutdown_rx: watch::Receiver<bool>,
+) -> JoinHandle<Result<()>> {
+    tokio::spawn(async move { run_inbound_retry_loop(store, openclaw_runtime, shutdown_rx).await })
+}
+
 async fn run_inbound_loop(
     mut connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
@@ -344,16 +382,34 @@ async fn run_inbound_loop(
                 let Some(frame) = frame else {
                     return Ok(());
                 };
-                if let ConnectorFrame::Deliver(deliver) = frame {
-                    handle_deliver_frame(
-                        &store,
-                        &relay_sender,
-                        &http_client,
-                        &hook_url,
-                        &openclaw_runtime,
-                        deliver,
-                    )
-                    .await;
+                match frame {
+                    ConnectorFrame::Deliver(deliver) => {
+                        handle_deliver_frame(
+                            &store,
+                            &relay_sender,
+                            &http_client,
+                            &hook_url,
+                            &openclaw_runtime,
+                            deliver,
+                        )
+                        .await;
+                    }
+                    ConnectorFrame::EnqueueAck(ack) => {
+                        if ack.accepted {
+                            tracing::debug!(
+                                ack_id = %ack.ack_id,
+                                "relay accepted outbound enqueue frame"
+                            );
+                        } else {
+                            let reason = ack.reason.as_deref().unwrap_or("unknown");
+                            tracing::warn!(
+                                ack_id = %ack.ack_id,
+                                reason,
+                                "relay rejected outbound enqueue frame"
+                            );
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -392,6 +448,179 @@ async fn run_outbound_flush_loop(
             }
         }
     }
+}
+
+async fn run_inbound_retry_loop(
+    store: SqliteStore,
+    openclaw_runtime: OpenclawRuntimeConfig,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> Result<()> {
+    let hook_url = openclaw_runtime.hook_url()?;
+    let http_client = create_http_client()?;
+    let mut interval = tokio::time::interval(INBOUND_RETRY_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    return Ok(());
+                }
+            }
+            _ = interval.tick() => {
+                retry_due_inbound_deliveries(
+                    &store,
+                    &http_client,
+                    &hook_url,
+                    &openclaw_runtime,
+                )
+                .await;
+            }
+        }
+    }
+}
+
+async fn retry_due_inbound_deliveries(
+    store: &SqliteStore,
+    http_client: &reqwest::Client,
+    hook_url: &str,
+    openclaw_runtime: &OpenclawRuntimeConfig,
+) {
+    let due_items = match list_pending_due(store, now_utc_ms(), INBOUND_RETRY_BATCH_SIZE) {
+        Ok(items) => items,
+        Err(error) => {
+            tracing::warn!(error = %error, "failed to list pending inbound deliveries");
+            return;
+        }
+    };
+
+    for item in due_items {
+        retry_pending_inbound_delivery(store, http_client, hook_url, openclaw_runtime, item).await;
+    }
+}
+
+async fn retry_pending_inbound_delivery(
+    store: &SqliteStore,
+    http_client: &reqwest::Client,
+    hook_url: &str,
+    openclaw_runtime: &OpenclawRuntimeConfig,
+    item: InboundPendingItem,
+) {
+    let payload = match serde_json::from_str::<Value>(&item.payload_json) {
+        Ok(payload) => payload,
+        Err(error) => {
+            let reason = format!("invalid pending payload_json: {error}");
+            if let Err(move_error) = move_pending_to_dead_letter(store, &item.request_id, &reason) {
+                tracing::warn!(
+                    error = %move_error,
+                    request_id = %item.request_id,
+                    "failed to move invalid pending payload to dead letter"
+                );
+            }
+            return;
+        }
+    };
+
+    let deliver = DeliverFrame {
+        v: CONNECTOR_FRAME_VERSION,
+        id: item.request_id.clone(),
+        ts: now_iso(),
+        from_agent_did: item.from_agent_did.clone(),
+        to_agent_did: item.to_agent_did.clone(),
+        payload,
+        content_type: Some("application/json".to_string()),
+        conversation_id: item.conversation_id.clone(),
+        reply_to: item.reply_to.clone(),
+    };
+
+    match forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await {
+        Ok(()) => {
+            if let Err(error) = delete_pending(store, &item.request_id) {
+                tracing::warn!(
+                    error = %error,
+                    request_id = %item.request_id,
+                    "failed to clear resolved pending inbound delivery"
+                );
+                return;
+            }
+            if let Err(error) = append_inbound_event(
+                store,
+                "delivered_retry",
+                Some(item.request_id.clone()),
+                Some(
+                    json!({
+                        "frameId": item.frame_id,
+                    })
+                    .to_string(),
+                ),
+            ) {
+                tracing::warn!(
+                    error = %error,
+                    request_id = %item.request_id,
+                    "failed to append delivered_retry inbound event"
+                );
+            }
+        }
+        Err(error) => {
+            handle_pending_retry_failure(store, &item, &error);
+        }
+    }
+}
+
+fn handle_pending_retry_failure(
+    store: &SqliteStore,
+    item: &InboundPendingItem,
+    error: &anyhow::Error,
+) {
+    if should_dead_letter_after_failure(item.attempt_count) {
+        let reason = format!("max retry attempts exceeded: {error}");
+        if let Err(move_error) = move_pending_to_dead_letter(store, &item.request_id, &reason) {
+            tracing::warn!(
+                error = %move_error,
+                request_id = %item.request_id,
+                "failed to move pending inbound delivery to dead letter"
+            );
+        }
+        return;
+    }
+
+    let next_attempt_at_ms = now_utc_ms() + CONNECTOR_RETRY_DELAY_MS;
+    if let Err(mark_error) = mark_pending_attempt(
+        store,
+        &item.request_id,
+        next_attempt_at_ms,
+        Some(error.to_string()),
+    ) {
+        tracing::warn!(
+            error = %mark_error,
+            request_id = %item.request_id,
+            "failed to update pending inbound retry attempt"
+        );
+        return;
+    }
+    if let Err(event_error) = append_inbound_event(
+        store,
+        "pending_retry",
+        Some(item.request_id.clone()),
+        Some(
+            json!({
+                "frameId": item.frame_id,
+                "attemptCount": item.attempt_count + 1,
+                "nextAttemptAtMs": next_attempt_at_ms,
+            })
+            .to_string(),
+        ),
+    ) {
+        tracing::warn!(
+            error = %event_error,
+            request_id = %item.request_id,
+            "failed to append pending_retry inbound event"
+        );
+    }
+}
+
+fn should_dead_letter_after_failure(current_attempt_count: i64) -> bool {
+    current_attempt_count.saturating_add(1) >= INBOUND_MAX_ATTEMPTS
 }
 
 async fn handle_deliver_frame(
@@ -449,7 +678,10 @@ async fn forward_deliver_to_openclaw(
         .header("content-type", "application/json")
         .header("x-clawdentity-agent-did", &deliver.from_agent_did)
         .header("x-clawdentity-to-agent-did", &deliver.to_agent_did)
-        .json(&build_openclaw_hook_payload(deliver));
+        .json(&build_openclaw_hook_payload(
+            &openclaw_runtime.hook_path,
+            deliver,
+        ));
 
     if let Some(token) = openclaw_runtime
         .hook_token
@@ -472,7 +704,31 @@ async fn forward_deliver_to_openclaw(
     Ok(())
 }
 
-fn build_openclaw_hook_payload(deliver: &DeliverFrame) -> Value {
+fn build_openclaw_hook_payload(hook_path: &str, deliver: &DeliverFrame) -> Value {
+    if normalize_hook_path(hook_path) == "/hooks/wake" {
+        return build_openclaw_wake_payload(deliver);
+    }
+
+    build_openclaw_agent_payload(deliver)
+}
+
+fn build_openclaw_agent_payload(deliver: &DeliverFrame) -> Value {
+    let message = extract_content(&deliver.payload);
+    json!({
+        "message": message,
+        "content": message,
+        "senderDid": deliver.from_agent_did,
+        "recipientDid": deliver.to_agent_did,
+        "requestId": deliver.id,
+        "metadata": {
+            "conversationId": deliver.conversation_id,
+            "replyTo": deliver.reply_to,
+            "payload": deliver.payload,
+        },
+    })
+}
+
+fn build_openclaw_wake_payload(deliver: &DeliverFrame) -> Value {
     let wake_text = render_openclaw_wake_text(deliver);
     let session_id = deliver
         .payload
@@ -567,6 +823,13 @@ async fn persist_inbound_delivery_result(
     )?;
 
     if delivery_result.is_ok() {
+        if let Err(error) = delete_pending(store, &deliver.id) {
+            tracing::warn!(
+                error = %error,
+                request_id = %deliver.id,
+                "failed to clear pending inbound record after successful delivery"
+            );
+        }
         append_inbound_event(
             store,
             "delivered",

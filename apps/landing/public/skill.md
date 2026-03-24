@@ -64,6 +64,8 @@ Installer environment controls:
 
 - `CLAWDENTITY_VERSION` (optional, defaults to `https://downloads.clawdentity.com/rust/latest.json`)
 - `CLAWDENTITY_INSTALL_DIR` (optional custom install path)
+- `CLAWDENTITY_SITE_BASE_URL` (optional local/operator override for the onboarding guide URL printed by the installer)
+- `CLAWDENTITY_SKILL_URL` (optional exact override for the onboarding guide URL printed by the installer)
 - `CLAWDENTITY_INSTALL_DRY_RUN=1`
 - `CLAWDENTITY_NO_VERIFY=1` (skip checksum verification; use only when required)
 - `CLAWDENTITY_RELEASE_MANIFEST_URL` (optional override for CI/private mirrors)
@@ -271,6 +273,7 @@ Optional:
 - OpenClaw only: if `openclaw.json` or local auth/device state is broken, run `openclaw doctor --fix` before Clawdentity setup.
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
+- OpenClaw only: `--platform-base-url` is the OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the standard local OpenClaw flow, leave it unset so Clawdentity keeps the default `http://127.0.0.1:18789`.
 
 6. Validate provider health.
 - OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
@@ -460,6 +463,10 @@ Rules:
 
 The OpenClaw transform reads `ctx.payload`.
 
+The `send-to-peer` OpenClaw hook mapping is a `wake` mapping, not an `agent` mapping.
+That keeps the request payload stable enough for the relay transform to read the raw `peer`
+and `message` fields before local handling is skipped.
+
 - If `payload.peer` is absent:
   - return payload unchanged
   - do not relay
@@ -491,6 +498,7 @@ Relay resolves local agent name in this order:
 
 Rules:
 - `openclawBaseUrl` must be absolute `http` or `https`.
+- `openclawBaseUrl` must point at the OpenClaw gateway itself. Do not reuse the Clawdentity registry URL or proxy URL here.
 - `openclawHookToken` is optional in schema but should be present after `clawdentity provider setup --for openclaw --agent-name <agent-name>`; connector runtime uses it for `/hooks/*` auth when no explicit hook token option/env is provided.
 - `updatedAt` is ISO-8601 UTC timestamp.
 - Proxy runtime precedence is: `OPENCLAW_BASE_URL` env first, then `openclaw-relay.json`, then built-in default.

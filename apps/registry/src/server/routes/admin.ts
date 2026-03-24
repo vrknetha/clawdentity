@@ -35,6 +35,7 @@ import {
   assertBootstrapSecretAuthorized,
   parseBootstrapSecretHeader,
   requireBootstrapSecret,
+  resolvePublicRegistryIssuer,
 } from "../helpers/parsers.js";
 
 const BOOTSTRAP_INTERNAL_SERVICE_NAME = "proxy-pairing";
@@ -83,7 +84,10 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
       throw adminBootstrapAlreadyCompletedError();
     }
 
-    const issuer = resolveRegistryIssuer(config);
+    const issuer = resolvePublicRegistryIssuer({
+      request: c.req.raw,
+      config,
+    });
     const didAuthority = resolveDidAuthorityFromIssuer(issuer);
     const humanId = BOOTSTRAP_ADMIN_HUMAN_ID;
     const humanDid = makeHumanDid(didAuthority, humanId);

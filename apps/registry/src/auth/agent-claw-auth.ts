@@ -7,7 +7,7 @@ import {
   verifyAIT,
   verifyHttpRequest,
 } from "@clawdentity/sdk";
-import { resolveRegistryIssuer } from "../agent-registration.js";
+import { resolvePublicRegistryIssuer } from "../server/helpers/parsers.js";
 
 const DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS = 300;
 
@@ -94,7 +94,10 @@ export async function verifyAgentClawRequest(input: {
   const token = parseClawAuthorizationHeader(
     input.request.headers.get("authorization") ?? undefined,
   );
-  const expectedIssuer = resolveRegistryIssuer(input.config);
+  const expectedIssuer = resolvePublicRegistryIssuer({
+    request: input.request,
+    config: input.config,
+  });
   const verificationKeys = buildRegistryVerificationKeys(
     input.config.REGISTRY_SIGNING_KEYS,
   );
