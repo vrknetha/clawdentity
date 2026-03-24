@@ -585,9 +585,13 @@ function resolveRelayTrustStore(input: {
     typeof resolveWorkerTrustStore
   >[0]["trustStateNamespace"];
 }): ProxyTrustStore | undefined {
-  try {
-    return resolveWorkerTrustStore(input).trustStore;
-  } catch {
-    return undefined;
+  if (input.environment === "local") {
+    try {
+      return resolveWorkerTrustStore(input).trustStore;
+    } catch {
+      return undefined;
+    }
   }
+
+  return resolveWorkerTrustStore(input).trustStore;
 }

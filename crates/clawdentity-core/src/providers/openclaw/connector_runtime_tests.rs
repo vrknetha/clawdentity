@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use crate::config::ConfigPathOptions;
-
 use super::connector_runtime::{
     ConnectorRuntimeEnsureResult, ConnectorRuntimeEnsureStatus, ConnectorRuntimeTarget,
     LocalConnectorTarget, classify_connector_runtime_target, ensure_local_connector_runtime_with,
 };
+use crate::config::ConfigPathOptions;
 
 #[test]
 fn classify_connector_runtime_target_marks_loopback_hosts_local() {

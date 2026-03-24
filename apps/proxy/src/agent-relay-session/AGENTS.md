@@ -14,6 +14,7 @@
 - Keep retry delay math in `policy.ts` and alarm scheduling in `scheduler.ts`.
 - Keep request payload validation in `parsers.ts` and RPC error envelopes in `rpc.ts`.
 - Keep shared relay constants in `constants.ts`; avoid repeating close codes and route paths inline.
+- Keep relay trust-store resolution fail-fast outside local mode: only `local` may fall back to missing durable trust state, while `development` and `production` must throw startup/config errors immediately.
 
 ## Refactor Guidance
 - Prefer extracting concrete collaborators (queue management, connector delivery transport, and RPC wiring) so `core.ts` stays a high-level orchestrator with well-defined dependencies.

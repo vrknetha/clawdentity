@@ -6,6 +6,7 @@
 ## Rules
 - `assets.rs` is the single place that projects bundled OpenClaw skill files into local OpenClaw state.
 - OpenClaw skill asset installs may rewrite the canonical site origin only from explicit local/operator overrides (`CLAWDENTITY_SITE_BASE_URL` in process env or the profile `.env`); never bake non-production URLs into the published asset bundle.
+- Profile `.env` parsing for OpenClaw skill asset rewrites must ignore inline comments after unquoted values so local preview URLs stay valid.
 - Keep provider setup OpenClaw-first: require a readable `openclaw.json`, preserve existing OpenClaw auth, then persist Clawdentity relay metadata.
 - Keep OpenClaw target validation strict: provider setup/runtime metadata must treat `openclawBaseUrl` as the OpenClaw gateway only, never the Clawdentity registry or proxy.
 - Inbound peer delivery for OpenClaw must target the visible main-session ingress (`/hooks/wake`) by default; `/hooks/agent` creates isolated hook sessions and hides relay traffic from normal chat UX.

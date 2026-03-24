@@ -10,6 +10,9 @@ export const SENDER_AGENT_DID =
 export const RECIPIENT_AGENT_DID =
   "did:cdi:registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB8";
 export const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
+export const LOCAL_RELAY_ENV = {
+  ENVIRONMENT: "local",
+} as const;
 
 export function createMockSocket(): MockWebSocket {
   return {

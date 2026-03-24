@@ -31,6 +31,30 @@ fn trim_trailing_slash(value: &str) -> &str {
     value.trim_end_matches('/')
 }
 
+fn strip_unquoted_inline_comment(raw_value: &str) -> &str {
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    for (index, ch) in raw_value.char_indices() {
+        match ch {
+            '\'' if !in_double_quotes => in_single_quotes = !in_single_quotes,
+            '"' if !in_single_quotes => in_double_quotes = !in_double_quotes,
+            '#' if !in_single_quotes
+                && !in_double_quotes
+                && raw_value[..index]
+                    .chars()
+                    .last()
+                    .is_some_and(char::is_whitespace) =>
+            {
+                return raw_value[..index].trim_end();
+            }
+            _ => {}
+        }
+    }
+
+    raw_value
+}
+
 fn parse_env_value(contents: &str, key: &str) -> Option<String> {
     contents.lines().find_map(|line| {
         let (line_key, raw_value) = line.split_once('=')?;
@@ -38,7 +62,10 @@ fn parse_env_value(contents: &str, key: &str) -> Option<String> {
             return None;
         }
 
-        let value = raw_value.trim().trim_matches('"').trim_matches('\'');
+        let value = strip_unquoted_inline_comment(raw_value)
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'');
         (!value.is_empty()).then(|| value.to_string())
     })
 }

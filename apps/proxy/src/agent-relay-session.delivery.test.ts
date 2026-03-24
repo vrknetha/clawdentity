@@ -5,6 +5,7 @@ import { AgentRelaySession } from "./agent-relay-session.js";
 import {
   createMockSocket,
   createStateHarness,
+  LOCAL_RELAY_ENV,
   RECIPIENT_AGENT_DID,
   SENDER_AGENT_DID,
   withMockWebSocketPair,
@@ -15,6 +16,7 @@ describe("AgentRelaySession delivery", () => {
   it("delivers relay frames to active websocket connectors", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();
@@ -66,6 +68,7 @@ describe("AgentRelaySession delivery", () => {
   it("queues relay frames when no connector socket is active", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
 
@@ -110,13 +113,13 @@ describe("AgentRelaySession delivery", () => {
 
     recipientSession = new AgentRelaySession(
       recipientHarness.state,
-      { RELAY_RETRY_JITTER_RATIO: "0" },
+      { ...LOCAL_RELAY_ENV, RELAY_RETRY_JITTER_RATIO: "0" },
       { trustStore },
     );
     senderSession = new AgentRelaySession(
       senderHarness.state,
       {
-        ENVIRONMENT: "local",
+        ...LOCAL_RELAY_ENV,
         RELAY_RETRY_JITTER_RATIO: "0",
         AGENT_RELAY_SESSION: relayNamespace,
       },
@@ -217,6 +220,7 @@ describe("AgentRelaySession delivery", () => {
     try {
       const harness = createStateHarness();
       const relaySession = new AgentRelaySession(harness.state, {
+        ...LOCAL_RELAY_ENV,
         RELAY_RETRY_JITTER_RATIO: "0",
       });
       const staleSocket = createMockSocket();
@@ -259,6 +263,7 @@ describe("AgentRelaySession delivery", () => {
   it("keeps superseded sockets inactive even when late frames arrive", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const oldSocket = createMockSocket();
@@ -342,6 +347,7 @@ describe("AgentRelaySession delivery", () => {
   it("does not reject pending deliveries on clean close code 1000", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();
@@ -381,6 +387,7 @@ describe("AgentRelaySession delivery", () => {
   it("rejects pending deliveries on unclean close when no sockets remain", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
       RELAY_RETRY_JITTER_RATIO: "0",
     });
     const connectorSocket = createMockSocket();
