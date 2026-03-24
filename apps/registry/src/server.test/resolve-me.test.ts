@@ -292,7 +292,7 @@ describe("GET /v1/me", () => {
     };
     expect(body.human).toEqual({
       id: "human-1",
-      did: "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      did: "did:cdi:127.0.0.1:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       displayName: "Ravi",
       role: "admin",
       onboardingSource: "admin_bootstrap",

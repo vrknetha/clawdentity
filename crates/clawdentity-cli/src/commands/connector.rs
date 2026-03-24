@@ -430,20 +430,11 @@ fn build_deliver_ack_reason(
     delivery_error: Option<&anyhow::Error>,
     persistence_error: Option<&anyhow::Error>,
 ) -> Option<String> {
-    let mut reasons: Vec<String> = Vec::new();
-    if let Some(error) = delivery_error {
-        reasons.push(error.to_string());
-    }
-    if let Some(error) = persistence_error {
-        reasons.push(format!(
-            "failed to persist inbound delivery result: {error}"
-        ));
-    }
-
-    if reasons.is_empty() {
-        None
-    } else {
-        Some(reasons.join("; "))
+    match (delivery_error, persistence_error) {
+        (Some(delivery_error), Some(persistence_error)) => Some(format!(
+            "{delivery_error}; failed to persist inbound delivery result: {persistence_error}"
+        )),
+        _ => None,
     }
 }
 
@@ -482,22 +473,69 @@ async fn forward_deliver_to_openclaw(
 }
 
 fn build_openclaw_hook_payload(deliver: &DeliverFrame) -> Value {
-    json!({
-        "content": extract_content(&deliver.payload),
-        "senderDid": deliver.from_agent_did,
-        "recipientDid": deliver.to_agent_did,
-        "requestId": deliver.id,
-        "metadata": {
-            "conversationId": deliver.conversation_id,
-            "replyTo": deliver.reply_to,
-            "payload": deliver.payload,
-        },
-    })
+    let wake_text = render_openclaw_wake_text(deliver);
+    let session_id = deliver
+        .payload
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut payload = json!({
+        "message": wake_text,
+        "text": wake_text,
+        "mode": "now",
+    });
+    if let Some(session_id) = session_id {
+        payload["sessionId"] = Value::String(session_id.to_string());
+    }
+    payload
+}
+
+fn render_openclaw_wake_text(deliver: &DeliverFrame) -> String {
+    let message = extract_content(&deliver.payload);
+    let mut lines = vec![format!(
+        "Clawdentity peer message from {}",
+        deliver.from_agent_did
+    )];
+
+    if !message.trim().is_empty() {
+        lines.push(String::new());
+        lines.push(message);
+    }
+
+    if let Some(request_id) = Some(deliver.id.as_str()).filter(|value| !value.trim().is_empty()) {
+        lines.push(String::new());
+        lines.push(format!("Request ID: {request_id}"));
+    }
+    if let Some(conversation_id) = deliver
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("Conversation ID: {conversation_id}"));
+    }
+    if let Some(reply_to) = deliver
+        .reply_to
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("Reply To: {reply_to}"));
+    }
+
+    lines.join("\n")
 }
 
 fn extract_content(payload: &Value) -> String {
     if let Some(content) = payload.get("content").and_then(Value::as_str) {
         return content.to_string();
+    }
+    if let Some(message) = payload.get("message").and_then(Value::as_str) {
+        return message.to_string();
+    }
+    if let Some(text) = payload.get("text").and_then(Value::as_str) {
+        return text.to_string();
     }
     if let Some(text) = payload.as_str() {
         return text.to_string();

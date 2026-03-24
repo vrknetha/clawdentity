@@ -10,6 +10,7 @@ import {
   type RegistryConfig,
   shouldExposeVerboseErrors,
 } from "@clawdentity/sdk";
+import { resolveRegistryIssuer } from "../../agent-registration.js";
 import { parseAccessToken } from "../../auth/agent-auth-token.js";
 import { constantTimeEqual } from "../../auth/api-key-token.js";
 import { parseInternalServiceScopesPayload } from "../../auth/internal-service-scopes.js";
@@ -19,6 +20,121 @@ import {
   LANDING_URL_BY_ENVIRONMENT,
   PROXY_URL_BY_ENVIRONMENT,
 } from "../constants.js";
+
+const FORWARDED_HOST_HEADER = "x-forwarded-host";
+const FORWARDED_PROTO_HEADER = "x-forwarded-proto";
+const HOST_HEADER = "host";
+
+function firstHeaderValue(value: string | null): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .find((part) => part.length > 0);
+}
+
+function normalizeHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    return normalized.slice(1, -1);
+  }
+  return normalized;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeHostname(hostname);
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "0.0.0.0" ||
+    normalized === "::1"
+  );
+}
+
+export function resolveRequestOrigin(request: Request): string | undefined {
+  let fallbackUrl: URL | undefined;
+  try {
+    fallbackUrl = new URL(request.url);
+  } catch {
+    fallbackUrl = undefined;
+  }
+
+  const host =
+    firstHeaderValue(request.headers.get(FORWARDED_HOST_HEADER)) ??
+    firstHeaderValue(request.headers.get(HOST_HEADER));
+  if (!host) {
+    return fallbackUrl?.origin;
+  }
+
+  const proto =
+    firstHeaderValue(request.headers.get(FORWARDED_PROTO_HEADER)) ??
+    fallbackUrl?.protocol.replace(/:$/, "") ??
+    "https";
+
+  try {
+    return new URL(`${proto}://${host}`).origin;
+  } catch {
+    return fallbackUrl?.origin;
+  }
+}
+
+export function resolvePublicUrl(input: {
+  request: Request;
+  configuredUrl: string;
+  preserveConfiguredPort?: boolean;
+}): string {
+  const configured = new URL(input.configuredUrl);
+  if (!isLoopbackHostname(configured.hostname)) {
+    return input.configuredUrl;
+  }
+
+  const requestOrigin = resolveRequestOrigin(input.request);
+  if (!requestOrigin) {
+    return configured.toString();
+  }
+
+  const requestUrl = new URL(requestOrigin);
+  if (isLoopbackHostname(requestUrl.hostname)) {
+    return input.configuredUrl;
+  }
+
+  configured.protocol = requestUrl.protocol;
+  configured.hostname = requestUrl.hostname;
+  if (!input.preserveConfiguredPort) {
+    configured.port = requestUrl.port;
+  }
+
+  if (configured.pathname === "/" && configured.search.length === 0) {
+    const origin = configured.origin;
+    return input.configuredUrl.endsWith("/") ? `${origin}/` : origin;
+  }
+
+  return configured.toString();
+}
+
+export function resolvePublicRegistryIssuer(input: {
+  request: Request;
+  config: Pick<RegistryConfig, "ENVIRONMENT" | "REGISTRY_ISSUER_URL">;
+}): string {
+  return resolvePublicUrl({
+    request: input.request,
+    configuredUrl: resolveRegistryIssuer(input.config),
+  });
+}
+
+export function resolvePublicProxyUrl(input: {
+  request: Request;
+  config: Pick<RegistryConfig, "ENVIRONMENT" | "PROXY_URL">;
+}): string {
+  return resolvePublicUrl({
+    request: input.request,
+    configuredUrl: resolveProxyUrl(input.config),
+    preserveConfiguredPort: true,
+  });
+}
 
 function crlBuildError(options: {
   environment: RegistryConfig["ENVIRONMENT"];
@@ -394,11 +510,15 @@ export function adminBootstrapAlreadyCompletedError(): AppError {
   });
 }
 
-export function resolveProxyUrl(config: RegistryConfig): string {
+export function resolveProxyUrl(
+  config: Pick<RegistryConfig, "ENVIRONMENT" | "PROXY_URL">,
+): string {
   return config.PROXY_URL ?? PROXY_URL_BY_ENVIRONMENT[config.ENVIRONMENT];
 }
 
-export function resolveLandingUrl(config: RegistryConfig): string {
+export function resolveLandingUrl(
+  config: Pick<RegistryConfig, "ENVIRONMENT" | "LANDING_URL">,
+): string {
   return config.LANDING_URL ?? LANDING_URL_BY_ENVIRONMENT[config.ENVIRONMENT];
 }
 

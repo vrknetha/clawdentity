@@ -13,8 +13,7 @@ export function makeValidPatContext(token = "clw_pat_valid-token-value") {
       apiKeyStatus: "active",
       apiKeyName: "ci",
       humanId: "human-1",
-      humanDid:
-        "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      humanDid: "did:cdi:127.0.0.1:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
       humanDisplayName: "Ravi",
       humanRole: "admin",
       humanStatus: "active",

@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeAitClaims } from "./helpers.js";
 
-const DID_AUTHORITY = "dev.registry.clawdentity.com";
+const DID_AUTHORITY = "127.0.0.1";
 
 describe("GET /.well-known/claw-keys.json", () => {
   it("returns configured registry signing keys with cache headers", async () => {
@@ -280,7 +280,7 @@ describe("GET /v1/crl", () => {
 
     const claims = await verifyCRL({
       token: body.crl,
-      expectedIssuer: "https://dev.registry.clawdentity.com",
+      expectedIssuer: "http://127.0.0.1:8788",
       registryKeys: keysBody.keys
         .filter((key) => key.status === "active")
         .map((key) => ({

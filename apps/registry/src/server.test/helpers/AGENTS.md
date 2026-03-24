@@ -14,6 +14,7 @@
 - Preserve SQL parsing/matching semantics in fake DB helpers unless a test explicitly requires a change.
 - Reuse shared parser/resolver/run-handler utilities; avoid duplicated query handling logic.
 - Keep fixtures deterministic (fixed timestamps/IDs/nonces) and avoid randomization.
+- Keep local PAT and human fixtures aligned with the local registry DID authority (`127.0.0.1`) whenever `ENVIRONMENT` is `local`; mixed authorities create false-negative auth and reissue failures.
 
 ## Validation
 - For helper changes, run:

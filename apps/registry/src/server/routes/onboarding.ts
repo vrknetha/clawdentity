@@ -13,10 +13,7 @@ import {
 } from "@clawdentity/sdk";
 import { and, eq, isNull } from "drizzle-orm";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import {
-  resolveDidAuthorityFromIssuer,
-  resolveRegistryIssuer,
-} from "../../agent-registration.js";
+import { resolveDidAuthorityFromIssuer } from "../../agent-registration.js";
 import {
   deriveApiKeyLookupPrefix,
   generateApiKeyToken,
@@ -53,7 +50,10 @@ import {
   isUnsupportedLocalTransactionError,
   resolveStarterPassRedeemStateError,
 } from "../helpers/db-queries.js";
-import { resolveProxyUrl } from "../helpers/parsers.js";
+import {
+  resolvePublicProxyUrl,
+  resolvePublicRegistryIssuer,
+} from "../helpers/parsers.js";
 
 const GITHUB_STARTER_PASS_PROVIDER = "github";
 
@@ -221,7 +221,10 @@ export function registerOnboardingRoutes(
         );
       }
 
-      const issuer = resolveRegistryIssuer(config);
+      const issuer = resolvePublicRegistryIssuer({
+        request: c.req.raw,
+        config,
+      });
       const starterPassId = generateUlid(nowMillis);
       const starterPassCode = generateStarterPassCode();
       const issuedAt = nowIso();
@@ -325,7 +328,10 @@ export function registerOnboardingRoutes(
       throw starterPassExpiredError();
     }
 
-    const issuer = resolveRegistryIssuer(config);
+    const issuer = resolvePublicRegistryIssuer({
+      request: c.req.raw,
+      config,
+    });
     const didAuthority = resolveDidAuthorityFromIssuer(issuer);
     const humanId = generateUlid(nowMillis);
     const humanDid = makeHumanDid(didAuthority, humanId);
@@ -442,7 +448,10 @@ export function registerOnboardingRoutes(
           name: parsedPayload.apiKeyName,
           token: apiKeyToken,
         },
-        proxyUrl: resolveProxyUrl(config),
+        proxyUrl: resolvePublicProxyUrl({
+          request: c.req.raw,
+          config,
+        }),
       },
       201,
     );

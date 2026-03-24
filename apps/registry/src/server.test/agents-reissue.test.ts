@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { createRegistryApp } from "../server.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
-const DID_AUTHORITY = "dev.registry.clawdentity.com";
+const DID_AUTHORITY = "127.0.0.1";
 
 describe("POST /v1/agents/:id/reissue", () => {
   it("returns 401 when PAT is missing", async () => {
@@ -322,7 +322,7 @@ describe("POST /v1/agents/:id/reissue", () => {
 
     const claims = await verifyAIT({
       token: body.ait,
-      expectedIssuer: "https://dev.registry.clawdentity.com",
+      expectedIssuer: "http://127.0.0.1:8788",
       registryKeys: keysBody.keys
         .filter((key) => key.status === "active")
         .map((key) => ({
@@ -485,7 +485,7 @@ describe("POST /v1/agents/:id/reissue", () => {
 
     const claims = await verifyAIT({
       token: body.ait,
-      expectedIssuer: "https://dev.registry.clawdentity.com",
+      expectedIssuer: "http://127.0.0.1:8788",
       registryKeys: [
         {
           kid: "reg-key-1",
@@ -503,5 +503,82 @@ describe("POST /v1/agents/:id/reissue", () => {
     expect(claims.exp).toBe(
       Math.floor(Date.parse(body.agent.expiresAt) / 1000),
     );
+  });
+
+  it("keeps the configured issuer authority when the request comes through a different local alias", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const agentId = generateUlid(1700300000600);
+    const previousJti = generateUlid(1700300000601);
+    const signer = await generateEd25519Keypair();
+    const agentKeypair = await generateEd25519Keypair();
+    const signingKeyset = JSON.stringify([
+      {
+        kid: "reg-key-1",
+        alg: "EdDSA",
+        crv: "Ed25519",
+        x: encodeBase64url(signer.publicKey),
+        status: "active",
+      },
+    ]);
+    const { database } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: makeAgentDid(DID_AUTHORITY, agentId),
+          ownerId: "human-1",
+          name: "owned-agent",
+          framework: "openclaw",
+          publicKey: encodeBase64url(agentKeypair.publicKey),
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: previousJti,
+        },
+      ],
+    );
+    const appInstance = createRegistryApp();
+
+    const res = await appInstance.request(
+      `http://host.docker.internal:8788/v1/agents/${agentId}/reissue`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          host: "host.docker.internal:8788",
+          "x-forwarded-host": "host.docker.internal:8788",
+          "x-forwarded-proto": "http",
+        },
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        REGISTRY_SIGNING_KEY: encodeBase64url(signer.secretKey),
+        REGISTRY_SIGNING_KEYS: signingKeyset,
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ait: string };
+
+    const claims = await verifyAIT({
+      token: body.ait,
+      expectedIssuer: "http://127.0.0.1:8788",
+      registryKeys: [
+        {
+          kid: "reg-key-1",
+          jwk: {
+            kty: "OKP",
+            crv: "Ed25519",
+            x: encodeBase64url(signer.publicKey),
+          },
+        },
+      ],
+    });
+
+    expect(claims.iss).toBe("http://127.0.0.1:8788");
+    expect(claims.sub).toBe(makeAgentDid(DID_AUTHORITY, agentId));
+    expect(claims.ownerDid).toBe(authRow.humanDid);
   });
 });

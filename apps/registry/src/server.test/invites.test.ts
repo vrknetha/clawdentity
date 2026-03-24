@@ -305,7 +305,7 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
     const appInstance = createRegistryApp();
 
     const redeemResponse = await appInstance.request(
-      INVITES_REDEEM_PATH,
+      `http://host.docker.internal:8788${INVITES_REDEEM_PATH}`,
       {
         method: "POST",
         headers: {
@@ -345,7 +345,7 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
     expect(redeemBody.human.role).toBe("user");
     expect(redeemBody.apiKey.name).toBe("primary-invite-key");
     expect(redeemBody.apiKey.token.startsWith("clw_pat_")).toBe(true);
-    expect(redeemBody.proxyUrl).toBe("https://dev.proxy.clawdentity.com");
+    expect(redeemBody.proxyUrl).toBe("http://host.docker.internal:8787");
 
     expect(humanInserts).toHaveLength(1);
     expect(apiKeyInserts).toHaveLength(1);
@@ -448,5 +448,51 @@ describe(`POST ${INVITES_REDEEM_PATH}`, () => {
     expect(secondResponse.status).toBe(201);
     expect(humanRows).toHaveLength(2);
     expect(inviteRows[0]?.redeemedBy).toEqual(expect.any(String));
+  });
+
+  it("returns caller-facing proxy URL when invite redeem runtime uses loopback", async () => {
+    const inviteCode = "clw_inv_local_proxy";
+    const { database } = createFakeDb([], [], {
+      inviteRows: [
+        {
+          id: generateUlid(1700700003100),
+          code: inviteCode,
+          createdBy: "human-1",
+          redeemedBy: null,
+          agentId: null,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const response = await createRegistryApp().request(
+      "https://dev.registry.clawdentity.com/v1/invites/redeem",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          host: "host.docker.internal:8788",
+          "x-forwarded-host": "host.docker.internal:8788",
+          "x-forwarded-proto": "http",
+        },
+        body: JSON.stringify({
+          code: inviteCode,
+          displayName: "Invitee Beta",
+          apiKeyName: "invite-local",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        PROXY_URL: "http://127.0.0.1:8787",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { proxyUrl: string };
+    expect(body.proxyUrl).toBe("http://host.docker.internal:8787");
   });
 });

@@ -16,7 +16,12 @@ import {
   REGISTRY_KEY_CACHE_CONTROL,
   type RegistryRouteDependencies,
 } from "../constants.js";
-import { buildCrlClaims, resolveProxyUrl } from "../helpers/parsers.js";
+import {
+  buildCrlClaims,
+  resolvePublicProxyUrl,
+  resolvePublicRegistryIssuer,
+  resolveRequestOrigin,
+} from "../helpers/parsers.js";
 
 export function registerHealthRoutes(
   input: RegistryRouteDependencies & {
@@ -69,8 +74,11 @@ export function registerHealthRoutes(
       status: "ok",
       environment: config.ENVIRONMENT,
       version: config.APP_VERSION ?? "0.0.0",
-      registryUrl: c.req.url ? new URL(c.req.url).origin : undefined,
-      proxyUrl: resolveProxyUrl(config),
+      registryUrl: resolveRequestOrigin(c.req.raw),
+      proxyUrl: resolvePublicProxyUrl({
+        request: c.req.raw,
+        config,
+      }),
     });
   });
 
@@ -117,7 +125,10 @@ export function registerHealthRoutes(
     const claims = buildCrlClaims({
       rows,
       environment: config.ENVIRONMENT,
-      issuer: resolveRegistryIssuer(config),
+      issuer: resolvePublicRegistryIssuer({
+        request: c.req.raw,
+        config,
+      }),
       nowSeconds,
     });
     const crl = await signCRL({

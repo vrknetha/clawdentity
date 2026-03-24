@@ -40,7 +40,10 @@ import {
   isUnsupportedLocalTransactionError,
   resolveInviteRedeemStateError,
 } from "../helpers/db-queries.js";
-import { resolveProxyUrl } from "../helpers/parsers.js";
+import {
+  resolvePublicProxyUrl,
+  resolvePublicRegistryIssuer,
+} from "../helpers/parsers.js";
 
 export function registerInviteRoutes(input: RegistryRouteDependencies): void {
   const { app, getConfig } = input;
@@ -149,7 +152,10 @@ export function registerInviteRoutes(input: RegistryRouteDependencies): void {
       throw inviteRedeemExpiredError();
     }
 
-    const issuer = resolveRegistryIssuer(config);
+    const issuer = resolvePublicRegistryIssuer({
+      request: c.req.raw,
+      config,
+    });
     const didAuthority = resolveDidAuthorityFromIssuer(issuer);
     const humanId = generateUlid(nowMillis);
     const humanDid = makeHumanDid(didAuthority, humanId);
@@ -275,7 +281,10 @@ export function registerInviteRoutes(input: RegistryRouteDependencies): void {
           name: parsedPayload.apiKeyName,
           token: apiKeyToken,
         },
-        proxyUrl: resolveProxyUrl(config),
+        proxyUrl: resolvePublicProxyUrl({
+          request: c.req.raw,
+          config,
+        }),
       },
       201,
     );
