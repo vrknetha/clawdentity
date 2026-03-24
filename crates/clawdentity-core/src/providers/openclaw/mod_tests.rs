@@ -100,7 +100,10 @@ fn format_inbound_preserves_explicit_session_id() {
     });
 
     assert_eq!(
-        request.body.get("sessionId").and_then(|value| value.as_str()),
+        request
+            .body
+            .get("sessionId")
+            .and_then(|value| value.as_str()),
         Some("hook:peer-alpha")
     );
 }
