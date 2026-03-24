@@ -2,7 +2,6 @@ import { REGISTRY_METADATA_PATH } from "@clawdentity/protocol";
 import { AppError, nowUtcMs, signCRL } from "@clawdentity/sdk";
 import { desc, eq } from "drizzle-orm";
 import type { MiddlewareHandler } from "hono";
-import { resolveRegistryIssuer } from "../../agent-registration.js";
 import {
   agentResolveNotFoundError,
   mapResolvedAgentRow,

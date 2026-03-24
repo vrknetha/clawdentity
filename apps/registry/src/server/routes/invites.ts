@@ -11,10 +11,7 @@ import {
   shouldExposeVerboseErrors,
 } from "@clawdentity/sdk";
 import { and, eq, isNull } from "drizzle-orm";
-import {
-  resolveDidAuthorityFromIssuer,
-  resolveRegistryIssuer,
-} from "../../agent-registration.js";
+import { resolveDidAuthorityFromIssuer } from "../../agent-registration.js";
 import { createApiKeyAuth } from "../../auth/api-key-auth.js";
 import {
   deriveApiKeyLookupPrefix,

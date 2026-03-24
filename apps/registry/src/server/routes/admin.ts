@@ -6,10 +6,7 @@ import {
 import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
 import { eq } from "drizzle-orm";
 import { parseAdminBootstrapPayload } from "../../admin-bootstrap.js";
-import {
-  resolveDidAuthorityFromIssuer,
-  resolveRegistryIssuer,
-} from "../../agent-registration.js";
+import { resolveDidAuthorityFromIssuer } from "../../agent-registration.js";
 import {
   deriveApiKeyLookupPrefix,
   generateApiKeyToken,

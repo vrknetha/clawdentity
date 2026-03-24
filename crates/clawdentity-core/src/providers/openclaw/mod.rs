@@ -425,20 +425,27 @@ impl PlatformProvider for OpenclawProvider {
             headers.insert("x-webhook-request-id".to_string(), request_id.to_string());
         }
 
-        InboundRequest {
-            headers,
-            body: json!({
-                "message": wake_text,
-                "text": wake_text,
-                "mode": "now",
-                "sessionId": "main",
-                "senderDid": message.sender_did,
-                "recipientDid": message.recipient_did,
-                "requestId": message.request_id,
-                "metadata": message.metadata,
-                "path": OPENCLAW_WEBHOOK_PATH,
-            }),
+        let mut body = json!({
+            "message": wake_text,
+            "text": wake_text,
+            "mode": "now",
+            "senderDid": message.sender_did,
+            "recipientDid": message.recipient_did,
+            "requestId": message.request_id,
+            "metadata": message.metadata,
+            "path": OPENCLAW_WEBHOOK_PATH,
+        });
+        if let Some(session_id) = message
+            .metadata
+            .get("sessionId")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            body["sessionId"] = json!(session_id);
         }
+
+        InboundRequest { headers, body }
     }
 
     fn default_webhook_port(&self) -> u16 {

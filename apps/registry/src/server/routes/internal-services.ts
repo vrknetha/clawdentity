@@ -275,8 +275,8 @@ export function registerInternalServiceRoutes(
       }
 
       const parsed = parseInternalOwnershipCheckPayload(payload);
-      const parsedOwnerDid = parseHumanDid(parsed.ownerDid);
-      const parsedAgentDid = parseAgentDid(parsed.agentDid);
+      parseHumanDid(parsed.ownerDid);
+      parseAgentDid(parsed.agentDid);
 
       const db = createDb(c.env.DB);
 

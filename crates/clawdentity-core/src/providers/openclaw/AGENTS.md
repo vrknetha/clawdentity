@@ -10,6 +10,7 @@
 - Keep OpenClaw target validation strict: provider setup/runtime metadata must treat `openclawBaseUrl` as the OpenClaw gateway only, never the Clawdentity registry or proxy.
 - Inbound peer delivery for OpenClaw must target the visible main-session ingress (`/hooks/wake`) by default; `/hooks/agent` creates isolated hook sessions and hides relay traffic from normal chat UX.
 - Wake-style inbound payloads must carry the rendered relay copy in both `text` and top-level `message`; OpenClaw may accept the hook without surfacing it when `message` is omitted.
+- Wake-style inbound payloads must only include `sessionId` when the inbound relay payload explicitly provides one; never hardcode `"main"` because operators may use a different default session.
 - The custom `send-to-peer` hook mapping must stay on OpenClaw `wake` action semantics; `agent` mappings no longer guarantee that side-effect transforms relay anything before local hook completion.
 - Provider setup must surface readiness honestly: if relay metadata was saved but the connector hop is still dead, return an action-required setup status instead of reporting success.
 - Provider setup must propagate explicit `connector_base_url` and `relay_transform_peers_path` overrides unchanged into every persisted artifact; do not recompute host lists or fallback file paths from partial inputs.
@@ -23,4 +24,5 @@
 - Public OpenClaw helper functions need `///` docs, and runtime helpers that start repeating config writes or branch-heavy auth logic should be split before they cross the 50-line rule.
 - Use `openclaw onboard`, `openclaw doctor --fix`, and `openclaw dashboard` in remediation text when OpenClaw itself is broken.
 - Keep detection and setup helpers `clippy -D warnings` clean; prefer flattened `if let ... && ...` control flow over nested single-branch checks.
+- URL collision guards must compare OpenClaw, proxy, and registry service origins, not full URLs with paths, so `/hooks/wake` suffixes cannot bypass misconfiguration checks.
 - Do not reintroduce JS CLI bundle dependencies.

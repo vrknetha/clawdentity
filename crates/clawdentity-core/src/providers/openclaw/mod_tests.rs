@@ -77,13 +77,31 @@ fn format_inbound_uses_openclaw_webhook_shape() {
         request.body.get("mode").and_then(|value| value.as_str()),
         Some("now")
     );
-    assert_eq!(
-        request.body.get("sessionId").and_then(|value| value.as_str()),
-        Some("main")
-    );
+    assert!(request.body.get("sessionId").is_none());
     assert_eq!(
         request.body.get("path").and_then(|value| value.as_str()),
         Some("/hooks/wake")
+    );
+}
+
+#[test]
+fn format_inbound_preserves_explicit_session_id() {
+    let provider = OpenclawProvider::default();
+    let mut metadata = HashMap::new();
+    metadata.insert("sessionId".to_string(), "hook:peer-alpha".to_string());
+
+    let request = provider.format_inbound(&InboundMessage {
+        sender_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTB".to_string(),
+        recipient_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTC"
+            .to_string(),
+        content: "hello".to_string(),
+        request_id: Some("req-123".to_string()),
+        metadata,
+    });
+
+    assert_eq!(
+        request.body.get("sessionId").and_then(|value| value.as_str()),
+        Some("hook:peer-alpha")
     );
 }
 
