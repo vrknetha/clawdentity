@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::assets::verify_openclaw_install;
+use super::doctor_checks::{install_check_label, install_check_remediation};
 use super::setup::{
     OPENCLAW_CONFIG_FILE_NAME, OPENCLAW_DEFAULT_BASE_URL, explicit_openclaw_dir,
     load_relay_runtime_config, openclaw_agent_name_path, read_selected_openclaw_agent,
@@ -164,34 +165,6 @@ fn parse_pending_approvals_count(path: &Path) -> Result<usize> {
     Ok(0)
 }
 
-fn install_check_label(id: &str) -> &'static str {
-    match id {
-        "state.transform" => "Relay transform",
-        "state.skillArtifacts" => "OpenClaw skill artifacts",
-        "state.hookToken" => "OpenClaw hook token",
-        "state.hookMapping" => "OpenClaw hook mapping",
-        "state.hookSessionRouting" => "OpenClaw hook session routing",
-        "state.gatewayAuth" => "OpenClaw gateway auth",
-        _ => "OpenClaw install state",
-    }
-}
-
-fn install_check_remediation(id: &str) -> Option<&'static str> {
-    match id {
-        "state.gatewayAuth" => Some(
-            "Fix OpenClaw auth first with `openclaw onboard` or `openclaw doctor --fix`, then rerun `clawdentity provider setup --for openclaw --agent-name <agentName>`.",
-        ),
-        "state.transform"
-        | "state.skillArtifacts"
-        | "state.hookToken"
-        | "state.hookMapping"
-        | "state.hookSessionRouting" => Some(
-            "Run `clawdentity provider setup --for openclaw --agent-name <agentName>` after OpenClaw itself is healthy.",
-        ),
-        _ => None,
-    }
-}
-
 fn validate_openclaw_runtime_target(
     checks: &mut Vec<OpenclawDoctorCheck>,
     options: &OpenclawDoctorOptions,
@@ -209,36 +182,22 @@ fn validate_openclaw_runtime_target(
     if let Some(proxy_url) = config.proxy_url.as_deref()
         && urls_share_service_target(&runtime_config.openclaw_base_url, proxy_url)
     {
-        push_check(
+        push_runtime_target_conflict(
             checks,
-            "state.openclawBaseUrl",
-            "OpenClaw base URL",
-            DoctorCheckStatus::Fail,
+            &runtime_config.openclaw_base_url,
+            "proxyUrl",
+            proxy_url,
             "relay runtime points at the Clawdentity proxy instead of the OpenClaw gateway",
-            Some(
-                "Rerun `clawdentity provider setup --for openclaw --agent-name <agentName>` with the real OpenClaw gateway URL.",
-            ),
-            Some(serde_json::json!({
-                "openclawBaseUrl": runtime_config.openclaw_base_url,
-                "proxyUrl": proxy_url
-            })),
         );
         return Ok(());
     }
     if urls_share_service_target(&runtime_config.openclaw_base_url, &config.registry_url) {
-        push_check(
+        push_runtime_target_conflict(
             checks,
-            "state.openclawBaseUrl",
-            "OpenClaw base URL",
-            DoctorCheckStatus::Fail,
+            &runtime_config.openclaw_base_url,
+            "registryUrl",
+            &config.registry_url,
             "relay runtime points at the Clawdentity registry instead of the OpenClaw gateway",
-            Some(
-                "Rerun `clawdentity provider setup --for openclaw --agent-name <agentName>` with the real OpenClaw gateway URL.",
-            ),
-            Some(serde_json::json!({
-                "openclawBaseUrl": runtime_config.openclaw_base_url,
-                "registryUrl": config.registry_url
-            })),
         );
         return Ok(());
     }
@@ -255,6 +214,29 @@ fn validate_openclaw_runtime_target(
         })),
     );
     Ok(())
+}
+
+fn push_runtime_target_conflict(
+    checks: &mut Vec<OpenclawDoctorCheck>,
+    openclaw_base_url: &str,
+    conflicting_field: &str,
+    conflicting_url: &str,
+    message: &str,
+) {
+    push_check(
+        checks,
+        "state.openclawBaseUrl",
+        "OpenClaw base URL",
+        DoctorCheckStatus::Fail,
+        message,
+        Some(
+            "Rerun `clawdentity provider setup --for openclaw --agent-name <agentName>` with the real OpenClaw gateway URL.",
+        ),
+        Some(serde_json::json!({
+            "openclawBaseUrl": openclaw_base_url,
+            conflicting_field: conflicting_url,
+        })),
+    );
 }
 
 #[allow(clippy::too_many_lines)]

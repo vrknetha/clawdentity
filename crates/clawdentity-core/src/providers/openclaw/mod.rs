@@ -623,6 +623,7 @@ mod assets;
 mod cli;
 mod connector_runtime;
 mod doctor;
+mod doctor_checks;
 mod relay_test;
 mod setup;
 

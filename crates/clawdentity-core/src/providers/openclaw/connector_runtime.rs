@@ -68,58 +68,111 @@ where
 {
     match classify_connector_runtime_target(connector_base_url)? {
         ConnectorRuntimeTarget::External { host: _ } => {
-            let (healthy, message) = probe(connector_base_url)?;
-            if healthy {
-                return Ok(ConnectorRuntimeEnsureResult {
-                    status: ConnectorRuntimeEnsureStatus::Ready,
-                    notes: vec![format!(
-                        "verified external connector runtime at `{connector_base_url}` ({message})"
-                    )],
-                });
-            }
-
-            Ok(ConnectorRuntimeEnsureResult {
-                status: ConnectorRuntimeEnsureStatus::ActionRequired,
-                notes: vec![format!(
-                    "relay setup was saved, but the external connector runtime at `{connector_base_url}` is not ready ({message}). Start or fix that connector runtime, then run `clawdentity provider doctor --for openclaw`."
-                )],
-            })
+            ensure_external_connector_runtime(connector_base_url, &mut probe)
         }
-        ConnectorRuntimeTarget::Local(target) => {
-            let (healthy, initial_message) = probe(connector_base_url)?;
-            if healthy {
-                return Ok(ConnectorRuntimeEnsureResult {
-                    status: ConnectorRuntimeEnsureStatus::Ready,
-                    notes: vec![format!(
-                        "verified local connector runtime at `{connector_base_url}` ({initial_message})"
-                    )],
-                });
-            }
-
-            launch(state_options, agent_name, &target)?;
-            let mut last_message = initial_message;
-            for _ in 0..CONNECTOR_STARTUP_POLL_ATTEMPTS {
-                sleep(CONNECTOR_STARTUP_POLL_DELAY);
-                let (healthy, message) = probe(connector_base_url)?;
-                if healthy {
-                    return Ok(ConnectorRuntimeEnsureResult {
-                        status: ConnectorRuntimeEnsureStatus::Ready,
-                        notes: vec![format!(
-                            "started local connector runtime for `{agent_name}` at `{connector_base_url}`"
-                        )],
-                    });
-                }
-                last_message = message;
-            }
-
-            Ok(ConnectorRuntimeEnsureResult {
-                status: ConnectorRuntimeEnsureStatus::ActionRequired,
-                notes: vec![format!(
-                    "relay setup was saved, but the local connector runtime at `{connector_base_url}` is still unavailable ({last_message}). Run `clawdentity connector start {agent_name}`, then `clawdentity provider doctor --for openclaw`."
-                )],
-            })
-        }
+        ConnectorRuntimeTarget::Local(target) => ensure_started_local_connector_runtime(
+            state_options,
+            agent_name,
+            connector_base_url,
+            &target,
+            launch,
+            &mut probe,
+            sleep,
+        ),
     }
+}
+
+fn ensure_external_connector_runtime<Probe>(
+    connector_base_url: &str,
+    probe: &mut Probe,
+) -> Result<ConnectorRuntimeEnsureResult>
+where
+    Probe: FnMut(&str) -> Result<(bool, String)>,
+{
+    let (healthy, message) = probe(connector_base_url)?;
+    let notes = if healthy {
+        format!("verified external connector runtime at `{connector_base_url}` ({message})")
+    } else {
+        format!(
+            "relay setup was saved, but the external connector runtime at `{connector_base_url}` is not ready ({message}). Start or fix that connector runtime, then run `clawdentity provider doctor --for openclaw`."
+        )
+    };
+
+    Ok(ConnectorRuntimeEnsureResult {
+        status: if healthy {
+            ConnectorRuntimeEnsureStatus::Ready
+        } else {
+            ConnectorRuntimeEnsureStatus::ActionRequired
+        },
+        notes: vec![notes],
+    })
+}
+
+fn ensure_started_local_connector_runtime<Launch, Probe, Sleep>(
+    state_options: &ConfigPathOptions,
+    agent_name: &str,
+    connector_base_url: &str,
+    target: &LocalConnectorTarget,
+    launch: Launch,
+    probe: &mut Probe,
+    sleep: Sleep,
+) -> Result<ConnectorRuntimeEnsureResult>
+where
+    Launch: Fn(&ConfigPathOptions, &str, &LocalConnectorTarget) -> Result<()>,
+    Probe: FnMut(&str) -> Result<(bool, String)>,
+    Sleep: Fn(Duration),
+{
+    let (healthy, initial_message) = probe(connector_base_url)?;
+    if healthy {
+        return Ok(ConnectorRuntimeEnsureResult {
+            status: ConnectorRuntimeEnsureStatus::Ready,
+            notes: vec![format!(
+                "verified local connector runtime at `{connector_base_url}` ({initial_message})"
+            )],
+        });
+    }
+
+    launch(state_options, agent_name, target)?;
+    wait_for_local_connector_runtime(
+        agent_name,
+        connector_base_url,
+        initial_message,
+        probe,
+        sleep,
+    )
+}
+
+fn wait_for_local_connector_runtime<Probe, Sleep>(
+    agent_name: &str,
+    connector_base_url: &str,
+    mut last_message: String,
+    probe: &mut Probe,
+    sleep: Sleep,
+) -> Result<ConnectorRuntimeEnsureResult>
+where
+    Probe: FnMut(&str) -> Result<(bool, String)>,
+    Sleep: Fn(Duration),
+{
+    for _ in 0..CONNECTOR_STARTUP_POLL_ATTEMPTS {
+        sleep(CONNECTOR_STARTUP_POLL_DELAY);
+        let (healthy, message) = probe(connector_base_url)?;
+        if healthy {
+            return Ok(ConnectorRuntimeEnsureResult {
+                status: ConnectorRuntimeEnsureStatus::Ready,
+                notes: vec![format!(
+                    "started local connector runtime for `{agent_name}` at `{connector_base_url}`"
+                )],
+            });
+        }
+        last_message = message;
+    }
+
+    Ok(ConnectorRuntimeEnsureResult {
+        status: ConnectorRuntimeEnsureStatus::ActionRequired,
+        notes: vec![format!(
+            "relay setup was saved, but the local connector runtime at `{connector_base_url}` is still unavailable ({last_message}). Run `clawdentity connector start {agent_name}`, then `clawdentity provider doctor --for openclaw`."
+        )],
+    })
 }
 
 pub(super) fn classify_connector_runtime_target(
