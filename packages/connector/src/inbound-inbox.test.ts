@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { INBOUND_INBOX_DB_FILE_NAME } from "./inbound-inbox/constants.js";
+import { InboundInboxStorage } from "./inbound-inbox/storage.js";
 import {
   createConnectorInboundInbox,
   resolveConnectorInboundInboxDir,
@@ -57,6 +58,58 @@ function readEventCount(inbox: object): number {
   ).storage.database;
   return database.prepare("SELECT COUNT(*) AS count FROM inbox_events").get()
     .count;
+}
+
+function readBusyTimeout(inbox: object): number {
+  const database = (
+    inbox as unknown as {
+      storage: {
+        database: {
+          prepare: (sql: string) => { get: () => { timeout: number } };
+        };
+      };
+    }
+  ).storage.database;
+  return database.prepare("PRAGMA busy_timeout").get().timeout;
+}
+
+function measureBusyTimeoutWait(storage: InboundInboxStorage): {
+  elapsedMs: number;
+  error: unknown;
+} {
+  const startedAt = Date.now();
+  try {
+    storage.runInTransaction(() => undefined);
+    throw new Error(
+      "expected transaction to fail while the database is locked",
+    );
+  } catch (error) {
+    return {
+      elapsedMs: Date.now() - startedAt,
+      error,
+    };
+  }
+}
+
+function withHeldLock(
+  storage: InboundInboxStorage,
+  mode: "EXCLUSIVE" | "IMMEDIATE",
+  fn: () => void,
+): void {
+  const database = (
+    storage as unknown as {
+      database: {
+        exec: (sql: string) => void;
+      };
+    }
+  ).database;
+
+  database.exec(`BEGIN ${mode}`);
+  try {
+    fn();
+  } finally {
+    database.exec("ROLLBACK");
+  }
 }
 
 function installEventFailureTrigger(inbox: object): void {
@@ -125,7 +178,38 @@ describe("ConnectorInboundInbox", () => {
       expect(existsSync(join(inboxDir, "index.json"))).toBe(false);
       expect(existsSync(join(inboxDir, "events.jsonl"))).toBe(false);
       expect(existsSync(join(inboxDir, "index.lock"))).toBe(false);
+      expect(readBusyTimeout(inbox)).toBe(5_000);
       expect(readEventCount(inbox)).toBe(2);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("waits briefly on contended writers before surfacing database locks", () => {
+    const sandbox = createSandbox();
+
+    try {
+      const dbPath = getDatabasePath(sandbox.rootDir);
+      const inboxDir = getInboxDir(sandbox.rootDir);
+      const storage = new InboundInboxStorage({
+        dbPath,
+        eventsMaxRows: 1_000,
+        inboxDir,
+        busyTimeoutMs: 50,
+      });
+      const blocker = new InboundInboxStorage({
+        dbPath,
+        eventsMaxRows: 1_000,
+        inboxDir,
+        busyTimeoutMs: 50,
+      });
+
+      withHeldLock(blocker, "IMMEDIATE", () => {
+        const { elapsedMs, error } = measureBusyTimeoutWait(storage);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message.toLowerCase()).toContain("locked");
+        expect(elapsedMs).toBeGreaterThanOrEqual(40);
+      });
     } finally {
       sandbox.cleanup();
     }

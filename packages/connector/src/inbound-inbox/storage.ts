@@ -17,6 +17,7 @@ import type {
 } from "./types.js";
 
 type InboundInboxStorageOptions = {
+  busyTimeoutMs?: number;
   dbPath: string;
   eventsMaxRows: number;
   inboxDir: string;
@@ -62,11 +63,21 @@ export type InboundInboxWriteTransaction = {
   updatePending: (item: ConnectorInboundInboxItem) => void;
 };
 
+const DEFAULT_SQLITE_BUSY_TIMEOUT_MS = 5_000;
+
 function toSafeCount(value: number | null | undefined): number {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return 0;
   }
   return value;
+}
+
+function normalizeBusyTimeoutMs(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_SQLITE_BUSY_TIMEOUT_MS;
+  }
+
+  return Math.max(1, Math.floor(value));
 }
 
 function isRecoverableSqliteError(error: unknown): boolean {
@@ -94,10 +105,21 @@ function safeClose(database: DatabaseSync | undefined): void {
   }
 }
 
-function openDatabase(path: string): DatabaseSync {
+function configureConnection(
+  database: DatabaseSync,
+  busyTimeoutMs: number,
+): void {
+  database.exec(`
+    PRAGMA busy_timeout = ${busyTimeoutMs};
+    PRAGMA foreign_keys = ON;
+  `);
+}
+
+function openDatabase(path: string, busyTimeoutMs: number): DatabaseSync {
   let database: DatabaseSync | undefined;
   try {
     database = new DatabaseSync(path);
+    configureConnection(database, busyTimeoutMs);
     database.prepare("PRAGMA schema_version").get();
     return database;
   } catch (error) {
@@ -107,14 +129,15 @@ function openDatabase(path: string): DatabaseSync {
     }
 
     rmSync(path, { force: true });
-    return new DatabaseSync(path);
+    database = new DatabaseSync(path);
+    configureConnection(database, busyTimeoutMs);
+    return database;
   }
 }
 
 function configureDatabase(database: DatabaseSync): void {
   database.exec(`
     PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS inbox_pending (
       request_id TEXT PRIMARY KEY,
@@ -167,8 +190,11 @@ function configureDatabase(database: DatabaseSync): void {
   `);
 }
 
-function openAndConfigureDatabase(path: string): DatabaseSync {
-  let database = openDatabase(path);
+function openAndConfigureDatabase(
+  path: string,
+  busyTimeoutMs: number,
+): DatabaseSync {
+  let database = openDatabase(path, busyTimeoutMs);
   try {
     configureDatabase(database);
     return database;
@@ -180,6 +206,7 @@ function openAndConfigureDatabase(path: string): DatabaseSync {
 
     rmSync(path, { force: true });
     database = new DatabaseSync(path);
+    configureConnection(database, busyTimeoutMs);
     configureDatabase(database);
     return database;
   }
@@ -196,7 +223,10 @@ export class InboundInboxStorage {
     mkdirSync(dirname(options.dbPath), { recursive: true });
 
     this.eventsMaxRows = Math.max(1, options.eventsMaxRows);
-    this.database = openAndConfigureDatabase(options.dbPath);
+    this.database = openAndConfigureDatabase(
+      options.dbPath,
+      normalizeBusyTimeoutMs(options.busyTimeoutMs),
+    );
   }
 
   async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
