@@ -1,5 +1,6 @@
 import { createLogger, type Logger } from "@clawdentity/sdk";
 import { type ServerType, serve } from "@hono/node-server";
+import { DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
 import { loadProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
@@ -59,6 +60,7 @@ export function startProxyServer(
   });
   const nonceReplayResolution = resolveNodeNonceReplayStore({
     environment: config.environment,
+    maxTimestampSkewSeconds: DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
   });
   if (trustStoreResolution.backend === "memory") {
     logger.warn("proxy.trust_store.memory_fallback", {
@@ -80,6 +82,7 @@ export function startProxyServer(
     trustStore: trustStoreResolution.trustStore,
     auth: {
       nonceCache: nonceReplayResolution.nonceCache,
+      maxTimestampSkewSeconds: DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
     },
   });
   const port = options.port ?? config.listenPort;

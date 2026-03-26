@@ -3,6 +3,7 @@ import {
   AgentRelaySession,
   type AgentRelaySessionNamespace,
 } from "./agent-relay-session.js";
+import { DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS } from "./auth-middleware.js";
 import {
   type ProxyConfig,
   ProxyConfigError,
@@ -116,6 +117,7 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
   const nonceReplayResolution = resolveWorkerNonceReplayStore({
     environment: config.environment,
     nonceReplayNamespace: env.NONCE_REPLAY_GUARD,
+    maxTimestampSkewSeconds: DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
   });
   if (trustStoreResolution.backend === "memory") {
     runtimeLogger.warn("proxy.trust_store.memory_fallback", {
@@ -135,6 +137,7 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
     trustStore: trustStoreResolution.trustStore,
     auth: {
       nonceCache: nonceReplayResolution.nonceCache,
+      maxTimestampSkewSeconds: DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
     },
     version: resolveProxyVersion(env),
     versionSource: resolveProxyVersionSource(env),

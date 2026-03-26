@@ -96,7 +96,7 @@ describe("proxy worker", () => {
     });
   });
 
-  it("allows local startup without trust DO binding", async () => {
+  it("allows local startup without nonce replay DO binding", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
       createRequiredBindings({

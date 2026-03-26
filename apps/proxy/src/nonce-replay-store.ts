@@ -1,7 +1,8 @@
 import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
-import type {
-  ProxyNonceCache,
-  ProxyNonceCacheResult,
+import {
+  DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
+  type ProxyNonceCache,
+  type ProxyNonceCacheResult,
 } from "./auth-middleware/types.js";
 import {
   NONCE_REPLAY_GUARD_DO_NAME,
@@ -100,14 +101,14 @@ export function createDurableNonceReplayStore(
   namespace: NonceReplayGuardNamespace,
   options?: { ttlMs?: number },
 ): ProxyNonceCache {
-  const ttlMs = options?.ttlMs;
+  const ttlMs = options?.ttlMs ?? DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS * 1000;
 
   return {
     async tryAcceptNonce(input) {
       const payload: NonceReplayTryAcceptRequest = {
         agentDid: input.agentDid,
         nonce: input.nonce,
-        ttlMs: input.ttlMs ?? ttlMs ?? 0,
+        ttlMs: input.ttlMs ?? ttlMs,
         ...(input.nowMs !== undefined ? { nowMs: input.nowMs } : {}),
       };
 

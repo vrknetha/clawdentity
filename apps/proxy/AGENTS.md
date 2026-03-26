@@ -28,6 +28,7 @@
 - Keep nonce replay backend policy environment-scoped:
   - `local`: allow in-memory nonce replay fallback when `NONCE_REPLAY_GUARD` binding is unavailable.
   - `development` and `production`: require `NONCE_REPLAY_GUARD`; fail startup when missing.
+- Keep nonce replay runtime wiring explicit: pass `maxTimestampSkewSeconds` into nonce backend resolution and app auth config so fallback TTL behavior stays aligned if skew ever becomes configurable.
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
 - Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (optional OpenClaw base URL, shared credentials, and policy/rate-limit vars).
@@ -78,6 +79,7 @@
 - Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
 - Keep nonce replay TTL aligned to timestamp skew (`maxTimestampSkewSeconds`) so replay dedup window matches accepted timestamp window.
+- Never fallback nonce replay TTL to `0`; when no request-scoped TTL is provided, use the default skew window (`DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS * 1000`).
 - Enforce known-agent access from durable trust state after auth verification (except pairing bootstrap paths).
 - When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.
