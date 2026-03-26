@@ -8,5 +8,6 @@
 - Regenerate this bundle with `pnpm -F @clawdentity/openclaw-skill build && pnpm -F @clawdentity/openclaw-skill run sync:rust-assets`.
 - Runtime override behavior must stay aligned with Rust setup output:
   - explicit connector base URLs stay exact
+  - projected `localAgentDid` comes from `clawdentity-relay.json`, not host-home probing
   - absolute `peersConfigPath` values are honored
   - relative `peersConfigPath` values stay relative to `hooks/transforms/`

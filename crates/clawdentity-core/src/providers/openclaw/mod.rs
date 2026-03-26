@@ -37,6 +37,7 @@ use self::setup::urls_share_service_target;
 use crate::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use crate::db::SqliteStore;
 use crate::error::Result;
+use crate::inspect_agent;
 use crate::provider::{
     DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
     PlatformProvider, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorResult,
@@ -204,9 +205,11 @@ impl OpenclawProvider {
             &relay_snapshot_path,
             &crate::peers::load_peers_config(&context.store)?,
         )?;
+        let local_agent_did = self.resolve_setup_local_agent_did(context)?;
         let relay_runtime_path = write_transform_runtime_config(
             &context.openclaw_dir,
             connector_base_url,
+            &local_agent_did,
             &relay_snapshot_path,
         )?;
         Ok(self.finalize_setup_artifacts(
@@ -221,6 +224,10 @@ impl OpenclawProvider {
                 relay_runtime_path,
             ],
         ))
+    }
+
+    fn resolve_setup_local_agent_did(&self, context: &OpenclawSetupContext) -> Result<String> {
+        Ok(inspect_agent(&context.state_options, &context.agent_name)?.did)
     }
 
     fn save_setup_runtime_config(

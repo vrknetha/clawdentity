@@ -5,6 +5,7 @@ var __export = (target, all) => {
 };
 
 // src/transforms/relay-to-peer.ts
+import { createHash } from "crypto";
 import { readFile as readFile2 } from "fs/promises";
 import { dirname as dirname2, isAbsolute, join as join3 } from "path";
 import { fileURLToPath } from "url";
@@ -13,11 +14,6 @@ import { fileURLToPath } from "url";
 function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
-
-// src/transforms/peers-config.ts
-import { chmod, mkdir, readFile, writeFile } from "fs/promises";
-import { homedir } from "os";
-import { dirname, join as join2 } from "path";
 
 // ../../packages/protocol/src/agent-registration-proof.ts
 var AGENT_REGISTRATION_PROOF_VERSION = "clawdentity.register.v1";
@@ -14333,6 +14329,9 @@ var crlClaimsSchema = external_exports.object({
 });
 
 // src/transforms/peers-config.ts
+import { chmod, mkdir, readFile, writeFile } from "fs/promises";
+import { homedir } from "os";
+import { dirname, join as join2 } from "path";
 var CLAWDENTITY_DIR = ".clawdentity";
 var PEERS_FILENAME = "peers.json";
 var PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -14480,6 +14479,13 @@ function parseRequiredString(value) {
   }
   return trimmed;
 }
+function parseOptionalString(value) {
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : void 0;
+}
 function removePeerField(payload) {
   const outbound = {};
   for (const [key, value] of Object.entries(payload)) {
@@ -14544,16 +14550,31 @@ function parseRelayRuntimeConfig(value) {
   const connectorBaseUrl = typeof value.connectorBaseUrl === "string" && value.connectorBaseUrl.trim().length > 0 ? parseConnectorBaseUrl(value.connectorBaseUrl.trim()) : void 0;
   const connectorPath = typeof value.connectorPath === "string" && value.connectorPath.trim().length > 0 ? normalizeConnectorPath(value.connectorPath) : void 0;
   const peersConfigPath = typeof value.peersConfigPath === "string" && value.peersConfigPath.trim().length > 0 ? value.peersConfigPath.trim() : void 0;
+  const localAgentDid = parseOptionalString(value.localAgentDid);
+  if (localAgentDid) {
+    try {
+      parseAgentDid(localAgentDid);
+    } catch {
+      throw new Error("Relay runtime config localAgentDid is invalid");
+    }
+  }
   const connectorBaseUrls = Array.isArray(value.connectorBaseUrls) ? value.connectorBaseUrls.filter((item) => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0).map(parseConnectorBaseUrl) : void 0;
   return {
     connectorBaseUrl,
     connectorBaseUrls,
     connectorPath,
+    localAgentDid,
     peersConfigPath
   };
 }
-async function loadRelayRuntimeConfig() {
-  const runtimePath = join3(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+function resolveRuntimeConfigPath(options = {}) {
+  if (typeof options.runtimeConfigPath === "string" && options.runtimeConfigPath.trim().length > 0) {
+    return options.runtimeConfigPath.trim();
+  }
+  return join3(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+}
+async function loadRelayRuntimeConfig(options = {}) {
+  const runtimePath = resolveRuntimeConfigPath(options);
   const parsed = await readJson(runtimePath);
   if (parsed === void 0) {
     return {};
@@ -14592,7 +14613,7 @@ async function resolveLinuxDockerGatewayHost() {
   return void 0;
 }
 async function resolveConnectorEndpoints(options) {
-  const runtimeConfig = await loadRelayRuntimeConfig();
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
   const pathInput = options.connectorPath ?? runtimeConfig.connectorPath ?? process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ?? DEFAULT_CONNECTOR_OUTBOUND_PATH;
   const path = normalizeConnectorPath(pathInput.trim());
   const candidates = [];
@@ -14666,7 +14687,7 @@ async function resolvePeersConfigPathOptions(options) {
   if (options.configPath !== void 0 || options.configDir !== void 0 || options.homeDir !== void 0) {
     return options;
   }
-  const runtimeConfig = await loadRelayRuntimeConfig();
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
   if (runtimeConfig.peersConfigPath) {
     return {
       configPath: isAbsolute(runtimeConfig.peersConfigPath) ? runtimeConfig.peersConfigPath : join3(resolveTransformsDir(), runtimeConfig.peersConfigPath)
@@ -14675,6 +14696,30 @@ async function resolvePeersConfigPathOptions(options) {
   return {
     configPath: join3(resolveTransformsDir(), RELAY_PEERS_FILE_NAME)
   };
+}
+async function readLocalAgentDidFromRuntime(options) {
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
+  return runtimeConfig.localAgentDid;
+}
+function buildDeterministicConversationId(localAgentDid, peerDid) {
+  const seed = [localAgentDid, peerDid].sort().join("\n");
+  const digest = createHash("sha256").update(seed, "utf8").digest("hex");
+  return `pair:${digest}`;
+}
+async function resolveRelayConversationId(input) {
+  const explicitConversationId = parseOptionalString(
+    input.payload.conversationId
+  );
+  if (explicitConversationId) {
+    return explicitConversationId;
+  }
+  const localAgentDid = await readLocalAgentDidFromRuntime(input.options);
+  if (!localAgentDid) {
+    throw new Error(
+      "OpenClaw relay runtime is missing localAgentDid. Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>`."
+    );
+  }
+  return buildDeterministicConversationId(localAgentDid, input.peerDid);
 }
 async function relayPayloadToPeer(payload, options = {}) {
   if (!isRecord(payload)) {
@@ -14694,7 +14739,13 @@ async function relayPayloadToPeer(payload, options = {}) {
   const connectorEndpoints = await resolveConnectorEndpoints(options);
   const fetchImpl = resolveRelayFetch(options.fetchImpl);
   const outboundPayload = removePeerField(payload);
+  const conversationId = await resolveRelayConversationId({
+    options,
+    payload,
+    peerDid: peerEntry.did
+  });
   const relayPayload = {
+    conversationId,
     peer: peerAlias,
     peerDid: peerEntry.did,
     peerProxyUrl: peerEntry.proxyUrl,
