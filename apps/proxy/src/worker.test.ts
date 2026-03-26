@@ -16,6 +16,26 @@ function createTrustStateNamespace(): NonNullable<
   };
 }
 
+function createNonceReplayNamespace(): NonNullable<
+  ProxyWorkerBindings["NONCE_REPLAY_GUARD"]
+> {
+  return {
+    idFromName: vi.fn(
+      (name: string) =>
+        ({ toString: () => name }) as unknown as DurableObjectId,
+    ),
+    get: vi.fn(() => ({
+      fetch: vi.fn(async () =>
+        Response.json({
+          accepted: true,
+          seenAt: Date.now(),
+          expiresAt: Date.now() + 60_000,
+        }),
+      ),
+    })),
+  };
+}
+
 function createExecutionContext(): ExecutionContext {
   return {
     waitUntil: vi.fn(),
@@ -37,6 +57,7 @@ function createRequiredBindings(
     ENVIRONMENT: "local",
     REGISTRY_URL: "https://registry.example.test",
     AGENT_RELAY_SESSION: createRelaySessionNamespace(),
+    NONCE_REPLAY_GUARD: createNonceReplayNamespace(),
     BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
     BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
     ...overrides,
@@ -75,11 +96,12 @@ describe("proxy worker", () => {
     });
   });
 
-  it("allows local startup without trust DO binding", async () => {
+  it("allows local startup without nonce replay DO binding", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
       createRequiredBindings({
         ENVIRONMENT: "local",
+        NONCE_REPLAY_GUARD: undefined,
       }),
       createExecutionContext(),
     );
@@ -103,6 +125,7 @@ describe("proxy worker", () => {
       createRequiredBindings({
         ENVIRONMENT: "development",
         PROXY_TRUST_STATE: createTrustStateNamespace(),
+        NONCE_REPLAY_GUARD: createNonceReplayNamespace(),
       }),
       createExecutionContext(),
     );
@@ -162,6 +185,58 @@ describe("proxy worker", () => {
     expect(payload.error.details.fieldErrors?.PROXY_TRUST_STATE?.[0]).toContain(
       "ENVIRONMENT is 'production'",
     );
+  });
+
+  it("fails startup in development when nonce replay DO binding is missing", async () => {
+    const response = await worker.fetch(
+      new Request("https://proxy.example.test/health"),
+      createRequiredBindings({
+        ENVIRONMENT: "development",
+        PROXY_TRUST_STATE: createTrustStateNamespace(),
+        NONCE_REPLAY_GUARD: undefined,
+      }),
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as {
+      error: {
+        code: string;
+        details: {
+          fieldErrors?: Record<string, string[]>;
+        };
+      };
+    };
+    expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
+    expect(
+      payload.error.details.fieldErrors?.NONCE_REPLAY_GUARD?.[0],
+    ).toContain("ENVIRONMENT is 'development'");
+  });
+
+  it("fails startup in production when nonce replay DO binding is missing", async () => {
+    const response = await worker.fetch(
+      new Request("https://proxy.example.test/health"),
+      createRequiredBindings({
+        ENVIRONMENT: "production",
+        PROXY_TRUST_STATE: createTrustStateNamespace(),
+        NONCE_REPLAY_GUARD: undefined,
+      }),
+      createExecutionContext(),
+    );
+
+    expect(response.status).toBe(500);
+    const payload = (await response.json()) as {
+      error: {
+        code: string;
+        details: {
+          fieldErrors?: Record<string, string[]>;
+        };
+      };
+    };
+    expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
+    expect(
+      payload.error.details.fieldErrors?.NONCE_REPLAY_GUARD?.[0],
+    ).toContain("ENVIRONMENT is 'production'");
   });
 
   it("returns config validation error for malformed OPENCLAW_BASE_URL", async () => {

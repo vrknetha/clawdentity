@@ -21,6 +21,10 @@
       {
         "name": "PROXY_TRUST_STATE",
         "class_name": "ProxyTrustState"
+      },
+      {
+        "name": "NONCE_REPLAY_GUARD",
+        "class_name": "NonceReplayGuard"
       }
     ]
   },
@@ -32,6 +36,10 @@
     {
       "tag": "v2-proxy-trust-state",
       "new_sqlite_classes": ["ProxyTrustState"]
+    },
+    {
+      "tag": "v3-nonce-replay-guard",
+      "new_sqlite_classes": ["NonceReplayGuard"]
     }
   ],
   "env": {
@@ -46,6 +54,10 @@
           {
             "name": "PROXY_TRUST_STATE",
             "class_name": "ProxyTrustState"
+          },
+          {
+            "name": "NONCE_REPLAY_GUARD",
+            "class_name": "NonceReplayGuard"
           }
         ]
       },
@@ -57,6 +69,10 @@
         {
           "tag": "v2-proxy-trust-state",
           "new_sqlite_classes": ["ProxyTrustState"]
+        },
+        {
+          "tag": "v3-nonce-replay-guard",
+          "new_sqlite_classes": ["NonceReplayGuard"]
         }
       ],
       "vars": {
@@ -89,6 +105,10 @@
           {
             "name": "PROXY_TRUST_STATE",
             "class_name": "ProxyTrustState"
+          },
+          {
+            "name": "NONCE_REPLAY_GUARD",
+            "class_name": "NonceReplayGuard"
           }
         ]
       },
@@ -100,6 +120,10 @@
         {
           "tag": "v2-proxy-trust-state",
           "new_sqlite_classes": ["ProxyTrustState"]
+        },
+        {
+          "tag": "v3-nonce-replay-guard",
+          "new_sqlite_classes": ["NonceReplayGuard"]
         }
       ],
       "vars": {
@@ -139,6 +163,10 @@
           {
             "name": "PROXY_TRUST_STATE",
             "class_name": "ProxyTrustState"
+          },
+          {
+            "name": "NONCE_REPLAY_GUARD",
+            "class_name": "NonceReplayGuard"
           }
         ]
       },
@@ -150,6 +178,10 @@
         {
           "tag": "v2-proxy-trust-state",
           "new_sqlite_classes": ["ProxyTrustState"]
+        },
+        {
+          "tag": "v3-nonce-replay-guard",
+          "new_sqlite_classes": ["NonceReplayGuard"]
         }
       ],
       "vars": {

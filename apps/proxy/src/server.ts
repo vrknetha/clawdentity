@@ -6,7 +6,6 @@ import {
   createRequestContextMiddleware,
   createRequestLoggingMiddleware,
   type Logger,
-  type NonceCache,
 } from "@clawdentity/sdk";
 import { Hono } from "hono";
 import {
@@ -17,10 +16,12 @@ import { createAgentRateLimitMiddleware } from "./agent-rate-limit-middleware.js
 import type { AgentRelaySessionNamespace } from "./agent-relay-session.js";
 import {
   createProxyAuthMiddleware,
+  type ProxyNonceCache,
   type ProxyRequestVariables,
 } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
 import { PROXY_VERSION, type ProxyVersionSource } from "./index.js";
+import type { NonceReplayGuardNamespace } from "./nonce-replay-store.js";
 import {
   PAIR_CONFIRM_PATH,
   PAIR_START_PATH,
@@ -56,8 +57,9 @@ import {
 type ProxyAuthRuntimeOptions = {
   fetchImpl?: typeof fetch;
   clock?: () => number;
-  nonceCache?: NonceCache;
+  nonceCache?: ProxyNonceCache;
   crlCache?: CrlCache;
+  maxTimestampSkewSeconds?: number;
 };
 
 type ProxyRateLimitRuntimeOptions = {
@@ -88,6 +90,7 @@ export type ProxyApp = Hono<{
   Bindings: {
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
     PROXY_TRUST_STATE?: object;
+    NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
   };
   Variables: ProxyRequestVariables;
 }>;
@@ -122,9 +125,11 @@ function buildHealthPayload(input: {
   bindings: {
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
     PROXY_TRUST_STATE?: object;
+    NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
   };
 }) {
   const requiresDurableTrustState = input.config.environment !== "local";
+  const requiresDurableNonceReplay = input.config.environment !== "local";
   const readiness = {
     versionSource: input.versionSource,
     registryUrlConfigured: input.config.registryUrl.length > 0,
@@ -136,6 +141,9 @@ function buildHealthPayload(input: {
     trustStateBindingConfigured:
       input.bindings.PROXY_TRUST_STATE !== undefined ||
       !requiresDurableTrustState,
+    nonceReplayBindingConfigured:
+      input.bindings.NONCE_REPLAY_GUARD !== undefined ||
+      !requiresDurableNonceReplay,
     openclawBaseUrlConfigured: input.config.openclawBaseUrl.length > 0,
   };
 
@@ -157,6 +165,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     Bindings: {
       AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
       PROXY_TRUST_STATE?: object;
+      NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
     };
     Variables: ProxyRequestVariables;
   }>();
@@ -206,6 +215,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     const bindings = (c.env ?? {}) as {
       AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
       PROXY_TRUST_STATE?: object;
+      NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
     };
 
     return c.json(
@@ -216,6 +226,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
         bindings: {
           AGENT_RELAY_SESSION: bindings.AGENT_RELAY_SESSION,
           PROXY_TRUST_STATE: bindings.PROXY_TRUST_STATE,
+          NONCE_REPLAY_GUARD: bindings.NONCE_REPLAY_GUARD,
         },
       }),
     );

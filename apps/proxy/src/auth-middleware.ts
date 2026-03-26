@@ -5,6 +5,9 @@ export {
   DEFAULT_REGISTRY_KEYS_CACHE_TTL_MS,
   type ProxyAuthContext,
   type ProxyAuthMiddlewareOptions,
+  type ProxyNonceCache,
+  type ProxyNonceCacheInput,
+  type ProxyNonceCacheResult,
   type ProxyRequestVariables,
 } from "./auth-middleware/types.js";
 export { resolveExpectedIssuer } from "./auth-middleware/url.js";
