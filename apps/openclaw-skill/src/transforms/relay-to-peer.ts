@@ -1,14 +1,21 @@
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isRecord } from "@clawdentity/common";
+import { parseAgentDid as parseProtocolAgentDid } from "@clawdentity/protocol";
 import {
   loadPeersConfig,
   type PeersConfigPathOptions,
 } from "./peers-config.js";
 
+const AGENTS_DIR_NAME = "agents";
+const CLAWDENTITY_DIR_NAME = ".clawdentity";
 const DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 const DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
+const IDENTITY_FILE_NAME = "identity.json";
+const OPENCLAW_AGENT_FILE_NAME = "openclaw-agent-name";
 const RELAY_RUNTIME_FILE_NAME = "clawdentity-relay.json";
 const RELAY_PEERS_FILE_NAME = "clawdentity-peers.json";
 
@@ -20,6 +27,7 @@ type RelayRuntimeConfig = {
 };
 
 export type RelayToPeerOptions = PeersConfigPathOptions & {
+  agentName?: string;
   connectorBaseUrl?: string;
   connectorPath?: string;
   fetchImpl?: typeof fetch;
@@ -30,10 +38,15 @@ export type RelayTransformContext = {
 };
 
 type ConnectorRelayRequest = {
+  conversationId?: string;
   payload: Record<string, unknown>;
   peer: string;
   peerDid: string;
   peerProxyUrl: string;
+};
+
+type LocalAgentIdentity = {
+  did: string;
 };
 
 function getErrorCode(error: unknown): string | undefined {
@@ -55,6 +68,15 @@ function parseRequiredString(value: unknown): string {
   }
 
   return trimmed;
+}
+
+function parseOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function removePeerField(
@@ -351,6 +373,150 @@ async function resolvePeersConfigPathOptions(
   };
 }
 
+function resolveClawdentityConfigDir(options: RelayToPeerOptions): string {
+  const home =
+    typeof options.homeDir === "string" && options.homeDir.trim().length > 0
+      ? options.homeDir.trim()
+      : homedir();
+  return join(home, CLAWDENTITY_DIR_NAME);
+}
+
+async function readSelectedOpenclawAgent(
+  configDir: string,
+): Promise<string | undefined> {
+  const markerPath = join(configDir, OPENCLAW_AGENT_FILE_NAME);
+  let raw: string;
+  try {
+    raw = await readFile(markerPath, "utf8");
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  return parseOptionalString(raw);
+}
+
+async function readSingleLocalAgentName(
+  configDir: string,
+): Promise<string | undefined> {
+  const agentsDir = join(configDir, AGENTS_DIR_NAME);
+  let entries: string[];
+  try {
+    entries = (await readdir(agentsDir, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    if (getErrorCode(error) === "ENOENT") {
+      return undefined;
+    }
+
+    throw error;
+  }
+
+  return entries.length === 1 ? parseOptionalString(entries[0]) : undefined;
+}
+
+async function resolveLocalAgentName(
+  options: RelayToPeerOptions,
+  configDir: string,
+): Promise<string | undefined> {
+  return (
+    parseOptionalString(options.agentName) ??
+    parseOptionalString(process.env.CLAWDENTITY_AGENT_NAME) ??
+    (await readSelectedOpenclawAgent(configDir)) ??
+    (await readSingleLocalAgentName(configDir))
+  );
+}
+
+function parseLocalAgentIdentity(
+  value: unknown,
+  agentName: string,
+  identityPath: string,
+): LocalAgentIdentity {
+  if (!isRecord(value)) {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} at ${identityPath}`,
+    );
+  }
+
+  const did = parseOptionalString(value.did);
+  if (!did) {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} at ${identityPath}`,
+    );
+  }
+
+  try {
+    parseProtocolAgentDid(did);
+  } catch {
+    throw new Error(
+      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} at ${identityPath}`,
+    );
+  }
+
+  return { did };
+}
+
+async function readLocalAgentDid(
+  options: RelayToPeerOptions,
+): Promise<string | undefined> {
+  const configDir = resolveClawdentityConfigDir(options);
+  const agentName = await resolveLocalAgentName(options, configDir);
+  if (!agentName) {
+    return undefined;
+  }
+
+  const identityPath = join(
+    configDir,
+    AGENTS_DIR_NAME,
+    agentName,
+    IDENTITY_FILE_NAME,
+  );
+  const parsed = await readJson(identityPath);
+  if (parsed === undefined) {
+    return undefined;
+  }
+
+  return parseLocalAgentIdentity(parsed, agentName, identityPath).did;
+}
+
+function buildDeterministicConversationId(input: {
+  localAgentDid?: string;
+  peerAlias: string;
+  peerDid: string;
+}): string {
+  const seed =
+    input.localAgentDid !== undefined
+      ? [input.localAgentDid, input.peerDid].sort().join("\n")
+      : `${input.peerAlias}\n${input.peerDid}`;
+  const digest = createHash("sha256").update(seed, "utf8").digest("hex");
+  return `pair:${digest}`;
+}
+
+async function resolveRelayConversationId(input: {
+  options: RelayToPeerOptions;
+  payload: Record<string, unknown>;
+  peerAlias: string;
+  peerDid: string;
+}): Promise<string> {
+  const explicitConversationId = parseOptionalString(
+    input.payload.conversationId,
+  );
+  if (explicitConversationId) {
+    return explicitConversationId;
+  }
+
+  const localAgentDid = await readLocalAgentDid(input.options);
+  return buildDeterministicConversationId({
+    localAgentDid,
+    peerAlias: input.peerAlias,
+    peerDid: input.peerDid,
+  });
+}
+
 export async function relayPayloadToPeer(
   payload: unknown,
   options: RelayToPeerOptions = {},
@@ -376,7 +542,14 @@ export async function relayPayloadToPeer(
   const connectorEndpoints = await resolveConnectorEndpoints(options);
   const fetchImpl = resolveRelayFetch(options.fetchImpl);
   const outboundPayload = removePeerField(payload);
+  const conversationId = await resolveRelayConversationId({
+    options,
+    payload,
+    peerAlias,
+    peerDid: peerEntry.did,
+  });
   const relayPayload: ConnectorRelayRequest = {
+    conversationId,
     peer: peerAlias,
     peerDid: peerEntry.did,
     peerProxyUrl: peerEntry.proxyUrl,

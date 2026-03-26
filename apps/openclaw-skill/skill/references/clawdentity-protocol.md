@@ -105,6 +105,8 @@ and `message` fields before local handling is skipped.
   - do not relay
 - If `payload.peer` exists:
   - resolve peer from `peers.json`
+  - derive a default relay `conversationId` from the local agent DID + peer DID
+  - if `payload.conversationId` is a non-empty string, treat it as an explicit relay-lane override
   - remove `peer` from forwarded body
   - send JSON POST to local connector outbound endpoint
   - return `null` to skip local handling
@@ -116,6 +118,8 @@ Relay resolves local agent name in this order:
 2. `CLAWDENTITY_AGENT_NAME`
 3. `~/.clawdentity/openclaw-agent-name`
 4. single local agent fallback from `~/.clawdentity/agents/`
+
+The selected local agent is also the source of truth for the local agent DID used in the default relay `conversationId` derivation.
 
 ## Local OpenClaw Base URL Contract
 
@@ -154,6 +158,7 @@ Outbound JSON body sent by transform:
   "peer": "beta",
   "peerDid": "did:cdi:<authority>:agent:01H...",
   "peerProxyUrl": "https://beta-proxy.example.com/hooks/agent",
+  "conversationId": "<explicit-or-derived-relay-lane>",
   "payload": {
     "event": "agent.message"
   }
@@ -162,6 +167,10 @@ Outbound JSON body sent by transform:
 
 Rules:
 - `payload.peer` is removed before creating the `payload` object above.
+- Transform sends relay `conversationId` as a top-level connector field, not as hidden ordering metadata inside the forwarded payload body.
+- Default relay `conversationId` is deterministic per local-agent/peer-agent pair so one peer relationship stays on one replay lane by default.
+- `payload.conversationId` may override the default relay lane when the caller intentionally wants a different lane.
+- Only `peer` is stripped from the forwarded application payload for compatibility; `conversationId` may still remain inside the application payload if the caller included it there.
 - Transform sends `Content-Type: application/json` only.
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 

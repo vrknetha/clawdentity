@@ -1,13 +1,24 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import relayToPeer, { relayPayloadToPeer } from "./relay-to-peer.js";
 
+const AGENT_NAME = "alpha";
+const ALPHA_AGENT_DID =
+  "did:cdi:registry.example.test:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
+const BETA_AGENT_DID =
+  "did:cdi:registry.example.test:agent:01HF7YAT31JZHSMW1CG6Q6MHB7";
+
 type RelaySandbox = {
   cleanup: () => void;
   homeDir: string;
 };
+
+function buildExpectedConversationId(...parts: string[]): string {
+  return `pair:${createHash("sha256").update(parts.sort().join("\n"), "utf8").digest("hex")}`;
+}
 
 function createRelaySandbox(): RelaySandbox {
   const homeDir = mkdtempSync(
@@ -16,6 +27,7 @@ function createRelaySandbox(): RelaySandbox {
   const clawdentityDir = join(homeDir, ".clawdentity");
 
   mkdirSync(clawdentityDir, { recursive: true });
+  mkdirSync(join(clawdentityDir, "agents", AGENT_NAME), { recursive: true });
 
   writeFileSync(
     join(clawdentityDir, "peers.json"),
@@ -23,7 +35,7 @@ function createRelaySandbox(): RelaySandbox {
       {
         peers: {
           beta: {
-            did: "did:cdi:registry.example.test:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            did: BETA_AGENT_DID,
             proxyUrl: "https://peer.example.com/hooks/agent?source=skill",
             agentName: "beta",
             humanName: "Ira",
@@ -33,6 +45,25 @@ function createRelaySandbox(): RelaySandbox {
       null,
       2,
     ),
+    "utf8",
+  );
+  writeFileSync(
+    join(clawdentityDir, "openclaw-agent-name"),
+    `${AGENT_NAME}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    join(clawdentityDir, "agents", AGENT_NAME, "identity.json"),
+    `${JSON.stringify(
+      {
+        did: ALPHA_AGENT_DID,
+        publicKey: "public-key",
+        secretKey: "secret-key",
+        registryUrl: "https://registry.example.test",
+      },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
 
@@ -75,9 +106,12 @@ describe("relay-to-peer transform", () => {
       expect(requestInit.method).toBe("POST");
       expect(requestInit.body).toBe(
         JSON.stringify({
+          conversationId: buildExpectedConversationId(
+            ALPHA_AGENT_DID,
+            BETA_AGENT_DID,
+          ),
           peer: "beta",
-          peerDid:
-            "did:cdi:registry.example.test:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          peerDid: BETA_AGENT_DID,
           peerProxyUrl: "https://peer.example.com/hooks/agent?source=skill",
           payload: {
             message: "hello",
@@ -204,6 +238,41 @@ describe("relay-to-peer transform", () => {
           },
         ),
       ).rejects.toThrow("Local connector outbound relay request failed");
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("uses explicit payload conversationId as relay lane override", async () => {
+    const sandbox = createRelaySandbox();
+    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+
+    try {
+      await relayPayloadToPeer(
+        {
+          peer: "beta",
+          conversationId: "channel:ops-thread-7",
+          message: "hello",
+        },
+        {
+          homeDir: sandbox.homeDir,
+          fetchImpl: fetchMock as typeof fetch,
+        },
+      );
+
+      const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(requestInit.body).toBe(
+        JSON.stringify({
+          conversationId: "channel:ops-thread-7",
+          peer: "beta",
+          peerDid: BETA_AGENT_DID,
+          peerProxyUrl: "https://peer.example.com/hooks/agent?source=skill",
+          payload: {
+            conversationId: "channel:ops-thread-7",
+            message: "hello",
+          },
+        }),
+      );
     } finally {
       sandbox.cleanup();
     }

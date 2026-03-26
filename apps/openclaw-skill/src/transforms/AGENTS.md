@@ -9,7 +9,10 @@
 - Do not bypass `peers-config.ts` for peer alias loading or validation.
 - Keep transform logic free of direct registry/proxy calls; local connector handoff is the only outbound path here.
 - The `send-to-peer` OpenClaw mapping is a `wake`-action side-effect hook: keep transform input compatible with raw `ctx.payload`, and do not assume `agent` mappings still execute null-return relay transforms safely.
+- Default relay `conversationId` must stay deterministic per local-agent/peer-agent pair; treat top-level `payload.conversationId` as an intentional override, not as an always-present local chat ID.
+- Keep relay envelope semantics explicit: send `conversationId` as a top-level `/v1/outbound` field and strip only `peer` from the forwarded application payload.
 
 ## Testing
 - Cover both default runtime metadata and explicit override behavior in transform tests.
+- Cover relay `conversationId` behavior in transform tests: derived default, explicit override, and request-body contract to the connector.
 - Keep tests filesystem-isolated with temp directories or mocks; never depend on a real OpenClaw home.

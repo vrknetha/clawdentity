@@ -25,8 +25,11 @@
   - expose default export accepting OpenClaw transform context (`ctx.payload`)
   - read `payload.peer`
   - resolve peer metadata from peers config to preserve alias semantics
+  - derive a deterministic default relay `conversationId` from the local agent DID + peer DID
+  - allow explicit top-level `payload.conversationId` to override that default relay lane
   - send outbound payload to local connector endpoint as JSON
-  - remove `peer` from forwarded application payload and wrap it in connector relay envelope
+  - send top-level `conversationId` in the connector relay envelope
+  - remove `peer` from forwarded application payload and wrap the rest in the connector relay envelope
   - return `null` after successful relay so local handling is skipped
 - If `payload.peer` is absent, return payload unchanged.
 - Keep setup flow CLI-driven via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`; do not add `configure-hooks.sh`.
@@ -42,6 +45,7 @@
 ## Maintainability
 - Keep filesystem path logic centralized; avoid hardcoding `~/.clawdentity` paths across multiple files.
 - Keep relay behavior pure except for explicit dependencies (`fetch`, filesystem) so tests stay deterministic.
+- Keep relay lane behavior deterministic and documented; do not move ordering semantics into ad-hoc payload parsing or per-peer mutable state unless the contract is explicitly revised.
 - Prefer schema-first runtime validation over ad-hoc guards.
 - Keep skill docs aligned with connector architecture: do not document direct transform-to-peer-proxy signing.
 - Keep user-facing onboarding prompt-first, with `/skill.md` as canonical instruction source.
