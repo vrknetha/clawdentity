@@ -6,8 +6,7 @@ var __export = (target, all) => {
 
 // src/transforms/relay-to-peer.ts
 import { createHash } from "crypto";
-import { readFile as readFile2, readdir } from "fs/promises";
-import { homedir as homedir2 } from "os";
+import { readFile as readFile2 } from "fs/promises";
 import { dirname as dirname2, isAbsolute, join as join3 } from "path";
 import { fileURLToPath } from "url";
 
@@ -14460,12 +14459,8 @@ async function loadPeersConfig(options = {}) {
 }
 
 // src/transforms/relay-to-peer.ts
-var AGENTS_DIR_NAME = "agents";
-var CLAWDENTITY_DIR_NAME = ".clawdentity";
 var DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 var DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
-var IDENTITY_FILE_NAME = "identity.json";
-var OPENCLAW_AGENT_FILE_NAME = "openclaw-agent-name";
 var RELAY_RUNTIME_FILE_NAME = "clawdentity-relay.json";
 var RELAY_PEERS_FILE_NAME = "clawdentity-peers.json";
 function getErrorCode2(error48) {
@@ -14555,16 +14550,31 @@ function parseRelayRuntimeConfig(value) {
   const connectorBaseUrl = typeof value.connectorBaseUrl === "string" && value.connectorBaseUrl.trim().length > 0 ? parseConnectorBaseUrl(value.connectorBaseUrl.trim()) : void 0;
   const connectorPath = typeof value.connectorPath === "string" && value.connectorPath.trim().length > 0 ? normalizeConnectorPath(value.connectorPath) : void 0;
   const peersConfigPath = typeof value.peersConfigPath === "string" && value.peersConfigPath.trim().length > 0 ? value.peersConfigPath.trim() : void 0;
+  const localAgentDid = parseOptionalString(value.localAgentDid);
+  if (localAgentDid) {
+    try {
+      parseAgentDid(localAgentDid);
+    } catch {
+      throw new Error("Relay runtime config localAgentDid is invalid");
+    }
+  }
   const connectorBaseUrls = Array.isArray(value.connectorBaseUrls) ? value.connectorBaseUrls.filter((item) => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0).map(parseConnectorBaseUrl) : void 0;
   return {
     connectorBaseUrl,
     connectorBaseUrls,
     connectorPath,
+    localAgentDid,
     peersConfigPath
   };
 }
-async function loadRelayRuntimeConfig() {
-  const runtimePath = join3(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+function resolveRuntimeConfigPath(options = {}) {
+  if (typeof options.runtimeConfigPath === "string" && options.runtimeConfigPath.trim().length > 0) {
+    return options.runtimeConfigPath.trim();
+  }
+  return join3(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+}
+async function loadRelayRuntimeConfig(options = {}) {
+  const runtimePath = resolveRuntimeConfigPath(options);
   const parsed = await readJson(runtimePath);
   if (parsed === void 0) {
     return {};
@@ -14603,7 +14613,7 @@ async function resolveLinuxDockerGatewayHost() {
   return void 0;
 }
 async function resolveConnectorEndpoints(options) {
-  const runtimeConfig = await loadRelayRuntimeConfig();
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
   const pathInput = options.connectorPath ?? runtimeConfig.connectorPath ?? process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ?? DEFAULT_CONNECTOR_OUTBOUND_PATH;
   const path = normalizeConnectorPath(pathInput.trim());
   const candidates = [];
@@ -14677,7 +14687,7 @@ async function resolvePeersConfigPathOptions(options) {
   if (options.configPath !== void 0 || options.configDir !== void 0 || options.homeDir !== void 0) {
     return options;
   }
-  const runtimeConfig = await loadRelayRuntimeConfig();
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
   if (runtimeConfig.peersConfigPath) {
     return {
       configPath: isAbsolute(runtimeConfig.peersConfigPath) ? runtimeConfig.peersConfigPath : join3(resolveTransformsDir(), runtimeConfig.peersConfigPath)
@@ -14687,90 +14697,29 @@ async function resolvePeersConfigPathOptions(options) {
     configPath: join3(resolveTransformsDir(), RELAY_PEERS_FILE_NAME)
   };
 }
-function resolveClawdentityConfigDir(options) {
-  const home = typeof options.homeDir === "string" && options.homeDir.trim().length > 0 ? options.homeDir.trim() : homedir2();
-  return join3(home, CLAWDENTITY_DIR_NAME);
+async function readLocalAgentDidFromRuntime(options) {
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
+  return runtimeConfig.localAgentDid;
 }
-async function readSelectedOpenclawAgent(configDir) {
-  const markerPath = join3(configDir, OPENCLAW_AGENT_FILE_NAME);
-  let raw;
-  try {
-    raw = await readFile2(markerPath, "utf8");
-  } catch (error48) {
-    if (getErrorCode2(error48) === "ENOENT") {
-      return void 0;
-    }
-    throw error48;
-  }
-  return parseOptionalString(raw);
-}
-async function readSingleLocalAgentName(configDir) {
-  const agentsDir = join3(configDir, AGENTS_DIR_NAME);
-  let entries;
-  try {
-    entries = (await readdir(agentsDir, { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  } catch (error48) {
-    if (getErrorCode2(error48) === "ENOENT") {
-      return void 0;
-    }
-    throw error48;
-  }
-  return entries.length === 1 ? parseOptionalString(entries[0]) : void 0;
-}
-async function resolveLocalAgentName(options, configDir) {
-  return parseOptionalString(options.agentName) ?? parseOptionalString(process.env.CLAWDENTITY_AGENT_NAME) ?? await readSelectedOpenclawAgent(configDir) ?? await readSingleLocalAgentName(configDir);
-}
-function parseLocalAgentIdentity(value, agentName, identityPath) {
-  if (!isRecord(value)) {
-    throw new Error(
-      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} at ${identityPath}`
-    );
-  }
-  const did = parseOptionalString(value.did);
-  if (!did) {
-    throw new Error(
-      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} at ${identityPath}`
-    );
-  }
-  try {
-    parseAgentDid(did);
-  } catch {
-    throw new Error(
-      `Agent "${agentName}" has invalid ${IDENTITY_FILE_NAME} at ${identityPath}`
-    );
-  }
-  return { did };
-}
-async function readLocalAgentDid(options) {
-  const configDir = resolveClawdentityConfigDir(options);
-  const agentName = await resolveLocalAgentName(options, configDir);
-  if (!agentName) {
-    return void 0;
-  }
-  const identityPath = join3(configDir, AGENTS_DIR_NAME, agentName, IDENTITY_FILE_NAME);
-  const parsed = await readJson(identityPath);
-  if (parsed === void 0) {
-    return void 0;
-  }
-  return parseLocalAgentIdentity(parsed, agentName, identityPath).did;
-}
-function buildDeterministicConversationId(input) {
-  const seed = input.localAgentDid !== void 0 ? [input.localAgentDid, input.peerDid].sort().join("\n") : `${input.peerAlias}
-${input.peerDid}`;
+function buildDeterministicConversationId(localAgentDid, peerDid) {
+  const seed = [localAgentDid, peerDid].sort().join("\n");
   const digest = createHash("sha256").update(seed, "utf8").digest("hex");
   return `pair:${digest}`;
 }
 async function resolveRelayConversationId(input) {
-  const explicitConversationId = parseOptionalString(input.payload.conversationId);
+  const explicitConversationId = parseOptionalString(
+    input.payload.conversationId
+  );
   if (explicitConversationId) {
     return explicitConversationId;
   }
-  const localAgentDid = await readLocalAgentDid(input.options);
-  return buildDeterministicConversationId({
-    localAgentDid,
-    peerAlias: input.peerAlias,
-    peerDid: input.peerDid
-  });
+  const localAgentDid = await readLocalAgentDidFromRuntime(input.options);
+  if (!localAgentDid) {
+    throw new Error(
+      "OpenClaw relay runtime is missing localAgentDid. Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>`."
+    );
+  }
+  return buildDeterministicConversationId(localAgentDid, input.peerDid);
 }
 async function relayPayloadToPeer(payload, options = {}) {
   if (!isRecord(payload)) {
@@ -14793,7 +14742,6 @@ async function relayPayloadToPeer(payload, options = {}) {
   const conversationId = await resolveRelayConversationId({
     options,
     payload,
-    peerAlias,
     peerDid: peerEntry.did
   });
   const relayPayload = {

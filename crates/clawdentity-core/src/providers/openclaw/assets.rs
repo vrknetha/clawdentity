@@ -710,6 +710,7 @@ pub fn read_openclaw_config_hook_token(config_path: &Path) -> Result<Option<Stri
 pub fn write_transform_runtime_config(
     openclaw_dir: &Path,
     connector_base_url: &str,
+    local_agent_did: &str,
     peers_path: &Path,
 ) -> Result<PathBuf> {
     let connector_base_urls = connector_runtime_base_urls(connector_base_url)?;
@@ -718,6 +719,7 @@ pub fn write_transform_runtime_config(
         "connectorBaseUrl": connector_base_urls.first().cloned().unwrap_or_default(),
         "connectorBaseUrls": connector_base_urls,
         "connectorPath": DEFAULT_CONNECTOR_OUTBOUND_PATH,
+        "localAgentDid": local_agent_did,
         "peersConfigPath": runtime_peers_config_path_value(openclaw_dir, peers_path),
         "updatedAt": chrono::Utc::now().to_rfc3339(),
     });

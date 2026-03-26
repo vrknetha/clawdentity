@@ -11,6 +11,8 @@ use super::{
 use crate::peers::PeersConfig;
 use crate::providers::openclaw::test_support::{install_mock_openclaw_cli, write_openclaw_profile};
 
+const ALPHA_AGENT_DID: &str = "did:cdi:registry.example.test:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
+
 #[test]
 fn installs_skill_assets_and_writes_runtime_files() {
     let temp = TempDir::new().expect("temp dir");
@@ -27,6 +29,7 @@ fn installs_skill_assets_and_writes_runtime_files() {
     let runtime_path = write_transform_runtime_config(
         temp.path(),
         "https://relay.example.test:24444",
+        ALPHA_AGENT_DID,
         &peers_target,
     )
     .expect("runtime");
@@ -50,6 +53,10 @@ fn installs_skill_assets_and_writes_runtime_files() {
     assert_eq!(
         runtime_value.get("peersConfigPath").and_then(Value::as_str),
         Some(peers_target.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        runtime_value.get("localAgentDid").and_then(Value::as_str),
+        Some(ALPHA_AGENT_DID)
     );
     let peers_path = write_transform_peers_snapshot(
         &peers_target,

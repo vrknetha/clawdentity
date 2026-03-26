@@ -8,6 +8,7 @@
 - OpenClaw skill asset installs may rewrite the canonical site origin only from explicit local/operator overrides (`CLAWDENTITY_SITE_BASE_URL` in process env or the profile `.env`); never bake non-production URLs into the published asset bundle.
 - Profile `.env` parsing for OpenClaw skill asset rewrites must ignore inline comments after unquoted values so local preview URLs stay valid.
 - Keep provider setup OpenClaw-first: require a readable `openclaw.json`, preserve existing OpenClaw auth, then persist Clawdentity relay metadata.
+- Provider setup must project the selected local agent DID into `hooks/transforms/clawdentity-relay.json` as `localAgentDid`; the container/runtime transform must not need host-home agent lookup for relay lane derivation.
 - Keep OpenClaw target validation strict: provider setup/runtime metadata must treat `openclawBaseUrl` as the OpenClaw gateway only, never the Clawdentity registry or proxy.
 - Inbound peer delivery for OpenClaw must target the visible main-session ingress (`/hooks/wake`) by default; `/hooks/agent` creates isolated hook sessions and hides relay traffic from normal chat UX.
 - Wake-style inbound payloads must carry the rendered relay copy in both `text` and top-level `message`; OpenClaw may accept the hook without surfacing it when `message` is omitted.
@@ -15,6 +16,7 @@
 - The custom `send-to-peer` hook mapping must stay on OpenClaw `wake` action semantics; `agent` mappings no longer guarantee that side-effect transforms relay anything before local hook completion.
 - Provider setup must surface readiness honestly: if relay metadata was saved but the connector hop is still dead, return an action-required setup status instead of reporting success.
 - Provider setup must propagate explicit `connector_base_url` and `relay_transform_peers_path` overrides unchanged into every persisted artifact; do not recompute host lists or fallback file paths from partial inputs.
+- Default relay lane metadata must be stable across peer alias renames: project only DID-based inputs into transform runtime metadata and never rely on mutable alias names for replay grouping.
 - Explicit non-loopback connector URLs are operator-owned runtimes; setup may verify but must not pretend they are ready when the probe still fails.
 - Connector runtime target classification may rely on implicit HTTP/HTTPS default ports when operators omit `:80` or `:443`; do not regress this to explicit-port-only parsing unless every caller is updated together.
 - Keep doctor and relay-test compatible with container-mounted OpenClaw homes and explicit env overrides.

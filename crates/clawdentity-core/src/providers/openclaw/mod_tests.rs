@@ -16,8 +16,10 @@ use super::{
     OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider,
     assets::{transform_peers_path, transform_runtime_path},
     load_connector_assignments, resolve_openclaw_dir,
-    test_support::{install_mock_openclaw_cli, write_openclaw_profile},
+    test_support::{install_mock_openclaw_cli, seed_inspectable_agent, write_openclaw_profile},
 };
+
+const ALPHA_AGENT_DID: &str = "did:cdi:registry.example.test:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
 
 #[test]
 fn detection_checks_home_and_path_evidence() {
@@ -144,6 +146,12 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
         vec![bin_dir.path().to_path_buf()],
     );
     let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
+    let config_dir = get_config_dir(&ConfigPathOptions {
+        home_dir: Some(home.path().to_path_buf()),
+        registry_url_hint: None,
+    })
+    .expect("config dir");
+    seed_inspectable_agent(&config_dir, "alpha", ALPHA_AGENT_DID);
     let custom_peers_path = home.path().join("runtime").join("custom-peers.json");
 
     let result = provider
@@ -190,12 +198,10 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
         runtime.get("peersConfigPath").and_then(Value::as_str),
         Some(custom_peers_path.to_string_lossy().as_ref())
     );
-
-    let config_dir = get_config_dir(&ConfigPathOptions {
-        home_dir: Some(home.path().to_path_buf()),
-        registry_url_hint: None,
-    })
-    .expect("config dir");
+    assert_eq!(
+        runtime.get("localAgentDid").and_then(Value::as_str),
+        Some(ALPHA_AGENT_DID)
+    );
     let assignments = load_connector_assignments(&config_dir).expect("assignments");
     assert_eq!(
         assignments

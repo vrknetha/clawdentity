@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import relayToPeer, { relayPayloadToPeer } from "./relay-to-peer.js";
 
-const AGENT_NAME = "alpha";
 const ALPHA_AGENT_DID =
   "did:cdi:registry.example.test:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
 const BETA_AGENT_DID =
@@ -13,7 +12,8 @@ const BETA_AGENT_DID =
 
 type RelaySandbox = {
   cleanup: () => void;
-  homeDir: string;
+  peersConfigPath: string;
+  runtimeConfigPath: string;
 };
 
 function buildExpectedConversationId(...parts: string[]): string {
@@ -21,16 +21,12 @@ function buildExpectedConversationId(...parts: string[]): string {
 }
 
 function createRelaySandbox(): RelaySandbox {
-  const homeDir = mkdtempSync(
-    join(tmpdir(), "clawdentity-openclaw-skill-relay-"),
-  );
-  const clawdentityDir = join(homeDir, ".clawdentity");
+  const runtimeDir = mkdtempSync(join(tmpdir(), "clawdentity-openclaw-skill-"));
+  mkdirSync(runtimeDir, { recursive: true });
 
-  mkdirSync(clawdentityDir, { recursive: true });
-  mkdirSync(join(clawdentityDir, "agents", AGENT_NAME), { recursive: true });
-
+  const peersConfigPath = join(runtimeDir, "clawdentity-peers.json");
   writeFileSync(
-    join(clawdentityDir, "peers.json"),
+    peersConfigPath,
     JSON.stringify(
       {
         peers: {
@@ -47,19 +43,15 @@ function createRelaySandbox(): RelaySandbox {
     ),
     "utf8",
   );
+  const runtimeConfigPath = join(runtimeDir, "clawdentity-relay.json");
   writeFileSync(
-    join(clawdentityDir, "openclaw-agent-name"),
-    `${AGENT_NAME}\n`,
-    "utf8",
-  );
-  writeFileSync(
-    join(clawdentityDir, "agents", AGENT_NAME, "identity.json"),
+    runtimeConfigPath,
     `${JSON.stringify(
       {
-        did: ALPHA_AGENT_DID,
-        publicKey: "public-key",
-        secretKey: "secret-key",
-        registryUrl: "https://registry.example.test",
+        connectorBaseUrl: "http://127.0.0.1:19400",
+        connectorPath: "/v1/outbound",
+        localAgentDid: ALPHA_AGENT_DID,
+        peersConfigPath,
       },
       null,
       2,
@@ -69,9 +61,10 @@ function createRelaySandbox(): RelaySandbox {
 
   return {
     cleanup: () => {
-      rmSync(homeDir, { recursive: true, force: true });
+      rmSync(runtimeDir, { recursive: true, force: true });
     },
-    homeDir,
+    peersConfigPath,
+    runtimeConfigPath,
   };
 }
 
@@ -90,8 +83,9 @@ describe("relay-to-peer transform", () => {
           },
         },
         {
-          homeDir: sandbox.homeDir,
+          configPath: sandbox.peersConfigPath,
           fetchImpl: fetchMock as typeof fetch,
+          runtimeConfigPath: sandbox.runtimeConfigPath,
         },
       );
 
@@ -142,8 +136,9 @@ describe("relay-to-peer transform", () => {
         {
           connectorBaseUrl: "http://127.0.0.1:19555",
           connectorPath: "/relay/outbound",
-          homeDir: sandbox.homeDir,
+          configPath: sandbox.peersConfigPath,
           fetchImpl: fetchMock as typeof fetch,
+          runtimeConfigPath: sandbox.runtimeConfigPath,
         },
       );
 
@@ -185,7 +180,7 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
           {
-            homeDir: sandbox.homeDir,
+            configPath: sandbox.peersConfigPath,
             fetchImpl: vi.fn(
               async () => new Response("", { status: 200 }),
             ) as typeof fetch,
@@ -209,8 +204,9 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
           {
-            homeDir: sandbox.homeDir,
+            configPath: sandbox.peersConfigPath,
             fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
           },
         ),
       ).rejects.toThrow("Local connector outbound endpoint is unavailable");
@@ -233,8 +229,9 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
           {
-            homeDir: sandbox.homeDir,
+            configPath: sandbox.peersConfigPath,
             fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
           },
         ),
       ).rejects.toThrow("Local connector outbound relay request failed");
@@ -255,8 +252,9 @@ describe("relay-to-peer transform", () => {
           message: "hello",
         },
         {
-          homeDir: sandbox.homeDir,
+          configPath: sandbox.peersConfigPath,
           fetchImpl: fetchMock as typeof fetch,
+          runtimeConfigPath: sandbox.runtimeConfigPath,
         },
       );
 
@@ -272,6 +270,31 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
         }),
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("fails clearly when localAgentDid is unavailable for derived relay lanes", async () => {
+    const sandbox = createRelaySandbox();
+
+    try {
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            message: "hello",
+          },
+          {
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: vi.fn(
+              async () => new Response("", { status: 202 }),
+            ) as typeof fetch,
+          },
+        ),
+      ).rejects.toThrow(
+        "OpenClaw relay runtime is missing localAgentDid. Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>`.",
       );
     } finally {
       sandbox.cleanup();

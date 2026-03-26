@@ -12,7 +12,7 @@
 - Default onboarding (`clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`) must project peer + relay runtime snapshots into OpenClaw-local transform directory so containerized gateways can read relay state without mounting `~/.clawdentity`:
   - `<openclaw-state>/hooks/transforms/clawdentity-peers.json`
   - `<openclaw-state>/hooks/transforms/clawdentity-relay.json`
-- Local relay handoff uses connector endpoint candidates from `clawdentity-relay.json` and must work across macOS/Linux Docker hosts.
+- Local relay handoff uses connector endpoint candidates plus projected `localAgentDid` from `clawdentity-relay.json` and must work across macOS/Linux Docker hosts.
 - Relay setup should preserve local OpenClaw upstream URL in `~/.clawdentity/openclaw-relay.json` for proxy runtime fallback.
 - Relay setup must also persist `openclawHookToken` in `~/.clawdentity/openclaw-relay.json` so connector runtime can authenticate OpenClaw `/hooks/*` delivery without manual token flags.
 - Relay setup must persist per-agent connector bind assignment in `~/.clawdentity/openclaw-connectors.json`.
@@ -25,12 +25,14 @@
   - expose default export accepting OpenClaw transform context (`ctx.payload`)
   - read `payload.peer`
   - resolve peer metadata from peers config to preserve alias semantics
-  - derive a deterministic default relay `conversationId` from the local agent DID + peer DID
+  - derive a deterministic default relay `conversationId` only from stable DIDs (`localAgentDid` + peer DID)
   - allow explicit top-level `payload.conversationId` to override that default relay lane
   - send outbound payload to local connector endpoint as JSON
   - send top-level `conversationId` in the connector relay envelope
   - remove `peer` from forwarded application payload and wrap the rest in the connector relay envelope
   - return `null` after successful relay so local handling is skipped
+- The transform must treat projected `hooks/transforms/clawdentity-relay.json` as the source of truth for `localAgentDid`; do not default back to host `HOME` probing in containerized/runtime code.
+- Missing projected `localAgentDid` is a setup/runtime error; do not invent fallback relay lanes from alias names or other mutable local labels.
 - If `payload.peer` is absent, return payload unchanged.
 - Keep setup flow CLI-driven via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`; do not add `configure-hooks.sh`.
 - Keep setup flow OpenClaw-first: OpenClaw owns OpenClaw auth and base config, while Clawdentity only installs relay assets, hook mapping, and local runtime metadata.
@@ -45,7 +47,7 @@
 ## Maintainability
 - Keep filesystem path logic centralized; avoid hardcoding `~/.clawdentity` paths across multiple files.
 - Keep relay behavior pure except for explicit dependencies (`fetch`, filesystem) so tests stay deterministic.
-- Keep relay lane behavior deterministic and documented; do not move ordering semantics into ad-hoc payload parsing or per-peer mutable state unless the contract is explicitly revised.
+- Keep relay lane behavior deterministic and documented; do not move ordering semantics into ad-hoc payload parsing, mutable alias names, or per-peer mutable state unless the contract is explicitly revised.
 - Prefer schema-first runtime validation over ad-hoc guards.
 - Keep skill docs aligned with connector architecture: do not document direct transform-to-peer-proxy signing.
 - Keep user-facing onboarding prompt-first, with `/skill.md` as canonical instruction source.

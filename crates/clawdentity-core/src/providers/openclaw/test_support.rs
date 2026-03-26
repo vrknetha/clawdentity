@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use tempfile::TempDir;
 
 use super::{OPENCLAW_CONFIG_FILE_NAME, resolve_openclaw_dir};
@@ -102,4 +104,35 @@ pub(crate) fn write_openclaw_profile(home_dir: &Path, config_body: &str) -> Path
     let config_path = openclaw_dir.join(OPENCLAW_CONFIG_FILE_NAME);
     fs::write(&config_path, config_body).expect("openclaw config");
     config_path
+}
+
+pub(crate) fn seed_inspectable_agent(config_dir: &Path, agent_name: &str, agent_did: &str) {
+    let agent_dir = config_dir.join("agents").join(agent_name);
+    fs::create_dir_all(&agent_dir).expect("agent dir");
+
+    let header = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({"alg":"EdDSA","typ":"JWT","kid":"k1"}))
+            .expect("header"),
+    );
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::to_vec(&serde_json::json!({
+            "sub": agent_did,
+            "ownerDid":"did:cdi:registry.example.test:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            "exp": 2208988800_u64,
+            "framework":"openclaw",
+            "cnf": {"jwk":{"kty":"OKP","crv":"Ed25519","x":"abc"}}
+        }))
+        .expect("payload"),
+    );
+
+    fs::write(
+        agent_dir.join("ait.jwt"),
+        format!("{header}.{payload}.local"),
+    )
+    .expect("ait");
+    fs::write(
+        agent_dir.join("secret.key"),
+        URL_SAFE_NO_PAD.encode([7_u8; 32]),
+    )
+    .expect("secret");
 }
