@@ -19,15 +19,6 @@ export type ConnectorInboundDeadLetterItem = ConnectorInboundInboxItem & {
   deadLetteredAt: string;
 };
 
-export type InboundInboxIndexFile = {
-  deadLetterByRequestId: Record<string, ConnectorInboundDeadLetterItem>;
-  deadLetterBytes: number;
-  pendingBytes: number;
-  pendingByRequestId: Record<string, ConnectorInboundInboxItem>;
-  updatedAt: string;
-  version: number;
-};
-
 export type InboundInboxEvent = {
   details?: Record<string, unknown>;
   requestId?: string;
@@ -74,8 +65,7 @@ export type ConnectorInboundInboxMarkFailureResult = {
 export type ConnectorInboundInboxOptions = {
   agentName: string;
   configDir: string;
-  eventsMaxBytes: number;
-  eventsMaxFiles: number;
+  eventsMaxRows: number;
   maxPendingBytes: number;
   maxPendingMessages: number;
 };

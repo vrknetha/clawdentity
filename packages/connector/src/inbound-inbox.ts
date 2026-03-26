@@ -2,13 +2,14 @@ import { join } from "node:path";
 import { nowIso } from "@clawdentity/sdk";
 import type { DeliverFrame } from "./frames.js";
 import {
+  INBOUND_INBOX_DB_FILE_NAME,
   INBOUND_INBOX_DIR_NAME,
-  INBOUND_INBOX_EVENTS_FILE_NAME,
-  INBOUND_INBOX_INDEX_FILE_NAME,
-  INBOUND_INBOX_INDEX_LOCK_FILE_NAME,
 } from "./inbound-inbox/constants.js";
-import { parseOptionalNonEmptyString } from "./inbound-inbox/schema.js";
-import { InboundInboxStorage } from "./inbound-inbox/storage.js";
+import { parseOptionalNonEmptyString } from "./inbound-inbox/parse.js";
+import {
+  InboundInboxStorage,
+  type InboundInboxWriteTransaction,
+} from "./inbound-inbox/storage.js";
 import type {
   ConnectorInboundDeadLetterItem,
   ConnectorInboundInboxEnqueueResult,
@@ -29,21 +30,32 @@ export type {
   ConnectorInboundInboxSnapshot,
 } from "./inbound-inbox/types.js";
 
-function toComparableTimeMs(value: string): number {
-  const parsed = Date.parse(value);
-  if (Number.isFinite(parsed)) {
-    return parsed;
-  }
-
-  return Number.MAX_SAFE_INTEGER;
-}
-
 function sanitizeRequestIds(requestIds: string[]): string[] {
   return Array.from(
     new Set(
       requestIds.map((item) => item.trim()).filter((item) => item.length > 0),
     ),
   );
+}
+
+function buildPendingItem(frame: DeliverFrame): ConnectorInboundInboxItem {
+  const receivedAt = nowIso();
+  return {
+    id: frame.id,
+    requestId: frame.id,
+    fromAgentDid: frame.fromAgentDid,
+    toAgentDid: frame.toAgentDid,
+    payload: frame.payload,
+    payloadBytes: Buffer.byteLength(
+      JSON.stringify(frame.payload ?? null),
+      "utf8",
+    ),
+    receivedAt,
+    nextAttemptAt: receivedAt,
+    attemptCount: 0,
+    conversationId: parseOptionalNonEmptyString(frame.conversationId),
+    replyTo: parseOptionalNonEmptyString(frame.replyTo),
+  };
 }
 
 export class ConnectorInboundInbox {
@@ -59,11 +71,8 @@ export class ConnectorInboundInbox {
 
     this.storage = new InboundInboxStorage({
       inboxDir,
-      indexPath: join(inboxDir, INBOUND_INBOX_INDEX_FILE_NAME),
-      indexLockPath: join(inboxDir, INBOUND_INBOX_INDEX_LOCK_FILE_NAME),
-      eventsPath: join(inboxDir, INBOUND_INBOX_EVENTS_FILE_NAME),
-      eventsMaxBytes: Math.max(0, options.eventsMaxBytes),
-      eventsMaxFiles: Math.max(0, options.eventsMaxFiles),
+      dbPath: join(inboxDir, INBOUND_INBOX_DB_FILE_NAME),
+      eventsMaxRows: Math.max(1, options.eventsMaxRows),
     });
     this.maxPendingBytes = options.maxPendingBytes;
     this.maxPendingMessages = options.maxPendingMessages;
@@ -73,81 +82,62 @@ export class ConnectorInboundInbox {
     frame: DeliverFrame,
   ): Promise<ConnectorInboundInboxEnqueueResult> {
     return await this.storage.withWriteLock(async () => {
-      const index = await this.storage.loadIndex();
-      if (
-        index.pendingByRequestId[frame.id] !== undefined ||
-        index.deadLetterByRequestId[frame.id] !== undefined
-      ) {
-        await this.storage.appendEvent({
-          type: "inbound_duplicate",
-          requestId: frame.id,
+      return this.storage.runInTransaction((transaction) => {
+        if (transaction.hasRequest(frame.id)) {
+          const totals = transaction.getPendingTotals();
+          transaction.appendEvent({
+            type: "inbound_duplicate",
+            requestId: frame.id,
+          });
+          return {
+            accepted: true,
+            duplicate: true,
+            pendingCount: totals.pendingCount,
+          };
+        }
+
+        const pendingItem = buildPendingItem(frame);
+        const totals = transaction.getPendingTotals();
+        if (totals.pendingCount >= this.maxPendingMessages) {
+          return {
+            accepted: false,
+            duplicate: false,
+            pendingCount: totals.pendingCount,
+            reason: "connector inbound inbox is full (message cap reached)",
+          };
+        }
+
+        if (
+          totals.pendingBytes + pendingItem.payloadBytes >
+          this.maxPendingBytes
+        ) {
+          return {
+            accepted: false,
+            duplicate: false,
+            pendingCount: totals.pendingCount,
+            reason: "connector inbound inbox is full (byte cap reached)",
+          };
+        }
+
+        transaction.insertPending(pendingItem);
+        transaction.appendEvent({
+          type: "inbound_persisted",
+          requestId: pendingItem.requestId,
+          details: {
+            payloadBytes: pendingItem.payloadBytes,
+            fromAgentDid: pendingItem.fromAgentDid,
+            toAgentDid: pendingItem.toAgentDid,
+            conversationId: pendingItem.conversationId,
+            replyTo: pendingItem.replyTo,
+          },
         });
+
         return {
           accepted: true,
-          duplicate: true,
-          pendingCount: Object.keys(index.pendingByRequestId).length,
-        };
-      }
-
-      const payloadBytes = Buffer.byteLength(
-        JSON.stringify(frame.payload ?? null),
-        "utf8",
-      );
-
-      const pendingCount = Object.keys(index.pendingByRequestId).length;
-      if (pendingCount >= this.maxPendingMessages) {
-        return {
-          accepted: false,
           duplicate: false,
-          pendingCount,
-          reason: "connector inbound inbox is full (message cap reached)",
+          pendingCount: totals.pendingCount + 1,
         };
-      }
-
-      if (index.pendingBytes + payloadBytes > this.maxPendingBytes) {
-        return {
-          accepted: false,
-          duplicate: false,
-          pendingCount,
-          reason: "connector inbound inbox is full (byte cap reached)",
-        };
-      }
-
-      const pendingItem: ConnectorInboundInboxItem = {
-        id: frame.id,
-        requestId: frame.id,
-        fromAgentDid: frame.fromAgentDid,
-        toAgentDid: frame.toAgentDid,
-        payload: frame.payload,
-        payloadBytes,
-        receivedAt: nowIso(),
-        nextAttemptAt: nowIso(),
-        attemptCount: 0,
-        conversationId: parseOptionalNonEmptyString(frame.conversationId),
-        replyTo: parseOptionalNonEmptyString(frame.replyTo),
-      };
-
-      index.pendingByRequestId[pendingItem.requestId] = pendingItem;
-      index.pendingBytes += pendingItem.payloadBytes;
-      index.updatedAt = nowIso();
-      await this.storage.saveIndex(index);
-      await this.storage.appendEvent({
-        type: "inbound_persisted",
-        requestId: pendingItem.requestId,
-        details: {
-          payloadBytes,
-          fromAgentDid: pendingItem.fromAgentDid,
-          toAgentDid: pendingItem.toAgentDid,
-          conversationId: pendingItem.conversationId,
-          replyTo: pendingItem.replyTo,
-        },
       });
-
-      return {
-        accepted: true,
-        duplicate: false,
-        pendingCount: Object.keys(index.pendingByRequestId).length,
-      };
     });
   }
 
@@ -155,40 +145,19 @@ export class ConnectorInboundInbox {
     limit: number;
     nowMs: number;
   }): Promise<ConnectorInboundInboxItem[]> {
-    const index = await this.storage.loadIndex();
-    const due = Object.values(index.pendingByRequestId)
-      .filter((item) => toComparableTimeMs(item.nextAttemptAt) <= input.nowMs)
-      .sort((left, right) => {
-        const leftNext = toComparableTimeMs(left.nextAttemptAt);
-        const rightNext = toComparableTimeMs(right.nextAttemptAt);
-        if (leftNext !== rightNext) {
-          return leftNext - rightNext;
-        }
-
-        return (
-          toComparableTimeMs(left.receivedAt) -
-          toComparableTimeMs(right.receivedAt)
-        );
-      });
-
-    return due.slice(0, Math.max(1, input.limit));
+    return await this.storage.listDuePending(input);
   }
 
   async markDelivered(requestId: string): Promise<void> {
     await this.storage.withWriteLock(async () => {
-      const index = await this.storage.loadIndex();
-      const entry = index.pendingByRequestId[requestId];
-      if (entry === undefined) {
-        return;
-      }
-
-      delete index.pendingByRequestId[requestId];
-      index.pendingBytes = Math.max(0, index.pendingBytes - entry.payloadBytes);
-      index.updatedAt = nowIso();
-      await this.storage.saveIndex(index);
-      await this.storage.appendEvent({
-        type: "replay_succeeded",
-        requestId,
+      this.storage.runInTransaction((transaction) => {
+        if (!transaction.deletePending(requestId)) {
+          return;
+        }
+        transaction.appendEvent({
+          type: "replay_succeeded",
+          requestId,
+        });
       });
     });
   }
@@ -201,137 +170,105 @@ export class ConnectorInboundInbox {
     retryable: boolean;
   }): Promise<ConnectorInboundInboxMarkFailureResult> {
     return await this.storage.withWriteLock(async () => {
-      const index = await this.storage.loadIndex();
-      const entry = index.pendingByRequestId[input.requestId];
-      if (entry === undefined) {
-        return { movedToDeadLetter: false };
-      }
+      return this.storage.runInTransaction((transaction) => {
+        const entry = transaction.getPending(input.requestId);
+        if (entry === undefined) {
+          return { movedToDeadLetter: false };
+        }
 
-      entry.attemptCount += 1;
-      entry.lastError = input.errorMessage;
-      entry.lastAttemptAt = nowIso();
-
-      const shouldMoveToDeadLetter =
-        !input.retryable &&
-        entry.attemptCount >= Math.max(1, input.maxNonRetryableAttempts);
-
-      if (shouldMoveToDeadLetter) {
-        const deadLetterEntry: ConnectorInboundDeadLetterItem = {
+        const updatedEntry: ConnectorInboundInboxItem = {
           ...entry,
-          deadLetteredAt: nowIso(),
-          deadLetterReason: input.errorMessage,
+          attemptCount: entry.attemptCount + 1,
+          lastError: input.errorMessage,
+          lastAttemptAt: nowIso(),
         };
-        delete index.pendingByRequestId[input.requestId];
-        index.pendingBytes = Math.max(
-          0,
-          index.pendingBytes - entry.payloadBytes,
-        );
-        index.deadLetterByRequestId[input.requestId] = deadLetterEntry;
-        index.deadLetterBytes += deadLetterEntry.payloadBytes;
-        index.updatedAt = nowIso();
-        await this.storage.saveIndex(index);
-        await this.storage.appendEvent({
-          type: "dead_letter_moved",
+
+        const shouldMoveToDeadLetter =
+          !input.retryable &&
+          updatedEntry.attemptCount >=
+            Math.max(1, input.maxNonRetryableAttempts);
+
+        if (shouldMoveToDeadLetter) {
+          const deadLetterEntry: ConnectorInboundDeadLetterItem = {
+            ...updatedEntry,
+            deadLetteredAt: nowIso(),
+            deadLetterReason: input.errorMessage,
+          };
+          transaction.deletePending(input.requestId);
+          transaction.insertDeadLetter(deadLetterEntry);
+          transaction.appendEvent({
+            type: "dead_letter_moved",
+            requestId: input.requestId,
+            details: {
+              attemptCount: deadLetterEntry.attemptCount,
+              retryable: input.retryable,
+              errorMessage: input.errorMessage,
+            },
+          });
+          return { movedToDeadLetter: true };
+        }
+
+        transaction.updatePending({
+          ...updatedEntry,
+          nextAttemptAt: input.nextAttemptAt,
+        });
+        transaction.appendEvent({
+          type: "replay_failed",
           requestId: input.requestId,
           details: {
-            attemptCount: deadLetterEntry.attemptCount,
+            attemptCount: updatedEntry.attemptCount,
+            nextAttemptAt: input.nextAttemptAt,
             retryable: input.retryable,
             errorMessage: input.errorMessage,
           },
         });
-        return { movedToDeadLetter: true };
-      }
-
-      entry.nextAttemptAt = input.nextAttemptAt;
-      index.updatedAt = nowIso();
-      await this.storage.saveIndex(index);
-      await this.storage.appendEvent({
-        type: "replay_failed",
-        requestId: input.requestId,
-        details: {
-          attemptCount: entry.attemptCount,
-          nextAttemptAt: input.nextAttemptAt,
-          retryable: input.retryable,
-          errorMessage: input.errorMessage,
-        },
+        return { movedToDeadLetter: false };
       });
-      return { movedToDeadLetter: false };
     });
   }
 
   async listDeadLetter(input?: {
     limit?: number;
   }): Promise<ConnectorInboundDeadLetterItem[]> {
-    const index = await this.storage.loadIndex();
-    const entries = Object.values(index.deadLetterByRequestId).sort(
-      (left, right) => {
-        const leftDeadAt = toComparableTimeMs(left.deadLetteredAt);
-        const rightDeadAt = toComparableTimeMs(right.deadLetteredAt);
-        if (leftDeadAt !== rightDeadAt) {
-          return leftDeadAt - rightDeadAt;
-        }
-
-        return (
-          toComparableTimeMs(left.receivedAt) -
-          toComparableTimeMs(right.receivedAt)
-        );
-      },
-    );
-
-    const limit = Math.max(1, input?.limit ?? (entries.length || 1));
-    return entries.slice(0, limit);
+    return await this.storage.listDeadLetter(input);
   }
 
   async replayDeadLetter(input?: {
     requestIds?: string[];
   }): Promise<{ replayedCount: number }> {
     return await this.storage.withWriteLock(async () => {
-      const index = await this.storage.loadIndex();
-      const requestIds =
-        input?.requestIds !== undefined
-          ? sanitizeRequestIds(input.requestIds)
-          : Object.keys(index.deadLetterByRequestId);
+      return this.storage.runInTransaction((transaction) => {
+        const requestIds =
+          input?.requestIds !== undefined
+            ? sanitizeRequestIds(input.requestIds)
+            : transaction.getDeadLetterRequestIds();
 
-      let replayedCount = 0;
-      for (const requestId of requestIds) {
-        if (requestId.length === 0) {
-          continue;
+        let replayedCount = 0;
+        for (const requestId of requestIds) {
+          const dead = transaction.getDeadLetter(requestId);
+          if (!dead) {
+            continue;
+          }
+
+          transaction.deleteDeadLetter(requestId);
+          transaction.insertPending({
+            ...dead,
+            nextAttemptAt: nowIso(),
+            lastError: dead.deadLetterReason,
+          });
+          replayedCount += 1;
+          transaction.appendEvent({
+            type: "dead_letter_replayed",
+            requestId,
+            details: {
+              deadLetteredAt: dead.deadLetteredAt,
+              deadLetterReason: dead.deadLetterReason,
+            },
+          });
         }
 
-        const dead = index.deadLetterByRequestId[requestId];
-        if (!dead) {
-          continue;
-        }
-
-        delete index.deadLetterByRequestId[requestId];
-        index.deadLetterBytes = Math.max(
-          0,
-          index.deadLetterBytes - dead.payloadBytes,
-        );
-
-        index.pendingByRequestId[requestId] = {
-          ...dead,
-          nextAttemptAt: nowIso(),
-          lastError: dead.deadLetterReason,
-        };
-        index.pendingBytes += dead.payloadBytes;
-        replayedCount += 1;
-        await this.storage.appendEvent({
-          type: "dead_letter_replayed",
-          requestId,
-          details: {
-            deadLetteredAt: dead.deadLetteredAt,
-            deadLetterReason: dead.deadLetterReason,
-          },
-        });
-      }
-
-      if (replayedCount > 0) {
-        index.updatedAt = nowIso();
-        await this.storage.saveIndex(index);
-      }
-
-      return { replayedCount };
+        return { replayedCount };
+      });
     });
   }
 
@@ -339,133 +276,59 @@ export class ConnectorInboundInbox {
     requestIds?: string[];
   }): Promise<{ purgedCount: number }> {
     return await this.storage.withWriteLock(async () => {
-      const index = await this.storage.loadIndex();
-      const requestIds =
-        input?.requestIds !== undefined
-          ? sanitizeRequestIds(input.requestIds)
-          : Object.keys(index.deadLetterByRequestId);
+      return this.storage.runInTransaction((transaction) => {
+        const requestIds =
+          input?.requestIds !== undefined
+            ? sanitizeRequestIds(input.requestIds)
+            : transaction.getDeadLetterRequestIds();
 
-      let purgedCount = 0;
-      for (const requestId of requestIds) {
-        if (requestId.length === 0) {
-          continue;
+        let purgedCount = 0;
+        for (const requestId of requestIds) {
+          const dead = transaction.getDeadLetter(requestId);
+          if (!dead) {
+            continue;
+          }
+
+          transaction.deleteDeadLetter(requestId);
+          purgedCount += 1;
+          transaction.appendEvent({
+            type: "dead_letter_purged",
+            requestId,
+            details: {
+              deadLetteredAt: dead.deadLetteredAt,
+              deadLetterReason: dead.deadLetterReason,
+            },
+          });
         }
 
-        const dead = index.deadLetterByRequestId[requestId];
-        if (!dead) {
-          continue;
-        }
-
-        delete index.deadLetterByRequestId[requestId];
-        index.deadLetterBytes = Math.max(
-          0,
-          index.deadLetterBytes - dead.payloadBytes,
-        );
-        purgedCount += 1;
-        await this.storage.appendEvent({
-          type: "dead_letter_purged",
-          requestId,
-          details: {
-            deadLetteredAt: dead.deadLetteredAt,
-            deadLetterReason: dead.deadLetterReason,
-          },
-        });
-      }
-
-      if (purgedCount > 0) {
-        index.updatedAt = nowIso();
-        await this.storage.saveIndex(index);
-      }
-
-      return { purgedCount };
+        return { purgedCount };
+      });
     });
   }
 
   async pruneDelivered(): Promise<void> {
     await this.storage.withWriteLock(async () => {
-      const index = await this.storage.loadIndex();
-      const beforePendingCount = Object.keys(index.pendingByRequestId).length;
-      const beforeDeadLetterCount = Object.keys(
-        index.deadLetterByRequestId,
-      ).length;
-      if (beforePendingCount === 0 && beforeDeadLetterCount === 0) {
-        return;
-      }
+      this.storage.runInTransaction(
+        (transaction: InboundInboxWriteTransaction) => {
+          const counts = transaction.getPruneCounts();
+          if (
+            counts.beforePendingCount === counts.afterPendingCount &&
+            counts.beforeDeadLetterCount === counts.afterDeadLetterCount
+          ) {
+            return;
+          }
 
-      const nextPending: Record<string, ConnectorInboundInboxItem> = {};
-      let pendingBytes = 0;
-      for (const [requestId, entry] of Object.entries(
-        index.pendingByRequestId,
-      )) {
-        if (entry.attemptCount < 0) {
-          continue;
-        }
-        nextPending[requestId] = entry;
-        pendingBytes += entry.payloadBytes;
-      }
-
-      const nextDead: Record<string, ConnectorInboundDeadLetterItem> = {};
-      let deadLetterBytes = 0;
-      for (const [requestId, entry] of Object.entries(
-        index.deadLetterByRequestId,
-      )) {
-        if (entry.attemptCount < 0) {
-          continue;
-        }
-        nextDead[requestId] = entry;
-        deadLetterBytes += entry.payloadBytes;
-      }
-
-      index.pendingByRequestId = nextPending;
-      index.pendingBytes = pendingBytes;
-      index.deadLetterByRequestId = nextDead;
-      index.deadLetterBytes = deadLetterBytes;
-      index.updatedAt = nowIso();
-      await this.storage.saveIndex(index);
-      await this.storage.appendEvent({
-        type: "inbox_pruned",
-        details: {
-          beforePendingCount,
-          afterPendingCount: Object.keys(nextPending).length,
-          beforeDeadLetterCount,
-          afterDeadLetterCount: Object.keys(nextDead).length,
+          transaction.appendEvent({
+            type: "inbox_pruned",
+            details: counts,
+          });
         },
-      });
+      );
     });
   }
 
   async getSnapshot(): Promise<ConnectorInboundInboxSnapshot> {
-    const index = await this.storage.loadIndex();
-    const pendingEntries = Object.values(index.pendingByRequestId).sort(
-      (left, right) =>
-        toComparableTimeMs(left.receivedAt) -
-        toComparableTimeMs(right.receivedAt),
-    );
-    const deadEntries = Object.values(index.deadLetterByRequestId).sort(
-      (left, right) =>
-        toComparableTimeMs(left.deadLetteredAt) -
-        toComparableTimeMs(right.deadLetteredAt),
-    );
-
-    const nextAttemptAt = pendingEntries
-      .map((entry) => entry.nextAttemptAt)
-      .sort(
-        (left, right) => toComparableTimeMs(left) - toComparableTimeMs(right),
-      )[0];
-
-    return {
-      pending: {
-        pendingCount: pendingEntries.length,
-        pendingBytes: index.pendingBytes,
-        oldestPendingAt: pendingEntries[0]?.receivedAt,
-        nextAttemptAt,
-      },
-      deadLetter: {
-        deadLetterCount: deadEntries.length,
-        deadLetterBytes: index.deadLetterBytes,
-        oldestDeadLetterAt: deadEntries[0]?.deadLetteredAt,
-      },
-    };
+    return await this.storage.getSnapshot();
   }
 }
 

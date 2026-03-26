@@ -23,9 +23,10 @@
   - `runtime/server.ts` for HTTP route handling (`/v1/status`, dead-letter ops, `/v1/outbound`).
   - `runtime/trusted-receipts.ts`, `runtime/url.ts`, `runtime/ws.ts`, and `runtime/parse.ts` for focused helper concerns.
 - Keep `inbound-inbox.ts` as the public API surface (`ConnectorInboundInbox`, factory helpers, exported types) and route internals through `inbound-inbox/` modules:
-  - `inbound-inbox/types.ts` for inbox/dead-letter/index/event type contracts.
-  - `inbound-inbox/schema.ts` for index parsing/normalization rules.
-  - `inbound-inbox/storage.ts` for lock/index/events file persistence concerns.
+  - `inbound-inbox/types.ts` for inbox/dead-letter/event contracts.
+  - `inbound-inbox/parse.ts` for shared string sanitization helpers.
+  - `inbound-inbox/records.ts` for SQLite row mapping and payload serialization.
+  - `inbound-inbox/storage.ts` for SQLite schema, queries, transactions, and event pruning.
 
 - DID checks in frame/runtime paths must be DID v2 only: accept `did:cdi:<authority>:<agent|human>:<ulid>` via protocol parsers (`parseDid` / `parseAgentDid`) and never use string-prefix checks.
 - Keep websocket lifecycle + ack behavior in `client.ts`.
@@ -34,16 +35,16 @@
 
 ## Inbound Durability Rules
 - Connector must persist inbound relay payloads before sending `deliver_ack accepted=true`.
-- Persist connector inbox state as atomic JSON index + append-only JSONL events under `agents/<agent>/inbound-inbox/`.
-- Inbound inbox index schema is `version: 2` with explicit `pendingByRequestId` + `deadLetterByRequestId`; do not add backward-compat parsing paths for older index versions.
+- Persist connector inbox state in `agents/<agent>/inbound-inbox/inbox.sqlite3` and treat that SQLite database as the only source of truth.
+- Enable WAL mode and keep every mutating inbox path transactional so pending, dead-letter, and event rows stay consistent on failure.
 - Inbox dedupe key is request/frame id; duplicates must not create extra pending entries.
-- Replay must continue after runtime restarts by loading pending entries from inbox index at startup.
+- Replay must continue after runtime restarts by loading pending entries from SQLite at startup.
 - Do not drop pending entries on transient replay failures; reschedule with bounded backoff.
 - Non-retryable replay failures must move to dead-letter after `CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS`.
-- Dead-letter operations (`listDeadLetter`, `replayDeadLetter`, `purgeDeadLetter`) must update bytes/count accounting atomically with index writes.
-- Keep index writes guarded by the local advisory lock file (`index.lock`) to avoid concurrent writer corruption across processes.
-- Keep event log growth bounded via rotation (`eventsMaxBytes`, `eventsMaxFiles`) rather than unbounded `events.jsonl` growth.
+- Dead-letter operations (`listDeadLetter`, `replayDeadLetter`, `purgeDeadLetter`) must update bytes/count accounting atomically with the same transaction that moves rows.
+- Keep event retention bounded via `eventsMaxRows`; do not reintroduce byte/file rotation logic.
 - Preserve inbound `conversationId` and `replyTo` metadata through inbox persistence and replay delivery.
+- Ignore stale JSON inbox files if they still exist on disk; do not read, migrate, or delete them inside the runtime.
 
 ## Replay/Health Rules
 - Keep replay configuration environment-driven via `CONNECTOR_INBOUND_*` vars with safe defaults from `constants.ts`.
@@ -81,7 +82,7 @@
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules
-- `inbound-inbox.test.ts` must cover persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, and dead-letter purge transitions.
+- `inbound-inbox.test.ts` must cover SQLite persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, dead-letter purge, event pruning, corrupt-db recovery, and transaction rollback.
 - `client.test/*.test.ts` must stay split by concern (for example delivery/heartbeat, reconnect lifecycle, outbound queue) to keep each test file focused and easy to maintain.
 - `client.test/*.test.ts` must cover both delivery modes:
   - direct local OpenClaw delivery fallback

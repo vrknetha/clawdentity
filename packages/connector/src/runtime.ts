@@ -98,8 +98,7 @@ export async function startConnectorRuntime(
   const inboundInbox = createConnectorInboundInbox({
     configDir: input.configDir,
     agentName: input.agentName,
-    eventsMaxBytes: inboundReplayPolicy.eventsMaxBytes,
-    eventsMaxFiles: inboundReplayPolicy.eventsMaxFiles,
+    eventsMaxRows: inboundReplayPolicy.eventsMaxRows,
     maxPendingMessages: inboundReplayPolicy.inboxMaxMessages,
     maxPendingBytes: inboundReplayPolicy.inboxMaxBytes,
   });

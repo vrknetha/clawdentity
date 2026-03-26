@@ -1,7 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { INBOUND_INBOX_DB_FILE_NAME } from "./inbound-inbox/constants.js";
 import {
   createConnectorInboundInbox,
   resolveConnectorInboundInboxDir,
@@ -23,9 +30,52 @@ function createInbox(rootDir: string, agentName = "alpha") {
     agentName,
     maxPendingMessages: 100,
     maxPendingBytes: 1024 * 1024,
-    eventsMaxBytes: 1024 * 1024,
-    eventsMaxFiles: 5,
+    eventsMaxRows: 1_000,
   });
+}
+
+function getInboxDir(rootDir: string, agentName = "alpha"): string {
+  return resolveConnectorInboundInboxDir({
+    configDir: rootDir,
+    agentName,
+  });
+}
+
+function getDatabasePath(rootDir: string, agentName = "alpha"): string {
+  return join(getInboxDir(rootDir, agentName), INBOUND_INBOX_DB_FILE_NAME);
+}
+
+function readEventCount(inbox: object): number {
+  const database = (
+    inbox as unknown as {
+      storage: {
+        database: {
+          prepare: (sql: string) => { get: () => { count: number } };
+        };
+      };
+    }
+  ).storage.database;
+  return database.prepare("SELECT COUNT(*) AS count FROM inbox_events").get()
+    .count;
+}
+
+function installEventFailureTrigger(inbox: object): void {
+  const database = (
+    inbox as unknown as {
+      storage: {
+        database: {
+          exec: (sql: string) => void;
+        };
+      };
+    }
+  ).storage.database;
+  database.exec(`
+    CREATE TRIGGER fail_inbox_events_insert
+    BEFORE INSERT ON inbox_events
+    BEGIN
+      SELECT RAISE(ABORT, 'forced inbox_events failure');
+    END;
+  `);
 }
 
 describe("ConnectorInboundInbox", () => {
@@ -69,21 +119,13 @@ describe("ConnectorInboundInbox", () => {
       expect(snapshot.pending.pendingBytes).toBeGreaterThan(0);
       expect(snapshot.deadLetter.deadLetterCount).toBe(0);
 
-      const inboxDir = resolveConnectorInboundInboxDir({
-        configDir: sandbox.rootDir,
-        agentName: "alpha",
-      });
-      const indexPath = join(inboxDir, "index.json");
-      const eventsPath = join(inboxDir, "events.jsonl");
-
-      const indexRaw = readFileSync(indexPath, "utf8");
-      expect(indexRaw).toContain('"version": 2');
-      expect(indexRaw).toContain("pendingByRequestId");
-      expect(indexRaw).toContain("deadLetterByRequestId");
-
-      const eventsRaw = readFileSync(eventsPath, "utf8");
-      expect(eventsRaw).toContain("inbound_persisted");
-      expect(eventsRaw).toContain("inbound_duplicate");
+      const inboxDir = getInboxDir(sandbox.rootDir);
+      const dbPath = getDatabasePath(sandbox.rootDir);
+      expect(existsSync(dbPath)).toBe(true);
+      expect(existsSync(join(inboxDir, "index.json"))).toBe(false);
+      expect(existsSync(join(inboxDir, "events.jsonl"))).toBe(false);
+      expect(existsSync(join(inboxDir, "index.lock"))).toBe(false);
+      expect(readEventCount(inbox)).toBe(2);
     } finally {
       sandbox.cleanup();
     }
@@ -98,8 +140,7 @@ describe("ConnectorInboundInbox", () => {
         agentName: "alpha",
         maxPendingMessages: 1,
         maxPendingBytes: 64,
-        eventsMaxBytes: 1024 * 1024,
-        eventsMaxFiles: 5,
+        eventsMaxRows: 1_000,
       });
 
       const accepted = await inbox.enqueue({
@@ -136,8 +177,7 @@ describe("ConnectorInboundInbox", () => {
           agentName: "beta",
           maxPendingMessages: 100,
           maxPendingBytes: 8,
-          eventsMaxBytes: 1024 * 1024,
-          eventsMaxFiles: 5,
+          eventsMaxRows: 1_000,
         });
 
         const rejectedByBytes = await byteCapped.enqueue({
@@ -290,14 +330,11 @@ describe("ConnectorInboundInbox", () => {
     }
   });
 
-  it("gracefully handles missing index file", async () => {
+  it("gracefully handles a missing sqlite inbox file", async () => {
     const sandbox = createSandbox();
 
     try {
-      const inboxDir = resolveConnectorInboundInboxDir({
-        configDir: sandbox.rootDir,
-        agentName: "alpha",
-      });
+      const inboxDir = getInboxDir(sandbox.rootDir);
       mkdirSync(inboxDir, { recursive: true });
 
       const inbox = createInbox(sandbox.rootDir);
@@ -306,6 +343,113 @@ describe("ConnectorInboundInbox", () => {
       expect(snapshot.pending.pendingBytes).toBe(0);
       expect(snapshot.deadLetter.deadLetterCount).toBe(0);
       expect(snapshot.deadLetter.deadLetterBytes).toBe(0);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("recreates a corrupt sqlite inbox file on first use", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const dbPath = getDatabasePath(sandbox.rootDir);
+      mkdirSync(getInboxDir(sandbox.rootDir), { recursive: true });
+      writeFileSync(dbPath, "not a sqlite database", "utf8");
+
+      const inbox = createInbox(sandbox.rootDir);
+      const result = await inbox.enqueue({
+        v: 1,
+        type: "deliver",
+        id: "01HXYZTESTDELIVER000000000007",
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
+        payload: { message: "hello" },
+      });
+
+      expect(result.accepted).toBe(true);
+      expect((await inbox.getSnapshot()).pending.pendingCount).toBe(1);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("prunes inbox event rows to the configured max", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const inbox = createConnectorInboundInbox({
+        configDir: sandbox.rootDir,
+        agentName: "alpha",
+        maxPendingMessages: 100,
+        maxPendingBytes: 1024 * 1024,
+        eventsMaxRows: 3,
+      });
+
+      await inbox.enqueue({
+        v: 1,
+        type: "deliver",
+        id: "01HXYZTESTDELIVER000000000008",
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
+        payload: { message: "hello" },
+      });
+      await inbox.enqueue({
+        v: 1,
+        type: "deliver",
+        id: "01HXYZTESTDELIVER000000000008",
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        toAgentDid:
+          "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
+        payload: { message: "hello" },
+      });
+      await inbox.markReplayFailure({
+        requestId: "01HXYZTESTDELIVER000000000008",
+        errorMessage: "retry later",
+        nextAttemptAt: new Date(Date.now() + 1_000).toISOString(),
+        retryable: true,
+        maxNonRetryableAttempts: 3,
+      });
+      await inbox.markDelivered("01HXYZTESTDELIVER000000000008");
+
+      expect(readEventCount(inbox)).toBe(3);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("rolls back pending writes when event persistence fails inside a transaction", async () => {
+    const sandbox = createSandbox();
+
+    try {
+      const inbox = createInbox(sandbox.rootDir);
+      installEventFailureTrigger(inbox);
+
+      await expect(
+        inbox.enqueue({
+          v: 1,
+          type: "deliver",
+          id: "01HXYZTESTDELIVER000000000009",
+          ts: "2026-01-01T00:00:00.000Z",
+          fromAgentDid:
+            "did:cdi:registry.example.test:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          toAgentDid:
+            "did:cdi:registry.example.test:agent:01HF7YAT343FD48SE5Z15FNC01",
+          payload: { message: "hello" },
+        }),
+      ).rejects.toThrow("forced inbox_events failure");
+
+      const snapshot = await inbox.getSnapshot();
+      expect(snapshot.pending.pendingCount).toBe(0);
+      expect(snapshot.pending.pendingBytes).toBe(0);
+      expect(snapshot.deadLetter.deadLetterCount).toBe(0);
     } finally {
       sandbox.cleanup();
     }
