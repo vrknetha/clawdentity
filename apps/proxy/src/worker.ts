@@ -9,6 +9,9 @@ import {
   parseProxyConfig,
 } from "./config.js";
 import { resolveProxyVersion, resolveProxyVersionSource } from "./index.js";
+import { resolveWorkerNonceReplayStore } from "./nonce-replay-backend.js";
+import { NonceReplayGuard } from "./nonce-replay-guard.js";
+import type { NonceReplayGuardNamespace } from "./nonce-replay-store.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
@@ -20,6 +23,7 @@ export type ProxyWorkerBindings = {
   OPENCLAW_BASE_URL?: string;
   AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
+  NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
   BOOTSTRAP_INTERNAL_SERVICE_ID?: string;
@@ -60,6 +64,7 @@ function toCacheKey(env: ProxyWorkerBindings): string {
   const keyParts = [
     env.OPENCLAW_BASE_URL,
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
+    env.NONCE_REPLAY_GUARD === undefined ? "no-nonce-do" : "has-nonce-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,
     env.BOOTSTRAP_INTERNAL_SERVICE_ID,
@@ -108,16 +113,29 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
     environment: config.environment,
     trustStateNamespace: env.PROXY_TRUST_STATE,
   });
+  const nonceReplayResolution = resolveWorkerNonceReplayStore({
+    environment: config.environment,
+    nonceReplayNamespace: env.NONCE_REPLAY_GUARD,
+  });
   if (trustStoreResolution.backend === "memory") {
     runtimeLogger.warn("proxy.trust_store.memory_fallback", {
       environment: config.environment,
       reason: "PROXY_TRUST_STATE binding is unavailable",
     });
   }
+  if (nonceReplayResolution.backend === "memory") {
+    runtimeLogger.warn("proxy.nonce_replay.memory_fallback", {
+      environment: config.environment,
+      reason: "NONCE_REPLAY_GUARD binding is unavailable",
+    });
+  }
   const app = createProxyApp({
     config,
     logger: runtimeLogger,
     trustStore: trustStoreResolution.trustStore,
+    auth: {
+      nonceCache: nonceReplayResolution.nonceCache,
+    },
     version: resolveProxyVersion(env),
     versionSource: resolveProxyVersionSource(env),
   });
@@ -178,6 +196,7 @@ const worker = {
   },
 };
 
+// biome-ignore lint/style/noDefaultExport: Cloudflare module workers require a default export fetch entrypoint.
 export default worker;
 export { worker };
-export { AgentRelaySession, ProxyTrustState };
+export { AgentRelaySession, NonceReplayGuard, ProxyTrustState };

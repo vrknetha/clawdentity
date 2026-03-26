@@ -3,6 +3,7 @@ import { type ServerType, serve } from "@hono/node-server";
 import type { ProxyConfig } from "./config.js";
 import { loadProxyConfig } from "./config.js";
 import { PROXY_VERSION } from "./index.js";
+import { resolveNodeNonceReplayStore } from "./nonce-replay-backend.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
 import { resolveNodeTrustStore } from "./trust-store-backend.js";
 
@@ -56,6 +57,9 @@ export function startProxyServer(
   const trustStoreResolution = resolveNodeTrustStore({
     environment: config.environment,
   });
+  const nonceReplayResolution = resolveNodeNonceReplayStore({
+    environment: config.environment,
+  });
   if (trustStoreResolution.backend === "memory") {
     logger.warn("proxy.trust_store.memory_fallback", {
       environment: config.environment,
@@ -63,10 +67,20 @@ export function startProxyServer(
       reason: "Node runtime has no Durable Object trust binding",
     });
   }
+  if (nonceReplayResolution.backend === "memory") {
+    logger.warn("proxy.nonce_replay.memory_fallback", {
+      environment: config.environment,
+      runtime: "node",
+      reason: "Node runtime has no Durable Object nonce replay binding",
+    });
+  }
   const app = createProxyApp({
     config,
     logger,
     trustStore: trustStoreResolution.trustStore,
+    auth: {
+      nonceCache: nonceReplayResolution.nonceCache,
+    },
   });
   const port = options.port ?? config.listenPort;
   const server = serve({
@@ -79,6 +93,7 @@ export function startProxyServer(
     version: PROXY_VERSION,
     environment: config.environment,
     trustStoreBackend: trustStoreResolution.backend,
+    nonceReplayBackend: nonceReplayResolution.backend,
   });
 
   return {

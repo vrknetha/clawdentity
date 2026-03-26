@@ -1,5 +1,95 @@
 import { describe, expect, it } from "vitest";
+import { NonceReplayGuard } from "../nonce-replay-guard.js";
+import {
+  createDurableNonceReplayStore,
+  type NonceReplayGuardNamespace,
+} from "../nonce-replay-store.js";
 import { BODY_JSON, createAuthHarness, NOW_SECONDS } from "./helpers.js";
+
+function createNonceReplayGuardNamespaceHarness(): NonceReplayGuardNamespace {
+  const values = new Map<string, unknown>();
+  let alarmAt: number | null = null;
+  let transactionTail: Promise<void> = Promise.resolve();
+  const storage = {
+    get: async (key: string) => values.get(key),
+    put: async (key: string, value: unknown) => {
+      values.set(key, value);
+    },
+    delete: async (keyOrKeys: string | string[]) => {
+      if (Array.isArray(keyOrKeys)) {
+        let deletedCount = 0;
+        for (const key of keyOrKeys) {
+          if (values.delete(key)) {
+            deletedCount += 1;
+          }
+        }
+        return deletedCount;
+      }
+
+      const deleted = values.delete(keyOrKeys);
+      return deleted;
+    },
+    list: async (options?: { prefix?: string }) => {
+      const listed = new Map<string, unknown>();
+      for (const [key, value] of values.entries()) {
+        if (
+          typeof options?.prefix === "string" &&
+          !key.startsWith(options.prefix)
+        ) {
+          continue;
+        }
+        listed.set(key, value);
+      }
+      return listed;
+    },
+    getAlarm: async () => alarmAt,
+    setAlarm: async (scheduled: number | Date) => {
+      alarmAt = scheduled instanceof Date ? scheduled.getTime() : scheduled;
+    },
+    deleteAlarm: async () => {
+      alarmAt = null;
+    },
+    transaction: async <T>(
+      closure: (txn: {
+        get: (key: string) => Promise<unknown>;
+        put: (key: string, value: unknown) => Promise<void>;
+        getAlarm: () => Promise<number | null>;
+        setAlarm: (scheduled: number | Date) => Promise<void>;
+      }) => Promise<T>,
+    ) => {
+      const run = transactionTail.then(async () =>
+        closure({
+          get: async (key: string) => values.get(key),
+          put: async (key: string, value: unknown) => {
+            values.set(key, value);
+          },
+          getAlarm: async () => alarmAt,
+          setAlarm: async (scheduled: number | Date) => {
+            alarmAt =
+              scheduled instanceof Date ? scheduled.getTime() : scheduled;
+          },
+        }),
+      );
+      transactionTail = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    },
+  };
+
+  const guard = new NonceReplayGuard({
+    storage,
+  } as unknown as DurableObjectState);
+  const stub = {
+    fetch: (request: Request) => guard.fetch(request),
+  };
+
+  return {
+    idFromName: (_name: string) => ({}) as DurableObjectId,
+    get: (_id: DurableObjectId) => stub,
+  };
+}
 
 describe("proxy auth middleware", () => {
   it("rejects non-health route when Authorization scheme is not Claw", async () => {
@@ -48,6 +138,42 @@ describe("proxy auth middleware", () => {
       body: BODY_JSON,
     });
     const second = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(401);
+    const body = (await second.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_REPLAY");
+  });
+
+  it("rejects replayed nonce across app instances when durable nonce store is shared", async () => {
+    const durableNamespace = createNonceReplayGuardNamespaceHarness();
+    const durableNonceCacheA = createDurableNonceReplayStore(durableNamespace, {
+      ttlMs: 5 * 60 * 1000,
+    });
+    const durableNonceCacheB = createDurableNonceReplayStore(durableNamespace, {
+      ttlMs: 5 * 60 * 1000,
+    });
+    const harness = await createAuthHarness();
+    const appA = harness.createApp({
+      nonceCache: durableNonceCacheA,
+    });
+    const appB = harness.createApp({
+      nonceCache: durableNonceCacheB,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-replay-cross-instance",
+    });
+
+    const first = await appA.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+    const second = await appB.request("/protected", {
       method: "POST",
       headers,
       body: BODY_JSON,

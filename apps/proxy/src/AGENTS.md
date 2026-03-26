@@ -32,6 +32,7 @@
 - Keep fallback semantics consistent across merge + parse stages: empty/whitespace env values are treated as missing, so non-empty `.env`/file values can be used.
 - Do not derive runtime environment from `NODE_ENV`; use validated `ENVIRONMENT` from proxy config.
 - Keep trust-store backend policy explicit: only `local` may fallback to in-memory trust when `PROXY_TRUST_STATE` binding is absent; `development` and `production` must fail startup without durable trust binding.
+- Keep nonce-replay backend policy explicit: only `local` may fallback to in-memory nonce replay when `NONCE_REPLAY_GUARD` binding is absent; `development` and `production` must fail startup without durable nonce binding.
 - Keep static allowlist env vars removed (`ALLOW_LIST`, `ALLOWLIST_OWNERS`, `ALLOWLIST_AGENTS`); trust must come from pairing state, not env.
 - Keep `/pair/confirm` write path atomic at the trust-store API level: trust persistence and one-time ticket consumption must happen in one operation (`confirmPairingTicket`).
 - Keep pairing ticket status durable until expiry: `/pair/status` must return `pending` before confirm and `confirmed` after confirm so initiators can sync peers without reverse pairing.
@@ -60,6 +61,7 @@
 - Keep production request logging policy in `server.ts` restrictive (`onlyErrors` with a slow-request threshold) and keep development/local verbose for debugging.
 - When production keeps `minLevel: "warn"`, request completion logs that survive the filter (slow requests and handled `4xx/5xx`) must be emitted at `warn`, not `info`.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
+- Keep nonce replay storage global and consistent by routing nonce checks through `nonce-replay-store.ts` + `nonce-replay-guard.ts`; do not reintroduce isolate-local replay checks for Worker runtime.
 - Keep proxy expected issuer derivation based on the configured registry origin for remote environments and the caller-facing request host when the configured registry URL is local loopback (`127.0.0.1`/`localhost`). Proxy fetches may stay on loopback, but connector AIT validation must match the public local registry origin seen by Docker clients (`host.docker.internal`).
 - Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.
 - Keep `/pair/start` ownership validation against registry `/internal/v1/identity/agent-ownership` using internal service credentials (`x-claw-service-id` + `x-claw-service-secret`), and map dependency failures to `503`.
@@ -119,6 +121,7 @@
 - Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.
 - Keep `conversationId` and `replyTo` metadata flowing from `/hooks/agent` into relay queue/deliver frames for downstream ordering and callback semantics.
 - Keep Durable Object trust routes explicit in `proxy-trust-store.ts`/`proxy-trust-state/` and use route constants from one source (`TRUST_STORE_ROUTES`) to avoid drift.
+- Keep Durable Object nonce-replay routes explicit and centralized in `nonce-replay-contract.ts`; do not duplicate route strings across middleware/store/DO handlers.
 - Index pairing tickets by ticket `kid` in both in-memory and Durable Object stores; persist the original full ticket string alongside each entry and require exact ticket match on confirm.
 - Keep identity augmentation logic in small pure helpers (`sanitizeIdentityField`, `buildIdentityBlock`, payload mutation helper) inside `agent-hook-route.ts`; avoid spreading identity-format logic into `server.ts`.
 - When identity injection is enabled, sanitize identity fields (strip control chars, normalize whitespace, enforce max lengths) and mutate only string `message` fields.

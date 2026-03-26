@@ -8,6 +8,7 @@
 - Keep runtime config centralized in `src/config.ts`.
 - Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `dev`, and `production` environments.
 - Duplicate Durable Object `bindings` and `migrations` inside each Wrangler env block; env sections do not inherit top-level DO config.
+- Keep nonce replay protection globally consistent by binding `NONCE_REPLAY_GUARD` (class `NonceReplayGuard`) in top-level Wrangler config and in every env block (`local`, `dev`, `production`) with matching migration tags.
 - Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`) so relay/auth failures are visible in Cloudflare logs.
 - Production must keep `invocation_logs=false` to reduce noisy request-volume logs while preserving structured warn/error events.
@@ -24,6 +25,9 @@
 - Keep trust-store backend policy environment-scoped:
   - `local`: allow in-memory trust-store fallback when `PROXY_TRUST_STATE` binding is unavailable.
   - `development` and `production`: require `PROXY_TRUST_STATE`; fail startup when missing.
+- Keep nonce replay backend policy environment-scoped:
+  - `local`: allow in-memory nonce replay fallback when `NONCE_REPLAY_GUARD` binding is unavailable.
+  - `development` and `production`: require `NONCE_REPLAY_GUARD`; fail startup when missing.
 - Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
 - Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (optional OpenClaw base URL, shared credentials, and policy/rate-limit vars).
@@ -73,6 +77,7 @@
 - Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
 - Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
+- Keep nonce replay TTL aligned to timestamp skew (`maxTimestampSkewSeconds`) so replay dedup window matches accepted timestamp window.
 - Enforce known-agent access from durable trust state after auth verification (except pairing bootstrap paths).
 - When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.

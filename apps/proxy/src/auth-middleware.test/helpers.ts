@@ -9,6 +9,7 @@ import {
 import { buildTestAitClaims } from "@clawdentity/sdk/testing";
 import { vi } from "vitest";
 import type { AgentRelaySessionNamespace } from "../agent-relay-session.js";
+import type { ProxyNonceCache } from "../auth-middleware.js";
 import { parseProxyConfig } from "../config.js";
 import { createInMemoryProxyTrustStore } from "../proxy-trust-store.js";
 import { createProxyApp } from "../server.js";
@@ -38,11 +39,15 @@ export type AuthHarnessOptions = {
   allowCurrentAgent?: boolean;
   revoked?: boolean;
   validateStatus?: number;
+  nonceCache?: ProxyNonceCache;
 };
 
 export type AuthHarness = {
   app: ReturnType<typeof createProxyApp>;
   claims: ReturnType<typeof buildTestAitClaims>;
+  createApp: (input?: {
+    nonceCache?: ProxyNonceCache;
+  }) => ReturnType<typeof createProxyApp>;
   createSignedHeaders: (
     input?: SignedHeadersInput,
   ) => Promise<Record<string, string>>;
@@ -203,39 +208,44 @@ export async function createAuthHarness(
     get: vi.fn((_id: DurableObjectId) => relaySession),
   } satisfies AgentRelaySessionNamespace;
 
-  const app = createProxyApp({
-    config: parseProxyConfig({
-      REGISTRY_URL: ISSUER,
-      ...(options.crlStaleBehavior
-        ? { CRL_STALE_BEHAVIOR: options.crlStaleBehavior }
-        : {}),
-    }),
-    trustStore,
-    auth: {
-      fetchImpl: fetchMock as typeof fetch,
-      clock: () => NOW_MS,
-    },
-    hooks: {
-      resolveSessionNamespace: () => relayNamespace,
-      now: () => new Date(NOW_MS).toISOString(),
-    },
-    relay: {
-      resolveSessionNamespace: () => relayNamespace,
-    },
-    registerRoutes: (nextApp) => {
-      nextApp.post("/protected", (c) => {
-        const auth = c.get("auth");
-        return c.json({
-          ok: true,
-          auth,
-        });
-      });
-    },
+  const config = parseProxyConfig({
+    REGISTRY_URL: ISSUER,
+    ...(options.crlStaleBehavior
+      ? { CRL_STALE_BEHAVIOR: options.crlStaleBehavior }
+      : {}),
   });
+  const createApp = (input?: { nonceCache?: ProxyNonceCache }) =>
+    createProxyApp({
+      config,
+      trustStore,
+      auth: {
+        fetchImpl: fetchMock as typeof fetch,
+        clock: () => NOW_MS,
+        nonceCache: input?.nonceCache ?? options.nonceCache,
+      },
+      hooks: {
+        resolveSessionNamespace: () => relayNamespace,
+        now: () => new Date(NOW_MS).toISOString(),
+      },
+      relay: {
+        resolveSessionNamespace: () => relayNamespace,
+      },
+      registerRoutes: (nextApp) => {
+        nextApp.post("/protected", (c) => {
+          const auth = c.get("auth");
+          return c.json({
+            ok: true,
+            auth,
+          });
+        });
+      },
+    });
+  const app = createApp();
 
   return {
     app,
     claims,
+    createApp,
     createSignedHeaders: async (input = {}) => {
       const method = input.method ?? "POST";
       const body = input.body ?? (method === "GET" ? "" : BODY_JSON);

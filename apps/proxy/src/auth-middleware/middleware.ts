@@ -57,9 +57,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const clock = options.clock ?? Date.now;
-  const nonceCache = options.nonceCache ?? createNonceCache();
   const maxTimestampSkewSeconds =
     options.maxTimestampSkewSeconds ?? DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS;
+  const nonceCache =
+    options.nonceCache ??
+    createNonceCache({
+      clock,
+      ttlMs: maxTimestampSkewSeconds * 1000,
+    });
   const registryKeysCacheTtlMs =
     options.registryKeysCacheTtlMs ?? DEFAULT_REGISTRY_KEYS_CACHE_TTL_MS;
   const registryUrl = normalizeRegistryUrl(options.config.registryUrl);
@@ -304,11 +309,12 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
 
       const nonceHeader = c.req.header("x-claw-nonce");
       const nonce = typeof nonceHeader === "string" ? nonceHeader : "";
-      const nonceResult = (() => {
+      const nonceResult = await (async () => {
         try {
-          return nonceCache.tryAcceptNonce({
+          return await nonceCache.tryAcceptNonce({
             agentDid: claims.sub,
             nonce,
+            ttlMs: maxTimestampSkewSeconds * 1000,
           });
         } catch (error) {
           throw unauthorizedError({
