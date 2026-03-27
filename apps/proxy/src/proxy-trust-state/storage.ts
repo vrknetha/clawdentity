@@ -268,14 +268,9 @@ export class ProxyTrustStateStorage {
         !isNonEmptyString(entry.initiatorAgentDid) ||
         !initiatorProfile ||
         !isNonEmptyString(entry.issuerProxyUrl) ||
+        !isNonEmptyString(entry.publicKeyX) ||
         typeof entry.expiresAtMs !== "number" ||
         !Number.isInteger(entry.expiresAtMs)
-      ) {
-        continue;
-      }
-      if (
-        entry.publicKeyX !== undefined &&
-        !isNonEmptyString(entry.publicKeyX)
       ) {
         continue;
       }
@@ -302,9 +297,7 @@ export class ProxyTrustStateStorage {
         initiatorAgentDid: entry.initiatorAgentDid,
         initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
-        publicKeyX: isNonEmptyString(entry.publicKeyX)
-          ? entry.publicKeyX
-          : undefined,
+        publicKeyX: entry.publicKeyX,
         allowResponderAgentDid: isNonEmptyString(entry.allowResponderAgentDid)
           ? entry.allowResponderAgentDid
           : undefined,

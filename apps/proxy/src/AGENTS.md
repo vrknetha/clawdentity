@@ -83,7 +83,6 @@
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
 - Keep `/pair/confirm` ticket checks strict and deterministic:
   - verify ticket signature using stored `publicKeyX` before confirming,
-  - preserve rollout compatibility for older pending tickets created before `publicKeyX` persistence (missing key must not make ticket unreadable),
   - reject replayed confirmed tickets with `409 PROXY_PAIR_TICKET_ALREADY_CONFIRMED`,
   - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
 - Keep `/pair/confirm` queue-first for initiator sync:

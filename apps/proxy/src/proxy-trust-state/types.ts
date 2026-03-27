@@ -6,7 +6,7 @@ export type StoredPairingTicket = {
   initiatorAgentDid: string;
   initiatorProfile: PeerProfile;
   issuerProxyUrl: string;
-  publicKeyX?: string;
+  publicKeyX: string;
   allowResponderAgentDid?: string;
 };
 

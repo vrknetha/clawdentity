@@ -190,23 +190,21 @@ export class ProxyTrustStateHandlers {
       });
     }
 
-    if (stored.publicKeyX !== undefined) {
-      let signatureVerified = false;
-      try {
-        signatureVerified = await verifyPairingTicketSignature({
-          payload: parsedTicket,
-          publicKeyX: stored.publicKeyX,
-        });
-      } catch {
-        signatureVerified = false;
-      }
-      if (!signatureVerified) {
-        return toErrorResponse({
-          code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
-          message: "Pairing ticket signature is invalid",
-          status: 400,
-        });
-      }
+    let signatureVerified = false;
+    try {
+      signatureVerified = await verifyPairingTicketSignature({
+        payload: parsedTicket,
+        publicKeyX: stored.publicKeyX,
+      });
+    } catch {
+      signatureVerified = false;
+    }
+    if (!signatureVerified) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+        message: "Pairing ticket signature is invalid",
+        status: 400,
+      });
     }
 
     if (stored.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {

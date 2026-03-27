@@ -33,7 +33,7 @@
   - `local`: allow in-memory nonce replay fallback when `NONCE_REPLAY_GUARD` binding is unavailable.
   - `development` and `production`: require `NONCE_REPLAY_GUARD`; fail startup when missing.
 - Keep nonce replay runtime wiring explicit: pass `maxTimestampSkewSeconds` into nonce backend resolution and app auth config so fallback TTL behavior stays aligned if skew ever becomes configurable.
-- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-off (`false`); enable it only for legacy webhook consumers that require the prepended identity block in `payload.message`.
+- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-off (`false`); enable it only for webhook consumers that require the prepended identity block in `payload.message`.
 - Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (optional OpenClaw base URL, shared credentials, and policy/rate-limit vars).
 - Generate local `apps/proxy/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
