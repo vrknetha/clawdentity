@@ -13,6 +13,7 @@
 - Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor|relay-test}`.
 - OpenClaw wording must stay OpenClaw-first: OpenClaw owns OpenClaw setup and auth, Clawdentity adds relay setup after OpenClaw is healthy.
 - Keep OpenClaw base URL guidance explicit: `--platform-base-url` / `openclawBaseUrl` refer only to the OpenClaw gateway, never the Clawdentity registry or proxy.
+- Keep proxy identity guidance header-first by default. Document body injection only as an explicit `INJECT_IDENTITY_INTO_MESSAGE=true` legacy compatibility override.
 - Keep local harness/testing instructions out of user-facing documentation; those belong in internal testing skills or operator runbooks, not the published skill/docs.
 - When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
 - Keep a single canonical skill URL path:

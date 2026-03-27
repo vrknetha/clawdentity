@@ -59,6 +59,7 @@
   - Responder confirms with `POST /pair/confirm`.
   - If confirmation is asynchronous, recover with `POST /pair/status` using the ticket.
 - Keep relay-result docs aligned with proxy behavior: `202 state=queued` is an expected async delivery state (not a pairing failure), with retry handled by proxy queue policy.
+- Keep identity transport docs aligned with proxy behavior: structured headers and connector metadata are canonical by default, while `INJECT_IDENTITY_INTO_MESSAGE=true` is legacy compatibility only.
 - When `src/transforms/relay-to-peer.ts` relay envelope, endpoint defaults, or failure mapping changes, update:
   - `skill/SKILL.md`
   - `skill/references/clawdentity-protocol.md`
