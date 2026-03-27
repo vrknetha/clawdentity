@@ -19,6 +19,7 @@ import {
   loadOpenclawProbePolicy,
 } from "./runtime/policy.js";
 import { createRelayService } from "./runtime/relay-service.js";
+import { loadSenderProfilesByDid } from "./runtime/relay-transform-peers.js";
 import { createInboundReplayController } from "./runtime/replay.js";
 import { createRuntimeRequestHandler } from "./runtime/server.js";
 import { loadTrustedReceiptTargets } from "./runtime/trusted-receipts.js";
@@ -155,6 +156,11 @@ export async function startConnectorRuntime(
     inboundInbox,
     inboundReplayPolicy,
     isRuntimeStopping: () => runtimeStopping,
+    loadSenderProfilesByDid: async () =>
+      await loadSenderProfilesByDid({
+        configDir: input.configDir,
+        logger,
+      }),
     logger,
     openclawGatewayProbeStatus,
     openclawHookUrl,

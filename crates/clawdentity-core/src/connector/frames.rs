@@ -133,67 +133,60 @@ fn validate_agent_did(value: &str, field_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_ack_frame(
-    version: i64,
-    id: &str,
-    ts: &str,
-    ack_id: &str,
-    label: &str,
-) -> Result<()> {
-    validate_frame_base(version, id, ts)?;
-    Ulid::from_string(ack_id)
-        .map_err(|_| CoreError::InvalidInput(format!("invalid {label} ackId: {ack_id}")))?;
-    Ok(())
-}
-
-fn validate_deliver_frame(frame: &DeliverFrame) -> Result<()> {
-    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-    validate_agent_did(&frame.from_agent_did, "fromAgentDid")?;
-    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
-    Ok(())
-}
-
-fn validate_enqueue_frame(frame: &EnqueueFrame) -> Result<()> {
-    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
-    Ok(())
-}
-
-fn validate_receipt_frame(frame: &ReceiptFrame) -> Result<()> {
-    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-    Ulid::from_string(&frame.original_frame_id).map_err(|_| {
-        CoreError::InvalidInput(format!(
-            "invalid receipt originalFrameId: {}",
-            frame.original_frame_id
-        ))
-    })?;
-    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
-    if let Some(reason) = &frame.reason
-        && reason.trim().is_empty()
-    {
-        return Err(CoreError::InvalidInput(
-            "receipt reason must not be blank".to_string(),
-        ));
-    }
-    Ok(())
-}
-
 /// TODO(clawdentity): document `validate_frame`.
 pub fn validate_frame(frame: &ConnectorFrame) -> Result<()> {
     match frame {
         ConnectorFrame::Heartbeat(frame) => validate_frame_base(frame.v, &frame.id, &frame.ts),
         ConnectorFrame::HeartbeatAck(frame) => {
-            validate_ack_frame(frame.v, &frame.id, &frame.ts, &frame.ack_id, "heartbeat")
+            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+            Ulid::from_string(&frame.ack_id).map_err(|_| {
+                CoreError::InvalidInput(format!("invalid heartbeat ackId: {}", frame.ack_id))
+            })?;
+            Ok(())
         }
-        ConnectorFrame::Deliver(frame) => validate_deliver_frame(frame),
+        ConnectorFrame::Deliver(frame) => {
+            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+            validate_agent_did(&frame.from_agent_did, "fromAgentDid")?;
+            validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+            Ok(())
+        }
         ConnectorFrame::DeliverAck(frame) => {
-            validate_ack_frame(frame.v, &frame.id, &frame.ts, &frame.ack_id, "deliver")
+            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+            Ulid::from_string(&frame.ack_id).map_err(|_| {
+                CoreError::InvalidInput(format!("invalid deliver ackId: {}", frame.ack_id))
+            })?;
+            Ok(())
         }
-        ConnectorFrame::Enqueue(frame) => validate_enqueue_frame(frame),
+        ConnectorFrame::Enqueue(frame) => {
+            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+            validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+            Ok(())
+        }
         ConnectorFrame::EnqueueAck(frame) => {
-            validate_ack_frame(frame.v, &frame.id, &frame.ts, &frame.ack_id, "enqueue")
+            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+            Ulid::from_string(&frame.ack_id).map_err(|_| {
+                CoreError::InvalidInput(format!("invalid enqueue ackId: {}", frame.ack_id))
+            })?;
+            Ok(())
         }
-        ConnectorFrame::Receipt(frame) => validate_receipt_frame(frame),
+        ConnectorFrame::Receipt(frame) => {
+            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+            Ulid::from_string(&frame.original_frame_id).map_err(|_| {
+                CoreError::InvalidInput(format!(
+                    "invalid receipt originalFrameId: {}",
+                    frame.original_frame_id
+                ))
+            })?;
+            validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+            if let Some(reason) = &frame.reason
+                && reason.trim().is_empty()
+            {
+                return Err(CoreError::InvalidInput(
+                    "receipt reason must not be blank".to_string(),
+                ));
+            }
+            Ok(())
+        }
     }
 }
 

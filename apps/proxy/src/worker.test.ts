@@ -17,26 +17,6 @@ function createTrustStateNamespace(): NonNullable<
   };
 }
 
-function createNonceReplayNamespace(): NonNullable<
-  ProxyWorkerBindings["NONCE_REPLAY_GUARD"]
-> {
-  return {
-    idFromName: vi.fn(
-      (name: string) =>
-        ({ toString: () => name }) as unknown as DurableObjectId,
-    ),
-    get: vi.fn(() => ({
-      fetch: vi.fn(async () =>
-        Response.json({
-          accepted: true,
-          seenAt: Date.now(),
-          expiresAt: Date.now() + 60_000,
-        }),
-      ),
-    })),
-  };
-}
-
 function createExecutionContext(): ExecutionContext {
   return {
     waitUntil: vi.fn(),
@@ -77,7 +57,6 @@ function createRequiredBindings(
     ENVIRONMENT: "local",
     REGISTRY_URL: "https://registry.example.test",
     AGENT_RELAY_SESSION: createRelaySessionNamespace(),
-    NONCE_REPLAY_GUARD: createNonceReplayNamespace(),
     BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
     BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
     ...overrides,
@@ -116,12 +95,11 @@ describe("proxy worker", () => {
     });
   });
 
-  it("allows local startup without nonce replay DO binding", async () => {
+  it("allows local startup without trust DO binding", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
       createRequiredBindings({
         ENVIRONMENT: "local",
-        NONCE_REPLAY_GUARD: undefined,
       }),
       createExecutionContext(),
     );
@@ -145,7 +123,6 @@ describe("proxy worker", () => {
       createRequiredBindings({
         ENVIRONMENT: "development",
         PROXY_TRUST_STATE: createTrustStateNamespace(),
-        NONCE_REPLAY_GUARD: createNonceReplayNamespace(),
       }),
       createExecutionContext(),
     );
@@ -205,58 +182,6 @@ describe("proxy worker", () => {
     expect(payload.error.details.fieldErrors?.PROXY_TRUST_STATE?.[0]).toContain(
       "ENVIRONMENT is 'production'",
     );
-  });
-
-  it("fails startup in development when nonce replay DO binding is missing", async () => {
-    const response = await worker.fetch(
-      new Request("https://proxy.example.test/health"),
-      createRequiredBindings({
-        ENVIRONMENT: "development",
-        PROXY_TRUST_STATE: createTrustStateNamespace(),
-        NONCE_REPLAY_GUARD: undefined,
-      }),
-      createExecutionContext(),
-    );
-
-    expect(response.status).toBe(500);
-    const payload = (await response.json()) as {
-      error: {
-        code: string;
-        details: {
-          fieldErrors?: Record<string, string[]>;
-        };
-      };
-    };
-    expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
-    expect(
-      payload.error.details.fieldErrors?.NONCE_REPLAY_GUARD?.[0],
-    ).toContain("ENVIRONMENT is 'development'");
-  });
-
-  it("fails startup in production when nonce replay DO binding is missing", async () => {
-    const response = await worker.fetch(
-      new Request("https://proxy.example.test/health"),
-      createRequiredBindings({
-        ENVIRONMENT: "production",
-        PROXY_TRUST_STATE: createTrustStateNamespace(),
-        NONCE_REPLAY_GUARD: undefined,
-      }),
-      createExecutionContext(),
-    );
-
-    expect(response.status).toBe(500);
-    const payload = (await response.json()) as {
-      error: {
-        code: string;
-        details: {
-          fieldErrors?: Record<string, string[]>;
-        };
-      };
-    };
-    expect(payload.error.code).toBe("CONFIG_VALIDATION_FAILED");
-    expect(
-      payload.error.details.fieldErrors?.NONCE_REPLAY_GUARD?.[0],
-    ).toContain("ENVIRONMENT is 'production'");
   });
 
   it("returns config validation error for malformed OPENCLAW_BASE_URL", async () => {
@@ -355,7 +280,7 @@ describe("proxy worker", () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
-  it("does not ack unsupported queue event types", async () => {
+  it("acks unsupported queue event types without retrying", async () => {
     const fetchSpy = vi.fn();
     const bindings = createRequiredBindings({
       AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
@@ -379,7 +304,116 @@ describe("proxy worker", () => {
     await worker.queue(queueBatch, bindings);
 
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("acks malformed delivery_receipt queue events without retrying", async () => {
+    const fetchSpy = vi.fn();
+    const bindings = createRequiredBindings({
+      AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "delivery_receipt",
+            senderAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            recipientAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+            status: "dead_lettered",
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("retries delivery_receipt queue events on transient relay failures", async () => {
+    const fetchSpy = vi.fn(async (_request: Request) => {
+      throw new TypeError("network unavailable");
+    });
+    const bindings = createRequiredBindings({
+      AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "delivery_receipt",
+            requestId: "req-queue-transient",
+            senderAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            recipientAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+            status: "dead_lettered",
+            reason: "hook failed",
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(ack).not.toHaveBeenCalled();
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("acks delivery_receipt queue events on non-transient relay failures", async () => {
+    const fetchSpy = vi.fn(async (_request: Request) =>
+      Response.json(
+        {
+          error: {
+            code: "PROXY_RELAY_RECEIPT_WRITE_FAILED",
+            message: "Relay delivery receipt write RPC failed",
+          },
+        },
+        { status: 400 },
+      ),
+    );
+    const bindings = createRequiredBindings({
+      AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "delivery_receipt",
+            requestId: "req-queue-permanent",
+            senderAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            recipientAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+            status: "dead_lettered",
+            reason: "hook failed",
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
   });
 });

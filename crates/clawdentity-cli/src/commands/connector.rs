@@ -22,6 +22,7 @@ const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
 
 mod delivery;
+mod headers;
 mod runtime_config;
 
 use delivery::{run_inbound_loop, run_inbound_retry_loop};
@@ -31,6 +32,8 @@ use delivery::{
     build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
     should_dead_letter_after_failure,
 };
+#[cfg(test)]
+use headers::{SenderProfileHeaders, build_openclaw_delivery_headers};
 
 #[derive(Debug, Subcommand)]
 pub enum ConnectorCommand {

@@ -5,6 +5,7 @@ import type {
   ConnectorInboundInboxItem,
   ConnectorInboundInboxSnapshot,
 } from "../inbound-inbox.js";
+import type { OpenclawSenderProfile } from "../openclaw-headers.js";
 import { LocalOpenclawDeliveryError, sanitizeErrorReason } from "./errors.js";
 import { deliverToOpenclawHook, waitWithAbort } from "./openclaw.js";
 import {
@@ -54,6 +55,7 @@ export function createInboundReplayController(input: {
   inboundInbox: ConnectorInboundInbox;
   inboundReplayPolicy: InboundReplayPolicy;
   isRuntimeStopping: () => boolean;
+  loadSenderProfilesByDid: () => Promise<Map<string, OpenclawSenderProfile>>;
   logger: Logger;
   openclawGatewayProbeStatus: OpenclawGatewayProbeStatus;
   openclawHookUrl: string;
@@ -75,6 +77,7 @@ export function createInboundReplayController(input: {
     fromAgentDid: string;
     payload: unknown;
     requestId: string;
+    senderProfile?: OpenclawSenderProfile;
     toAgentDid: string;
   }): Promise<void> => {
     let attempt = 1;
@@ -88,6 +91,7 @@ export function createInboundReplayController(input: {
           openclawHookToken: input.getCurrentOpenclawHookToken(),
           payload: inputReplay.payload,
           requestId: inputReplay.requestId,
+          senderProfile: inputReplay.senderProfile,
           shutdownSignal: input.runtimeShutdownSignal,
           toAgentDid: inputReplay.toAgentDid,
         });
@@ -206,6 +210,7 @@ export function createInboundReplayController(input: {
       }
 
       const laneItems = groupDueItemsByLane(dueItems);
+      const senderProfilesByDid = await input.loadSenderProfilesByDid();
       await Promise.all(
         laneItems.map(async (lane) => {
           for (const pending of lane) {
@@ -215,6 +220,7 @@ export function createInboundReplayController(input: {
                 fromAgentDid: pending.fromAgentDid,
                 requestId: pending.requestId,
                 payload: pending.payload,
+                senderProfile: senderProfilesByDid.get(pending.fromAgentDid),
                 toAgentDid: pending.toAgentDid,
               });
               await input.inboundInbox.markDelivered(pending.requestId);

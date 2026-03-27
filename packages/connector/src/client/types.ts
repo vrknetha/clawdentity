@@ -4,6 +4,7 @@ import type {
   EnqueueFrame,
   ReceiptFrame,
 } from "../frames.js";
+import type { OpenclawSenderProfile } from "../openclaw-headers.js";
 
 export type ConnectorWebSocketEventType =
   | "open"
@@ -107,6 +108,14 @@ export type ConnectorClientOptions = {
   outboundQueuePersistence?: ConnectorOutboundQueuePersistence;
   inboundDeliverHandler?:
     | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
+    | undefined;
+  resolveInboundSenderProfile?:
+    | ((
+        fromAgentDid: string,
+      ) =>
+        | OpenclawSenderProfile
+        | Promise<OpenclawSenderProfile | undefined>
+        | undefined)
     | undefined;
   now?: () => number;
   random?: () => number;

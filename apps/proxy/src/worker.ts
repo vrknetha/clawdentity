@@ -2,17 +2,14 @@ import { createLogger } from "@clawdentity/sdk";
 import {
   AgentRelaySession,
   type AgentRelaySessionNamespace,
+  RelaySessionDeliveryError,
 } from "./agent-relay-session.js";
-import { DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS } from "./auth-middleware.js";
 import {
   type ProxyConfig,
   ProxyConfigError,
   parseProxyConfig,
 } from "./config.js";
 import { resolveProxyVersion, resolveProxyVersionSource } from "./index.js";
-import { resolveWorkerNonceReplayStore } from "./nonce-replay-backend.js";
-import { NonceReplayGuard } from "./nonce-replay-guard.js";
-import type { NonceReplayGuardNamespace } from "./nonce-replay-store.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
 import {
@@ -29,7 +26,6 @@ export type ProxyWorkerBindings = {
   OPENCLAW_BASE_URL?: string;
   AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
-  NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
   REGISTRY_URL?: string;
   CLAWDENTITY_REGISTRY_URL?: string;
   BOOTSTRAP_INTERNAL_SERVICE_ID?: string;
@@ -64,14 +60,25 @@ type CachedProxyRuntime = {
   config: ProxyConfig;
 };
 
+type QueueEventEnvelope = {
+  type: string;
+  payload: Record<string, unknown>;
+};
+
 const logger = createLogger({ service: "proxy" });
 let cachedRuntime: CachedProxyRuntime | undefined;
+
+class NonRetryableQueueError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "NonRetryableQueueError";
+  }
+}
 
 function toCacheKey(env: ProxyWorkerBindings): string {
   const keyParts = [
     env.OPENCLAW_BASE_URL,
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
-    env.NONCE_REPLAY_GUARD === undefined ? "no-nonce-do" : "has-nonce-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,
     env.BOOTSTRAP_INTERNAL_SERVICE_ID,
@@ -120,31 +127,16 @@ function buildRuntime(env: ProxyWorkerBindings): CachedProxyRuntime {
     environment: config.environment,
     trustStateNamespace: env.PROXY_TRUST_STATE,
   });
-  const nonceReplayResolution = resolveWorkerNonceReplayStore({
-    environment: config.environment,
-    nonceReplayNamespace: env.NONCE_REPLAY_GUARD,
-    maxTimestampSkewSeconds: DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
-  });
   if (trustStoreResolution.backend === "memory") {
     runtimeLogger.warn("proxy.trust_store.memory_fallback", {
       environment: config.environment,
       reason: "PROXY_TRUST_STATE binding is unavailable",
     });
   }
-  if (nonceReplayResolution.backend === "memory") {
-    runtimeLogger.warn("proxy.nonce_replay.memory_fallback", {
-      environment: config.environment,
-      reason: "NONCE_REPLAY_GUARD binding is unavailable",
-    });
-  }
   const app = createProxyApp({
     config,
     logger: runtimeLogger,
     trustStore: trustStoreResolution.trustStore,
-    auth: {
-      nonceCache: nonceReplayResolution.nonceCache,
-      maxTimestampSkewSeconds: DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
-    },
     version: resolveProxyVersion(env),
     versionSource: resolveProxyVersionSource(env),
   });
@@ -173,6 +165,65 @@ function toConfigErrorResponse(error: ProxyConfigError): Response {
     },
     { status: error.status },
   );
+}
+
+function parseQueueEventEnvelope(messageBody: unknown): QueueEventEnvelope {
+  if (typeof messageBody !== "string") {
+    throw new NonRetryableQueueError("Queue message body must be a string");
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(messageBody);
+  } catch {
+    throw new NonRetryableQueueError("Queue message body must be valid JSON");
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new NonRetryableQueueError(
+      "Queue message body must be a JSON object",
+    );
+  }
+
+  const eventType = (parsed as { type?: unknown }).type;
+  if (typeof eventType !== "string" || eventType.trim().length === 0) {
+    throw new NonRetryableQueueError(
+      "Queue message body must include a non-empty type",
+    );
+  }
+
+  return {
+    type: eventType.trim(),
+    payload: parsed as Record<string, unknown>,
+  };
+}
+
+function parseDeliveryReceiptEvent(payload: unknown) {
+  try {
+    return parseReceiptQueueEvent(payload);
+  } catch (error) {
+    throw new NonRetryableQueueError(
+      error instanceof Error
+        ? error.message
+        : "Invalid delivery receipt queue event payload",
+    );
+  }
+}
+
+function shouldRetryQueueError(error: unknown): boolean {
+  if (error instanceof NonRetryableQueueError) {
+    return false;
+  }
+
+  if (error instanceof RelaySessionDeliveryError) {
+    return error.status === 429 || error.status >= 500;
+  }
+
+  if (error instanceof TypeError) {
+    return true;
+  }
+
+  return true;
 }
 
 const worker = {
@@ -209,40 +260,47 @@ const worker = {
   ): Promise<void> {
     for (const message of batch.messages) {
       try {
-        const parsed =
-          typeof message.body === "string" ? JSON.parse(message.body) : null;
-        if (typeof parsed !== "object" || parsed === null) {
-          throw new Error("Queue message body must be a JSON object");
-        }
-
-        const eventType = (parsed as { type?: unknown }).type;
-        if (eventType !== DELIVERY_RECEIPT_EVENT_TYPE) {
-          throw new Error("Unsupported queue event type");
+        const event = parseQueueEventEnvelope(message.body);
+        if (event.type !== DELIVERY_RECEIPT_EVENT_TYPE) {
+          logger.warn("proxy.queue.message_ignored", {
+            reason: "unsupported_event_type",
+            eventType: event.type,
+          });
+          message.ack();
+          continue;
         }
 
         const relaySessionNamespace = env.AGENT_RELAY_SESSION;
         if (relaySessionNamespace === undefined) {
-          throw new Error("Relay session namespace is unavailable");
+          throw new NonRetryableQueueError(
+            "Relay session namespace is unavailable",
+          );
         }
 
-        const event = parseReceiptQueueEvent(parsed);
+        const parsedReceiptEvent = parseDeliveryReceiptEvent(event.payload);
         await handleReceiptQueueEvent({
-          event,
+          event: parsedReceiptEvent,
           relaySessionNamespace,
         });
 
         message.ack();
       } catch (error) {
+        const shouldRetry = shouldRetryQueueError(error);
         logger.warn("proxy.queue.message_failed", {
           reason: error instanceof Error ? error.message : String(error),
+          action: shouldRetry ? "retry" : "ack",
         });
-        message.retry();
+        if (shouldRetry) {
+          message.retry();
+        } else {
+          message.ack();
+        }
       }
     }
   },
 };
 
-// biome-ignore lint/style/noDefaultExport: Cloudflare module workers require a default export fetch entrypoint.
+// biome-ignore lint/style/noDefaultExport: Cloudflare module workers require a default export entrypoint.
 export default worker;
 export { worker };
-export { AgentRelaySession, NonceReplayGuard, ProxyTrustState };
+export { AgentRelaySession, ProxyTrustState };

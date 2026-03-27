@@ -11,6 +11,8 @@
 - Keep gateway probe in-flight/health transitions in `openclaw-probe.ts`; avoid duplicate probe loops in `runtime.ts`.
 - Keep replay/probe policy loading and retry-delay calculations in `policy.ts`.
 - Keep replay orchestration and receipt callbacks in `replay.ts`; avoid re-embedding lane scheduling and dead-letter transitions in `runtime.ts`.
+- Keep relay peers snapshot parsing centralized in `relay-transform-peers.ts`; reuse it for both trusted receipt targets and sender-profile enrichment.
+- Replay should resolve sender profile headers once per replay batch from relay peers snapshot and omit profile headers when peer metadata is unavailable.
 - Keep outbound relay and receipt callbacks in `relay-service.ts`; receipt posts must target validated `replyTo` URLs directly and enforce trusted-origin checks.
 - Keep HTTP route handling in `server.ts` and avoid embedding route logic in helpers.
 - Keep URL/header/parse helpers focused in `url.ts`, `ws.ts`, and `parse.ts`.

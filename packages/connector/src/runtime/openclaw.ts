@@ -3,6 +3,10 @@ import { join } from "node:path";
 import type { Logger } from "@clawdentity/sdk";
 import { DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS } from "../constants.js";
 import type { ReceiptFrame } from "../frames.js";
+import {
+  applyOpenclawSenderProfileHeaders,
+  type OpenclawSenderProfile,
+} from "../openclaw-headers.js";
 import { OPENCLAW_RELAY_RUNTIME_FILE_NAME } from "./constants.js";
 import { LocalOpenclawDeliveryError, sanitizeErrorReason } from "./errors.js";
 import { isRecord } from "./parse.js";
@@ -99,6 +103,7 @@ export async function deliverToOpenclawHook(input: {
   openclawHookUrl: string;
   payload: unknown;
   requestId: string;
+  senderProfile?: OpenclawSenderProfile;
   shutdownSignal: AbortSignal;
   toAgentDid: string;
 }): Promise<void> {
@@ -117,6 +122,10 @@ export async function deliverToOpenclawHook(input: {
   if (input.openclawHookToken !== undefined) {
     headers["x-openclaw-token"] = input.openclawHookToken;
   }
+  applyOpenclawSenderProfileHeaders({
+    headers,
+    senderProfile: input.senderProfile,
+  });
 
   try {
     const response = await input.fetchImpl(input.openclawHookUrl, {

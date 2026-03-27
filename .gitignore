@@ -13,7 +13,6 @@ nx.bat
 .pnpm-store/
 target/
 .astro/
-tmp/
 .tmp/
 
 # Working docs (plans, reviews, research — keep local)

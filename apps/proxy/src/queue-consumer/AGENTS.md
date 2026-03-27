@@ -5,7 +5,8 @@
 
 ## Rules
 - Parse queue payloads with explicit field validation; reject malformed messages early so retries/DLQ behavior is intentional.
-- Keep each event handler focused by event type (`delivery_receipt`, `agent.auth.*`) and avoid mixing multiple workflows in one function.
+- Keep each event handler focused by event type and route only supported events; add dedicated handlers before subscribing this worker to new queue event families.
 - Route `delivery_receipt` events to the sender relay Durable Object using typed RPC helpers (`recordRelayDeliveryReceipt`) rather than ad-hoc `fetch` payload strings.
 - Treat queue events as at-least-once: handlers must be idempotent against duplicate messages.
 - Keep the `delivery_receipt` queue contract minimal (sender/recipient/request/status/reason/timestamp) and avoid carrying callback-origin metadata that is not consumed by handlers.
+- Keep queue acknowledgment policy explicit: unsupported/invalid events are `ack` + warn; reserve `retry` for transient delivery failures only.

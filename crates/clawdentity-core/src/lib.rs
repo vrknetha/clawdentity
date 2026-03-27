@@ -86,7 +86,8 @@ pub use db_outbound::{
     outbound_count, outbound_dead_letter_count, take_oldest_outbound,
 };
 pub use db_peers::{
-    PeerRecord, UpsertPeerInput, delete_peer, get_peer_by_alias, list_peers, upsert_peer,
+    PeerRecord, UpsertPeerInput, delete_peer, get_peer_by_alias, get_peer_by_did, list_peers,
+    upsert_peer,
 };
 pub use db_verify_cache::{
     VerifyCacheEntry, delete_verify_cache_entry, get_verify_cache_entry, purge_verify_cache_before,

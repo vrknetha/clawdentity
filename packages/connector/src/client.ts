@@ -230,6 +230,7 @@ export class ConnectorClient {
       openclawDeliverRetryBudgetMs,
       now: this.now,
       logger: this.logger,
+      resolveInboundSenderProfile: options.resolveInboundSenderProfile,
     });
   }
 

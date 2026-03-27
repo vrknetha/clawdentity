@@ -31,3 +31,5 @@
   - `outbound-flush.ts` (queue flush orchestration and serialization assistance so `ConnectorClient` no longer reaches directly into `queue.ts`).
   - `inbound-router.ts` (handles raw message parsing, routes heartbeat/deliver frames to heartbeat manager/handlers, and records metrics before handing off to `handleInboundDeliverFrame`).
 - `delivery.ts` and `inbound-delivery.ts` stay responsible for OpenClaw delivery + ack orchestration and should expose injectable hooks for testing retries/timeout logic.
+- `delivery.ts` may resolve optional sender profile metadata via injected resolver callbacks, but delivery must stay best-effort: lookup failures cannot block ACK flow.
+- When sender profile is unavailable, omit `x-clawdentity-agent-name` and `x-clawdentity-human-name` instead of sending empty placeholders.

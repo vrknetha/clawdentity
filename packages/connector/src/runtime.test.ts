@@ -1,3 +1,4 @@
+/* biome-ignore lint/nursery/noExcessiveLinesPerFile: runtime scenarios share setup and assertions intentionally in one suite. */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
@@ -611,6 +612,149 @@ describe("startConnectorRuntime", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(3);
+    } finally {
+      await runtime.stop();
+      await wsHarness.cleanup();
+      sandbox.cleanup();
+    }
+  });
+
+  it("forwards receipt frames to /hooks/agent with OpenClaw-compatible payload", async () => {
+    process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
+    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+
+    const sandbox = createSandbox();
+    const wsPort = await findAvailablePort();
+    const wsHarness = await createWsHarness(wsPort);
+    const outboundPort = await findAvailablePort();
+    const openclawBaseUrl = "http://127.0.0.1:39107";
+    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const hookBodies: unknown[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      const method = init?.method ?? "GET";
+
+      if (method === "GET" && url === openclawBaseUrl) {
+        return new Response("ok", { status: 200 });
+      }
+
+      if (method === "POST" && url === openclawHookUrl) {
+        hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response("ok", { status: 200 });
+      }
+
+      throw new Error(`Unexpected fetch call: ${method} ${url}`);
+    });
+
+    const runtime = await startConnectorRuntime({
+      agentName: "alpha",
+      configDir: sandbox.rootDir,
+      credentials: createRuntimeCredentials(),
+      fetchImpl: fetchMock,
+      openclawBaseUrl,
+      openclawHookPath: "/hooks/agent",
+      outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
+      proxyWebsocketUrl: wsHarness.wsUrl,
+    });
+
+    try {
+      const requestId = generateUlid(205);
+      await wsHarness.sendReceiptFrame({
+        requestId,
+        status: "dead_lettered",
+        reason: "hook rejected",
+      });
+
+      await vi.waitFor(() => {
+        expect(hookBodies).toHaveLength(1);
+      });
+
+      const payload = hookBodies[0] as {
+        type?: string;
+        message?: string;
+        content?: string;
+        status?: string;
+        originalFrameId?: string;
+        reason?: string;
+      };
+      expect(payload.type).toBe("clawdentity:receipt");
+      expect(payload.originalFrameId).toBe(requestId);
+      expect(payload.status).toBe("dead_lettered");
+      expect(payload.reason).toBe("hook rejected");
+      expect(payload.message).toContain("Clawdentity delivery receipt");
+      expect(payload.content).toContain("Clawdentity delivery receipt");
+    } finally {
+      await runtime.stop();
+      await wsHarness.cleanup();
+      sandbox.cleanup();
+    }
+  });
+
+  it("forwards receipt frames to /hooks/wake with required text field", async () => {
+    process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
+    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+
+    const sandbox = createSandbox();
+    const wsPort = await findAvailablePort();
+    const wsHarness = await createWsHarness(wsPort);
+    const outboundPort = await findAvailablePort();
+    const openclawBaseUrl = "http://127.0.0.1:39108";
+    const openclawHookUrl = `${openclawBaseUrl}/hooks/wake`;
+    const hookBodies: unknown[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      const method = init?.method ?? "GET";
+
+      if (method === "GET" && url === openclawBaseUrl) {
+        return new Response("ok", { status: 200 });
+      }
+
+      if (method === "POST" && url === openclawHookUrl) {
+        hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response("ok", { status: 200 });
+      }
+
+      throw new Error(`Unexpected fetch call: ${method} ${url}`);
+    });
+
+    const runtime = await startConnectorRuntime({
+      agentName: "alpha",
+      configDir: sandbox.rootDir,
+      credentials: createRuntimeCredentials(),
+      fetchImpl: fetchMock,
+      openclawBaseUrl,
+      openclawHookPath: "/hooks/wake",
+      outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
+      proxyWebsocketUrl: wsHarness.wsUrl,
+    });
+
+    try {
+      const requestId = generateUlid(206);
+      await wsHarness.sendReceiptFrame({
+        requestId,
+        status: "processed_by_openclaw",
+      });
+
+      await vi.waitFor(() => {
+        expect(hookBodies).toHaveLength(1);
+      });
+
+      const payload = hookBodies[0] as {
+        type?: string;
+        text?: string;
+        message?: string;
+        mode?: string;
+        status?: string;
+      };
+      expect(payload.type).toBe("clawdentity:receipt");
+      expect(payload.status).toBe("processed_by_openclaw");
+      expect(payload.mode).toBe("now");
+      expect(payload.text).toContain("Clawdentity delivery receipt");
+      expect(payload.message).toBe(payload.text);
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
