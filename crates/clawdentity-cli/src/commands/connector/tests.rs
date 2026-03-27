@@ -7,6 +7,8 @@ use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::runtime_config::{
     agent_access_requires_refresh, load_receipt_post_headers, normalize_proxy_ws_url,
@@ -436,18 +438,33 @@ fn fixture_ait() -> String {
     )
 }
 
+static RECEIPT_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(1);
+
 fn setup_receipt_header_fixture() -> (ConfigPathOptions, String) {
+    let options = receipt_fixture_options();
+    write_receipt_fixture_config(&options);
+
+    let agent_name = "alpha".to_string();
+    write_receipt_fixture_agent_files(&options, &agent_name);
+    (options, agent_name)
+}
+
+fn receipt_fixture_options() -> ConfigPathOptions {
+    let fixture_id = RECEIPT_FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let root = std::env::temp_dir().join(format!(
-        "clawdentity-connector-tests-{}-{}",
+        "clawdentity-connector-tests-{}-{}-{fixture_id}",
         std::process::id(),
         Utc::now().timestamp_nanos_opt().unwrap_or(0)
     ));
     fs::create_dir_all(&root).expect("create test root");
 
-    let options = ConfigPathOptions {
+    ConfigPathOptions {
         home_dir: Some(root),
         registry_url_hint: None,
-    };
+    }
+}
+
+fn write_receipt_fixture_config(options: &ConfigPathOptions) {
     write_config(
         &CliConfig {
             registry_url: "https://registry.example".to_string(),
@@ -458,36 +475,51 @@ fn setup_receipt_header_fixture() -> (ConfigPathOptions, String) {
         &options,
     )
     .expect("write config");
+}
 
-    let agent_name = "alpha".to_string();
+fn write_receipt_fixture_agent_files(options: &ConfigPathOptions, agent_name: &str) {
     let config_dir = get_config_dir(&options).expect("resolve config dir");
-    let agent_dir = config_dir.join(AGENTS_DIR).join(&agent_name);
+    let agent_dir = config_dir.join(AGENTS_DIR).join(agent_name);
     fs::create_dir_all(&agent_dir).expect("create agent dir");
 
+    write_receipt_fixture_ait(&agent_dir);
+    write_receipt_fixture_secret_key(&agent_dir);
+    write_receipt_fixture_auth(&agent_dir);
+}
+
+fn write_receipt_fixture_ait(agent_dir: &Path) {
     fs::write(
         agent_dir.join(AIT_FILE_NAME),
         format!("{}\n", fixture_ait()),
     )
     .expect("write ait");
+}
+
+fn write_receipt_fixture_secret_key(agent_dir: &Path) {
     fs::write(
         agent_dir.join(SECRET_KEY_FILE_NAME),
         format!("{}\n", encode_base64url(&[7_u8; 32])),
     )
     .expect("write secret key");
+}
+
+fn write_receipt_fixture_auth(agent_dir: &Path) {
     fs::write(
         agent_dir.join("registry-auth.json"),
-        r#"{
+        receipt_fixture_registry_auth_json(),
+    )
+    .expect("write registry auth");
+}
+
+fn receipt_fixture_registry_auth_json() -> &'static str {
+    r#"{
   "tokenType": "Bearer",
   "accessToken": "clw_agt_access",
   "accessExpiresAt": "2099-01-01T00:00:00Z",
   "refreshToken": "clw_agt_refresh",
   "refreshExpiresAt": "2099-01-08T00:00:00Z"
 }
-"#,
-    )
-    .expect("write registry auth");
-
-    (options, agent_name)
+"#
 }
 
 #[test]
