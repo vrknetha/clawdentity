@@ -17,7 +17,6 @@ export type PairingTicketInput = {
   ticket: string;
   publicKeyX: string;
   allowResponderAgentDid?: string;
-  callbackUrl?: string;
   expiresAtMs: number;
   nowMs?: number;
 };
@@ -43,7 +42,6 @@ export type PairingTicketConfirmResult = {
   responderAgentDid: string;
   responderProfile: PeerProfile;
   issuerProxyUrl: string;
-  callbackUrl?: string;
 };
 
 export type PairingTicketStatusInput = {
@@ -295,7 +293,6 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
       issuerProxyUrl: string;
       publicKeyX: string;
       allowResponderAgentDid?: string;
-      callbackUrl?: string;
     }
   >();
 
@@ -436,7 +433,6 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         responderAgentDid: input.responderAgentDid,
         responderProfile: input.responderProfile,
         issuerProxyUrl: stored.issuerProxyUrl,
-        callbackUrl: stored.callbackUrl,
       },
       ticketKid: parsedTicket.kid,
       expiresAtMs: stored.expiresAtMs,
@@ -579,39 +575,6 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         }
       }
 
-      let callbackUrl: string | undefined;
-      if (input.callbackUrl !== undefined) {
-        if (typeof input.callbackUrl !== "string") {
-          throw new ProxyTrustStoreError({
-            code: "PROXY_PAIR_START_INVALID_BODY",
-            message: "callbackUrl must be a valid http(s) URL",
-            status: 400,
-          });
-        }
-        const normalizedCallbackUrl = input.callbackUrl.trim();
-        let parsedCallbackUrl: URL;
-        try {
-          parsedCallbackUrl = new URL(normalizedCallbackUrl);
-        } catch {
-          throw new ProxyTrustStoreError({
-            code: "PROXY_PAIR_START_INVALID_BODY",
-            message: "callbackUrl must be a valid http(s) URL",
-            status: 400,
-          });
-        }
-        if (
-          parsedCallbackUrl.protocol !== "https:" &&
-          parsedCallbackUrl.protocol !== "http:"
-        ) {
-          throw new ProxyTrustStoreError({
-            code: "PROXY_PAIR_START_INVALID_BODY",
-            message: "callbackUrl must be a valid http(s) URL",
-            status: 400,
-          });
-        }
-        callbackUrl = parsedCallbackUrl.toString();
-      }
-
       pairingTickets.set(parsedTicket.kid, {
         ticket,
         initiatorAgentDid: input.initiatorAgentDid,
@@ -620,7 +583,6 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
         expiresAtMs: normalizedExpiresAtMs,
         publicKeyX,
         allowResponderAgentDid,
-        callbackUrl,
       });
       confirmedPairingTickets.delete(parsedTicket.kid);
 

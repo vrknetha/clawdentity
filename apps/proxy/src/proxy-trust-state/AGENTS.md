@@ -18,6 +18,7 @@
   - creation rejects expired tickets (`410`)
   - confirm/status delete expired entries before returning `410`
   - alarm cleanup removes expired pending/confirmed entries and re-schedules next alarm.
+- Keep pairing ticket storage callback-free: `callbackUrl` is no longer part of pending/confirmed ticket state and must remain rejected in create handlers.
 - Keep pair authorization symmetric using `toPairKey` + `addPeer` for both directions.
 - Keep revoked-agent overlays durable and idempotent:
   - `markAgentRevoked` must accept only valid agent DIDs and remain safe for duplicate events.

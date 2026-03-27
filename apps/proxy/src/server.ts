@@ -92,6 +92,7 @@ export type ProxyApp = Hono<{
     PROXY_TRUST_STATE?: object;
     NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
     RECEIPT_QUEUE?: Queue<string>;
+    EVENTS_QUEUE?: Queue<string>;
   };
   Variables: ProxyRequestVariables;
 }>;
@@ -168,6 +169,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
       PROXY_TRUST_STATE?: object;
       NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
       RECEIPT_QUEUE?: Queue<string>;
+      EVENTS_QUEUE?: Queue<string>;
     };
     Variables: ProxyRequestVariables;
   }>();

@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -21,8 +22,10 @@ use super::headers::{
 };
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
+use pair_accepted::apply_pair_accepted_system_delivery;
 
 mod openclaw_payload;
+mod pair_accepted;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -34,6 +37,7 @@ pub(super) async fn run_inbound_loop(
     mut connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
@@ -54,6 +58,7 @@ pub(super) async fn run_inbound_loop(
                 handle_connector_frame(
                     frame,
                     &store,
+                    config_dir.as_path(),
                     &relay_sender,
                     &http_client,
                     &hook_url,
@@ -69,6 +74,7 @@ pub(super) async fn run_inbound_loop(
 async fn handle_connector_frame(
     frame: ConnectorFrame,
     store: &SqliteStore,
+    config_dir: &Path,
     relay_sender: &ConnectorClientSender,
     http_client: &reqwest::Client,
     hook_url: &str,
@@ -79,6 +85,7 @@ async fn handle_connector_frame(
         ConnectorFrame::Deliver(deliver) => {
             handle_deliver_frame(
                 store,
+                config_dir,
                 relay_sender,
                 http_client,
                 hook_url,
@@ -122,6 +129,7 @@ fn log_enqueue_ack(ack: &EnqueueAckFrame) {
 pub(super) async fn run_inbound_retry_loop(
     receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
@@ -141,6 +149,7 @@ pub(super) async fn run_inbound_retry_loop(
                 let _ = receipt_outbox.flush_due().await;
                 retry_due_inbound_deliveries(
                     &store,
+                    config_dir.as_path(),
                     &http_client,
                     &hook_url,
                     &openclaw_runtime,
@@ -154,6 +163,7 @@ pub(super) async fn run_inbound_retry_loop(
 
 async fn retry_due_inbound_deliveries(
     store: &SqliteStore,
+    config_dir: &Path,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
@@ -170,6 +180,7 @@ async fn retry_due_inbound_deliveries(
     for item in due_items {
         retry_pending_inbound_delivery(
             store,
+            config_dir,
             http_client,
             hook_url,
             openclaw_runtime,
@@ -182,16 +193,21 @@ async fn retry_due_inbound_deliveries(
 
 async fn retry_pending_inbound_delivery(
     store: &SqliteStore,
+    config_dir: &Path,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
     receipt_outbox: &ReceiptOutboxHandle,
     item: InboundPendingItem,
 ) {
-    let Ok(deliver) = build_deliver_from_pending(&item) else {
+    let Ok(mut deliver) = build_deliver_from_pending(&item) else {
         dead_letter_invalid_pending_payload(store, receipt_outbox, &item).await;
         return;
     };
+    if let Err(error) = apply_pair_accepted_system_delivery(store, config_dir, &mut deliver) {
+        handle_pending_retry_failure(store, receipt_outbox, &item, &error).await;
+        return;
+    }
 
     let sender_profile = lookup_sender_profile_headers(store, &item.from_agent_did);
     match forward_deliver_to_openclaw(
@@ -373,22 +389,30 @@ fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error:
 
 async fn handle_deliver_frame(
     store: &SqliteStore,
+    config_dir: &Path,
     relay_sender: &ConnectorClientSender,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
     receipt_outbox: &ReceiptOutboxHandle,
-    deliver: DeliverFrame,
+    mut deliver: DeliverFrame,
 ) {
+    let system_delivery_result =
+        apply_pair_accepted_system_delivery(store, config_dir, &mut deliver);
     let sender_profile = lookup_sender_profile_headers(store, &deliver.from_agent_did);
-    let delivery_result = forward_deliver_to_openclaw(
-        http_client,
-        hook_url,
-        openclaw_runtime,
-        &deliver,
-        sender_profile.as_ref(),
-    )
-    .await;
+    let delivery_result = match system_delivery_result {
+        Ok(_) => {
+            forward_deliver_to_openclaw(
+                http_client,
+                hook_url,
+                openclaw_runtime,
+                &deliver,
+                sender_profile.as_ref(),
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
     let delivery_succeeded = delivery_result.is_ok();
     let persistence_result =
         persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;

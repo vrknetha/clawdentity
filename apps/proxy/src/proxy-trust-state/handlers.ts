@@ -73,36 +73,17 @@ export class ProxyTrustStateHandlers {
       allowResponderAgentDid = body.allowResponderAgentDid.trim();
     }
 
-    let callbackUrl: string | undefined;
-    if (body.callbackUrl !== undefined) {
-      if (!isNonEmptyString(body.callbackUrl)) {
-        return toErrorResponse({
-          code: "PROXY_PAIR_START_INVALID_BODY",
-          message: "callbackUrl must be a valid http(s) URL",
-          status: 400,
-        });
-      }
-      let parsedCallbackUrl: URL;
-      try {
-        parsedCallbackUrl = new URL(body.callbackUrl.trim());
-      } catch {
-        return toErrorResponse({
-          code: "PROXY_PAIR_START_INVALID_BODY",
-          message: "callbackUrl must be a valid http(s) URL",
-          status: 400,
-        });
-      }
-      if (
-        parsedCallbackUrl.protocol !== "https:" &&
-        parsedCallbackUrl.protocol !== "http:"
-      ) {
-        return toErrorResponse({
-          code: "PROXY_PAIR_START_INVALID_BODY",
-          message: "callbackUrl must be a valid http(s) URL",
-          status: 400,
-        });
-      }
-      callbackUrl = parsedCallbackUrl.toString();
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "callbackUrl" in body &&
+      (body as { callbackUrl?: unknown }).callbackUrl !== undefined
+    ) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_START_INVALID_BODY",
+        message: "callbackUrl is no longer supported",
+        status: 400,
+      });
     }
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
@@ -148,7 +129,6 @@ export class ProxyTrustStateHandlers {
       expiresAtMs: normalizedExpiresAtMs,
       publicKeyX,
       allowResponderAgentDid,
-      callbackUrl,
     };
     delete expirableState.confirmedPairingTickets[parsedTicket.kid];
 
@@ -282,7 +262,6 @@ export class ProxyTrustStateHandlers {
       responderProfile,
       issuerProxyUrl: stored.issuerProxyUrl,
       confirmedAtMs: normalizeExpiryToWholeSecond(nowMs),
-      callbackUrl: stored.callbackUrl,
     };
     await this.storage.saveExpirableStateAndSchedule(expirableState, {
       pairingTickets: true,
@@ -295,7 +274,6 @@ export class ProxyTrustStateHandlers {
       responderAgentDid: body.responderAgentDid,
       responderProfile,
       issuerProxyUrl: stored.issuerProxyUrl,
-      callbackUrl: stored.callbackUrl,
     });
   }
 

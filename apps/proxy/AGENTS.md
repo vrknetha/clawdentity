@@ -15,7 +15,7 @@
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/proxy run types:dev`) after `wrangler.jsonc` or binding changes.
 - Keep proxy queue consumers scoped to queues this worker handles:
   - `clawdentity-receipts*` for delivery receipt fan-in.
-  - `clawdentity-events*` for registry `agent.auth.revoked` propagation.
+  - `clawdentity-events*` for registry `agent.auth.revoked` and pairing `pair.accepted` propagation.
 - Keep revocation queue behavior strict: only `agent.auth.revoked` events with `data.reason=agent_revoked` and valid `data.metadata.agentDid` may mark trust-state revocation overlays.
 - Keep `src/worker.ts` in module-worker shape: export the fetch handler as the default export when this Worker owns Durable Objects, and keep any named `worker` export only as a test convenience.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
@@ -68,6 +68,8 @@
   - `POST /pair/confirm` (verified Claw auth + one-time pairing ticket consume)
 - Pairing flow is single-proxy only: `POST /pair/confirm` must consume local tickets from trust state and never forward confirm requests.
 - Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the ticket in one step (`confirmPairingTicket`), never two separate calls.
+- Keep callback-based pair completion removed: reject `callbackUrl` inputs and do not reintroduce callback POST behavior.
+- Keep pair completion queue-first: after `/pair/confirm` trust commit, publish `pair.accepted` to the events queue as best-effort and keep HTTP `201` success even if queue publish fails.
 - Confirming a valid pairing ticket must establish mutual trust for the initiator/responder agent pair.
 - Keep pairing tickets one-time and expiring; reject missing/expired/malformed tickets with explicit client errors.
 - Normalize pairing ticket expiry to whole seconds when persisting trust state (`exp` is second-granularity in ticket payload); do not reject valid tickets due millisecond offsets.

@@ -31,6 +31,8 @@
 - Keep relay contract constants in protocol exports (`RELAY_CONNECT_PATH`, `RELAY_RECIPIENT_AGENT_DID_HEADER`) so connector and hook routing stay synchronized across apps.
 - Keep registration-proof canonicalization in protocol exports (`canonicalizeAgentRegistrationProof`) so CLI signing and registry verification use an identical message format.
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.
+- Keep pairing-acceptance queue contract in protocol exports (`pair.accepted`) so proxy producer and consumer share one payload parser/normalizer.
+- Parse and normalize pair-accepted payload values once in the protocol parser (DIDs, proxy origins, timestamp) and pass normalized values downstream without duplicate re-validation in app layers.
 
 ## Testing
 - Add focused Vitest tests per helper module and one root export test in `src/index.test.ts`.

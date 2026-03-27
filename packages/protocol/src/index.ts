@@ -63,4 +63,14 @@ export {
   CLAW_PROOF_CANONICAL_VERSION,
   canonicalizeRequest,
 } from "./http-signing.js";
+export type {
+  CreatePairAcceptedEventInput,
+  PairAcceptedEvent,
+  PairAcceptedResponderProfile,
+} from "./pairing-events.js";
+export {
+  createPairAcceptedEvent,
+  PAIR_ACCEPTED_EVENT_TYPE,
+  parsePairAcceptedEvent,
+} from "./pairing-events.js";
 export { generateUlid, parseUlid } from "./ulid.js";

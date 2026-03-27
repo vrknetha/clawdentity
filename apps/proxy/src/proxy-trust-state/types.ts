@@ -8,7 +8,6 @@ export type StoredPairingTicket = {
   issuerProxyUrl: string;
   publicKeyX?: string;
   allowResponderAgentDid?: string;
-  callbackUrl?: string;
 };
 
 export type StoredConfirmedPairingTicket = {
@@ -20,7 +19,6 @@ export type StoredConfirmedPairingTicket = {
   responderProfile: PeerProfile;
   issuerProxyUrl: string;
   confirmedAtMs: number;
-  callbackUrl?: string;
 };
 
 export type PairingTicketMap = Record<string, StoredPairingTicket>;

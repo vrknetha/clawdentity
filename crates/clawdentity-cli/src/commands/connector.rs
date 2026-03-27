@@ -264,6 +264,7 @@ async fn start_connector_runtime(
         client,
         relay_sender.clone(),
         store.clone(),
+        runtime.config_dir.clone(),
         runtime.openclaw_runtime.clone(),
         shutdown_rx.clone(),
     );
@@ -271,6 +272,7 @@ async fn start_connector_runtime(
     let mut inbound_retry_task = spawn_inbound_retry_task(
         receipt_outbox,
         store.clone(),
+        runtime.config_dir.clone(),
         runtime.openclaw_runtime.clone(),
         shutdown_rx.clone(),
     );
@@ -350,6 +352,7 @@ fn spawn_inbound_loop_task(
     connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
@@ -359,6 +362,7 @@ fn spawn_inbound_loop_task(
             connector_client,
             relay_sender,
             store,
+            config_dir,
             openclaw_runtime,
             shutdown_rx,
         )
@@ -377,11 +381,19 @@ fn spawn_outbound_flush_task(
 fn spawn_inbound_retry_task(
     receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
-        run_inbound_retry_loop(receipt_outbox, store, openclaw_runtime, shutdown_rx).await
+        run_inbound_retry_loop(
+            receipt_outbox,
+            store,
+            config_dir,
+            openclaw_runtime,
+            shutdown_rx,
+        )
+        .await
     })
 }
 
