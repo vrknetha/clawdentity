@@ -237,4 +237,26 @@ mod tests {
         assert_eq!(by_did.agent_name.as_deref(), Some("Alpha"));
         assert_eq!(by_did.human_name.as_deref(), Some("Alice"));
     }
+
+    #[test]
+    fn get_peer_by_did_returns_none_for_empty_input() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+
+        let by_did = get_peer_by_did(&store, "   ").expect("get by did");
+        assert!(by_did.is_none());
+    }
+
+    #[test]
+    fn get_peer_by_did_returns_none_when_peer_is_missing() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+
+        let by_did = get_peer_by_did(
+            &store,
+            "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+        )
+        .expect("get by did");
+        assert!(by_did.is_none());
+    }
 }
