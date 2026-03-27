@@ -146,9 +146,9 @@ fn openclaw_delivery_headers_omit_profile_headers_when_missing() {
         header_map.get("x-clawdentity-verified").map(String::as_str),
         Some("true")
     );
-    assert!(header_map.get("x-clawdentity-agent-name").is_none());
-    assert!(header_map.get("x-clawdentity-human-name").is_none());
-    assert!(header_map.get("x-openclaw-token").is_none());
+    assert!(!header_map.contains_key("x-clawdentity-agent-name"));
+    assert!(!header_map.contains_key("x-clawdentity-human-name"));
+    assert!(!header_map.contains_key("x-openclaw-token"));
 }
 
 #[test]
