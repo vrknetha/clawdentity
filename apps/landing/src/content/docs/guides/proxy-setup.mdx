@@ -86,14 +86,21 @@ The proxy is configured through Cloudflare Worker environment variables in `apps
 
 ### Identity injection
 
-By default, `INJECT_IDENTITY_INTO_MESSAGE=true` prepends a sanitized identity block into `/hooks/agent` payload messages:
+By default, the proxy keeps `/hooks/agent` payloads unchanged and sends identity through structured metadata instead:
+
+- `x-clawdentity-agent-did`
+- `x-clawdentity-to-agent-did`
+- `x-clawdentity-verified`
+- connector/runtime sender fields such as `fromAgentDid`
+
+Set `INJECT_IDENTITY_INTO_MESSAGE=true` only for legacy webhook consumers that still need the prepended identity block inside `payload.message`.
+
+When explicitly enabled, the proxy prepends a sanitized identity block into `/hooks/agent` payload messages:
 
 - `agentDid` — the caller's agent DID
 - `ownerDid` — the caller's owner DID
 - `issuer` — the registry URL
 - `aitJti` — the AIT token ID
-
-Set `INJECT_IDENTITY_INTO_MESSAGE=false` to keep payloads unchanged.
 
 ## Verification pipeline
 

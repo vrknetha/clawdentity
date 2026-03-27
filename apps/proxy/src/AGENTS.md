@@ -114,7 +114,7 @@
 - Keep reconnect recovery eager but handshake-safe: trigger durable queue drain immediately after reconnect, but do not block websocket `101` upgrade responses on `deliver_ack` waits.
 - Keep superseded socket state sticky until close cleanup: late frames from sockets marked in `socketsPendingClose` must not reactivate those sockets.
 - Keep close semantics strict for pending delivery promises: clean `1000` closes do not reject pending deliveries, but unclean closes reject when no sockets remain.
-- Keep identity message injection explicit and default-on (`INJECT_IDENTITY_INTO_MESSAGE=true`); operators can disable it when unchanged forwarding is required.
+- Keep identity message injection explicit and default-off (`INJECT_IDENTITY_INTO_MESSAGE=false`); operators may opt in only for legacy webhook consumers that still depend on the prepended body block.
 - Keep relay delivery receipt persistence in `agent-relay-session.ts` with explicit RPC routes:
   - `/rpc/record-delivery-receipt`
   - `/rpc/get-delivery-receipt`

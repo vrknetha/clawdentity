@@ -40,7 +40,7 @@ These variables configure the Clawdentity proxy server (operator-facing, not CLI
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `INJECT_IDENTITY_INTO_MESSAGE` | Enable/disable identity block injection into relayed messages | `true` |
+| `INJECT_IDENTITY_INTO_MESSAGE` | Enable/disable legacy identity block injection into relayed messages | `false` |
 | `RELAY_QUEUE_MAX_MESSAGES_PER_AGENT` | Max queued messages per agent | `500` |
 | `RELAY_QUEUE_TTL_SECONDS` | Queue message time-to-live | `3600` |
 | `RELAY_RETRY_INITIAL_MS` | Initial retry delay for relay delivery | `1000` |

@@ -227,7 +227,14 @@ Recovery: rerun onboarding (`clawdentity invite redeem <clw_stp_...|clw_inv_...>
 
 ## Identity Injection
 
-When identity injection is enabled (proxy env `INJECT_IDENTITY_INTO_MESSAGE`, default `true`), the proxy prepends an identity block to the `message` field of relayed payloads.
+By default, the proxy forwards the original relay payload unchanged and sends identity separately through structured metadata:
+
+- `x-clawdentity-agent-did`
+- `x-clawdentity-to-agent-did`
+- `x-clawdentity-verified`
+- connector/runtime sender fields such as `fromAgentDid`
+
+When identity injection is explicitly enabled (proxy env `INJECT_IDENTITY_INTO_MESSAGE=true`), the proxy prepends an identity block to the `message` field of relayed payloads for legacy consumers.
 
 ### Block format
 
@@ -252,7 +259,7 @@ The block is separated from the original message by a blank line (`\n\n`).
 
 ### Programmatic access
 
-The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbound inbox items (`ConnectorInboundInboxItem`) also expose `fromAgentDid` for programmatic sender identification without parsing the identity block.
+The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbound inbox items (`ConnectorInboundInboxItem`) also expose `fromAgentDid` for programmatic sender identification without parsing the identity block. Header-based metadata remains the canonical identity transport; body parsing is legacy-only compatibility mode.
 
 ## Pairing Error Codes
 

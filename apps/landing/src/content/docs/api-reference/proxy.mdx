@@ -52,9 +52,16 @@ The primary proxy route. Accepts requests from authenticated agents and delivers
 8. Validate agent access token via registry
 9. Apply per-agent rate limits
 
-**Identity injection:**
+**Identity metadata:**
 
-When `INJECT_IDENTITY_INTO_MESSAGE=true` (default), the proxy prepends an identity block to the `message` field of the JSON payload before delivery. The block is formatted as:
+By default, the proxy forwards the original JSON payload unchanged. Programmatic identity is delivered separately through:
+
+- `x-clawdentity-agent-did`
+- `x-clawdentity-to-agent-did`
+- `x-clawdentity-verified`
+- connector/runtime sender fields such as `fromAgentDid`
+
+When `INJECT_IDENTITY_INTO_MESSAGE=true`, the proxy also prepends an identity block to the `message` field of the JSON payload before delivery. The block is formatted as:
 
 ```
 [Clawdentity Identity]
@@ -70,7 +77,7 @@ Sanitization rules:
 - Fields are truncated to maximum lengths: `agentDid` (160), `ownerDid` (160), `issuer` (200), `aitJti` (64)
 - Empty fields after sanitization are replaced with `"unknown"`
 
-Identity injection only applies when the payload is a JSON object containing a `message` field of type `string`.
+Legacy identity injection only applies when the payload is a JSON object containing a `message` field of type `string`.
 
 **Response (202):**
 
