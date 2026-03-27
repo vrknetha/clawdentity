@@ -1,4 +1,3 @@
-import type { VerifyHttpRequestInput } from "@clawdentity/sdk";
 import { unauthorizedError } from "./errors.js";
 
 export function parseClawAuthorizationHeader(authorization?: string): string {
@@ -29,58 +28,4 @@ export function parseAgentAccessHeader(value: string | undefined): string {
   }
 
   return value.trim();
-}
-
-export function parseUnixTimestamp(headerValue: string): number {
-  if (!/^\d+$/.test(headerValue)) {
-    throw unauthorizedError({
-      code: "PROXY_AUTH_INVALID_TIMESTAMP",
-      message: "X-Claw-Timestamp must be a unix seconds integer",
-    });
-  }
-
-  const timestamp = Number.parseInt(headerValue, 10);
-  if (!Number.isInteger(timestamp) || timestamp < 0) {
-    throw unauthorizedError({
-      code: "PROXY_AUTH_INVALID_TIMESTAMP",
-      message: "X-Claw-Timestamp must be a unix seconds integer",
-    });
-  }
-
-  return timestamp;
-}
-
-export function assertTimestampWithinSkew(options: {
-  clock: () => number;
-  maxSkewSeconds: number;
-  timestampSeconds: number;
-}): void {
-  const nowSeconds = Math.floor(options.clock() / 1000);
-  const skew = Math.abs(nowSeconds - options.timestampSeconds);
-  if (skew > options.maxSkewSeconds) {
-    throw unauthorizedError({
-      code: "PROXY_AUTH_TIMESTAMP_SKEW",
-      message: "X-Claw-Timestamp is outside the allowed skew window",
-      details: {
-        maxSkewSeconds: options.maxSkewSeconds,
-      },
-    });
-  }
-}
-
-export function toProofVerificationInput(input: {
-  method: string;
-  pathWithQuery: string;
-  headers: Headers;
-  body: Uint8Array;
-  publicKey: Uint8Array;
-}): VerifyHttpRequestInput {
-  const headers = Object.fromEntries(input.headers.entries());
-  return {
-    method: input.method,
-    pathWithQuery: input.pathWithQuery,
-    headers,
-    body: input.body,
-    publicKey: input.publicKey,
-  };
 }

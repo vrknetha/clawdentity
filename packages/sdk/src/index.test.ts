@@ -34,6 +34,7 @@ import {
   verifyCRL,
   verifyEd25519,
   verifyHttpRequest,
+  verifyHttpRequestWithReplayProtection,
 } from "./index.js";
 
 describe("sdk", () => {
@@ -246,10 +247,50 @@ describe("sdk", () => {
       headers: signed.headers,
       body,
       publicKey: keypair.publicKey,
+      nowMs: 1_739_364_000_000,
     });
 
     expect(verified.proof).toBe(signed.proof);
     expect(verified.canonicalRequest).toBe(signed.canonicalRequest);
+  });
+
+  it("exports replay-protected HTTP verification helper from package root", async () => {
+    const keypair = await generateEd25519Keypair();
+    const body = new TextEncoder().encode('{"ok":true}');
+    const signed = await signHttpRequest({
+      method: "POST",
+      pathWithQuery: "/v1/messages?b=2&a=1",
+      timestamp: "1739364000",
+      nonce: "nonce_root_http_replay",
+      body,
+      secretKey: keypair.secretKey,
+    });
+
+    const seen = new Set<string>();
+    const nonceChecker = {
+      tryAcceptNonce(input: { agentDid: string; nonce: string }) {
+        const key = `${input.agentDid}|${input.nonce}`;
+        if (seen.has(key)) {
+          return { accepted: false as const, reason: "replay" as const };
+        }
+        seen.add(key);
+        return { accepted: true as const };
+      },
+    };
+
+    const verified = await verifyHttpRequestWithReplayProtection({
+      method: "POST",
+      pathWithQuery: "/v1/messages?b=2&a=1",
+      headers: signed.headers,
+      body,
+      publicKey: keypair.publicKey,
+      nowMs: 1_739_364_000_000,
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+      nonceChecker,
+    });
+
+    expect(verified.proof).toBe(signed.proof);
   });
 
   it("exports nonce cache helpers from package root", () => {

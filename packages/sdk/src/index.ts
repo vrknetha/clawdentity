@@ -59,9 +59,16 @@ export type {
   SignHttpRequestInput,
   SignHttpRequestResult,
   VerifyHttpRequestInput,
+  VerifyHttpRequestNonceChecker,
+  VerifyHttpRequestNonceCheckInput,
+  VerifyHttpRequestNonceCheckResult,
   VerifyHttpRequestResult,
+  VerifyHttpRequestWithReplayProtectionInput,
 } from "./http/types.js";
-export { verifyHttpRequest } from "./http/verify.js";
+export {
+  verifyHttpRequest,
+  verifyHttpRequestWithReplayProtection,
+} from "./http/verify.js";
 export type {
   DecodedAit,
   DecodedAitHeader,

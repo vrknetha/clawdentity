@@ -33,9 +33,46 @@ export interface VerifyHttpRequestInput {
   headers: Record<string, string | undefined>;
   body?: Uint8Array;
   publicKey: Uint8Array;
+  nowMs?: number;
+  maxTimestampSkewSeconds?: number;
 }
 
 export interface VerifyHttpRequestResult {
   canonicalRequest: string;
   proof: string;
+}
+
+export type VerifyHttpRequestNonceCheckInput = {
+  agentDid: string;
+  nonce: string;
+  ttlMs?: number;
+  nowMs?: number;
+};
+
+export type VerifyHttpRequestNonceCheckResult =
+  | {
+      accepted: true;
+      seenAt?: number;
+      expiresAt?: number;
+    }
+  | {
+      accepted: false;
+      reason: "replay";
+      seenAt?: number;
+      expiresAt?: number;
+    };
+
+export interface VerifyHttpRequestNonceChecker {
+  tryAcceptNonce(
+    input: VerifyHttpRequestNonceCheckInput,
+  ):
+    | VerifyHttpRequestNonceCheckResult
+    | Promise<VerifyHttpRequestNonceCheckResult>;
+}
+
+export interface VerifyHttpRequestWithReplayProtectionInput
+  extends VerifyHttpRequestInput {
+  agentDid: string;
+  nonceChecker: VerifyHttpRequestNonceChecker;
+  nonceTtlMs?: number;
 }
