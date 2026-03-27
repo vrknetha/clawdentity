@@ -472,13 +472,13 @@ fn write_receipt_fixture_config(options: &ConfigPathOptions) {
             api_key: None,
             human_name: Some("Tester".to_string()),
         },
-        &options,
+        options,
     )
     .expect("write config");
 }
 
 fn write_receipt_fixture_agent_files(options: &ConfigPathOptions, agent_name: &str) {
-    let config_dir = get_config_dir(&options).expect("resolve config dir");
+    let config_dir = get_config_dir(options).expect("resolve config dir");
     let agent_dir = config_dir.join(AGENTS_DIR).join(agent_name);
     fs::create_dir_all(&agent_dir).expect("create agent dir");
 
