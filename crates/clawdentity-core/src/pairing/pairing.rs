@@ -382,7 +382,6 @@ fn execute_pair_request(
 fn resolve_peer_proxy_url(
     profile: &PairProfile,
     peer_proxy_origin: Option<String>,
-    issuer_proxy_origin: Option<String>,
 ) -> Result<String> {
     let resolved_origin = peer_proxy_origin
         .and_then(|value| {
@@ -394,16 +393,6 @@ fn resolve_peer_proxy_url(
             }
         })
         .or_else(|| profile.proxy_origin.clone())
-        .or_else(|| {
-            issuer_proxy_origin.and_then(|value| {
-                let trimmed = value.trim().to_string();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed)
-                }
-            })
-        })
         .ok_or_else(|| CoreError::InvalidInput("peer proxy origin is required".to_string()))?;
     let origin = parse_proxy_url(&resolved_origin)?;
     to_request_url(&origin, "/hooks/agent")
@@ -416,10 +405,8 @@ pub fn persist_confirmed_peer_from_profile_and_proxy_origin(
     peer_did: &str,
     peer_profile: &PairProfile,
     peer_proxy_origin: Option<String>,
-    issuer_proxy_origin: Option<String>,
 ) -> Result<String> {
-    let peer_proxy_url =
-        resolve_peer_proxy_url(peer_profile, peer_proxy_origin, issuer_proxy_origin)?;
+    let peer_proxy_url = resolve_peer_proxy_url(peer_profile, peer_proxy_origin)?;
     let record = persist_peer(
         store,
         PersistPeerInput {
@@ -443,13 +430,16 @@ fn persist_confirmed_peer(
     peer_profile: &PairProfile,
     peer_proxy_origin: Option<String>,
 ) -> Result<String> {
+    let resolved_peer_proxy_origin = peer_proxy_origin
+        .or_else(|| peer_profile.proxy_origin.clone())
+        .unwrap_or(parse_pairing_ticket_issuer_origin(ticket)?);
+
     persist_confirmed_peer_from_profile_and_proxy_origin(
         store,
         config_dir,
         peer_did,
         peer_profile,
-        peer_proxy_origin,
-        Some(parse_pairing_ticket_issuer_origin(ticket)?),
+        Some(resolved_peer_proxy_origin),
     )
 }
 

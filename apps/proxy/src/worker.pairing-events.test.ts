@@ -66,6 +66,7 @@ describe("proxy worker pair.accepted queue routing", () => {
             responderProfile: {
               agentName: "beta",
               humanName: "Ira",
+              proxyOrigin: "https://beta.proxy.example",
             },
             issuerProxyOrigin: "https://proxy.clawdentity.dev",
             eventTimestampUtc: "2026-03-28T00:00:00.000Z",
@@ -84,6 +85,7 @@ describe("proxy worker pair.accepted queue routing", () => {
     const body = (await request.json()) as {
       senderAgentDid?: string;
       recipientAgentDid?: string;
+      deliverySource?: string;
       payload?: {
         system?: {
           type?: string;
@@ -95,6 +97,7 @@ describe("proxy worker pair.accepted queue routing", () => {
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
       recipientAgentDid:
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      deliverySource: "proxy.events.queue.pair_accepted",
       payload: {
         system: {
           type: "pair.accepted",
@@ -158,6 +161,7 @@ describe("proxy worker pair.accepted queue routing", () => {
             responderProfile: {
               agentName: "beta",
               humanName: "Ira",
+              proxyOrigin: "https://beta.proxy.example",
             },
             issuerProxyOrigin: "https://proxy.clawdentity.dev",
             eventTimestampUtc: "2026-03-28T00:00:00.000Z",

@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS outbound_dead_letter (
 CREATE INDEX IF NOT EXISTS idx_outbound_dead_letter_dead_lettered_at
     ON outbound_dead_letter(dead_lettered_at_ms);
 "#;
+const MIGRATION_NAME_PHASE5: &str = "0003_inbound_delivery_source";
+const MIGRATION_SQL_PHASE5: &str = r#"
+ALTER TABLE inbound_pending
+    ADD COLUMN delivery_source TEXT;
+
+ALTER TABLE inbound_dead_letter
+    ADD COLUMN delivery_source TEXT;
+"#;
 
 #[derive(Clone)]
 pub struct SqliteStore {
@@ -190,6 +198,7 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
 
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE3, MIGRATION_SQL_PHASE3)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE4, MIGRATION_SQL_PHASE4)?;
+    apply_migration_if_needed(connection, MIGRATION_NAME_PHASE5, MIGRATION_SQL_PHASE5)?;
     Ok(())
 }
 

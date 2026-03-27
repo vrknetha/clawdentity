@@ -33,6 +33,7 @@ import {
   makeAgentDid,
   makeHumanDid,
   PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
   PROTOCOL_VERSION,
   ProtocolParseError,
   parseAgentAuthRevokedMetadata,
@@ -99,6 +100,9 @@ describe("protocol", () => {
 
   it("exports pair accepted queue event constants and parser", () => {
     expect(PAIR_ACCEPTED_EVENT_TYPE).toBe("pair.accepted");
+    expect(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE).toBe(
+      "proxy.events.queue.pair_accepted",
+    );
     expect(
       parsePairAcceptedEvent({
         type: "pair.accepted",
@@ -109,6 +113,7 @@ describe("protocol", () => {
         responderProfile: {
           agentName: "beta",
           humanName: "Ira",
+          proxyOrigin: "https://beta.proxy.example",
         },
         issuerProxyOrigin: "https://proxy.clawdentity.dev",
         eventTimestampUtc: "2026-03-28T00:00:00.000Z",

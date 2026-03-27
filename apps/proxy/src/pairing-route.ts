@@ -183,7 +183,13 @@ function parseProfileName(value: unknown, label: string): string {
   return normalized;
 }
 
-function parsePeerProfile(value: unknown, label: string): PeerProfile {
+function parsePeerProfile(
+  value: unknown,
+  label: string,
+  options?: {
+    requireProxyOrigin?: boolean;
+  },
+): PeerProfile {
   if (typeof value !== "object" || value === null) {
     throw new AppError({
       code: "PROXY_PAIR_INVALID_BODY",
@@ -236,6 +242,13 @@ function parsePeerProfile(value: unknown, label: string): PeerProfile {
       });
     }
     profile.proxyOrigin = parsedProxyOrigin.origin;
+  } else if (options?.requireProxyOrigin === true) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: `${label}.proxyOrigin is required`,
+      status: 400,
+      expose: true,
+    });
   }
 
   return profile;
@@ -368,10 +381,28 @@ async function publishPairAcceptedEvent(input: {
   logger: Logger;
   requestId?: string;
 }): Promise<void> {
+  const responderProxyOrigin =
+    input.confirmedPairingTicket.responderProfile.proxyOrigin?.trim();
+  if (responderProxyOrigin === undefined || responderProxyOrigin.length === 0) {
+    input.logger.warn(
+      "proxy.pair.confirm.event_missing_responder_proxy_origin",
+      {
+        requestId: input.requestId,
+        initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
+        responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
+      },
+    );
+    return;
+  }
+
   const event = createPairAcceptedEvent({
     initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
     responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
-    responderProfile: input.confirmedPairingTicket.responderProfile,
+    responderProfile: {
+      agentName: input.confirmedPairingTicket.responderProfile.agentName,
+      humanName: input.confirmedPairingTicket.responderProfile.humanName,
+      proxyOrigin: responderProxyOrigin,
+    },
     issuerProxyOrigin: input.confirmedPairingTicket.issuerProxyUrl,
     eventTimestampUtc: input.eventTimestampUtc,
   });
@@ -549,6 +580,9 @@ export function createPairConfirmHandler(
     const responderProfile = parsePeerProfile(
       body.responderProfile,
       "responderProfile",
+      {
+        requireProxyOrigin: true,
+      },
     );
 
     const ticket = normalizePairingTicketText(body.ticket);

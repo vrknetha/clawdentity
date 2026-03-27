@@ -73,8 +73,8 @@
 - Keep `/pair/start` fail-closed: do not bypass registry ownership dependencies.
 - Keep pairing profile contract strict:
   - `/pair/start` requires `initiatorProfile.{agentName,humanName}`
-  - `/pair/confirm` requires `responderProfile.{agentName,humanName}`
-  - `/pair/start` and `/pair/confirm` may include optional `*.proxyOrigin` values; when present they must be valid `http(s)` URL origins and must be preserved in `/pair/status` responses.
+  - `/pair/confirm` requires `responderProfile.{agentName,humanName,proxyOrigin}`
+  - `/pair/start` may include optional `initiatorProfile.proxyOrigin`; `/pair/confirm` must provide `responderProfile.proxyOrigin` as a valid `http(s)` URL origin and preserve it in `/pair/status` responses.
   - `/pair/status` returns stored profile fields for initiator and responder
 - Keep `/pair/start` optional responder contract strict:
   - `allowResponderAgentDid` is optional but when provided must be a non-empty string.
@@ -90,6 +90,7 @@
   - queue publish failures must log warnings and still return `201` success.
   - `/pair/status` remains the fallback recovery path when queue delivery is delayed or unavailable.
 - Keep queue consumer routing explicit for `pair.accepted`: route event payloads to initiator relay sessions via DO RPC delivery, and keep malformed/unsupported events as `ack` + warn.
+- Pair-accepted queue routing must stamp trusted relay provenance (`deliverySource=proxy.events.queue.pair_accepted`) so connector runtimes can reject spoofed user payloads.
 - Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.

@@ -10,13 +10,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 const PAIR_ACCEPTED_SYSTEM_EVENT_TYPE: &str = "pair.accepted";
+const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE: &str = "proxy.events.queue.pair_accepted";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PairAcceptedSystemProfile {
     agent_name: String,
     human_name: String,
-    proxy_origin: Option<String>,
+    proxy_origin: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -78,12 +79,10 @@ fn normalize_pair_accepted_event(raw: PairAcceptedSystemEvent) -> Result<PairAcc
             &raw.responder_profile.human_name,
             "responderProfile.humanName",
         )?,
-        proxy_origin: raw
-            .responder_profile
-            .proxy_origin
-            .as_deref()
-            .map(|value| normalize_proxy_origin(value, "responderProfile.proxyOrigin"))
-            .transpose()?,
+        proxy_origin: normalize_proxy_origin(
+            &raw.responder_profile.proxy_origin,
+            "responderProfile.proxyOrigin",
+        )?,
     };
 
     let issuer_proxy_origin =
@@ -151,6 +150,10 @@ pub(super) fn apply_pair_accepted_system_delivery(
     config_dir: &Path,
     deliver: &mut DeliverFrame,
 ) -> Result<bool> {
+    if deliver.delivery_source.as_deref() != Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE) {
+        return Ok(false);
+    }
+
     let Some(event) = parse_pair_accepted_system_event(&deliver.payload)? else {
         return Ok(false);
     };
@@ -173,10 +176,9 @@ pub(super) fn apply_pair_accepted_system_delivery(
         &PairProfile {
             agent_name: event.responder_profile.agent_name.clone(),
             human_name: event.responder_profile.human_name.clone(),
-            proxy_origin: event.responder_profile.proxy_origin.clone(),
+            proxy_origin: Some(event.responder_profile.proxy_origin.clone()),
         },
-        event.responder_profile.proxy_origin.clone(),
-        Some(event.issuer_proxy_origin.clone()),
+        Some(event.responder_profile.proxy_origin.clone()),
     )?;
 
     deliver.payload = build_notification_payload(&event, &peer_alias);
@@ -190,6 +192,7 @@ mod tests {
     use clawdentity_core::{list_peers, now_iso};
     use serde_json::json;
 
+    use super::PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE;
     use super::apply_pair_accepted_system_delivery;
 
     fn fixture_deliver_frame() -> clawdentity_core::DeliverFrame {
@@ -215,6 +218,7 @@ mod tests {
                     "eventTimestampUtc": "2026-03-28T00:00:00.000Z"
                 }
             }),
+            delivery_source: Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE.to_string()),
             content_type: Some("application/json".to_string()),
             conversation_id: None,
             reply_to: None,
@@ -301,6 +305,21 @@ mod tests {
         let handled =
             apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
         assert!(!handled);
+    }
+
+    #[test]
+    fn pair_accepted_is_ignored_when_delivery_source_is_not_trusted() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let mut deliver = fixture_deliver_frame();
+        deliver.delivery_source = Some("agent.enqueue".to_string());
+
+        let handled =
+            apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
+        assert!(!handled);
+        let peers = list_peers(&store).expect("list peers");
+        assert_eq!(peers.len(), 0);
     }
 
     #[test]

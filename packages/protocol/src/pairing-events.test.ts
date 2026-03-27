@@ -48,12 +48,13 @@ describe("pair accepted event contract", () => {
           "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         responderProfile: {
           agentName: "beta",
+          humanName: "Ira",
         },
         issuerProxyOrigin: "https://proxy.clawdentity.dev",
         eventTimestampUtc: "not-an-iso-date",
       }),
     ).toThrow(
-      "Pair accepted event field 'responderProfile.humanName' must be a non-empty string",
+      "Pair accepted event field 'responderProfile.proxyOrigin' must be a non-empty string",
     );
   });
 
@@ -66,6 +67,7 @@ describe("pair accepted event contract", () => {
       responderProfile: {
         agentName: "beta",
         humanName: "Ira",
+        proxyOrigin: "https://beta.proxy.example",
       },
       issuerProxyOrigin: "https://proxy.clawdentity.dev",
       eventTimestampUtc: "2026-03-28T00:00:00.000Z",

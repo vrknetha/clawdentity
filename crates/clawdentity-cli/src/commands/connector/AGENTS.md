@@ -18,7 +18,8 @@
 - Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
 - Handle pairing acceptance system events in `delivery/pair_accepted.rs` and invoke that processor in both live inbound delivery flow and retry replay flow.
 - Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`; never duplicate direct peer upsert/snapshot logic in connector runtime.
-- Pair-accepted system payload validation must include DID checks, proxy origin URL checks, and event timestamp parsing before mutating peer state.
+- Pair-accepted system side effects must run only for trusted relay delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`); never mutate peer state for user-authored payload-only `system.type=pair.accepted`.
+- Pair-accepted system payload validation must include DID checks, responder proxy origin URL checks, and event timestamp parsing before mutating peer state.
 - Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
 - Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
 - Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.

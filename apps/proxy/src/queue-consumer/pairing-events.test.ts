@@ -78,6 +78,7 @@ describe("pair accepted queue events", () => {
         responderProfile: {
           agentName: "beta",
           humanName: "Ira",
+          proxyOrigin: "https://beta.proxy.example",
         },
         issuerProxyOrigin: "https://proxy.clawdentity.dev",
         eventTimestampUtc: "2026-03-28T00:00:00.000Z",
@@ -91,6 +92,7 @@ describe("pair accepted queue events", () => {
     const payload = (await request.json()) as {
       senderAgentDid?: string;
       recipientAgentDid?: string;
+      deliverySource?: string;
       payload?: {
         system?: {
           type?: string;
@@ -103,6 +105,7 @@ describe("pair accepted queue events", () => {
     expect(payload.recipientAgentDid).toBe(
       "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
     );
+    expect(payload.deliverySource).toBe("proxy.events.queue.pair_accepted");
     expect(payload.payload?.system?.type).toBe(PAIR_ACCEPTED_EVENT_TYPE);
   });
 });

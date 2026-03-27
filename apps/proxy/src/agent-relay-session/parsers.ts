@@ -37,6 +37,11 @@ export function parseDeliveryInput(value: unknown): RelayDeliveryInput {
     senderAgentDid: input.senderAgentDid,
     recipientAgentDid: input.recipientAgentDid,
     payload: input.payload,
+    deliverySource:
+      typeof input.deliverySource === "string" &&
+      input.deliverySource.trim().length > 0
+        ? input.deliverySource.trim()
+        : undefined,
     conversationId:
       typeof input.conversationId === "string" &&
       input.conversationId.trim().length > 0

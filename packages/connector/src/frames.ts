@@ -80,6 +80,7 @@ export const deliverFrameSchema = frameBaseSchema
     fromAgentDid: agentDidSchema,
     toAgentDid: agentDidSchema,
     payload: z.unknown(),
+    deliverySource: nonEmptyStringSchema.optional(),
     contentType: nonEmptyStringSchema.optional(),
     conversationId: nonEmptyStringSchema.optional(),
     replyTo: z.string().url().optional(),

@@ -44,6 +44,8 @@ pub struct DeliverFrame {
     #[serde(rename = "toAgentDid")]
     pub to_agent_did: String,
     pub payload: serde_json::Value,
+    #[serde(rename = "deliverySource", skip_serializing_if = "Option::is_none")]
+    pub delivery_source: Option<String>,
     #[serde(rename = "contentType", skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     #[serde(rename = "conversationId", skip_serializing_if = "Option::is_none")]
@@ -148,6 +150,13 @@ fn validate_deliver_frame(frame: &DeliverFrame) -> Result<()> {
     validate_frame_base(frame.v, &frame.id, &frame.ts)?;
     validate_agent_did(&frame.from_agent_did, "fromAgentDid")?;
     validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+    if let Some(delivery_source) = &frame.delivery_source
+        && delivery_source.trim().is_empty()
+    {
+        return Err(CoreError::InvalidInput(
+            "deliverySource must not be blank".to_string(),
+        ));
+    }
     Ok(())
 }
 

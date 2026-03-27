@@ -1,11 +1,13 @@
 import { parseAgentDid } from "./did.js";
 
 export const PAIR_ACCEPTED_EVENT_TYPE = "pair.accepted";
+export const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE =
+  "proxy.events.queue.pair_accepted";
 
 export type PairAcceptedResponderProfile = {
   agentName: string;
   humanName: string;
-  proxyOrigin?: string;
+  proxyOrigin: string;
 };
 
 export type PairAcceptedEvent = {
@@ -98,14 +100,11 @@ function parseResponderProfile(value: unknown): PairAcceptedResponderProfile {
       profile.humanName,
       "responderProfile.humanName",
     ),
-  };
-
-  if (profile.proxyOrigin !== undefined) {
-    normalized.proxyOrigin = parseHttpOrigin(
+    proxyOrigin: parseHttpOrigin(
       profile.proxyOrigin,
       "responderProfile.proxyOrigin",
-    );
-  }
+    ),
+  };
 
   return normalized;
 }

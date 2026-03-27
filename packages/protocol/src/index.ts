@@ -71,6 +71,7 @@ export type {
 export {
   createPairAcceptedEvent,
   PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
   parsePairAcceptedEvent,
 } from "./pairing-events.js";
 export { generateUlid, parseUlid } from "./ulid.js";

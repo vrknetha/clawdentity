@@ -1,5 +1,6 @@
 import {
   PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
   type PairAcceptedEvent,
   parsePairAcceptedEvent,
 } from "@clawdentity/protocol";
@@ -64,6 +65,7 @@ export async function handlePairAcceptedQueueEvent(input: {
     requestId: buildPairAcceptedRequestId(input.event),
     senderAgentDid: input.event.responderAgentDid,
     recipientAgentDid: input.event.initiatorAgentDid,
+    deliverySource: PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
     payload: toSystemPayload(input.event),
   });
 }

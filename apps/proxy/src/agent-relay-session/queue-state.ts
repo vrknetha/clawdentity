@@ -15,6 +15,8 @@ export function isQueuedDelivery(value: unknown): value is QueuedRelayDelivery {
     typeof candidate.requestId === "string" &&
     typeof candidate.senderAgentDid === "string" &&
     typeof candidate.recipientAgentDid === "string" &&
+    (candidate.deliverySource === undefined ||
+      typeof candidate.deliverySource === "string") &&
     (candidate.conversationId === undefined ||
       typeof candidate.conversationId === "string") &&
     (candidate.replyTo === undefined ||
