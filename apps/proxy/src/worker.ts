@@ -210,20 +210,35 @@ function parseDeliveryReceiptEvent(payload: unknown) {
   }
 }
 
-function shouldRetryQueueError(error: unknown): boolean {
+type QueueFailureAction = "ack" | "retry";
+
+function resolveQueueFailureAction(error: unknown): {
+  action: QueueFailureAction;
+  reasonCode: string;
+} {
   if (error instanceof NonRetryableQueueError) {
-    return false;
+    return { action: "ack", reasonCode: "non_retryable_queue_error" };
   }
 
   if (error instanceof RelaySessionDeliveryError) {
-    return error.status === 429 || error.status >= 500;
+    if (error.status === 429 || error.status >= 500) {
+      return {
+        action: "retry",
+        reasonCode: "relay_session_transient_error",
+      };
+    }
+
+    return {
+      action: "ack",
+      reasonCode: "relay_session_non_retryable_error",
+    };
   }
 
   if (error instanceof TypeError) {
-    return true;
+    return { action: "retry", reasonCode: "transport_type_error" };
   }
 
-  return true;
+  return { action: "retry", reasonCode: "unknown_retryable_error" };
 }
 
 const worker = {
@@ -285,12 +300,18 @@ const worker = {
 
         message.ack();
       } catch (error) {
-        const shouldRetry = shouldRetryQueueError(error);
+        const failureAction = resolveQueueFailureAction(error);
         logger.warn("proxy.queue.message_failed", {
           reason: error instanceof Error ? error.message : String(error),
-          action: shouldRetry ? "retry" : "ack",
+          action: failureAction.action,
+          reasonCode: failureAction.reasonCode,
+          errorName: error instanceof Error ? error.name : "unknown",
+          relayStatus:
+            error instanceof RelaySessionDeliveryError ? error.status : null,
+          relayCode:
+            error instanceof RelaySessionDeliveryError ? error.code : null,
         });
-        if (shouldRetry) {
+        if (failureAction.action === "retry") {
           message.retry();
         } else {
           message.ack();

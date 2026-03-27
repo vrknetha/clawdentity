@@ -61,13 +61,23 @@ export function parseReceiptQueueEvent(payload: unknown): ReceiptQueueEvent {
   };
 }
 
+function resolveSenderRelaySession(input: {
+  senderAgentDid: string;
+  relaySessionNamespace: AgentRelaySessionNamespace;
+}) {
+  return input.relaySessionNamespace.get(
+    input.relaySessionNamespace.idFromName(input.senderAgentDid),
+  );
+}
+
 export async function handleReceiptQueueEvent(input: {
   event: ReceiptQueueEvent;
   relaySessionNamespace: AgentRelaySessionNamespace;
 }): Promise<void> {
-  const relaySession = input.relaySessionNamespace.get(
-    input.relaySessionNamespace.idFromName(input.event.senderAgentDid),
-  );
+  const relaySession = resolveSenderRelaySession({
+    senderAgentDid: input.event.senderAgentDid,
+    relaySessionNamespace: input.relaySessionNamespace,
+  });
 
   await recordRelayDeliveryReceipt(relaySession, {
     requestId: input.event.requestId,

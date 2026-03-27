@@ -19,6 +19,7 @@ type ProxyContext = Context<{
   Variables: ProxyRequestVariables;
   Bindings: {
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+    ENVIRONMENT?: string;
     RECEIPT_QUEUE?: Queue<string>;
   };
 }>;
@@ -91,6 +92,15 @@ function parseRequiredQuery(value: string | undefined, field: string): string {
   return value.trim();
 }
 
+function normalizeEnvironment(value: string | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function resolveSessionNamespace(c: ProxyContext): AgentRelaySessionNamespace {
   const namespace = c.env.AGENT_RELAY_SESSION;
   if (namespace === undefined) {
@@ -133,51 +143,69 @@ export function createRelayDeliveryReceiptPostHandler(
       responderAgentDid: parsedPayload.recipientAgentDid,
     });
 
-    const sessionNamespace = resolveSessionNamespace(c);
-    const relaySession = sessionNamespace.get(
-      sessionNamespace.idFromName(parsedPayload.recipientAgentDid),
-    );
-
-    try {
-      await recordRelayDeliveryReceipt(relaySession, parsedPayload);
-    } catch (error) {
-      if (error instanceof RelaySessionDeliveryError) {
-        input.logger.warn("proxy.relay.receipt_record_failed", {
-          code: error.code,
-          status: error.status,
-        });
-      }
-      throw new AppError({
-        code: "PROXY_RELAY_RECEIPT_WRITE_FAILED",
-        message: "Failed to record relay delivery receipt",
-        status: 502,
-      });
-    }
-
+    const environment = normalizeEnvironment(c.env.ENVIRONMENT);
     const receiptQueue = c.env.RECEIPT_QUEUE;
-    if (receiptQueue !== undefined) {
-      try {
-        await receiptQueue.send(
-          JSON.stringify({
-            type: DELIVERY_RECEIPT_EVENT_TYPE,
-            requestId: parsedPayload.requestId,
-            senderAgentDid: parsedPayload.senderAgentDid,
-            recipientAgentDid: parsedPayload.recipientAgentDid,
-            status: parsedPayload.status,
-            reason: parsedPayload.reason,
-            processedAt: nowIso(),
-          }),
-        );
-      } catch (error) {
-        input.logger.warn("proxy.relay.receipt_queue_publish_failed", {
-          reason: error instanceof Error ? error.message : String(error),
+    if (receiptQueue === undefined) {
+      if (environment !== "local") {
+        input.logger.warn("proxy.relay.receipt_queue_unavailable", {
+          environment: environment ?? "unset",
+          fallbackAllowed: false,
         });
         throw new AppError({
-          code: "PROXY_RELAY_RECEIPT_QUEUE_FAILED",
-          message: "Failed to queue relay delivery receipt",
+          code: "PROXY_RELAY_RECEIPT_QUEUE_UNAVAILABLE",
+          message: "Relay delivery receipt queue is unavailable",
+          status: 503,
+          details: {
+            environment: environment ?? "unset",
+            fallbackAllowed: false,
+          },
+        });
+      }
+
+      const sessionNamespace = resolveSessionNamespace(c);
+      const relaySession = sessionNamespace.get(
+        sessionNamespace.idFromName(parsedPayload.senderAgentDid),
+      );
+      try {
+        await recordRelayDeliveryReceipt(relaySession, parsedPayload);
+      } catch (error) {
+        if (error instanceof RelaySessionDeliveryError) {
+          input.logger.warn("proxy.relay.receipt_record_failed", {
+            code: error.code,
+            status: error.status,
+          });
+        }
+        throw new AppError({
+          code: "PROXY_RELAY_RECEIPT_WRITE_FAILED",
+          message: "Failed to record relay delivery receipt",
           status: 502,
         });
       }
+
+      return c.json({ accepted: true }, 202);
+    }
+
+    try {
+      await receiptQueue.send(
+        JSON.stringify({
+          type: DELIVERY_RECEIPT_EVENT_TYPE,
+          requestId: parsedPayload.requestId,
+          senderAgentDid: parsedPayload.senderAgentDid,
+          recipientAgentDid: parsedPayload.recipientAgentDid,
+          status: parsedPayload.status,
+          reason: parsedPayload.reason,
+          processedAt: nowIso(),
+        }),
+      );
+    } catch (error) {
+      input.logger.warn("proxy.relay.receipt_queue_publish_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+      throw new AppError({
+        code: "PROXY_RELAY_RECEIPT_QUEUE_FAILED",
+        message: "Failed to queue relay delivery receipt",
+        status: 502,
+      });
     }
 
     return c.json({ accepted: true }, 202);

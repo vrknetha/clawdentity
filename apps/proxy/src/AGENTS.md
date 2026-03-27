@@ -55,7 +55,10 @@
 - Keep relay websocket connect handling isolated in `relay-connect-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
 - Keep relay delivery-receipt HTTP handlers isolated in `relay-delivery-receipt-route.ts`; `server.ts` should only compose `POST/GET /v1/relay/delivery-receipts`.
+- Keep receipt ingestion queue-first outside `local`: in `development`/`production`, `/v1/relay/delivery-receipts` must publish to `RECEIPT_QUEUE` and fail with `503` when the binding is unavailable.
+- In `local` mode only, direct DO fallback is allowed for receipt ingestion when `RECEIPT_QUEUE` is absent, and only when `ENVIRONMENT` is explicitly set to `local`.
 - Keep receipt queue event parsing/routing isolated in `queue-consumer/receipt-events.ts`; queue handlers should route events to sender relay sessions, not embed DO RPC JSON inline in `worker.ts`.
+- Keep queue-first receipt tests asserting status parity: both `processed_by_openclaw` and `dead_lettered` must remain observable end-to-end without status rewriting.
 - Keep queue failure policy explicit in `worker.ts`: unsupported/invalid queue payloads are acknowledged (not retried), and retries are reserved for transient delivery failures.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
