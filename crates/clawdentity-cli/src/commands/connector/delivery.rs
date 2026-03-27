@@ -16,6 +16,9 @@ use clawdentity_core::{
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
+use super::headers::{
+    SenderProfileHeaders, build_openclaw_delivery_headers, lookup_sender_profile_headers,
+};
 use super::normalize_hook_path;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
@@ -80,8 +83,7 @@ async fn handle_connector_frame(
         }
         ConnectorFrame::Receipt(receipt) => {
             if let Err(error) =
-                forward_receipt_to_openclaw(http_client, hook_url, openclaw_runtime, &receipt)
-                    .await
+                forward_receipt_to_openclaw(http_client, hook_url, openclaw_runtime, &receipt).await
             {
                 tracing::warn!(
                     error = %error,
@@ -165,7 +167,16 @@ async fn retry_pending_inbound_delivery(
         return;
     };
 
-    match forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await {
+    let sender_profile = lookup_sender_profile_headers(store, &item.from_agent_did);
+    match forward_deliver_to_openclaw(
+        http_client,
+        hook_url,
+        openclaw_runtime,
+        &deliver,
+        sender_profile.as_ref(),
+    )
+    .await
+    {
         Ok(()) => record_retry_delivery_success(store, &item),
         Err(error) => handle_pending_retry_failure(store, &item, &error),
     }
@@ -299,8 +310,15 @@ async fn handle_deliver_frame(
     openclaw_runtime: &OpenclawRuntimeConfig,
     deliver: DeliverFrame,
 ) {
-    let delivery_result =
-        forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await;
+    let sender_profile = lookup_sender_profile_headers(store, &deliver.from_agent_did);
+    let delivery_result = forward_deliver_to_openclaw(
+        http_client,
+        hook_url,
+        openclaw_runtime,
+        &deliver,
+        sender_profile.as_ref(),
+    )
+    .await;
     let persistence_result =
         persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
     log_persist_failure(&deliver.id, persistence_result.as_ref().err());
@@ -348,24 +366,21 @@ async fn forward_deliver_to_openclaw(
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
     deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
 ) -> Result<()> {
     let mut request = http_client
         .post(hook_url)
-        .header("content-type", "application/json")
-        .header("x-clawdentity-agent-did", &deliver.from_agent_did)
-        .header("x-clawdentity-to-agent-did", &deliver.to_agent_did)
         .json(&build_openclaw_hook_payload(
             &openclaw_runtime.hook_path,
             deliver,
         ));
 
-    if let Some(token) = openclaw_runtime
-        .hook_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request = request.header("x-openclaw-token", token);
+    for (name, value) in build_openclaw_delivery_headers(
+        deliver,
+        sender_profile,
+        openclaw_runtime.hook_token.as_deref(),
+    ) {
+        request = request.header(name, value);
     }
 
     let response = request
@@ -400,6 +415,7 @@ async fn forward_receipt_to_openclaw(
             "application/vnd.clawdentity.receipt+json",
         )
         .header("x-clawdentity-to-agent-did", &receipt.to_agent_did)
+        .header("x-clawdentity-verified", "true")
         .header("x-request-id", &receipt.original_frame_id)
         .json(&build_openclaw_receipt_payload(
             &openclaw_runtime.hook_path,
@@ -430,62 +446,26 @@ async fn forward_receipt_to_openclaw(
 
 pub(super) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptFrame) -> Value {
     let summary = render_receipt_summary(receipt);
-    let status = receipt_status_slug(&receipt.status);
-    let receipt_json = build_receipt_metadata(receipt, status);
+    let status = receipt_status_str(&receipt.status);
+    let receipt_json = build_openclaw_receipt_metadata(receipt);
 
     if normalize_hook_path(hook_path) == "/hooks/wake" {
-        return build_openclaw_wake_receipt_payload(receipt, status, &summary, &receipt_json);
+        return json!({
+            "type": "clawdentity:receipt",
+            "originalFrameId": receipt.original_frame_id,
+            "toAgentDid": receipt.to_agent_did,
+            "status": status,
+            "reason": receipt.reason,
+            "timestamp": receipt.ts,
+            "text": summary,
+            "message": summary,
+            "mode": "now",
+            "metadata": {
+                "receipt": receipt_json,
+            },
+        });
     }
 
-    build_openclaw_agent_receipt_payload(receipt, status, &summary, &receipt_json)
-}
-
-fn receipt_status_slug(status: &ReceiptStatus) -> &'static str {
-    match status {
-        ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
-        ReceiptStatus::DeadLettered => "dead_lettered",
-    }
-}
-
-fn build_receipt_metadata(receipt: &ReceiptFrame, status: &str) -> Value {
-    json!({
-        "type": "clawdentity:receipt",
-        "originalFrameId": receipt.original_frame_id,
-        "toAgentDid": receipt.to_agent_did,
-        "status": status,
-        "reason": receipt.reason,
-        "timestamp": receipt.ts,
-    })
-}
-
-fn build_openclaw_wake_receipt_payload(
-    receipt: &ReceiptFrame,
-    status: &str,
-    summary: &str,
-    receipt_json: &Value,
-) -> Value {
-    json!({
-        "type": "clawdentity:receipt",
-        "originalFrameId": receipt.original_frame_id,
-        "toAgentDid": receipt.to_agent_did,
-        "status": status,
-        "reason": receipt.reason,
-        "timestamp": receipt.ts,
-        "text": summary,
-        "message": summary,
-        "mode": "now",
-        "metadata": {
-            "receipt": receipt_json,
-        },
-    })
-}
-
-fn build_openclaw_agent_receipt_payload(
-    receipt: &ReceiptFrame,
-    status: &str,
-    summary: &str,
-    receipt_json: &Value,
-) -> Value {
     json!({
         "type": "clawdentity:receipt",
         "originalFrameId": receipt.original_frame_id,
@@ -499,6 +479,24 @@ fn build_openclaw_agent_receipt_payload(
             "receipt": receipt_json,
         },
     })
+}
+
+fn build_openclaw_receipt_metadata(receipt: &ReceiptFrame) -> Value {
+    json!({
+        "type": "clawdentity:receipt",
+        "originalFrameId": receipt.original_frame_id,
+        "toAgentDid": receipt.to_agent_did,
+        "status": receipt_status_str(&receipt.status),
+        "reason": receipt.reason,
+        "timestamp": receipt.ts,
+    })
+}
+
+fn receipt_status_str(status: &ReceiptStatus) -> &'static str {
+    match status {
+        ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+        ReceiptStatus::DeadLettered => "dead_lettered",
+    }
 }
 
 fn render_receipt_summary(receipt: &ReceiptFrame) -> String {

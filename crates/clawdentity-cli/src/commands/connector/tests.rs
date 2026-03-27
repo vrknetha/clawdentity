@@ -1,13 +1,14 @@
 use anyhow::anyhow;
 use chrono::{Duration as ChronoDuration, Utc};
-use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use clawdentity_core::agent::AgentAuthRecord;
+use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use serde_json::json;
+use std::collections::HashMap;
 
 use super::runtime_config::{agent_access_requires_refresh, normalize_proxy_ws_url};
 use super::{
-    build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
-    normalize_hook_path,
+    SenderProfileHeaders, build_deliver_ack_reason, build_openclaw_delivery_headers,
+    build_openclaw_hook_payload, build_openclaw_receipt_payload, normalize_hook_path,
     should_dead_letter_after_failure,
 };
 
@@ -63,6 +64,91 @@ fn deliver_ack_reason_is_none_when_delivery_failed_but_retry_was_persisted() {
     let delivery_error = anyhow!("openclaw hook returned HTTP 500");
     let reason = build_deliver_ack_reason(Some(&delivery_error), None);
     assert!(reason.is_none());
+}
+
+#[test]
+fn openclaw_delivery_headers_include_profile_headers_when_available() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-headers-1".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({ "message": "hello" }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+    let sender_profile = SenderProfileHeaders {
+        agent_name: Some("sender-assistant".to_string()),
+        human_name: Some("Sender Human".to_string()),
+    };
+
+    let headers =
+        build_openclaw_delivery_headers(&deliver, Some(&sender_profile), Some("  token-1 "));
+    let header_map: HashMap<&str, String> = headers.into_iter().collect();
+
+    assert_eq!(
+        header_map
+            .get("x-clawdentity-agent-did")
+            .map(String::as_str),
+        Some("did:cdi:test:agent:sender")
+    );
+    assert_eq!(
+        header_map
+            .get("x-clawdentity-to-agent-did")
+            .map(String::as_str),
+        Some("did:cdi:test:agent:recipient")
+    );
+    assert_eq!(
+        header_map.get("x-clawdentity-verified").map(String::as_str),
+        Some("true")
+    );
+    assert_eq!(
+        header_map.get("x-request-id").map(String::as_str),
+        Some("req-headers-1")
+    );
+    assert_eq!(
+        header_map
+            .get("x-clawdentity-agent-name")
+            .map(String::as_str),
+        Some("sender-assistant")
+    );
+    assert_eq!(
+        header_map
+            .get("x-clawdentity-human-name")
+            .map(String::as_str),
+        Some("Sender Human")
+    );
+    assert_eq!(
+        header_map.get("x-openclaw-token").map(String::as_str),
+        Some("token-1")
+    );
+}
+
+#[test]
+fn openclaw_delivery_headers_omit_profile_headers_when_missing() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-headers-2".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({ "message": "hello" }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+
+    let headers = build_openclaw_delivery_headers(&deliver, None, None);
+    let header_map: HashMap<&str, String> = headers.into_iter().collect();
+    assert_eq!(
+        header_map.get("x-clawdentity-verified").map(String::as_str),
+        Some("true")
+    );
+    assert!(!header_map.contains_key("x-clawdentity-agent-name"));
+    assert!(!header_map.contains_key("x-clawdentity-human-name"));
+    assert!(!header_map.contains_key("x-openclaw-token"));
 }
 
 #[test]

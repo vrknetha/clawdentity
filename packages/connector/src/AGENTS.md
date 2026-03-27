@@ -78,7 +78,9 @@
 - Keep outbound enqueue buffering durable when configured via `outboundQueuePersistence`; load once before replaying queued frames and persist on enqueue/dequeue transitions.
 - Keep websocket/client metrics in `ConnectorClient` (`getMetricsSnapshot`) so runtime health does not recompute transport stats ad hoc.
 - Keep local OpenClaw hook auth rejection (`401/403`) retryable in connector delivery paths so token rotation windows do not permanently fail deliveries.
-- Keep structured identity headers on connector hook delivery requests (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`) in both runtime replay and direct client-delivery modes.
+- Keep structured identity headers on connector hook delivery requests in both runtime replay and direct client-delivery modes:
+  - required: `x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`
+  - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-human-name` (omit when unknown)
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules

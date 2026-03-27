@@ -9,3 +9,5 @@
 - Wake payloads must only include `sessionId` when the inbound payload explicitly carries one.
 - `/hooks/wake` remains the visible default for peer delivery; `/hooks/agent` is only for explicit isolated-hook routing.
 - Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.
+- Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-human-name`) when local peer metadata exists.
+- Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.

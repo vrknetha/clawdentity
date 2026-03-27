@@ -102,6 +102,15 @@ pub fn get_peer_by_alias(store: &SqliteStore, alias: &str) -> Result<Option<Peer
     store.with_connection(|connection| Ok(get_peer(connection, &alias)))
 }
 
+/// TODO(clawdentity): document `get_peer_by_did`.
+pub fn get_peer_by_did(store: &SqliteStore, did: &str) -> Result<Option<PeerRecord>> {
+    let did = did.trim().to_string();
+    if did.is_empty() {
+        return Ok(None);
+    }
+    store.with_connection(|connection| Ok(get_peer_by_did_value(connection, &did)))
+}
+
 fn get_peer(connection: &rusqlite::Connection, alias: &str) -> Option<PeerRecord> {
     let mut statement = connection
         .prepare(
@@ -110,6 +119,19 @@ fn get_peer(connection: &rusqlite::Connection, alias: &str) -> Option<PeerRecord
         )
         .ok()?;
     statement.query_row([alias], map_peer_row).ok()
+}
+
+fn get_peer_by_did_value(connection: &rusqlite::Connection, did: &str) -> Option<PeerRecord> {
+    let mut statement = connection
+        .prepare(
+            "SELECT alias, did, proxy_url, agent_name, human_name, created_at_ms, updated_at_ms
+            FROM peers
+            WHERE did = ?1
+            ORDER BY updated_at_ms DESC, alias ASC
+            LIMIT 1",
+        )
+        .ok()?;
+    statement.query_row([did], map_peer_row).ok()
 }
 
 /// TODO(clawdentity): document `list_peers`.
@@ -144,7 +166,9 @@ mod tests {
 
     use crate::db::SqliteStore;
 
-    use super::{UpsertPeerInput, delete_peer, get_peer_by_alias, list_peers, upsert_peer};
+    use super::{
+        UpsertPeerInput, delete_peer, get_peer_by_alias, get_peer_by_did, list_peers, upsert_peer,
+    };
 
     #[test]
     fn upsert_list_get_delete_peer_records() {
@@ -183,5 +207,56 @@ mod tests {
                 .expect("get deleted")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn get_peer_by_did_returns_matching_peer() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+
+        upsert_peer(
+            &store,
+            UpsertPeerInput {
+                alias: "alpha".to_string(),
+                did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                    .to_string(),
+                proxy_url: "https://proxy.example".to_string(),
+                agent_name: Some("Alpha".to_string()),
+                human_name: Some("Alice".to_string()),
+            },
+        )
+        .expect("insert peer");
+
+        let by_did = get_peer_by_did(
+            &store,
+            "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+        )
+        .expect("get by did")
+        .expect("matching peer");
+        assert_eq!(by_did.alias, "alpha");
+        assert_eq!(by_did.agent_name.as_deref(), Some("Alpha"));
+        assert_eq!(by_did.human_name.as_deref(), Some("Alice"));
+    }
+
+    #[test]
+    fn get_peer_by_did_returns_none_for_empty_input() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+
+        let by_did = get_peer_by_did(&store, "   ").expect("get by did");
+        assert!(by_did.is_none());
+    }
+
+    #[test]
+    fn get_peer_by_did_returns_none_when_peer_is_missing() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+
+        let by_did = get_peer_by_did(
+            &store,
+            "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
+        )
+        .expect("get by did");
+        assert!(by_did.is_none());
     }
 }

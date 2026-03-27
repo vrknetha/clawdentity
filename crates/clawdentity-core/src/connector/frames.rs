@@ -133,17 +133,15 @@ fn validate_agent_did(value: &str, field_name: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_ack_frame(
-    version: i64,
-    id: &str,
-    ts: &str,
-    ack_id: &str,
-    label: &str,
-) -> Result<()> {
-    validate_frame_base(version, id, ts)?;
-    Ulid::from_string(ack_id)
-        .map_err(|_| CoreError::InvalidInput(format!("invalid {label} ackId: {ack_id}")))?;
+fn validate_ack_id(value: &str, field_name: &str) -> Result<()> {
+    Ulid::from_string(value)
+        .map_err(|_| CoreError::InvalidInput(format!("invalid {field_name}: {value}")))?;
     Ok(())
+}
+
+fn validate_heartbeat_ack_frame(frame: &HeartbeatAckFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.ack_id, "heartbeat ackId")
 }
 
 fn validate_deliver_frame(frame: &DeliverFrame) -> Result<()> {
@@ -153,20 +151,24 @@ fn validate_deliver_frame(frame: &DeliverFrame) -> Result<()> {
     Ok(())
 }
 
+fn validate_deliver_ack_frame(frame: &DeliverAckFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.ack_id, "deliver ackId")
+}
+
 fn validate_enqueue_frame(frame: &EnqueueFrame) -> Result<()> {
     validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
-    Ok(())
+    validate_agent_did(&frame.to_agent_did, "toAgentDid")
+}
+
+fn validate_enqueue_ack_frame(frame: &EnqueueAckFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.ack_id, "enqueue ackId")
 }
 
 fn validate_receipt_frame(frame: &ReceiptFrame) -> Result<()> {
     validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-    Ulid::from_string(&frame.original_frame_id).map_err(|_| {
-        CoreError::InvalidInput(format!(
-            "invalid receipt originalFrameId: {}",
-            frame.original_frame_id
-        ))
-    })?;
+    validate_ack_id(&frame.original_frame_id, "receipt originalFrameId")?;
     validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
     if let Some(reason) = &frame.reason
         && reason.trim().is_empty()
@@ -182,17 +184,11 @@ fn validate_receipt_frame(frame: &ReceiptFrame) -> Result<()> {
 pub fn validate_frame(frame: &ConnectorFrame) -> Result<()> {
     match frame {
         ConnectorFrame::Heartbeat(frame) => validate_frame_base(frame.v, &frame.id, &frame.ts),
-        ConnectorFrame::HeartbeatAck(frame) => {
-            validate_ack_frame(frame.v, &frame.id, &frame.ts, &frame.ack_id, "heartbeat")
-        }
+        ConnectorFrame::HeartbeatAck(frame) => validate_heartbeat_ack_frame(frame),
         ConnectorFrame::Deliver(frame) => validate_deliver_frame(frame),
-        ConnectorFrame::DeliverAck(frame) => {
-            validate_ack_frame(frame.v, &frame.id, &frame.ts, &frame.ack_id, "deliver")
-        }
+        ConnectorFrame::DeliverAck(frame) => validate_deliver_ack_frame(frame),
         ConnectorFrame::Enqueue(frame) => validate_enqueue_frame(frame),
-        ConnectorFrame::EnqueueAck(frame) => {
-            validate_ack_frame(frame.v, &frame.id, &frame.ts, &frame.ack_id, "enqueue")
-        }
+        ConnectorFrame::EnqueueAck(frame) => validate_enqueue_ack_frame(frame),
         ConnectorFrame::Receipt(frame) => validate_receipt_frame(frame),
     }
 }
