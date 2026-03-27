@@ -446,27 +446,15 @@ async fn forward_receipt_to_openclaw(
 
 pub(super) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptFrame) -> Value {
     let summary = render_receipt_summary(receipt);
-    let receipt_json = json!({
-        "type": "clawdentity:receipt",
-        "originalFrameId": receipt.original_frame_id,
-        "toAgentDid": receipt.to_agent_did,
-        "status": match receipt.status {
-            ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
-            ReceiptStatus::DeadLettered => "dead_lettered",
-        },
-        "reason": receipt.reason,
-        "timestamp": receipt.ts,
-    });
+    let status = receipt_status_str(&receipt.status);
+    let receipt_json = build_openclaw_receipt_metadata(receipt);
 
     if normalize_hook_path(hook_path) == "/hooks/wake" {
         return json!({
             "type": "clawdentity:receipt",
             "originalFrameId": receipt.original_frame_id,
             "toAgentDid": receipt.to_agent_did,
-            "status": match receipt.status {
-                ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
-                ReceiptStatus::DeadLettered => "dead_lettered",
-            },
+            "status": status,
             "reason": receipt.reason,
             "timestamp": receipt.ts,
             "text": summary,
@@ -482,10 +470,7 @@ pub(super) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptF
         "type": "clawdentity:receipt",
         "originalFrameId": receipt.original_frame_id,
         "toAgentDid": receipt.to_agent_did,
-        "status": match receipt.status {
-            ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
-            ReceiptStatus::DeadLettered => "dead_lettered",
-        },
+        "status": status,
         "reason": receipt.reason,
         "timestamp": receipt.ts,
         "message": summary,
@@ -494,6 +479,24 @@ pub(super) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptF
             "receipt": receipt_json,
         },
     })
+}
+
+fn build_openclaw_receipt_metadata(receipt: &ReceiptFrame) -> Value {
+    json!({
+        "type": "clawdentity:receipt",
+        "originalFrameId": receipt.original_frame_id,
+        "toAgentDid": receipt.to_agent_did,
+        "status": receipt_status_str(&receipt.status),
+        "reason": receipt.reason,
+        "timestamp": receipt.ts,
+    })
+}
+
+fn receipt_status_str(status: &ReceiptStatus) -> &'static str {
+    match status {
+        ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+        ReceiptStatus::DeadLettered => "dead_lettered",
+    }
 }
 
 fn render_receipt_summary(receipt: &ReceiptFrame) -> String {
