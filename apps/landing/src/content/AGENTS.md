@@ -10,3 +10,4 @@
 - CLI docs must match the actual Rust binary help output. Re-check flags and subcommands before changing docs, especially `install --for`, `provider *`, and `pair *`.
 - When starter-pass behavior changes, update both user-facing docs and the landing copy in the same change.
 - Keep proxy docs aligned with runtime identity transport: header-first by default, body injection only as an explicit legacy opt-in.
+- SDK docs that mention HTTP proof verification must state that timestamp freshness is enforced by default and should recommend the replay-protected one-call verifier for nonce enforcement.

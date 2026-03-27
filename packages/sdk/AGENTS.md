@@ -14,7 +14,7 @@
 - `jwt/ait-jwt`: AIT JWS signing, verification, and header-only inspection via `decodeAIT`; both helpers reuse the same protected-header guard so alg/typ/kid invariants stay aligned even when skipping signature validation.
 - `jwt/crl-jwt`: CRL JWT helpers with EdDSA signing, header consistency checks, and tamper-detection test coverage.
 - `crl/cache`: in-memory CRL cache with periodic refresh, staleness reporting, and configurable stale behavior.
-- `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash.
+- `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash, with timestamp freshness enforced by default.
 - `security/nonce-cache`: in-memory TTL nonce replay protection keyed by `agentDid + nonce`.
 - `agent-auth-client`: shared agent auth refresh client + retry orchestration (`executeWithAgentAuthRefreshRetry`) for CLI/runtime integrations.
 - `event-bus`: shared event envelope + transport abstractions (`createInMemoryEventBus`, `createQueueEventBus`) for environment-based async delivery.
@@ -39,6 +39,8 @@
 - For HTTP signing errors, keep user-facing messages static and send extra context through `AppError.details`.
 - Enforce Ed25519 key lengths at SDK boundaries (`secretKey` 32 bytes, `publicKey` 32 bytes) so misconfiguration returns stable `AppError` codes.
 - Treat any decoded PoP proof that is not 64 bytes as `HTTP_SIGNATURE_INVALID_PROOF`.
+- Keep `verifyHttpRequest` secure-by-default: always validate `X-Claw-Timestamp` format and freshness with a bounded skew window.
+- Use `verifyHttpRequestWithReplayProtection` for inbound service auth paths so nonce replay checks stay coupled to signature + timestamp validation.
 - Nonce cache accept path must prune expired entries across all agent buckets to keep memory bounded under high-cardinality agent traffic.
 - Nonce cache must validate the top-level input shape before reading fields so invalid JS callers receive structured `AppError`s instead of runtime `TypeError`s.
 - Registry config parsing must validate `REGISTRY_SIGNING_KEYS` as JSON before runtime use so keyset endpoints fail fast with `CONFIG_VALIDATION_FAILED` on malformed key documents.
@@ -59,6 +61,8 @@
 - Crypto tests must include explicit negative verification cases (wrong message/signature/key).
 - JWT tests must include sign/verify happy path and failure paths for issuer mismatch and missing/unknown `kid`.
 - HTTP signing tests must include sign/verify happy path and explicit failures when method, path, body, or timestamp are altered.
+- HTTP verification tests must include malformed timestamp, stale/future skew rejection, and deterministic clock-injection coverage.
+- Replay wrapper tests must cover first-accept, replay rejection, and async nonce-checker support.
 - Nonce cache tests must include duplicate nonce rejection within TTL and acceptance after TTL expiry.
 - CRL cache tests must cover revoked lookup, refresh-on-stale, and stale-path behavior in both `fail-open` and `fail-closed` modes.
 - When new registry routes emit signed AITs (e.g., POST `/v1/agents`), tests should consume those tokens with the published `REGISTRY_SIGNING_KEYS` set (as returned by `/.well-known/claw-keys.json`) and assert that `verifyAIT` succeeds/fails exactly the same way the local `claw verify` workflow will, keeping the offline verification contract fully covered.
