@@ -58,6 +58,7 @@
 - Keep receipt ingestion queue-first outside `local`: in `development`/`production`, `/v1/relay/delivery-receipts` must publish to `RECEIPT_QUEUE` and fail with `503` when the binding is unavailable.
 - In `local` mode only, direct DO fallback is allowed for receipt ingestion when `RECEIPT_QUEUE` is absent, and only when `ENVIRONMENT` is explicitly set to `local`.
 - Keep receipt queue event parsing/routing isolated in `queue-consumer/receipt-events.ts`; queue handlers should route events to sender relay sessions, not embed DO RPC JSON inline in `worker.ts`.
+- Keep receipt DO routing key consistent across ingestion and lookup paths: local fallback writes and `GET /v1/relay/delivery-receipts` lookups must resolve `AGENT_RELAY_SESSION` by `senderAgentDid` so local and queue-first behavior match.
 - Keep queue-first receipt tests asserting status parity: both `processed_by_openclaw` and `dead_lettered` must remain observable end-to-end without status rewriting.
 - Keep queue failure policy explicit in `worker.ts`: unsupported/invalid queue payloads are acknowledged (not retried), and retries are reserved for transient delivery failures.
 - Keep `worker.test.ts` queue assertions aligned with `worker.ts` failure classification (`action` + `reasonCode`) so retry/ack semantics stay stable as new queue event types are added.

@@ -198,6 +198,10 @@ describe("relay delivery receipt route", () => {
     expect(relayHarness.recordInputs).toHaveLength(1);
     expect(relayHarness.recordInputs[0]?.requestId).toBe("req-1");
     expect(relayHarness.recordInputs[0]?.status).toBe("processed_by_openclaw");
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledTimes(1);
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledWith(
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    );
   });
 
   it("publishes receipt events to queue when RECEIPT_QUEUE binding is configured", async () => {
@@ -584,6 +588,10 @@ describe("relay delivery receipt route", () => {
     expect(body.receipt?.state).toBe("processed_by_openclaw");
     expect(relayHarness.lookupInputs).toHaveLength(1);
     expect(relayHarness.lookupInputs[0]?.senderAgentDid).toBe(
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+    );
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledTimes(1);
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledWith(
       "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     );
   });

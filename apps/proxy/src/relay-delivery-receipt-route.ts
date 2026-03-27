@@ -225,6 +225,7 @@ export function createRelayDeliveryReceiptGetHandler(
       });
     }
 
+    const senderAgentDid = auth.agentDid;
     const requestId = parseRequiredQuery(c.req.query("requestId"), "requestId");
     const recipientAgentDid = parseRequiredQuery(
       c.req.query("recipientAgentDid"),
@@ -233,19 +234,19 @@ export function createRelayDeliveryReceiptGetHandler(
 
     await assertTrustedPair({
       trustStore: input.trustStore,
-      initiatorAgentDid: auth.agentDid,
+      initiatorAgentDid: senderAgentDid,
       responderAgentDid: recipientAgentDid,
     });
 
     const sessionNamespace = resolveSessionNamespace(c);
     const relaySession = sessionNamespace.get(
-      sessionNamespace.idFromName(recipientAgentDid),
+      sessionNamespace.idFromName(senderAgentDid),
     );
 
     try {
       const lookup = await getRelayDeliveryReceipt(relaySession, {
         requestId,
-        senderAgentDid: auth.agentDid,
+        senderAgentDid,
       });
       if (!lookup.found || lookup.receipt === undefined) {
         return c.json(
