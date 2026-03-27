@@ -142,12 +142,20 @@ export async function verifyHttpRequest(
   const method = ensureString(input.method, "method");
   const pathWithQuery = ensureString(input.pathWithQuery, "pathWithQuery");
   const headers = normalizeSignatureHeaders(input.headers);
-  const body = ensureBodyBytes(input.body);
-  const expectedBodyHash = await hashBodySha256Base64url(body);
   const nowMs = resolveNowMs(input.nowMs);
   const maxTimestampSkewSeconds = resolveMaxTimestampSkewSeconds(
     input.maxTimestampSkewSeconds,
   );
+
+  const timestampSeconds = parseUnixTimestamp(headers[X_CLAW_TIMESTAMP]);
+  assertTimestampWithinSkew({
+    nowMs,
+    maxTimestampSkewSeconds,
+    timestampSeconds,
+  });
+
+  const body = ensureBodyBytes(input.body);
+  const expectedBodyHash = await hashBodySha256Base64url(body);
 
   if (headers[X_CLAW_BODY_SHA256] !== expectedBodyHash) {
     throw new AppError({
@@ -160,13 +168,6 @@ export async function verifyHttpRequest(
       },
     });
   }
-
-  const timestampSeconds = parseUnixTimestamp(headers[X_CLAW_TIMESTAMP]);
-  assertTimestampWithinSkew({
-    nowMs,
-    maxTimestampSkewSeconds,
-    timestampSeconds,
-  });
 
   const canonicalRequest = canonicalizeRequest({
     method,
