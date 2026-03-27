@@ -134,6 +134,16 @@ describe("in-memory proxy trust store", () => {
     ).toBe(false);
   });
 
+  it("marks and checks revoked agents", async () => {
+    const store = createInMemoryProxyTrustStore();
+    const revokedAgentDid =
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97";
+
+    expect(await store.isAgentRevoked(revokedAgentDid)).toBe(false);
+    await store.markAgentRevoked(revokedAgentDid);
+    expect(await store.isAgentRevoked(revokedAgentDid)).toBe(true);
+  });
+
   it("confirms one-time pairing tickets and establishes trust", async () => {
     const store = createInMemoryProxyTrustStore();
     const created = await createSignedTicket({

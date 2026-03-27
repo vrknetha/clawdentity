@@ -12,11 +12,17 @@ import {
 import { resolveProxyVersion, resolveProxyVersionSource } from "./index.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
+import { ProxyTrustStoreError } from "./proxy-trust-store.js";
 import {
   DELIVERY_RECEIPT_EVENT_TYPE,
   handleReceiptQueueEvent,
   parseReceiptQueueEvent,
 } from "./queue-consumer/receipt-events.js";
+import {
+  AGENT_AUTH_REVOKED_EVENT_TYPE,
+  handleRegistryRevocationEvent,
+  parseRegistryRevocationEvent,
+} from "./queue-consumer/registry-events.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
 import { resolveWorkerTrustStore } from "./trust-store-backend.js";
 
@@ -210,6 +216,18 @@ function parseDeliveryReceiptEvent(payload: unknown) {
   }
 }
 
+function parseRegistryRevocationQueueEvent(payload: unknown) {
+  try {
+    return parseRegistryRevocationEvent(payload);
+  } catch (error) {
+    throw new NonRetryableQueueError(
+      error instanceof Error
+        ? error.message
+        : "Invalid registry revocation queue event payload",
+    );
+  }
+}
+
 type QueueFailureAction = "ack" | "retry";
 
 function resolveQueueFailureAction(error: unknown): {
@@ -236,6 +254,14 @@ function resolveQueueFailureAction(error: unknown): {
 
   if (error instanceof TypeError) {
     return { action: "retry", reasonCode: "transport_type_error" };
+  }
+
+  if (error instanceof ProxyTrustStoreError) {
+    if (error.status >= 500) {
+      return { action: "retry", reasonCode: "trust_state_transient_error" };
+    }
+
+    return { action: "ack", reasonCode: "trust_state_non_retryable_error" };
   }
 
   return { action: "retry", reasonCode: "unknown_retryable_error" };
@@ -276,28 +302,55 @@ const worker = {
     for (const message of batch.messages) {
       try {
         const event = parseQueueEventEnvelope(message.body);
-        if (event.type !== DELIVERY_RECEIPT_EVENT_TYPE) {
-          logger.warn("proxy.queue.message_ignored", {
-            reason: "unsupported_event_type",
-            eventType: event.type,
+        if (event.type === DELIVERY_RECEIPT_EVENT_TYPE) {
+          const relaySessionNamespace = env.AGENT_RELAY_SESSION;
+          if (relaySessionNamespace === undefined) {
+            throw new NonRetryableQueueError(
+              "Relay session namespace is unavailable",
+            );
+          }
+
+          const parsedReceiptEvent = parseDeliveryReceiptEvent(event.payload);
+          await handleReceiptQueueEvent({
+            event: parsedReceiptEvent,
+            relaySessionNamespace,
           });
+
           message.ack();
           continue;
         }
 
-        const relaySessionNamespace = env.AGENT_RELAY_SESSION;
-        if (relaySessionNamespace === undefined) {
-          throw new NonRetryableQueueError(
-            "Relay session namespace is unavailable",
+        if (event.type === AGENT_AUTH_REVOKED_EVENT_TYPE) {
+          const trustStateNamespace = env.PROXY_TRUST_STATE;
+          if (trustStateNamespace === undefined) {
+            throw new Error("Proxy trust state namespace is unavailable");
+          }
+
+          const parsedRevocationEvent = parseRegistryRevocationQueueEvent(
+            event.payload,
           );
+          if (parsedRevocationEvent === null) {
+            logger.warn("proxy.queue.message_ignored", {
+              reason: "unsupported_registry_revocation_reason",
+              eventType: event.type,
+            });
+            message.ack();
+            continue;
+          }
+
+          await handleRegistryRevocationEvent({
+            event: parsedRevocationEvent,
+            trustStateNamespace,
+          });
+
+          message.ack();
+          continue;
         }
 
-        const parsedReceiptEvent = parseDeliveryReceiptEvent(event.payload);
-        await handleReceiptQueueEvent({
-          event: parsedReceiptEvent,
-          relaySessionNamespace,
+        logger.warn("proxy.queue.message_ignored", {
+          reason: "unsupported_event_type",
+          eventType: event.type,
         });
-
         message.ack();
       } catch (error) {
         const failureAction = resolveQueueFailureAction(error);
@@ -310,6 +363,10 @@ const worker = {
             error instanceof RelaySessionDeliveryError ? error.status : null,
           relayCode:
             error instanceof RelaySessionDeliveryError ? error.code : null,
+          trustStoreStatus:
+            error instanceof ProxyTrustStoreError ? error.status : null,
+          trustStoreCode:
+            error instanceof ProxyTrustStoreError ? error.code : null,
         });
         if (failureAction.action === "retry") {
           message.retry();

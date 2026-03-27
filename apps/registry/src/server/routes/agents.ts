@@ -492,6 +492,9 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
           sessionId: existingSession.id,
           eventType: "revoked",
           reason: "agent_revoked",
+          metadata: {
+            agentDid: existingAgent.did,
+          },
           createdAt: revokedAt,
           eventBus: getEventBus(c.env),
           initiatedByAccountId: human.did,

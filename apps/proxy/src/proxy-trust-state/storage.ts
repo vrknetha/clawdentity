@@ -11,6 +11,7 @@ import {
   CONFIRMED_PAIRING_TICKETS_STORAGE_KEY,
   PAIRING_TICKETS_STORAGE_KEY,
   PAIRS_STORAGE_KEY,
+  REVOKED_AGENTS_STORAGE_KEY,
 } from "./types.js";
 import { isNonEmptyString, parsePeerProfile } from "./utils.js";
 
@@ -118,6 +119,27 @@ export class ProxyTrustStateStorage {
 
   async saveAgentPeers(agentPeers: AgentPeersIndex): Promise<void> {
     await this.state.storage.put(AGENT_PEERS_STORAGE_KEY, agentPeers);
+  }
+
+  async loadRevokedAgents(): Promise<Set<string>> {
+    const raw = await this.state.storage.get<string[]>(
+      REVOKED_AGENTS_STORAGE_KEY,
+    );
+    if (!Array.isArray(raw)) {
+      return new Set<string>();
+    }
+
+    const normalized = raw.filter((value): value is string =>
+      isNonEmptyString(value),
+    );
+    return new Set(normalized);
+  }
+
+  async saveRevokedAgents(revokedAgents: Set<string>): Promise<void> {
+    await this.state.storage.put(
+      REVOKED_AGENTS_STORAGE_KEY,
+      [...revokedAgents].sort(),
+    );
   }
 
   private removeExpiredEntries(

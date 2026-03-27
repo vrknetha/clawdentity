@@ -150,6 +150,78 @@ describe("DELETE /v1/agents/:id", () => {
     });
   });
 
+  it("publishes revoked auth event metadata with agent DID for queue consumers", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const nowIso = new Date().toISOString();
+    const agentId = generateUlid(1700200000302);
+    const agentDid = makeAgentDid(DID_AUTHORITY, agentId);
+    const agentJti = generateUlid(1700200000303);
+    const { database, agentAuthEventInserts } = createFakeDb(
+      [authRow],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "owned-agent-with-session",
+          framework: "openclaw",
+          status: "active",
+          expiresAt: "2026-04-01T00:00:00.000Z",
+          currentJti: agentJti,
+        },
+      ],
+      {
+        agentAuthSessionRows: [
+          {
+            id: generateUlid(1700200000304),
+            agentId,
+            refreshKeyHash: "refresh-hash",
+            refreshKeyPrefix: "clw_rft_test",
+            refreshIssuedAt: nowIso,
+            refreshExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            refreshLastUsedAt: null,
+            accessKeyHash: "access-hash",
+            accessKeyPrefix: "clw_agt_test",
+            accessIssuedAt: nowIso,
+            accessExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+            accessLastUsedAt: null,
+            status: "active",
+            revokedAt: null,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+        ],
+      },
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/agents/${agentId}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+
+    expect(res.status).toBe(204);
+    expect(agentAuthEventInserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event_type: "revoked",
+          reason: "agent_revoked",
+          metadata_json: JSON.stringify({
+            agentDid,
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("is idempotent for repeat revoke requests", async () => {
     const { token, authRow } = await makeValidPatContext();
     const agentId = generateUlid(1700200000400);

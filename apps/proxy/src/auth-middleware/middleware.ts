@@ -355,6 +355,27 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
         });
       }
 
+      let isRevokedByTrustState: boolean;
+      try {
+        isRevokedByTrustState = await options.trustStore.isAgentRevoked(
+          claims.sub,
+        );
+      } catch (error) {
+        throw dependencyUnavailableError({
+          message: "Proxy trust state is unavailable",
+          details: {
+            reason: toErrorMessage(error),
+          },
+        });
+      }
+
+      if (isRevokedByTrustState) {
+        throw unauthorizedError({
+          code: "PROXY_AUTH_REVOKED",
+          message: "Agent has been revoked",
+        });
+      }
+
       let isRevoked: boolean;
       try {
         isRevoked = await crlCache.isRevoked(claims.jti);

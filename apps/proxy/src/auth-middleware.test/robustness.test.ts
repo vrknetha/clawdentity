@@ -257,6 +257,24 @@ describe("proxy auth middleware", () => {
     expect(body.error.code).toBe("PROXY_AUTH_REVOKED");
   });
 
+  it("rejects agents revoked by trust-state overlay before CRL refresh", async () => {
+    const harness = await createAuthHarness({
+      revokedByTrustStore: true,
+    });
+    const headers = await harness.createSignedHeaders({
+      nonce: "nonce-revoked-by-trust-state",
+    });
+    const response = await harness.app.request("/protected", {
+      method: "POST",
+      headers,
+      body: BODY_JSON,
+    });
+
+    expect(response.status).toBe(401);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_AUTH_REVOKED");
+  });
+
   it("rejects expired AITs", async () => {
     const harness = await createAuthHarness({
       expired: true,

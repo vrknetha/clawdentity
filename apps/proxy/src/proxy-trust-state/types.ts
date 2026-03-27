@@ -42,6 +42,7 @@ export type ExpirableStateSaveOptions = {
 
 export const PAIRS_STORAGE_KEY = "trust:pairs";
 export const AGENT_PEERS_STORAGE_KEY = "trust:agent-peers";
+export const REVOKED_AGENTS_STORAGE_KEY = "trust:revoked-agents";
 export const PAIRING_TICKETS_STORAGE_KEY = "trust:pairing-tickets";
 export const CONFIRMED_PAIRING_TICKETS_STORAGE_KEY =
   "trust:pairing-tickets-confirmed";

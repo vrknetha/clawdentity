@@ -122,6 +122,8 @@ function createApp(input: {
     createPairingTicket: vi.fn(),
     confirmPairingTicket: vi.fn(),
     getPairingTicketStatus: vi.fn(),
+    markAgentRevoked: vi.fn(async () => {}),
+    isAgentRevoked: vi.fn(async () => false),
     isAgentKnown: vi.fn(async () => true),
     isPairAllowed: vi.fn(async (pair) =>
       input.allowedPairs.some(

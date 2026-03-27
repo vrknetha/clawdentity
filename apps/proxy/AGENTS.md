@@ -13,7 +13,10 @@
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`) so relay/auth failures are visible in Cloudflare logs.
 - Production must keep `invocation_logs=false` to reduce noisy request-volume logs while preserving structured warn/error events.
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/proxy run types:dev`) after `wrangler.jsonc` or binding changes.
-- Keep proxy queue consumers scoped to queues this worker handles (`clawdentity-receipts*`); do not subscribe proxy to `clawdentity-events*` until matching handlers are implemented.
+- Keep proxy queue consumers scoped to queues this worker handles:
+  - `clawdentity-receipts*` for delivery receipt fan-in.
+  - `clawdentity-events*` for registry `agent.auth.revoked` propagation.
+- Keep revocation queue behavior strict: only `agent.auth.revoked` events with `data.reason=agent_revoked` and valid `data.metadata.agentDid` may mark trust-state revocation overlays.
 - Keep `src/worker.ts` in module-worker shape: export the fetch handler as the default export when this Worker owns Durable Objects, and keep any named `worker` export only as a test convenience.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).

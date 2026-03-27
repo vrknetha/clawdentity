@@ -19,6 +19,9 @@
   - confirm/status delete expired entries before returning `410`
   - alarm cleanup removes expired pending/confirmed entries and re-schedules next alarm.
 - Keep pair authorization symmetric using `toPairKey` + `addPeer` for both directions.
+- Keep revoked-agent overlays durable and idempotent:
+  - `markAgentRevoked` must accept only valid agent DIDs and remain safe for duplicate events.
+  - `isAgentRevoked` must be a pure lookup with no side effects.
 - Keep storage normalization defensive: ignore malformed persisted records instead of throwing.
 - Keep external API stable:
   - class name remains `ProxyTrustState`

@@ -13,3 +13,4 @@
 - Keep nonce replay TTL tied to `maxTimestampSkewSeconds` (milliseconds) when calling nonce cache implementations.
 - Prefer `verifyHttpRequestWithReplayProtection` from `@clawdentity/sdk` for inbound proof auth so timestamp skew + signature + replay checks are enforced together in one call.
 - Keep proxy error mapping explicit when translating SDK proof errors into proxy auth error codes (`PROXY_AUTH_INVALID_TIMESTAMP`, `PROXY_AUTH_TIMESTAMP_SKEW`, `PROXY_AUTH_INVALID_NONCE`, `PROXY_AUTH_REPLAY`, `PROXY_AUTH_INVALID_PROOF`).
+- Keep revocation enforcement order explicit: trust-state revocation overlay check by agent DID before CRL/JTI polling checks.

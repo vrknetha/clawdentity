@@ -444,6 +444,67 @@ export class ProxyTrustStateHandlers {
     });
   }
 
+  async handleMarkAgentRevoked(request: Request): Promise<Response> {
+    const body = (await parseBody(request)) as
+      | { agentDid?: unknown }
+      | undefined;
+    if (!body || !isNonEmptyString(body.agentDid)) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    try {
+      const parsedAgentDid = parseDid(body.agentDid);
+      if (parsedAgentDid.entity !== "agent") {
+        throw new Error("invalid kind");
+      }
+    } catch {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const revokedAgents = await this.storage.loadRevokedAgents();
+    revokedAgents.add(body.agentDid);
+    await this.storage.saveRevokedAgents(revokedAgents);
+
+    return Response.json({ ok: true });
+  }
+
+  async handleIsAgentRevoked(request: Request): Promise<Response> {
+    const body = (await parseBody(request)) as
+      | { agentDid?: unknown }
+      | undefined;
+    if (!body || !isNonEmptyString(body.agentDid)) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    try {
+      const parsedAgentDid = parseDid(body.agentDid);
+      if (parsedAgentDid.entity !== "agent") {
+        throw new Error("invalid kind");
+      }
+    } catch {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    const revokedAgents = await this.storage.loadRevokedAgents();
+    return Response.json({ revoked: revokedAgents.has(body.agentDid) });
+  }
+
   async handleIsAgentKnown(request: Request): Promise<Response> {
     const body = (await parseBody(request)) as
       | { agentDid?: unknown }

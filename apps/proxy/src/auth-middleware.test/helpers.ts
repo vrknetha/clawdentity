@@ -38,6 +38,7 @@ export type AuthHarnessOptions = {
   fetchKeysFails?: boolean;
   allowCurrentAgent?: boolean;
   revoked?: boolean;
+  revokedByTrustStore?: boolean;
   validateStatus?: number;
   nonceCache?: ProxyNonceCache;
 };
@@ -186,6 +187,9 @@ export async function createAuthHarness(
       initiatorAgentDid: claims.sub,
       responderAgentDid: KNOWN_PEER_DID,
     });
+  }
+  if (options.revokedByTrustStore) {
+    await trustStore.markAgentRevoked(claims.sub);
   }
 
   const relaySession = {
