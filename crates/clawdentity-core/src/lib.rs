@@ -67,8 +67,8 @@ pub use connector_client::{
 };
 pub use connector_frames::{
     CONNECTOR_FRAME_VERSION, ConnectorFrame, DeliverAckFrame, DeliverFrame, EnqueueAckFrame,
-    EnqueueFrame, HeartbeatAckFrame, HeartbeatFrame, new_frame_id, now_iso, parse_frame,
-    serialize_frame, validate_frame,
+    EnqueueFrame, HeartbeatAckFrame, HeartbeatFrame, ReceiptFrame, ReceiptStatus, new_frame_id,
+    now_iso, parse_frame, serialize_frame, validate_frame,
 };
 pub use crl::{
     CRL_CACHE_TTL_MS, CrlClaims, CrlRevocation, CrlVerificationKey, is_jti_revoked, load_crl_claims,

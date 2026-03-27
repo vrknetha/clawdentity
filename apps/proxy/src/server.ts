@@ -91,6 +91,7 @@ export type ProxyApp = Hono<{
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
     PROXY_TRUST_STATE?: object;
     NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
+    RECEIPT_QUEUE?: Queue<string>;
   };
   Variables: ProxyRequestVariables;
 }>;
@@ -166,6 +167,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
       AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
       PROXY_TRUST_STATE?: object;
       NONCE_REPLAY_GUARD?: NonceReplayGuardNamespace;
+      RECEIPT_QUEUE?: Queue<string>;
     };
     Variables: ProxyRequestVariables;
   }>();

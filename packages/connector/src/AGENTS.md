@@ -5,7 +5,7 @@
 - Keep `client.ts` as the stable public surface (`ConnectorClient` + exported client types) and route internal concerns through `client/` modules:
   - `client/types.ts` for externally consumed client types.
   - `client/helpers.ts` for shared pure helpers (event parsing, sanitization, normalization).
-  - `client/inbound.ts` for parsed frame dispatch orchestration (`heartbeat`, `heartbeat_ack`, `deliver`).
+  - `client/inbound.ts` for parsed frame dispatch orchestration (`heartbeat`, `heartbeat_ack`, `deliver`, `receipt`).
   - `client/metrics.ts` for websocket uptime/reconnect and inbound ack-latency tracking.
   - `client/retry.ts` for reusable backoff math.
   - `client/heartbeat.ts` for heartbeat scheduling, ack tracking, and RTT metrics.
@@ -66,7 +66,8 @@
   - `POST /v1/inbound/dead-letter/replay`
   - `POST /v1/inbound/dead-letter/purge`
 - For dead-letter replay/purge targeting, treat omitted `requestIds` as "all", but treat `requestIds: []` (or empty after sanitization) as a no-op.
-- For replay delivery callbacks, post signed receipts to peer proxies using `replyTo` with statuses `processed_by_openclaw` and `dead_lettered`, but only when `replyTo` points to trusted peer proxy origins and the relay receipt path.
+- For replay delivery callbacks, post signed receipts directly to the validated `replyTo` target (`/v1/relay/delivery-receipts`) and enforce trusted origin checks before sending.
+- Receipt frame status values remain `processed_by_openclaw` and `dead_lettered`; do not widen status enums without coordinated proxy/runtime changes.
 
 ## WebSocket Resilience Rules
 - Keep websocket reconnect behavior centralized in `client.ts` (single cleanup path for close/error/unexpected-response/timeout).

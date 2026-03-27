@@ -316,4 +316,49 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     client.disconnect();
   });
+
+  it("routes inbound receipt frames to receipt hooks", async () => {
+    const { sockets, webSocketFactory } = createMockWebSocketFactory();
+    const onReceipt = vi.fn();
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      heartbeatIntervalMs: 0,
+      hooks: {
+        onReceipt,
+      },
+      webSocketFactory,
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    const receiptId = generateUlid(1700000000000);
+    const originalFrameId = generateUlid(1700000000100);
+    sockets[0].message(
+      serializeFrame({
+        v: 1,
+        type: "receipt",
+        id: receiptId,
+        ts: "2026-01-01T00:00:00.000Z",
+        originalFrameId,
+        toAgentDid: createAgentDid(1700000000200),
+        status: "processed_by_openclaw",
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(onReceipt).toHaveBeenCalledTimes(1);
+    });
+    expect(sockets[0].sent).toHaveLength(0);
+    expect(onReceipt.mock.calls[0]?.[0]).toMatchObject({
+      type: "receipt",
+      id: receiptId,
+      originalFrameId,
+      status: "processed_by_openclaw",
+    });
+
+    client.disconnect();
+  });
 });

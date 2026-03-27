@@ -15,6 +15,11 @@ import { NonceReplayGuard } from "./nonce-replay-guard.js";
 import type { NonceReplayGuardNamespace } from "./nonce-replay-store.js";
 import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
+import {
+  DELIVERY_RECEIPT_EVENT_TYPE,
+  handleReceiptQueueEvent,
+  parseReceiptQueueEvent,
+} from "./queue-consumer/receipt-events.js";
 import { createProxyApp, type ProxyApp } from "./server.js";
 import { resolveWorkerTrustStore } from "./trust-store-backend.js";
 
@@ -49,6 +54,7 @@ export type ProxyWorkerBindings = {
   RELAY_MAX_FRAME_BYTES?: string;
   APP_VERSION?: string;
   PROXY_VERSION?: string;
+  RECEIPT_QUEUE?: Queue<string>;
   [key: string]: unknown;
 };
 
@@ -195,6 +201,43 @@ const worker = {
         },
         { status: 500 },
       );
+    }
+  },
+  async queue(
+    batch: MessageBatch<string>,
+    env: ProxyWorkerBindings,
+  ): Promise<void> {
+    for (const message of batch.messages) {
+      try {
+        const parsed =
+          typeof message.body === "string" ? JSON.parse(message.body) : null;
+        if (typeof parsed !== "object" || parsed === null) {
+          throw new Error("Queue message body must be a JSON object");
+        }
+
+        const eventType = (parsed as { type?: unknown }).type;
+        if (eventType !== DELIVERY_RECEIPT_EVENT_TYPE) {
+          throw new Error("Unsupported queue event type");
+        }
+
+        const relaySessionNamespace = env.AGENT_RELAY_SESSION;
+        if (relaySessionNamespace === undefined) {
+          throw new Error("Relay session namespace is unavailable");
+        }
+
+        const event = parseReceiptQueueEvent(parsed);
+        await handleReceiptQueueEvent({
+          event,
+          relaySessionNamespace,
+        });
+
+        message.ack();
+      } catch (error) {
+        logger.warn("proxy.queue.message_failed", {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        message.retry();
+      }
     }
   },
 };

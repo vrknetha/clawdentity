@@ -85,6 +85,24 @@ describe("connector frame parsing", () => {
     }
   });
 
+  it("roundtrips a valid receipt frame", () => {
+    const frame = {
+      v: 1 as const,
+      type: "receipt" as const,
+      id: generateUlid(1700000000000),
+      ts: "2026-01-01T00:00:00.000Z",
+      originalFrameId: generateUlid(1700000000100),
+      toAgentDid: createAgentDid(1700000000200),
+      status: "dead_lettered" as const,
+      reason: "OpenClaw hook rejected after max attempts",
+    };
+
+    const serialized = serializeFrame(frame);
+    const parsed = parseFrame(serialized);
+
+    expect(parsed).toEqual(frame);
+  });
+
   it("rejects unknown frame type", () => {
     expect(() =>
       parseFrame({
@@ -106,6 +124,20 @@ describe("connector frame parsing", () => {
         ackId: generateUlid(1700000000100),
         accepted: false,
         reason: "   ",
+      }),
+    ).toThrow(ConnectorFrameParseError);
+  });
+
+  it("rejects invalid receipt status values", () => {
+    expect(() =>
+      parseFrame({
+        v: 1,
+        type: "receipt",
+        id: generateUlid(1700000000000),
+        ts: "2026-01-01T00:00:00.000Z",
+        originalFrameId: generateUlid(1700000000100),
+        toAgentDid: createAgentDid(1700000000200),
+        status: "delivered",
       }),
     ).toThrow(ConnectorFrameParseError);
   });

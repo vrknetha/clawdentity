@@ -1,4 +1,5 @@
-import { AppError, type Logger } from "@clawdentity/sdk";
+import { RELAY_DELIVERY_RECEIPTS_PATH } from "@clawdentity/protocol";
+import { AppError, type Logger, nowIso } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import {
   type AgentRelaySessionNamespace,
@@ -9,14 +10,16 @@ import {
 } from "./agent-relay-session.js";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
+import { DELIVERY_RECEIPT_EVENT_TYPE } from "./queue-consumer/receipt-events.js";
 import { assertTrustedPair } from "./trust-policy.js";
 
-export { RELAY_DELIVERY_RECEIPTS_PATH } from "@clawdentity/protocol";
+export { RELAY_DELIVERY_RECEIPTS_PATH };
 
 type ProxyContext = Context<{
   Variables: ProxyRequestVariables;
   Bindings: {
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+    RECEIPT_QUEUE?: Queue<string>;
   };
 }>;
 
@@ -114,8 +117,8 @@ export function createRelayDeliveryReceiptPostHandler(
       });
     }
 
-    const payload = parseRecordInput(await c.req.json());
-    if (payload.recipientAgentDid !== auth.agentDid) {
+    const parsedPayload = parseRecordInput(await c.req.json());
+    if (parsedPayload.recipientAgentDid !== auth.agentDid) {
       throw new AppError({
         code: "PROXY_RELAY_RECEIPT_FORBIDDEN",
         message: "Recipient DID does not match authenticated agent",
@@ -126,17 +129,17 @@ export function createRelayDeliveryReceiptPostHandler(
 
     await assertTrustedPair({
       trustStore: input.trustStore,
-      initiatorAgentDid: payload.senderAgentDid,
-      responderAgentDid: payload.recipientAgentDid,
+      initiatorAgentDid: parsedPayload.senderAgentDid,
+      responderAgentDid: parsedPayload.recipientAgentDid,
     });
 
     const sessionNamespace = resolveSessionNamespace(c);
     const relaySession = sessionNamespace.get(
-      sessionNamespace.idFromName(payload.recipientAgentDid),
+      sessionNamespace.idFromName(parsedPayload.recipientAgentDid),
     );
 
     try {
-      await recordRelayDeliveryReceipt(relaySession, payload);
+      await recordRelayDeliveryReceipt(relaySession, parsedPayload);
     } catch (error) {
       if (error instanceof RelaySessionDeliveryError) {
         input.logger.warn("proxy.relay.receipt_record_failed", {
@@ -149,6 +152,32 @@ export function createRelayDeliveryReceiptPostHandler(
         message: "Failed to record relay delivery receipt",
         status: 502,
       });
+    }
+
+    const receiptQueue = c.env.RECEIPT_QUEUE;
+    if (receiptQueue !== undefined) {
+      try {
+        await receiptQueue.send(
+          JSON.stringify({
+            type: DELIVERY_RECEIPT_EVENT_TYPE,
+            requestId: parsedPayload.requestId,
+            senderAgentDid: parsedPayload.senderAgentDid,
+            recipientAgentDid: parsedPayload.recipientAgentDid,
+            status: parsedPayload.status,
+            reason: parsedPayload.reason,
+            processedAt: nowIso(),
+          }),
+        );
+      } catch (error) {
+        input.logger.warn("proxy.relay.receipt_queue_publish_failed", {
+          reason: error instanceof Error ? error.message : String(error),
+        });
+        throw new AppError({
+          code: "PROXY_RELAY_RECEIPT_QUEUE_FAILED",
+          message: "Failed to queue relay delivery receipt",
+          status: 502,
+        });
+      }
     }
 
     return c.json({ accepted: true }, 202);

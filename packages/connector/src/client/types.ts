@@ -1,4 +1,9 @@
-import type { ConnectorFrame, DeliverFrame, EnqueueFrame } from "../frames.js";
+import type {
+  ConnectorFrame,
+  DeliverFrame,
+  EnqueueFrame,
+  ReceiptFrame,
+} from "../frames.js";
 
 export type ConnectorWebSocketEventType =
   | "open"
@@ -33,6 +38,7 @@ export type ConnectorClientHooks = {
   onFrame?: (frame: ConnectorFrame) => void;
   onDeliverSucceeded?: (frame: DeliverFrame) => void;
   onDeliverFailed?: (frame: DeliverFrame, error: unknown) => void;
+  onReceipt?: (frame: ReceiptFrame) => void | Promise<void>;
 };
 
 export type ConnectorOutboundQueuePersistence = {

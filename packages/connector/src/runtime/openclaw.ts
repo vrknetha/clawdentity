@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Logger } from "@clawdentity/sdk";
 import { DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS } from "../constants.js";
+import type { ReceiptFrame } from "../frames.js";
 import { OPENCLAW_RELAY_RUNTIME_FILE_NAME } from "./constants.js";
 import { LocalOpenclawDeliveryError, sanitizeErrorReason } from "./errors.js";
 import { isRecord } from "./parse.js";
@@ -150,6 +151,131 @@ export async function deliverToOpenclawHook(input: {
       }
       throw new LocalOpenclawDeliveryError({
         message: "Local OpenClaw hook request timed out",
+        retryable: true,
+      });
+    }
+    if (error instanceof LocalOpenclawDeliveryError) {
+      throw error;
+    }
+    throw new LocalOpenclawDeliveryError({
+      message: sanitizeErrorReason(error),
+      retryable: true,
+    });
+  }
+}
+
+function renderReceiptSummary(receipt: ReceiptFrame): string {
+  const lines = [
+    `Clawdentity delivery receipt: ${receipt.status}`,
+    "",
+    `Request ID: ${receipt.originalFrameId}`,
+    `Recipient DID: ${receipt.toAgentDid}`,
+  ];
+  if (receipt.reason) {
+    lines.push(`Reason: ${receipt.reason}`);
+  }
+  lines.push(`Timestamp: ${receipt.ts}`);
+  return lines.join("\n");
+}
+
+function buildReceiptHookPayload(input: {
+  hookPathname: string;
+  receipt: ReceiptFrame;
+}): unknown {
+  const summary = renderReceiptSummary(input.receipt);
+  const payload = {
+    type: "clawdentity:receipt",
+    originalFrameId: input.receipt.originalFrameId,
+    toAgentDid: input.receipt.toAgentDid,
+    status: input.receipt.status,
+    reason: input.receipt.reason,
+    timestamp: input.receipt.ts,
+  };
+
+  if (input.hookPathname === "/hooks/wake") {
+    return {
+      ...payload,
+      text: summary,
+      message: summary,
+      mode: "now",
+      metadata: {
+        receipt: payload,
+      },
+    };
+  }
+
+  return {
+    ...payload,
+    message: summary,
+    content: summary,
+    metadata: {
+      receipt: payload,
+    },
+  };
+}
+
+export async function deliverReceiptToOpenclawHook(input: {
+  fetchImpl: typeof fetch;
+  openclawHookToken?: string;
+  openclawHookUrl: string;
+  receipt: ReceiptFrame;
+  shutdownSignal: AbortSignal;
+}): Promise<void> {
+  const timeoutSignal = AbortSignal.timeout(
+    DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
+  );
+  const signal = AbortSignal.any([input.shutdownSignal, timeoutSignal]);
+
+  const hookUrl = new URL(input.openclawHookUrl);
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-clawdentity-content-type": "application/vnd.clawdentity.receipt+json",
+    "x-clawdentity-to-agent-did": input.receipt.toAgentDid,
+    "x-clawdentity-verified": "true",
+    "x-request-id": input.receipt.originalFrameId,
+  };
+  if (input.openclawHookToken !== undefined) {
+    headers["x-openclaw-token"] = input.openclawHookToken;
+  }
+
+  try {
+    const response = await input.fetchImpl(input.openclawHookUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(
+        buildReceiptHookPayload({
+          hookPathname: hookUrl.pathname,
+          receipt: input.receipt,
+        }),
+      ),
+      signal,
+    });
+    if (!response.ok) {
+      throw new LocalOpenclawDeliveryError({
+        message: `Local OpenClaw hook rejected receipt with status ${response.status}`,
+        retryable:
+          response.status === 401 ||
+          response.status === 403 ||
+          response.status >= 500 ||
+          response.status === 404 ||
+          response.status === 429,
+        code:
+          response.status === 401 || response.status === 403
+            ? "HOOK_AUTH_REJECTED"
+            : undefined,
+      });
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      if (input.shutdownSignal.aborted) {
+        throw new LocalOpenclawDeliveryError({
+          code: "RUNTIME_STOPPING",
+          message: "Connector runtime is stopping",
+          retryable: false,
+        });
+      }
+      throw new LocalOpenclawDeliveryError({
+        message: "Local OpenClaw receipt hook request timed out",
         retryable: true,
       });
     }

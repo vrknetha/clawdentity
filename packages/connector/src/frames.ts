@@ -12,6 +12,7 @@ const FRAME_TYPES = [
   "deliver_ack",
   "enqueue",
   "enqueue_ack",
+  "receipt",
 ] as const;
 
 export const connectorFrameTypeSchema = z.enum(FRAME_TYPES);
@@ -113,6 +114,18 @@ export const enqueueAckFrameSchema = frameBaseSchema
   })
   .strict();
 
+const receiptStatusSchema = z.enum(["processed_by_openclaw", "dead_lettered"]);
+
+export const receiptFrameSchema = frameBaseSchema
+  .extend({
+    type: z.literal("receipt"),
+    originalFrameId: ulidStringSchema,
+    toAgentDid: agentDidSchema,
+    status: receiptStatusSchema,
+    reason: nonEmptyStringSchema.optional(),
+  })
+  .strict();
+
 export const connectorFrameSchema = z.discriminatedUnion("type", [
   heartbeatFrameSchema,
   heartbeatAckFrameSchema,
@@ -120,6 +133,7 @@ export const connectorFrameSchema = z.discriminatedUnion("type", [
   deliverAckFrameSchema,
   enqueueFrameSchema,
   enqueueAckFrameSchema,
+  receiptFrameSchema,
 ]);
 
 export type HeartbeatFrame = z.infer<typeof heartbeatFrameSchema>;
@@ -128,6 +142,7 @@ export type DeliverFrame = z.infer<typeof deliverFrameSchema>;
 export type DeliverAckFrame = z.infer<typeof deliverAckFrameSchema>;
 export type EnqueueFrame = z.infer<typeof enqueueFrameSchema>;
 export type EnqueueAckFrame = z.infer<typeof enqueueAckFrameSchema>;
+export type ReceiptFrame = z.infer<typeof receiptFrameSchema>;
 
 export type ConnectorFrame = z.infer<typeof connectorFrameSchema>;
 

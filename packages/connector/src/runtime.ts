@@ -9,6 +9,7 @@ import { createConnectorInboundInbox } from "./inbound-inbox.js";
 import { createRuntimeAuthController } from "./runtime/auth-lifecycle.js";
 import { toInitialAuthBundle } from "./runtime/auth-storage.js";
 import { sanitizeErrorReason } from "./runtime/errors.js";
+import { deliverReceiptToOpenclawHook } from "./runtime/openclaw.js";
 import { createOpenclawHookTokenController } from "./runtime/openclaw-hook-token.js";
 import { createOpenclawGatewayProbeController } from "./runtime/openclaw-probe.js";
 import { createOutboundQueuePersistence } from "./runtime/outbound-queue.js";
@@ -204,6 +205,27 @@ export async function startConnectorRuntime(
               reason: sanitizeErrorReason(error),
             },
           );
+        }
+      },
+      onReceipt: async (frame) => {
+        try {
+          await deliverReceiptToOpenclawHook({
+            fetchImpl,
+            openclawHookUrl,
+            openclawHookToken:
+              openclawHookTokenController.getCurrentOpenclawHookToken(),
+            receipt: frame,
+            shutdownSignal: runtimeShutdownController.signal,
+          });
+        } catch (error) {
+          if (runtimeShutdownController.signal.aborted) {
+            return;
+          }
+          logger.warn("connector.receipt.delivery_failed", {
+            requestId: frame.originalFrameId,
+            status: frame.status,
+            reason: sanitizeErrorReason(error),
+          });
         }
       },
     },

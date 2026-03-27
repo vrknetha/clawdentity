@@ -5,6 +5,7 @@ import {
   type HeartbeatAckFrame,
   type HeartbeatFrame,
   parseFrame,
+  type ReceiptFrame,
 } from "../frames.js";
 import { sanitizeErrorReason } from "./helpers.js";
 
@@ -13,6 +14,7 @@ type ConnectorInboundMessageHandlers = {
   onHeartbeatFrame: (frame: HeartbeatFrame) => void;
   onHeartbeatAckFrame: (frame: HeartbeatAckFrame) => void;
   onDeliverFrame: (frame: DeliverFrame) => Promise<void>;
+  onReceiptFrame: (frame: ReceiptFrame) => Promise<void>;
 };
 
 type HandleIncomingConnectorMessageInput = {
@@ -49,5 +51,10 @@ export async function handleIncomingConnectorMessage(
 
   if (frame.type === "deliver") {
     await input.handlers.onDeliverFrame(frame);
+    return;
+  }
+
+  if (frame.type === "receipt") {
+    await input.handlers.onReceiptFrame(frame);
   }
 }
