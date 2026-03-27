@@ -280,6 +280,43 @@ describe("proxy worker", () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
+  it("routes processed_by_openclaw queue events without mutating receipt status", async () => {
+    const fetchSpy = vi.fn(async (_request: Request) =>
+      Response.json({ accepted: true }, { status: 202 }),
+    );
+    const bindings = createRequiredBindings({
+      AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "delivery_receipt",
+            requestId: "req-queue-processed",
+            senderAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            recipientAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+            status: "processed_by_openclaw",
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const request = fetchSpy.mock.calls[0]?.[0] as Request;
+    const body = (await request.json()) as { status?: string };
+    expect(body.status).toBe("processed_by_openclaw");
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
   it("acks unsupported queue event types without retrying", async () => {
     const fetchSpy = vi.fn();
     const bindings = createRequiredBindings({
