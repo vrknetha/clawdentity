@@ -196,6 +196,11 @@ async fn handle_client_frame(
         ConnectorFrame::HeartbeatAck(_) => {}
         ConnectorFrame::EnqueueAck(_) => {}
         ConnectorFrame::DeliverAck(_) => {}
+        ConnectorFrame::Receipt(receipt) => {
+            let target_did = receipt.to_agent_did.clone();
+            let _ =
+                route_or_queue_frame(state, &target_did, ConnectorFrame::Receipt(receipt)).await;
+        }
     }
 }
 
