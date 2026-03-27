@@ -5,12 +5,14 @@ import type {
   ExpirableStateSaveOptions,
   ExpirableTrustState,
   PairingTicketMap,
+  RevokedAgentMap,
 } from "./types.js";
 import {
   AGENT_PEERS_STORAGE_KEY,
   CONFIRMED_PAIRING_TICKETS_STORAGE_KEY,
   PAIRING_TICKETS_STORAGE_KEY,
   PAIRS_STORAGE_KEY,
+  REVOKED_AGENTS_STORAGE_KEY,
 } from "./types.js";
 import { isNonEmptyString, parsePeerProfile } from "./utils.js";
 
@@ -45,18 +47,34 @@ export class ProxyTrustStateStorage {
   }
 
   async runAlarmCleanup(nowMs: number): Promise<void> {
-    const expirableState = await this.loadExpirableState();
-    const mutated = this.removeExpiredEntries(expirableState, nowMs);
-    if (mutated) {
-      await this.saveExpirableState(expirableState, {
-        pairingTickets: true,
-        confirmedPairingTickets: true,
-      });
+    const [expirableState, revokedAgents] = await Promise.all([
+      this.loadExpirableState(),
+      this.loadRevokedAgents(),
+    ]);
+    const expirableMutated = this.removeExpiredEntries(expirableState, nowMs);
+    const revokedMutated = this.pruneExpiredRevokedAgents(revokedAgents, nowMs);
+
+    const saves: Promise<void>[] = [];
+    if (expirableMutated) {
+      saves.push(
+        this.saveExpirableState(expirableState, {
+          pairingTickets: true,
+          confirmedPairingTickets: true,
+        }),
+      );
+    }
+    if (revokedMutated) {
+      saves.push(this.saveRevokedAgents(revokedAgents));
+    }
+
+    if (saves.length > 0) {
+      await Promise.all(saves);
     }
 
     await this.scheduleNextCodeCleanup(
       expirableState.pairingTickets,
       expirableState.confirmedPairingTickets,
+      revokedAgents,
     );
   }
 
@@ -74,9 +92,11 @@ export class ProxyTrustStateStorage {
     options: ExpirableStateSaveOptions,
   ): Promise<void> {
     await this.saveExpirableState(state, options);
+    const revokedAgents = await this.loadRevokedAgents();
     await this.scheduleNextCodeCleanup(
       state.pairingTickets,
       state.confirmedPairingTickets,
+      revokedAgents,
     );
   }
 
@@ -118,6 +138,83 @@ export class ProxyTrustStateStorage {
 
   async saveAgentPeers(agentPeers: AgentPeersIndex): Promise<void> {
     await this.state.storage.put(AGENT_PEERS_STORAGE_KEY, agentPeers);
+  }
+
+  async loadRevokedAgents(): Promise<RevokedAgentMap> {
+    const raw = await this.state.storage.get<unknown>(
+      REVOKED_AGENTS_STORAGE_KEY,
+    );
+    if (Array.isArray(raw)) {
+      const migrated: RevokedAgentMap = {};
+      for (const value of raw) {
+        if (!isNonEmptyString(value)) {
+          continue;
+        }
+        migrated[value] = {
+          expiresAtMs: Number.MAX_SAFE_INTEGER,
+        };
+      }
+      return migrated;
+    }
+
+    if (typeof raw !== "object" || raw === null) {
+      return {};
+    }
+
+    const normalized: RevokedAgentMap = {};
+    for (const [agentDid, details] of Object.entries(raw)) {
+      if (
+        typeof details !== "object" ||
+        details === null ||
+        !isNonEmptyString(agentDid)
+      ) {
+        continue;
+      }
+
+      const expiresAtMs = (details as { expiresAtMs?: unknown }).expiresAtMs;
+      if (
+        typeof expiresAtMs !== "number" ||
+        !Number.isInteger(expiresAtMs) ||
+        expiresAtMs <= 0
+      ) {
+        continue;
+      }
+
+      normalized[agentDid] = { expiresAtMs };
+    }
+
+    return normalized;
+  }
+
+  async saveRevokedAgents(revokedAgents: RevokedAgentMap): Promise<void> {
+    await this.state.storage.put(REVOKED_AGENTS_STORAGE_KEY, revokedAgents);
+  }
+
+  async saveRevokedAgentsAndSchedule(
+    revokedAgents: RevokedAgentMap,
+  ): Promise<void> {
+    await this.saveRevokedAgents(revokedAgents);
+    const expirableState = await this.loadExpirableState();
+    await this.scheduleNextCodeCleanup(
+      expirableState.pairingTickets,
+      expirableState.confirmedPairingTickets,
+      revokedAgents,
+    );
+  }
+
+  pruneExpiredRevokedAgents(
+    revokedAgents: RevokedAgentMap,
+    nowMs: number,
+  ): boolean {
+    let mutated = false;
+    for (const [agentDid, details] of Object.entries(revokedAgents)) {
+      if (details.expiresAtMs <= nowMs) {
+        delete revokedAgents[agentDid];
+        mutated = true;
+      }
+    }
+
+    return mutated;
   }
 
   private removeExpiredEntries(
@@ -337,10 +434,12 @@ export class ProxyTrustStateStorage {
   private async scheduleNextCodeCleanup(
     pairingTickets: PairingTicketMap,
     confirmedPairingTickets: ConfirmedPairingTicketMap,
+    revokedAgents: RevokedAgentMap,
   ): Promise<void> {
     const expiryValues = [
       ...Object.values(pairingTickets),
       ...Object.values(confirmedPairingTickets),
+      ...Object.values(revokedAgents),
     ].map((details) => details.expiresAtMs);
 
     if (expiryValues.length === 0) {

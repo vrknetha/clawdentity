@@ -102,6 +102,82 @@ async function createSignedTicket(input: {
 }
 
 describe("ProxyTrustState", () => {
+  it("persists revoked-agent markers and serves revoked checks", async () => {
+    const { proxyTrustState, harness } = createProxyTrustState();
+    const agentDid =
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97";
+
+    const beforeResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.isAgentRevoked, {
+        agentDid,
+      }),
+    );
+    expect(beforeResponse.status).toBe(200);
+    expect((await beforeResponse.json()) as { revoked: boolean }).toEqual({
+      revoked: false,
+    });
+
+    const markResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.markAgentRevoked, {
+        agentDid,
+      }),
+    );
+    expect(markResponse.status).toBe(200);
+    expect((await markResponse.json()) as { ok: boolean }).toEqual({
+      ok: true,
+    });
+
+    const afterResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.isAgentRevoked, {
+        agentDid,
+      }),
+    );
+    expect(afterResponse.status).toBe(200);
+    expect((await afterResponse.json()) as { revoked: boolean }).toEqual({
+      revoked: true,
+    });
+
+    expect(harness.values.has("trust:revoked-agents")).toBe(true);
+  });
+
+  it("expires revoked-agent markers after TTL and prunes them on lookup", async () => {
+    const { proxyTrustState, harness } = createProxyTrustState();
+    const agentDid =
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97";
+
+    const markResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.markAgentRevoked, {
+        agentDid,
+        nowMs: 10_000,
+        ttlMs: 1_000,
+      }),
+    );
+    expect(markResponse.status).toBe(200);
+
+    const activeResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.isAgentRevoked, {
+        agentDid,
+        nowMs: 10_500,
+      }),
+    );
+    expect(activeResponse.status).toBe(200);
+    expect((await activeResponse.json()) as { revoked: boolean }).toEqual({
+      revoked: true,
+    });
+
+    const expiredResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.isAgentRevoked, {
+        agentDid,
+        nowMs: 11_000,
+      }),
+    );
+    expect(expiredResponse.status).toBe(200);
+    expect((await expiredResponse.json()) as { revoked: boolean }).toEqual({
+      revoked: false,
+    });
+    expect(harness.values.get("trust:revoked-agents")).toEqual({});
+  });
+
   it("persists and answers known-agent checks via agent peer index", async () => {
     const { proxyTrustState, harness } = createProxyTrustState();
 

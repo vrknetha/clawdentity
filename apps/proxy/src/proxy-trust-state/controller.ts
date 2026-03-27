@@ -31,6 +31,14 @@ export class ProxyTrustState {
       return this.handlers.handleGetPairingTicketStatus(request);
     }
 
+    if (url.pathname === TRUST_STORE_ROUTES.markAgentRevoked) {
+      return this.handlers.handleMarkAgentRevoked(request);
+    }
+
+    if (url.pathname === TRUST_STORE_ROUTES.isAgentRevoked) {
+      return this.handlers.handleIsAgentRevoked(request);
+    }
+
     if (url.pathname === TRUST_STORE_ROUTES.upsertPair) {
       return this.handlers.handleUpsertPair(request);
     }

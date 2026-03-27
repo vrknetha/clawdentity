@@ -1,5 +1,15 @@
 export const PROTOCOL_VERSION = "0.0.0";
 
+export {
+  AGENT_AUTH_ISSUED_EVENT_TYPE,
+  AGENT_AUTH_REFRESH_REJECTED_EVENT_TYPE,
+  AGENT_AUTH_REFRESHED_EVENT_TYPE,
+  AGENT_AUTH_REVOKED_EVENT_TYPE,
+  AGENT_AUTH_REVOKED_METADATA_AGENT_DID_KEY,
+  AGENT_AUTH_REVOKED_REASON_AGENT_REVOKED,
+  createAgentAuthRevokedMetadata,
+  parseAgentAuthRevokedMetadata,
+} from "./agent-auth-events.js";
 export type { AgentRegistrationProofMessageInput } from "./agent-registration-proof.js";
 export {
   AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,

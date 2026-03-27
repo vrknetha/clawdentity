@@ -83,6 +83,9 @@ export type PairingInput = {
   responderAgentDid: string;
 };
 
+// Keep revoked-agent overlays bounded while preserving enough time for CRL refresh fallback.
+export const REVOKED_AGENT_MARKER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
 export interface ProxyTrustStore {
   createPairingTicket(input: PairingTicketInput): Promise<PairingTicketResult>;
   confirmPairingTicket(
@@ -91,6 +94,8 @@ export interface ProxyTrustStore {
   getPairingTicketStatus(
     input: PairingTicketStatusInput,
   ): Promise<PairingTicketStatusResult>;
+  markAgentRevoked(agentDid: string): Promise<void>;
+  isAgentRevoked(agentDid: string): Promise<boolean>;
   isAgentKnown(agentDid: string): Promise<boolean>;
   isPairAllowed(input: PairingInput): Promise<boolean>;
   upsertPair(input: PairingInput): Promise<void>;
@@ -121,6 +126,8 @@ export const TRUST_STORE_ROUTES = {
   createPairingTicket: "/pairing-tickets/create",
   confirmPairingTicket: "/pairing-tickets/confirm",
   getPairingTicketStatus: "/pairing-tickets/status",
+  markAgentRevoked: "/agents/revoked/mark",
+  isAgentRevoked: "/agents/revoked/check",
   isAgentKnown: "/agents/known",
   isPairAllowed: "/pairs/check",
   upsertPair: "/pairs/upsert",
@@ -220,6 +227,21 @@ export function createDurableProxyTrustStore(
         { ...input, ticket },
       );
     },
+    async markAgentRevoked(agentDid) {
+      await callDurableState<{ ok: true }>(
+        namespace,
+        TRUST_STORE_ROUTES.markAgentRevoked,
+        { agentDid },
+      );
+    },
+    async isAgentRevoked(agentDid) {
+      const result = await callDurableState<{ revoked: boolean }>(
+        namespace,
+        TRUST_STORE_ROUTES.isAgentRevoked,
+        { agentDid },
+      );
+      return result.revoked;
+    },
     async isAgentKnown(agentDid) {
       const result = await callDurableState<{ known: boolean }>(
         namespace,
@@ -249,6 +271,7 @@ export function createDurableProxyTrustStore(
 export function createInMemoryProxyTrustStore(): ProxyTrustStore {
   const pairKeys = new Set<string>();
   const agentPeers = new Map<string, Set<string>>();
+  const revokedAgents = new Map<string, number>();
   const confirmedPairingTickets = new Map<
     string,
     {
@@ -294,6 +317,12 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
 
       if (details.expiresAtMs <= nowMs) {
         confirmedPairingTickets.delete(ticketKid);
+      }
+    }
+
+    for (const [agentDid, expiresAtMs] of revokedAgents.entries()) {
+      if (expiresAtMs <= nowMs) {
+        revokedAgents.delete(agentDid);
       }
     }
   }
@@ -642,6 +671,37 @@ export function createInMemoryProxyTrustStore(): ProxyTrustStore {
     },
     async getPairingTicketStatus(input) {
       return resolveTicketStatus(input);
+    },
+    async markAgentRevoked(agentDid) {
+      try {
+        parseAgentDid(agentDid);
+      } catch {
+        throw new ProxyTrustStoreError({
+          code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+          message: "Agent revoke input is invalid",
+          status: 400,
+        });
+      }
+
+      const nowMs = nowUtcMs();
+      cleanup(nowMs);
+      revokedAgents.set(agentDid, nowMs + REVOKED_AGENT_MARKER_TTL_MS);
+    },
+    async isAgentRevoked(agentDid) {
+      try {
+        parseAgentDid(agentDid);
+      } catch {
+        throw new ProxyTrustStoreError({
+          code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+          message: "Agent revoked check input is invalid",
+          status: 400,
+        });
+      }
+
+      const nowMs = nowUtcMs();
+      cleanup(nowMs);
+      const expiresAtMs = revokedAgents.get(agentDid);
+      return typeof expiresAtMs === "number" && expiresAtMs > nowMs;
     },
     async isAgentKnown(agentDid) {
       return (agentPeers.get(agentDid)?.size ?? 0) > 0;

@@ -207,6 +207,7 @@
 - update `agents.status` to `revoked` and `agents.updated_at` to `nowIso()`
 - insert `revocations` row using the previous `current_jti`
 - revoke active `agent_auth_sessions` row for the same agent and write `agent_auth_events` entry with reason `agent_revoked`.
+- include `metadata.agentDid` in the `agent_auth_events` publish payload for `agent_revoked` so proxy queue consumers can hard-block by DID without extra registry lookups.
 
 ## DELETE /v1/agents/:id/auth/revoke Contract
 - Require PAT auth via `createApiKeyAuth`; only the caller-owned agent may be targeted.

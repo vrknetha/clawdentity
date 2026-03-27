@@ -1,4 +1,4 @@
-import { parseDid } from "@clawdentity/protocol";
+import { parseAgentDid } from "@clawdentity/protocol";
 import { nowUtcMs } from "@clawdentity/sdk";
 import { verifyPairingTicketSignature } from "../pairing-ticket.js";
 import {
@@ -10,6 +10,7 @@ import type {
   PairingTicketInput,
   PairingTicketStatusInput,
 } from "../proxy-trust-store.js";
+import { REVOKED_AGENT_MARKER_TTL_MS } from "../proxy-trust-store.js";
 import type { ProxyTrustStateStorage } from "./storage.js";
 import {
   addPeer,
@@ -61,10 +62,7 @@ export class ProxyTrustStateHandlers {
         });
       }
       try {
-        const parsedResponderDid = parseDid(body.allowResponderAgentDid.trim());
-        if (parsedResponderDid.entity !== "agent") {
-          throw new Error("invalid kind");
-        }
+        parseAgentDid(body.allowResponderAgentDid.trim());
       } catch {
         return toErrorResponse({
           code: "PROXY_PAIR_START_INVALID_BODY",
@@ -441,6 +439,121 @@ export class ProxyTrustStateHandlers {
       allowed: pairs.has(
         toPairKey(body.initiatorAgentDid, body.responderAgentDid),
       ),
+    });
+  }
+
+  async handleMarkAgentRevoked(request: Request): Promise<Response> {
+    const body = (await parseBody(request)) as
+      | { agentDid?: unknown; nowMs?: unknown; ttlMs?: unknown }
+      | undefined;
+    if (!body || !isNonEmptyString(body.agentDid)) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const agentDid = body.agentDid.trim();
+    try {
+      parseAgentDid(agentDid);
+    } catch {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    if (
+      body.nowMs !== undefined &&
+      (typeof body.nowMs !== "number" ||
+        !Number.isInteger(body.nowMs) ||
+        body.nowMs <= 0)
+    ) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+    if (
+      body.ttlMs !== undefined &&
+      (typeof body.ttlMs !== "number" ||
+        !Number.isInteger(body.ttlMs) ||
+        body.ttlMs <= 0)
+    ) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const nowMs = body.nowMs ?? nowUtcMs();
+    const ttlMs = body.ttlMs ?? REVOKED_AGENT_MARKER_TTL_MS;
+    const expiresAtMs = nowMs + ttlMs;
+    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= nowMs) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const revokedAgents = await this.storage.loadRevokedAgents();
+    this.storage.pruneExpiredRevokedAgents(revokedAgents, nowMs);
+    revokedAgents[agentDid] = { expiresAtMs };
+    await this.storage.saveRevokedAgentsAndSchedule(revokedAgents);
+
+    return Response.json({ ok: true });
+  }
+
+  async handleIsAgentRevoked(request: Request): Promise<Response> {
+    const body = (await parseBody(request)) as
+      | { agentDid?: unknown; nowMs?: unknown }
+      | undefined;
+    if (!body || !isNonEmptyString(body.agentDid)) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    const agentDid = body.agentDid.trim();
+    try {
+      parseAgentDid(agentDid);
+    } catch {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    if (
+      body.nowMs !== undefined &&
+      (typeof body.nowMs !== "number" ||
+        !Number.isInteger(body.nowMs) ||
+        body.nowMs <= 0)
+    ) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    const nowMs = body.nowMs ?? nowUtcMs();
+    const revokedAgents = await this.storage.loadRevokedAgents();
+    const pruned = this.storage.pruneExpiredRevokedAgents(revokedAgents, nowMs);
+    if (pruned) {
+      await this.storage.saveRevokedAgentsAndSchedule(revokedAgents);
+    }
+
+    return Response.json({
+      revoked: (revokedAgents[agentDid]?.expiresAtMs ?? 0) > nowMs,
     });
   }
 

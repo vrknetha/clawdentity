@@ -103,6 +103,12 @@
             "max_batch_size": 25,
             "max_batch_timeout": 5,
             "dead_letter_queue": "clawdentity-receipts-dlq-dev"
+          },
+          {
+            "queue": "clawdentity-events-dev",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-events-dlq-dev"
           }
         ]
       },
@@ -161,6 +167,12 @@
             "max_batch_size": 25,
             "max_batch_timeout": 5,
             "dead_letter_queue": "clawdentity-receipts-dlq"
+          },
+          {
+            "queue": "clawdentity-events",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-events-dlq"
           }
         ]
       },

@@ -17,6 +17,23 @@ function createTrustStateNamespace(): NonNullable<
   };
 }
 
+function createTrustStateNamespaceWithFetchSpy(
+  fetchSpy: ReturnType<typeof vi.fn>,
+): NonNullable<ProxyWorkerBindings["PROXY_TRUST_STATE"]> {
+  const invokeFetchSpy = fetchSpy as unknown as (
+    request: Request,
+  ) => Promise<Response>;
+  return {
+    idFromName: vi.fn(
+      (name: string) =>
+        ({ toString: () => name }) as unknown as DurableObjectId,
+    ),
+    get: vi.fn(() => ({
+      fetch: async (request: Request) => invokeFetchSpy(request),
+    })),
+  };
+}
+
 function createExecutionContext(): ExecutionContext {
   return {
     waitUntil: vi.fn(),
@@ -374,6 +391,206 @@ describe("proxy worker", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("marks revoked agent DID from registry queue events", async () => {
+    const trustFetchSpy = vi.fn(async (_request: Request) =>
+      Response.json({ ok: true }, { status: 200 }),
+    );
+    const bindings = createRequiredBindings({
+      PROXY_TRUST_STATE: createTrustStateNamespaceWithFetchSpy(trustFetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.revoked",
+            id: "evt-1",
+            version: "v1",
+            timestampUtc: "2026-03-27T00:00:00.000Z",
+            initiatedByAccountId:
+              "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+            data: {
+              reason: "agent_revoked",
+              metadata: {
+                agentDid:
+                  "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+              },
+            },
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(trustFetchSpy).toHaveBeenCalledTimes(1);
+    const request = trustFetchSpy.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe("/agents/revoked/mark");
+    expect((await request.json()) as { agentDid?: string }).toEqual({
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("acks revoked queue events when PROXY_TRUST_STATE is unavailable", async () => {
+    const bindings = createRequiredBindings();
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.revoked",
+            id: "evt-missing-trust-state",
+            version: "v1",
+            timestampUtc: "2026-03-27T00:00:00.000Z",
+            initiatedByAccountId:
+              "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+            data: {
+              reason: "agent_revoked",
+              metadata: {
+                agentDid:
+                  "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+              },
+            },
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("acks revoked events with non-hard-revoke reason", async () => {
+    const trustFetchSpy = vi.fn();
+    const bindings = createRequiredBindings({
+      PROXY_TRUST_STATE: createTrustStateNamespaceWithFetchSpy(trustFetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.revoked",
+            id: "evt-2",
+            version: "v1",
+            timestampUtc: "2026-03-27T00:00:00.000Z",
+            initiatedByAccountId:
+              "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+            data: {
+              reason: "owner_auth_revoke",
+              metadata: {
+                agentDid:
+                  "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+              },
+            },
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(trustFetchSpy).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("acks malformed revoked events without retrying", async () => {
+    const trustFetchSpy = vi.fn();
+    const bindings = createRequiredBindings({
+      PROXY_TRUST_STATE: createTrustStateNamespaceWithFetchSpy(trustFetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.revoked",
+            id: "evt-3",
+            version: "v1",
+            timestampUtc: "2026-03-27T00:00:00.000Z",
+            initiatedByAccountId:
+              "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+            data: {
+              reason: "agent_revoked",
+            },
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(trustFetchSpy).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("retries revoked events on transient trust-state failures", async () => {
+    const trustFetchSpy = vi.fn(async (_request: Request) =>
+      Response.json(
+        {
+          error: {
+            code: "PROXY_TRUST_STATE_UNAVAILABLE",
+            message: "Trust state unavailable",
+          },
+        },
+        { status: 503 },
+      ),
+    );
+    const bindings = createRequiredBindings({
+      PROXY_TRUST_STATE: createTrustStateNamespaceWithFetchSpy(trustFetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.revoked",
+            id: "evt-4",
+            version: "v1",
+            timestampUtc: "2026-03-27T00:00:00.000Z",
+            initiatedByAccountId:
+              "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+            data: {
+              reason: "agent_revoked",
+              metadata: {
+                agentDid:
+                  "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+              },
+            },
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(trustFetchSpy).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 
   it("retries delivery_receipt queue events on transient relay failures", async () => {

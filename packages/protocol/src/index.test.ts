@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   ADMIN_BOOTSTRAP_PATH,
   ADMIN_INTERNAL_SERVICES_PATH,
+  AGENT_AUTH_ISSUED_EVENT_TYPE,
   AGENT_AUTH_REFRESH_PATH,
+  AGENT_AUTH_REFRESH_REJECTED_EVENT_TYPE,
+  AGENT_AUTH_REFRESHED_EVENT_TYPE,
+  AGENT_AUTH_REVOKED_EVENT_TYPE,
+  AGENT_AUTH_REVOKED_METADATA_AGENT_DID_KEY,
+  AGENT_AUTH_REVOKED_REASON_AGENT_REVOKED,
   AGENT_AUTH_VALIDATE_PATH,
   AGENT_NAME_REGEX,
   AGENT_REGISTRATION_CHALLENGE_PATH,
@@ -28,6 +34,7 @@ import {
   makeHumanDid,
   PROTOCOL_VERSION,
   ProtocolParseError,
+  parseAgentAuthRevokedMetadata,
   parseAgentDid,
   parseAitClaims,
   parseCrlClaims,
@@ -66,6 +73,26 @@ describe("protocol", () => {
     );
     expect(RELAY_CONNECT_PATH).toBe("/v1/relay/connect");
     expect(RELAY_RECIPIENT_AGENT_DID_HEADER).toBe("x-claw-recipient-agent-did");
+  });
+
+  it("exports shared agent-auth revocation constants and parser", () => {
+    expect(AGENT_AUTH_ISSUED_EVENT_TYPE).toBe("agent.auth.issued");
+    expect(AGENT_AUTH_REFRESHED_EVENT_TYPE).toBe("agent.auth.refreshed");
+    expect(AGENT_AUTH_REVOKED_EVENT_TYPE).toBe("agent.auth.revoked");
+    expect(AGENT_AUTH_REFRESH_REJECTED_EVENT_TYPE).toBe(
+      "agent.auth.refresh_rejected",
+    );
+    expect(AGENT_AUTH_REVOKED_REASON_AGENT_REVOKED).toBe("agent_revoked");
+    expect(AGENT_AUTH_REVOKED_METADATA_AGENT_DID_KEY).toBe("agentDid");
+    expect(
+      parseAgentAuthRevokedMetadata({
+        agentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      }),
+    ).toEqual({
+      agentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    });
   });
 
   it("exports helpers from package root", () => {
