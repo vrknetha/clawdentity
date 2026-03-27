@@ -117,6 +117,14 @@ describe("proxy config", () => {
     expect(config.injectIdentityIntoMessage).toBe(true);
   });
 
+  it("allows explicitly disabling identity injection via env override", () => {
+    const config = parseProxyConfig({
+      INJECT_IDENTITY_INTO_MESSAGE: "false",
+    });
+
+    expect(config.injectIdentityIntoMessage).toBe(false);
+  });
+
   it("throws when deprecated ALLOW_ALL_VERIFIED is set", () => {
     expect(() =>
       parseProxyConfig({
