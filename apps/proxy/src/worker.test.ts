@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AgentRelaySessionStub } from "./agent-relay-session.js";
 import { PROXY_VERSION } from "./index.js";
 import { type ProxyWorkerBindings, worker } from "./worker.js";
 
@@ -48,6 +49,25 @@ function createRelaySessionNamespace(): NonNullable<
   ProxyWorkerBindings["AGENT_RELAY_SESSION"]
 > {
   return {} as NonNullable<ProxyWorkerBindings["AGENT_RELAY_SESSION"]>;
+}
+
+function createRelaySessionNamespaceWithFetchSpy(
+  fetchSpy: ReturnType<typeof vi.fn>,
+): NonNullable<ProxyWorkerBindings["AGENT_RELAY_SESSION"]> {
+  const invokeFetchSpy = fetchSpy as unknown as (
+    request: Request,
+  ) => Promise<Response>;
+  const relayStub: AgentRelaySessionStub = {
+    fetch: async (request: Request) => invokeFetchSpy(request),
+  };
+
+  return {
+    idFromName: vi.fn(
+      (name: string) =>
+        ({ toString: () => name }) as unknown as DurableObjectId,
+    ),
+    get: vi.fn(() => relayStub),
+  };
 }
 
 function createRequiredBindings(
@@ -283,5 +303,83 @@ describe("proxy worker", () => {
     expect(
       payload.error.details.fieldErrors?.BOOTSTRAP_INTERNAL_SERVICE_SECRET?.[0],
     ).toBe("BOOTSTRAP_INTERNAL_SERVICE_SECRET is required");
+  });
+
+  it("routes delivery_receipt queue events to sender relay session", async () => {
+    const fetchSpy = vi.fn(async (_request: Request) =>
+      Response.json({ accepted: true }, { status: 202 }),
+    );
+    const bindings = createRequiredBindings({
+      AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "delivery_receipt",
+            requestId: "req-queue-2",
+            senderAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+            recipientAgentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+            status: "dead_lettered",
+            reason: "hook failed",
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const request = fetchSpy.mock.calls[0]?.[0] as Request;
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).pathname).toBe("/rpc/record-delivery-receipt");
+    const body = (await request.json()) as {
+      requestId?: string;
+      senderAgentDid?: string;
+      recipientAgentDid?: string;
+      status?: string;
+      reason?: string;
+    };
+    expect(body).toMatchObject({
+      requestId: "req-queue-2",
+      status: "dead_lettered",
+      reason: "hook failed",
+    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it("does not ack unsupported queue event types", async () => {
+    const fetchSpy = vi.fn();
+    const bindings = createRequiredBindings({
+      AGENT_RELAY_SESSION: createRelaySessionNamespaceWithFetchSpy(fetchSpy),
+    });
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.created",
+            agentDid:
+              "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(ack).not.toHaveBeenCalled();
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });

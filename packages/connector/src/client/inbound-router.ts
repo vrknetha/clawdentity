@@ -4,6 +4,7 @@ import type {
   ConnectorFrame,
   DeliverFrame,
   HeartbeatAckFrame,
+  ReceiptFrame,
 } from "../frames.js";
 import type { LocalOpenclawDeliveryClient } from "./delivery.js";
 import type { ConnectorHeartbeatManager } from "./heartbeat.js";
@@ -61,6 +62,9 @@ export async function routeConnectorInboundMessage(options: {
           },
           recordAckLatency: options.recordAckLatency,
         });
+      },
+      onReceiptFrame: async (frame: ReceiptFrame) => {
+        await options.hooks.onReceipt?.(frame);
       },
     },
   });

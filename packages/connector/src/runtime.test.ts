@@ -28,6 +28,12 @@ type WsHarness = {
     fromAgentDid?: string;
     toAgentDid?: string;
   }) => Promise<void>;
+  sendReceiptFrame: (input: {
+    requestId: string;
+    status: "processed_by_openclaw" | "dead_lettered";
+    toAgentDid?: string;
+    reason?: string;
+  }) => Promise<void>;
   waitForDeliverAck: (requestId: string) => Promise<void>;
   wsUrl: string;
 };
@@ -145,9 +151,36 @@ async function createWsHarness(port: number): Promise<WsHarness> {
     );
   };
 
+  const sendReceiptFrame = async (input: {
+    requestId: string;
+    status: "processed_by_openclaw" | "dead_lettered";
+    toAgentDid?: string;
+    reason?: string;
+  }): Promise<void> => {
+    await connectedPromise;
+    if (socket === undefined) {
+      throw new Error("WebSocket connection was not established");
+    }
+
+    socket.send(
+      serializeFrame({
+        v: 1,
+        type: "receipt",
+        id: generateUlid(1700000000200),
+        ts: "2026-02-20T00:00:00.000Z",
+        originalFrameId: input.requestId,
+        toAgentDid:
+          input.toAgentDid ?? makeAgentDid(DID_AUTHORITY, generateUlid(3)),
+        status: input.status,
+        reason: input.reason,
+      }),
+    );
+  };
+
   return {
     wsUrl: `ws://127.0.0.1:${port}/v1/relay/connect`,
     sendDeliverFrame,
+    sendReceiptFrame,
     waitForDeliverAck,
     cleanup: async () => {
       await new Promise<void>((resolve) => {

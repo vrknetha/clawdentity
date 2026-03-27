@@ -10,7 +10,8 @@ use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientSender, ConnectorFrame,
-    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, SqliteStore, new_frame_id, now_iso,
+    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, ReceiptFrame, ReceiptStatus, SqliteStore,
+    new_frame_id, now_iso,
 };
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -76,6 +77,19 @@ async fn handle_connector_frame(
                 deliver,
             )
             .await;
+        }
+        ConnectorFrame::Receipt(receipt) => {
+            if let Err(error) =
+                forward_receipt_to_openclaw(http_client, hook_url, openclaw_runtime, &receipt)
+                    .await
+            {
+                tracing::warn!(
+                    error = %error,
+                    request_id = %receipt.original_frame_id,
+                    status = ?receipt.status,
+                    "failed to forward receipt payload to OpenClaw hook"
+                );
+            }
         }
         ConnectorFrame::EnqueueAck(ack) => log_enqueue_ack(&ack),
         _ => {}
@@ -370,6 +384,125 @@ pub(super) fn build_openclaw_hook_payload(hook_path: &str, deliver: &DeliverFram
     }
 
     build_openclaw_agent_payload(deliver)
+}
+
+async fn forward_receipt_to_openclaw(
+    http_client: &reqwest::Client,
+    hook_url: &str,
+    openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt: &ReceiptFrame,
+) -> Result<()> {
+    let mut request = http_client
+        .post(hook_url)
+        .header("content-type", "application/json")
+        .header(
+            "x-clawdentity-content-type",
+            "application/vnd.clawdentity.receipt+json",
+        )
+        .header("x-clawdentity-to-agent-did", &receipt.to_agent_did)
+        .header("x-request-id", &receipt.original_frame_id)
+        .json(&build_openclaw_receipt_payload(
+            &openclaw_runtime.hook_path,
+            receipt,
+        ));
+
+    if let Some(token) = openclaw_runtime
+        .hook_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request = request.header("x-openclaw-token", token);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| anyhow!("openclaw receipt hook request failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "openclaw receipt hook returned HTTP {}",
+            response.status()
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptFrame) -> Value {
+    let summary = render_receipt_summary(receipt);
+    let receipt_json = json!({
+        "type": "clawdentity:receipt",
+        "originalFrameId": receipt.original_frame_id,
+        "toAgentDid": receipt.to_agent_did,
+        "status": match receipt.status {
+            ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+            ReceiptStatus::DeadLettered => "dead_lettered",
+        },
+        "reason": receipt.reason,
+        "timestamp": receipt.ts,
+    });
+
+    if normalize_hook_path(hook_path) == "/hooks/wake" {
+        return json!({
+            "type": "clawdentity:receipt",
+            "originalFrameId": receipt.original_frame_id,
+            "toAgentDid": receipt.to_agent_did,
+            "status": match receipt.status {
+                ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+                ReceiptStatus::DeadLettered => "dead_lettered",
+            },
+            "reason": receipt.reason,
+            "timestamp": receipt.ts,
+            "text": summary,
+            "message": summary,
+            "mode": "now",
+            "metadata": {
+                "receipt": receipt_json,
+            },
+        });
+    }
+
+    json!({
+        "type": "clawdentity:receipt",
+        "originalFrameId": receipt.original_frame_id,
+        "toAgentDid": receipt.to_agent_did,
+        "status": match receipt.status {
+            ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+            ReceiptStatus::DeadLettered => "dead_lettered",
+        },
+        "reason": receipt.reason,
+        "timestamp": receipt.ts,
+        "message": summary,
+        "content": summary,
+        "metadata": {
+            "receipt": receipt_json,
+        },
+    })
+}
+
+fn render_receipt_summary(receipt: &ReceiptFrame) -> String {
+    let mut lines = vec![
+        format!(
+            "Clawdentity delivery receipt: {}",
+            match receipt.status {
+                ReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+                ReceiptStatus::DeadLettered => "dead_lettered",
+            }
+        ),
+        String::new(),
+        format!("Request ID: {}", receipt.original_frame_id),
+        format!("Recipient DID: {}", receipt.to_agent_did),
+    ];
+    if let Some(reason) = receipt
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        lines.push(format!("Reason: {reason}"));
+    }
+    lines.push(format!("Timestamp: {}", receipt.ts));
+    lines.join("\n")
 }
 
 fn build_openclaw_agent_payload(deliver: &DeliverFrame) -> Value {

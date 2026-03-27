@@ -28,7 +28,8 @@ use delivery::{run_inbound_loop, run_inbound_retry_loop};
 
 #[cfg(test)]
 use delivery::{
-    build_deliver_ack_reason, build_openclaw_hook_payload, should_dead_letter_after_failure,
+    build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
+    should_dead_letter_after_failure,
 };
 
 #[derive(Debug, Subcommand)]

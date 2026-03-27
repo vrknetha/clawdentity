@@ -20,6 +20,7 @@
   - preserve `status`, `version`, and `environment`
   - expose `ready` plus binding/config readiness booleans without breaking older clients
 - Keep Cloudflare Worker fetch startup in `worker.ts`.
+- Keep Cloudflare Queue consumer routing in `worker.ts` and delegate event-specific logic to `queue-consumer/` modules.
 - Keep Node runtime startup in `node-server.ts`; use `bin.ts` as Node process entrypoint.
 - Keep inbound auth verification in `auth-middleware.ts` with focused helpers for token parsing, registry material loading, CRL checks, and replay protection.
 - Keep per-agent DID throttling in `agent-rate-limit-middleware.ts`; do not blend rate-limit state or counters into `auth-middleware.ts`.
@@ -57,6 +58,7 @@
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
 - Keep websocket relay behavior complete inside `agent-relay-session/`: sender-side `enqueue` frames from authenticated connector sockets must be authorized, routed to the recipient session, and answered with `enqueue_ack` rather than being dropped silently.
 - Keep relay delivery-receipt HTTP handlers isolated in `relay-delivery-receipt-route.ts`; `server.ts` should only compose `POST/GET /v1/relay/delivery-receipts`.
+- Keep receipt queue event parsing/routing isolated in `queue-consumer/receipt-events.ts`; queue handlers should route events to sender relay sessions, not embed DO RPC JSON inline in `worker.ts`.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep production request logging policy in `server.ts` restrictive (`onlyErrors` with a slow-request threshold) and keep development/local verbose for debugging.
@@ -118,6 +120,7 @@
 - Keep relay delivery receipt persistence in `agent-relay-session.ts` with explicit RPC routes:
   - `/rpc/record-delivery-receipt`
   - `/rpc/get-delivery-receipt`
+- Keep receipt event fanout behavior in `agent-relay-session.ts`: `recordDeliveryReceipt` must update durable receipt state and push websocket `receipt` frames for connected sender connectors.
 - Receipt states must remain constrained to `processed_by_openclaw` and `dead_lettered`.
 - Reject blank/whitespace `requestId`, `senderAgentDid`, and `recipientAgentDid` in `relay-delivery-receipt-route.ts` so invalid receipt payloads fail as `400` client errors before DO RPC.
 - Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.

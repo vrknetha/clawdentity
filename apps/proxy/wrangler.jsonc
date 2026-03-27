@@ -45,6 +45,28 @@
   "env": {
     "local": {
       "name": "clawdentity-proxy-local",
+      "queues": {
+        "producers": [
+          {
+            "binding": "RECEIPT_QUEUE",
+            "queue": "clawdentity-receipts-local"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "clawdentity-events-local",
+            "max_batch_size": 25,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-events-dlq-local"
+          },
+          {
+            "queue": "clawdentity-receipts-local",
+            "max_batch_size": 25,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-receipts-dlq-local"
+          }
+        ]
+      },
       "durable_objects": {
         "bindings": [
           {
@@ -89,6 +111,28 @@
     },
     "dev": {
       "name": "clawdentity-proxy-dev",
+      "queues": {
+        "producers": [
+          {
+            "binding": "RECEIPT_QUEUE",
+            "queue": "clawdentity-receipts-dev"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "clawdentity-events-dev",
+            "max_batch_size": 25,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-events-dlq-dev"
+          },
+          {
+            "queue": "clawdentity-receipts-dev",
+            "max_batch_size": 25,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-receipts-dlq-dev"
+          }
+        ]
+      },
       "routes": [
         {
           "pattern": "dev.proxy.clawdentity.com",
@@ -138,6 +182,28 @@
     },
     "production": {
       "name": "clawdentity-proxy",
+      "queues": {
+        "producers": [
+          {
+            "binding": "RECEIPT_QUEUE",
+            "queue": "clawdentity-receipts"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "clawdentity-events",
+            "max_batch_size": 25,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-events-dlq"
+          },
+          {
+            "queue": "clawdentity-receipts",
+            "max_batch_size": 25,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-receipts-dlq"
+          }
+        ]
+      },
       "observability": {
         "enabled": true,
         "logs": {

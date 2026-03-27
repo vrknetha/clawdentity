@@ -136,37 +136,48 @@ export function createRelayService(input: RelayServiceInput): {
     status: OutboundDeliveryReceiptStatus;
   }): Promise<void> => {
     await input.syncAuthFromDisk();
-    const receiptUrl = new URL(inputReceipt.replyTo);
-    if (receiptUrl.pathname !== RELAY_DELIVERY_RECEIPTS_PATH) {
+    let senderReceiptUrl: URL;
+    try {
+      senderReceiptUrl = new URL(inputReceipt.replyTo);
+    } catch {
       throw new AppError({
         code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
         message: "Delivery receipt callback target is invalid",
         status: 400,
       });
     }
-    const expectedSenderOrigin = input.trustedReceiptTargets.byAgentDid.get(
+
+    if (senderReceiptUrl.pathname !== RELAY_DELIVERY_RECEIPTS_PATH) {
+      throw new AppError({
+        code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+        message: "Delivery receipt callback target is invalid",
+        status: 400,
+      });
+    }
+    const trustedOriginForSender = input.trustedReceiptTargets.byAgentDid.get(
       inputReceipt.senderAgentDid,
     );
     if (
-      expectedSenderOrigin !== undefined &&
-      receiptUrl.origin !== expectedSenderOrigin
+      trustedOriginForSender !== undefined &&
+      senderReceiptUrl.origin !== trustedOriginForSender
     ) {
       throw new AppError({
-        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
-        message: "Delivery receipt callback target is untrusted",
+        code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+        message: "Delivery receipt callback target is invalid",
         status: 400,
       });
     }
     if (
-      expectedSenderOrigin === undefined &&
-      !input.trustedReceiptTargets.origins.has(receiptUrl.origin)
+      trustedOriginForSender === undefined &&
+      !input.trustedReceiptTargets.origins.has(senderReceiptUrl.origin)
     ) {
       throw new AppError({
-        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
-        message: "Delivery receipt callback target is untrusted",
+        code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+        message: "Delivery receipt callback target is invalid",
         status: 400,
       });
     }
+    const receiptUrl = senderReceiptUrl;
 
     const body = JSON.stringify({
       requestId: inputReceipt.requestId,

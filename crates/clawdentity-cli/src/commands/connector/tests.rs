@@ -1,12 +1,13 @@
 use anyhow::anyhow;
 use chrono::{Duration as ChronoDuration, Utc};
-use clawdentity_core::DeliverFrame;
+use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use clawdentity_core::agent::AgentAuthRecord;
 use serde_json::json;
 
 use super::runtime_config::{agent_access_requires_refresh, normalize_proxy_ws_url};
 use super::{
-    build_deliver_ack_reason, build_openclaw_hook_payload, normalize_hook_path,
+    build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
+    normalize_hook_path,
     should_dead_letter_after_failure,
 };
 
@@ -220,6 +221,60 @@ fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
         Some(
             "Clawdentity peer message from did:cdi:test:agent:sender\n\nplain peer text\n\nRequest ID: req-5"
         )
+    );
+}
+
+#[test]
+fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
+    let receipt = ReceiptFrame {
+        v: 1,
+        id: "receipt-1".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        original_frame_id: "req-6".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        status: ReceiptStatus::DeadLettered,
+        reason: Some("hook failed".to_string()),
+    };
+
+    let payload = build_openclaw_receipt_payload("/hooks/agent", &receipt);
+    assert_eq!(
+        payload.get("type").and_then(|value| value.as_str()),
+        Some("clawdentity:receipt")
+    );
+    assert_eq!(
+        payload.get("status").and_then(|value| value.as_str()),
+        Some("dead_lettered")
+    );
+    assert_eq!(
+        payload.get("message").and_then(|value| value.as_str()),
+        payload.get("content").and_then(|value| value.as_str())
+    );
+}
+
+#[test]
+fn openclaw_receipt_payload_uses_text_for_wake_hooks() {
+    let receipt = ReceiptFrame {
+        v: 1,
+        id: "receipt-2".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        original_frame_id: "req-7".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        status: ReceiptStatus::ProcessedByOpenclaw,
+        reason: None,
+    };
+
+    let payload = build_openclaw_receipt_payload("/hooks/wake", &receipt);
+    assert_eq!(
+        payload.get("status").and_then(|value| value.as_str()),
+        Some("processed_by_openclaw")
+    );
+    assert_eq!(
+        payload.get("mode").and_then(|value| value.as_str()),
+        Some("now")
+    );
+    assert_eq!(
+        payload.get("message").and_then(|value| value.as_str()),
+        payload.get("text").and_then(|value| value.as_str())
     );
 }
 
