@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::runtime_config::{
     agent_access_requires_refresh, load_receipt_post_headers, normalize_proxy_ws_url,
+    resolve_openclaw_target_agent_id,
 };
 use super::{
     SenderProfileHeaders, build_deliver_ack_reason, build_openclaw_delivery_headers,
@@ -175,7 +176,7 @@ fn openclaw_hook_payload_uses_message_field() {
         reply_to: Some("reply-1".to_string()),
     };
 
-    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver);
+    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None);
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
         Some("hello from alpha")
@@ -209,11 +210,55 @@ fn openclaw_hook_payload_stringifies_non_string_payloads() {
         reply_to: None,
     };
 
-    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver);
+    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None);
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
         Some("{\"count\":2,\"structured\":true}")
     );
+    assert!(payload.get("agentId").is_none());
+}
+
+#[test]
+fn openclaw_agent_hook_payload_includes_agent_id_when_mapping_exists() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-2b".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({
+            "message": "hello",
+        }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+
+    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, Some("alpha"));
+    assert_eq!(
+        payload.get("agentId").and_then(|value| value.as_str()),
+        Some("alpha")
+    );
+}
+
+#[test]
+fn openclaw_agent_hook_payload_omits_agent_id_when_mapping_missing() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-2c".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({
+            "message": "hello",
+        }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+
+    let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None);
+    assert!(payload.get("agentId").is_none());
 }
 
 #[test]
@@ -233,7 +278,7 @@ fn openclaw_wake_payload_preserves_explicit_session_id() {
         reply_to: Some("reply-1".to_string()),
     };
 
-    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver);
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver, None);
     assert_eq!(
         payload.get("mode").and_then(|value| value.as_str()),
         Some("now")
@@ -273,7 +318,7 @@ fn openclaw_wake_payload_omits_default_session_override() {
         reply_to: None,
     };
 
-    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver);
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver, None);
     assert!(payload.get("sessionId").is_none());
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
@@ -303,7 +348,7 @@ fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
         reply_to: None,
     };
 
-    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver);
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver, None);
     assert!(payload.get("sessionId").is_none());
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
@@ -315,6 +360,26 @@ fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
             "Clawdentity peer message from did:cdi:test:agent:sender\n\nplain peer text\n\nRequest ID: req-5"
         )
     );
+}
+
+#[test]
+fn openclaw_wake_payload_ignores_agent_mapping() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-5b".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({
+            "message": "wake test",
+        }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+
+    let payload = build_openclaw_hook_payload("/hooks/wake", &deliver, Some("alpha"));
+    assert!(payload.get("agentId").is_none());
 }
 
 #[test]
@@ -576,6 +641,35 @@ fn receipt_post_headers_nonce_changes_between_calls() {
         .expect("second nonce header");
 
     assert_ne!(nonce_one, nonce_two);
+}
+
+#[test]
+fn runtime_config_resolves_mapped_openclaw_target_agent_id() {
+    let options = receipt_fixture_options();
+    let config_dir = get_config_dir(&options).expect("resolve config dir");
+    fs::create_dir_all(&config_dir).expect("create config dir");
+    clawdentity_core::save_connector_assignment(
+        &config_dir,
+        "alpha",
+        "http://127.0.0.1:13372",
+        Some("beta"),
+    )
+    .expect("save connector assignment");
+
+    let target_agent_id =
+        resolve_openclaw_target_agent_id(&config_dir, "alpha").expect("resolve target agent id");
+    assert_eq!(target_agent_id.as_deref(), Some("beta"));
+}
+
+#[test]
+fn runtime_config_omits_openclaw_target_agent_id_when_assignment_missing() {
+    let options = receipt_fixture_options();
+    let config_dir = get_config_dir(&options).expect("resolve config dir");
+    fs::create_dir_all(&config_dir).expect("create config dir");
+
+    let target_agent_id =
+        resolve_openclaw_target_agent_id(&config_dir, "alpha").expect("resolve target agent id");
+    assert!(target_agent_id.is_none());
 }
 
 fn sample_auth_record(access_token: &str, expires_at: chrono::DateTime<Utc>) -> AgentAuthRecord {

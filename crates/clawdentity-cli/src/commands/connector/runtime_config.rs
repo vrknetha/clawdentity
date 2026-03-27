@@ -9,7 +9,8 @@ use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{
     SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata, new_frame_id,
-    refresh_agent_auth, resolve_openclaw_base_url, resolve_openclaw_hook_token, sign_http_request,
+    load_connector_assignments, refresh_agent_auth, resolve_openclaw_base_url,
+    resolve_openclaw_hook_token, sign_http_request,
 };
 
 use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
@@ -41,6 +42,8 @@ pub(super) async fn resolve_runtime_config(
     .await?;
     let proxy_receipt_url = resolve_proxy_receipt_url(&proxy_ws_url)?;
     let config_dir = runtime_inputs.config_dir.clone();
+    let target_agent_id =
+        resolve_openclaw_target_agent_id(&runtime_inputs.config_dir, &input.agent_name)?;
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
@@ -58,10 +61,25 @@ pub(super) async fn resolve_runtime_config(
                 &runtime_inputs.config_dir,
                 input.openclaw_hook_token.as_deref(),
             )?,
+            target_agent_id,
         },
         port: input.port,
         bind: input.bind,
     })
+}
+
+pub(super) fn resolve_openclaw_target_agent_id(
+    config_dir: &Path,
+    agent_name: &str,
+) -> Result<Option<String>> {
+    let assignments = load_connector_assignments(config_dir)?;
+    Ok(assignments
+        .agents
+        .get(agent_name)
+        .and_then(|assignment| assignment.openclaw_agent_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned))
 }
 
 pub(super) fn load_connector_headers(

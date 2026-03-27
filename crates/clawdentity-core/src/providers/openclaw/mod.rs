@@ -19,7 +19,8 @@ pub use self::setup::{
     OPENCLAW_DEFAULT_BASE_URL, OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment,
     OpenclawConnectorsConfig, OpenclawRelayRuntimeConfig, build_connector_base_url,
     connector_port_from_base_url, load_connector_assignments, load_relay_runtime_config,
-    openclaw_agent_name_path, openclaw_connectors_path, openclaw_relay_runtime_path,
+    list_configured_openclaw_agent_ids, openclaw_agent_name_path, openclaw_connectors_path,
+    openclaw_relay_runtime_path,
     read_selected_openclaw_agent, resolve_connector_base_url, resolve_openclaw_base_url,
     resolve_openclaw_config_path, resolve_openclaw_dir, resolve_openclaw_hook_token,
     save_connector_assignment, save_relay_runtime_config, suggest_connector_base_url,
@@ -63,6 +64,7 @@ struct OpenclawSetupContext {
     openclaw_dir: PathBuf,
     store: SqliteStore,
     agent_name: String,
+    openclaw_agent_id: String,
 }
 
 struct OpenclawSetupArtifacts {
@@ -131,13 +133,40 @@ impl OpenclawProvider {
                 crate::error::CoreError::InvalidInput("agent name is required".to_string())
             })?
             .to_string();
+        let openclaw_config_path =
+            resolve_openclaw_config_path(state_options.home_dir.as_deref(), None)?;
+        let openclaw_agent_id = self.resolve_setup_openclaw_agent_id(opts, &openclaw_config_path)?;
         Ok(OpenclawSetupContext {
             state_options,
             config_dir,
             openclaw_dir,
             store,
             agent_name,
+            openclaw_agent_id,
         })
+    }
+
+    fn resolve_setup_openclaw_agent_id(
+        &self,
+        opts: &ProviderSetupOptions,
+        openclaw_config_path: &Path,
+    ) -> Result<String> {
+        let requested = opts
+            .openclaw_agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("main")
+            .to_ascii_lowercase();
+        let configured = list_configured_openclaw_agent_ids(openclaw_config_path)?;
+        if configured.iter().any(|id| id == &requested) {
+            return Ok(requested);
+        }
+        Err(crate::error::CoreError::InvalidInput(format!(
+            "OpenClaw agent id `{requested}` is not configured in {}. Configure the agent in OpenClaw first (for example `openclaw agents list`), then rerun `clawdentity provider setup --for openclaw --agent-name <agentName> --openclaw-agent-id <agentId>`. Known agent ids: {}",
+            openclaw_config_path.display(),
+            configured.join(", ")
+        )))
     }
 
     fn resolve_setup_connector_base_url(
@@ -200,6 +229,7 @@ impl OpenclawProvider {
             &context.config_dir,
             &context.agent_name,
             connector_base_url,
+            Some(&context.openclaw_agent_id),
         )?;
         let relay_snapshot_path = write_transform_peers_snapshot(
             &relay_snapshot_path,
@@ -304,6 +334,10 @@ impl OpenclawProvider {
         ));
         notes.push(format!(
             "connector assignment saved as `{connector_base_url}`"
+        ));
+        notes.push(format!(
+            "OpenClaw inbound routing target set to agent `{}` (applies when connector hook path is `/hooks/agent`)",
+            context.openclaw_agent_id
         ));
         notes.push("next: run `openclaw dashboard` for a quick OpenClaw UI check".to_string());
         notes.push(

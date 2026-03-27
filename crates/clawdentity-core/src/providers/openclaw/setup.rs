@@ -32,6 +32,8 @@ pub struct OpenclawRelayRuntimeConfig {
 #[serde(rename_all = "camelCase")]
 pub struct OpenclawConnectorAssignment {
     pub connector_base_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub openclaw_agent_id: Option<String>,
     pub updated_at: String,
 }
 
@@ -46,6 +48,30 @@ fn parse_non_empty(value: &str, field: &str) -> Result<String> {
         return Err(CoreError::InvalidInput(format!("{field} is required")));
     }
     Ok(trimmed.to_string())
+}
+
+fn is_valid_openclaw_agent_id(value: &str) -> bool {
+    if value.is_empty() || value.len() > 64 {
+        return false;
+    }
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphanumeric() {
+        return false;
+    }
+    chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+}
+
+fn normalize_openclaw_agent_id(value: &str, field: &str) -> Result<String> {
+    let trimmed = value.trim().to_ascii_lowercase();
+    if !is_valid_openclaw_agent_id(&trimmed) {
+        return Err(CoreError::InvalidInput(format!(
+            "{field} must match [a-z0-9][a-z0-9_-]{{0,63}}"
+        )));
+    }
+    Ok(trimmed)
 }
 
 fn normalize_http_url(value: &str, field: &'static str) -> Result<String> {
@@ -125,6 +151,24 @@ fn read_json_if_exists<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<Opti
         source,
     })?;
     Ok(Some(parsed))
+}
+
+fn parse_json_or_default(path: &Path) -> Result<serde_json::Value> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(serde_json::Value::Object(serde_json::Map::new()));
+        }
+        Err(source) => {
+            return Err(CoreError::Io {
+                path: path.to_path_buf(),
+                source,
+            });
+        }
+    };
+    json5::from_str::<serde_json::Value>(&raw).map_err(|source| {
+        CoreError::InvalidInput(format!("failed to parse OpenClaw config {}: {source}", path.display()))
+    })
 }
 
 fn now_iso() -> String {
@@ -358,14 +402,23 @@ pub fn save_connector_assignment(
     config_dir: &Path,
     agent_name: &str,
     connector_base_url: &str,
+    openclaw_agent_id: Option<&str>,
 ) -> Result<PathBuf> {
     let agent_name = parse_non_empty(agent_name, "agentName")?;
     let connector_base_url = normalize_http_url(connector_base_url, "connectorBaseUrl")?;
     let mut assignments = load_connector_assignments(config_dir)?;
+    let normalized_openclaw_agent_id = match openclaw_agent_id {
+        Some(value) => Some(normalize_openclaw_agent_id(value, "openclawAgentId")?),
+        None => assignments
+            .agents
+            .get(&agent_name)
+            .and_then(|assignment| assignment.openclaw_agent_id.clone()),
+    };
     assignments.agents.insert(
         agent_name,
         OpenclawConnectorAssignment {
             connector_base_url,
+            openclaw_agent_id: normalized_openclaw_agent_id,
             updated_at: now_iso(),
         },
     );
@@ -449,16 +502,51 @@ pub fn resolve_connector_base_url(
         .map(|entry| entry.connector_base_url.clone()))
 }
 
+/// Reads the OpenClaw config file and returns normalized agent ids for connector routing.
+/// The returned list always includes `"main"` so older configs without `agents.list` still
+/// support the default routing target.
+pub fn list_configured_openclaw_agent_ids(config_path: &Path) -> Result<Vec<String>> {
+    let config = parse_json_or_default(config_path)?;
+    let mut ids = vec!["main".to_string()];
+    if let Some(entries) = config
+        .get("agents")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|agents| agents.get("list"))
+        .and_then(serde_json::Value::as_array)
+    {
+        for entry in entries {
+            let Some(id) = entry
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+            else {
+                continue;
+            };
+            if id.is_empty() {
+                continue;
+            }
+            let normalized = id.to_ascii_lowercase();
+            if !ids.iter().any(|existing| existing == &normalized) {
+                ids.push(normalized);
+            }
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
 
     use super::{
-        OPENCLAW_DEFAULT_BASE_URL, OpenclawRelayRuntimeConfig, build_connector_base_url,
-        connector_port_from_base_url, load_connector_assignments, load_relay_runtime_config,
-        read_selected_openclaw_agent, resolve_openclaw_base_url, resolve_openclaw_config_path,
-        resolve_openclaw_dir, save_connector_assignment, save_relay_runtime_config,
-        suggest_connector_base_url, write_selected_openclaw_agent,
+        OPENCLAW_CONNECTORS_FILE_NAME, OPENCLAW_DEFAULT_BASE_URL, OpenclawRelayRuntimeConfig,
+        build_connector_base_url, connector_port_from_base_url, list_configured_openclaw_agent_ids,
+        load_connector_assignments, load_relay_runtime_config, read_selected_openclaw_agent,
+        resolve_openclaw_base_url, resolve_openclaw_config_path, resolve_openclaw_dir,
+        save_connector_assignment, save_relay_runtime_config, suggest_connector_base_url,
+        write_selected_openclaw_agent,
     };
 
     #[test]
@@ -499,8 +587,13 @@ mod tests {
     #[test]
     fn connector_assignments_round_trip() {
         let temp = TempDir::new().expect("temp dir");
-        let _ = save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19400")
-            .expect("save");
+        let _ = save_connector_assignment(
+            temp.path(),
+            "alpha",
+            "http://127.0.0.1:19400",
+            Some("coder"),
+        )
+        .expect("save");
         let assignments = load_connector_assignments(temp.path()).expect("load");
         assert_eq!(assignments.agents.len(), 1);
         assert_eq!(
@@ -509,6 +602,49 @@ mod tests {
                 .get("alpha")
                 .map(|entry| entry.connector_base_url.as_str()),
             Some("http://127.0.0.1:19400/")
+        );
+        assert_eq!(
+            assignments
+                .agents
+                .get("alpha")
+                .and_then(|entry| entry.openclaw_agent_id.as_deref()),
+            Some("coder")
+        );
+    }
+
+    #[test]
+    fn connector_assignments_support_legacy_entries_without_openclaw_agent_id() {
+        let temp = TempDir::new().expect("temp dir");
+        let connectors_path = temp.path().join(OPENCLAW_CONNECTORS_FILE_NAME);
+        std::fs::write(
+            &connectors_path,
+            r#"{
+  "agents": {
+    "alpha": {
+      "connectorBaseUrl": "http://127.0.0.1:19400/",
+      "updatedAt": "2026-03-27T00:00:00Z"
+    }
+  }
+}
+"#,
+        )
+        .expect("write legacy connectors config");
+
+        let assignments = load_connector_assignments(temp.path()).expect("load");
+        assert_eq!(assignments.agents.len(), 1);
+        assert_eq!(
+            assignments
+                .agents
+                .get("alpha")
+                .map(|entry| entry.connector_base_url.as_str()),
+            Some("http://127.0.0.1:19400/")
+        );
+        assert_eq!(
+            assignments
+                .agents
+                .get("alpha")
+                .and_then(|entry| entry.openclaw_agent_id.as_deref()),
+            None
         );
     }
 
@@ -527,10 +663,68 @@ mod tests {
     #[test]
     fn connector_suggestion_uses_next_available_port() {
         let temp = TempDir::new().expect("temp dir");
-        let _ = save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19400")
-            .expect("save alpha");
+        let _ = save_connector_assignment(
+            temp.path(),
+            "alpha",
+            "http://127.0.0.1:19400",
+            Some("main"),
+        )
+        .expect("save alpha");
         let suggested = suggest_connector_base_url(temp.path(), "beta").expect("suggest");
         assert_eq!(suggested, "http://127.0.0.1:19401");
+    }
+
+    #[test]
+    fn connector_assignment_backfills_openclaw_agent_id_from_existing_entry() {
+        let temp = TempDir::new().expect("temp dir");
+        let _ = save_connector_assignment(
+            temp.path(),
+            "alpha",
+            "http://127.0.0.1:19400",
+            Some("ops"),
+        )
+        .expect("save alpha");
+        let _ = save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19401", None)
+            .expect("update alpha");
+
+        let assignments = load_connector_assignments(temp.path()).expect("load");
+        assert_eq!(
+            assignments
+                .agents
+                .get("alpha")
+                .map(|entry| entry.connector_base_url.as_str()),
+            Some("http://127.0.0.1:19401/")
+        );
+        assert_eq!(
+            assignments
+                .agents
+                .get("alpha")
+                .and_then(|entry| entry.openclaw_agent_id.as_deref()),
+            Some("ops")
+        );
+    }
+
+    #[test]
+    fn list_configured_openclaw_agent_ids_includes_default_and_configured_agents() {
+        let temp = TempDir::new().expect("temp dir");
+        let config_path = temp.path().join("openclaw.json");
+        std::fs::write(
+            &config_path,
+            r#"{
+  agents: {
+    list: [
+      { id: "main" },
+      { id: "coder" },
+      { id: "OPS" }
+    ]
+  }
+}
+"#,
+        )
+        .expect("config");
+
+        let agent_ids = list_configured_openclaw_agent_ids(&config_path).expect("agent ids");
+        assert_eq!(agent_ids, vec!["coder", "main", "ops"]);
     }
 
     #[test]

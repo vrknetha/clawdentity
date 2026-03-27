@@ -456,6 +456,7 @@ async fn forward_deliver_to_openclaw(
         .json(&build_openclaw_hook_payload(
             &openclaw_runtime.hook_path,
             deliver,
+            openclaw_runtime.target_agent_id.as_deref(),
         ));
 
     for (name, value) in build_openclaw_delivery_headers(

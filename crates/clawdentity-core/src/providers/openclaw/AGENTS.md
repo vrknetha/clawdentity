@@ -11,6 +11,9 @@
 - Provider setup must project the selected local agent DID into `hooks/transforms/clawdentity-relay.json` as `localAgentDid`; the container/runtime transform must not need host-home agent lookup for relay lane derivation.
 - Keep OpenClaw target validation strict: provider setup/runtime metadata must treat `openclawBaseUrl` as the OpenClaw gateway only, never the Clawdentity registry or proxy.
 - Inbound peer delivery for OpenClaw must target the visible main-session ingress (`/hooks/wake`) by default; `/hooks/agent` creates isolated hook sessions and hides relay traffic from normal chat UX.
+- Provider setup must persist `openclawAgentId` per Clawdentity agent in `~/.clawdentity/openclaw-connectors.json`, defaulting to `main` when the operator omits `--openclaw-agent-id`.
+- Setup must validate `openclawAgentId` against OpenClaw-configured agent IDs from `openclaw.json` and fail fast with remediation when the requested ID is unknown.
+- Connector assignment parsing must stay backward-compatible with legacy entries that do not contain `openclawAgentId`.
 - Wake-style inbound payloads must carry the rendered relay copy in both `text` and top-level `message`; OpenClaw may accept the hook without surfacing it when `message` is omitted.
 - Wake-style inbound payloads must only include `sessionId` when the inbound relay payload explicitly provides one; never hardcode `"main"` because operators may use a different default session.
 - The custom `send-to-peer` hook mapping must stay on OpenClaw `wake` action semantics; `agent` mappings no longer guarantee that side-effect transforms relay anything before local hook completion.
