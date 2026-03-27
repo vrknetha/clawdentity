@@ -24,7 +24,10 @@ describe("registry revocation queue events", () => {
     });
 
     expect(event).not.toBeNull();
-    expect(event?.type).toBe(AGENT_AUTH_REVOKED_EVENT_TYPE);
+    expect(event?.event.type).toBe(AGENT_AUTH_REVOKED_EVENT_TYPE);
+    expect(event?.agentDid).toBe(
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    );
   });
 
   it("ignores revoked events that are not hard agent revokes", () => {
@@ -95,7 +98,7 @@ describe("registry revocation queue events", () => {
     }
 
     await handleRegistryRevocationEvent({
-      event,
+      agentDid: event.agentDid,
       trustStateNamespace,
     });
 

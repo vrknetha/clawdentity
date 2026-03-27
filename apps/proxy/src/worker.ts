@@ -81,6 +81,15 @@ class NonRetryableQueueError extends Error {
   }
 }
 
+class MissingQueueBindingError extends NonRetryableQueueError {
+  constructor(bindingName: string, eventType: string) {
+    super(
+      `Queue binding '${bindingName}' is unavailable for event type '${eventType}'`,
+    );
+    this.name = "MissingQueueBindingError";
+  }
+}
+
 function toCacheKey(env: ProxyWorkerBindings): string {
   const keyParts = [
     env.OPENCLAW_BASE_URL,
@@ -235,6 +244,10 @@ function resolveQueueFailureAction(error: unknown): {
   reasonCode: string;
 } {
   if (error instanceof NonRetryableQueueError) {
+    if (error instanceof MissingQueueBindingError) {
+      return { action: "ack", reasonCode: "missing_queue_binding" };
+    }
+
     return { action: "ack", reasonCode: "non_retryable_queue_error" };
   }
 
@@ -305,8 +318,9 @@ const worker = {
         if (event.type === DELIVERY_RECEIPT_EVENT_TYPE) {
           const relaySessionNamespace = env.AGENT_RELAY_SESSION;
           if (relaySessionNamespace === undefined) {
-            throw new NonRetryableQueueError(
-              "Relay session namespace is unavailable",
+            throw new MissingQueueBindingError(
+              "AGENT_RELAY_SESSION",
+              event.type,
             );
           }
 
@@ -323,7 +337,7 @@ const worker = {
         if (event.type === AGENT_AUTH_REVOKED_EVENT_TYPE) {
           const trustStateNamespace = env.PROXY_TRUST_STATE;
           if (trustStateNamespace === undefined) {
-            throw new Error("Proxy trust state namespace is unavailable");
+            throw new MissingQueueBindingError("PROXY_TRUST_STATE", event.type);
           }
 
           const parsedRevocationEvent = parseRegistryRevocationQueueEvent(
@@ -339,7 +353,7 @@ const worker = {
           }
 
           await handleRegistryRevocationEvent({
-            event: parsedRevocationEvent,
+            agentDid: parsedRevocationEvent.agentDid,
             trustStateNamespace,
           });
 

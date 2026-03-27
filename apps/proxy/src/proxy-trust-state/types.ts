@@ -29,6 +29,12 @@ export type ConfirmedPairingTicketMap = Record<
   StoredConfirmedPairingTicket
 >;
 export type AgentPeersIndex = Record<string, string[]>;
+export type RevokedAgentMap = Record<
+  string,
+  {
+    expiresAtMs: number;
+  }
+>;
 
 export type ExpirableTrustState = {
   pairingTickets: PairingTicketMap;

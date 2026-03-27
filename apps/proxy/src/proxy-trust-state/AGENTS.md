@@ -21,7 +21,8 @@
 - Keep pair authorization symmetric using `toPairKey` + `addPeer` for both directions.
 - Keep revoked-agent overlays durable and idempotent:
   - `markAgentRevoked` must accept only valid agent DIDs and remain safe for duplicate events.
-  - `isAgentRevoked` must be a pure lookup with no side effects.
+  - `isAgentRevoked` may prune expired revoked markers but must remain side-effect-free for non-expired entries.
+  - revoked markers must have an explicit TTL lifecycle (not infinite growth) and cleanup must happen via lookup pruning plus alarm-driven storage cleanup.
 - Keep storage normalization defensive: ignore malformed persisted records instead of throwing.
 - Keep external API stable:
   - class name remains `ProxyTrustState`

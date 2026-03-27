@@ -11,4 +11,6 @@
 - Treat queue events as at-least-once: handlers must be idempotent against duplicate messages.
 - Keep the `delivery_receipt` queue contract minimal (sender/recipient/request/status/reason/timestamp) and avoid carrying callback-origin metadata that is not consumed by handlers.
 - Keep registry revocation queue handling strict: only hard revokes (`data.reason=agent_revoked`) with valid `data.metadata.agentDid` may mutate trust state.
+- Parse and normalize revoked `agentDid` once per queue message, then pass the normalized value through handler layers without re-validating it in the same flow.
 - Keep queue acknowledgment policy explicit: unsupported/invalid events are `ack` + warn; reserve `retry` for transient delivery or trust-state dependency failures only.
+- Missing queue bindings (for example `PROXY_TRUST_STATE` for `agent.auth.revoked`) must be handled as explicit non-retryable `ack` failures with a dedicated reason code, not through generic retry fallback.

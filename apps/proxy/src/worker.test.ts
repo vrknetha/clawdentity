@@ -439,6 +439,40 @@ describe("proxy worker", () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
+  it("acks revoked queue events when PROXY_TRUST_STATE is unavailable", async () => {
+    const bindings = createRequiredBindings();
+    const ack = vi.fn();
+    const retry = vi.fn();
+    const queueBatch = {
+      messages: [
+        {
+          body: JSON.stringify({
+            type: "agent.auth.revoked",
+            id: "evt-missing-trust-state",
+            version: "v1",
+            timestampUtc: "2026-03-27T00:00:00.000Z",
+            initiatedByAccountId:
+              "did:cdi:dev.registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
+            data: {
+              reason: "agent_revoked",
+              metadata: {
+                agentDid:
+                  "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+              },
+            },
+          }),
+          ack,
+          retry,
+        },
+      ],
+    } as unknown as MessageBatch<string>;
+
+    await worker.queue(queueBatch, bindings);
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
   it("acks revoked events with non-hard-revoke reason", async () => {
     const trustFetchSpy = vi.fn();
     const bindings = createRequiredBindings({

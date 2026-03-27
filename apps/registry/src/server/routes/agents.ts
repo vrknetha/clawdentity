@@ -1,5 +1,7 @@
 import {
+  AGENT_AUTH_REVOKED_REASON_AGENT_REVOKED,
   AGENT_REGISTRATION_CHALLENGE_PATH,
+  createAgentAuthRevokedMetadata,
   generateUlid,
 } from "@clawdentity/protocol";
 import {
@@ -491,10 +493,8 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
           agentId: existingAgent.id,
           sessionId: existingSession.id,
           eventType: "revoked",
-          reason: "agent_revoked",
-          metadata: {
-            agentDid: existingAgent.did,
-          },
+          reason: AGENT_AUTH_REVOKED_REASON_AGENT_REVOKED,
+          metadata: createAgentAuthRevokedMetadata(existingAgent.did),
           createdAt: revokedAt,
           eventBus: getEventBus(c.env),
           initiatedByAccountId: human.did,
