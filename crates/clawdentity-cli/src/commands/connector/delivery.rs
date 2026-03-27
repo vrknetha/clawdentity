@@ -20,6 +20,7 @@ use super::headers::{
     SenderProfileHeaders, build_openclaw_delivery_headers, lookup_sender_profile_headers,
 };
 use super::normalize_hook_path;
+use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -27,6 +28,7 @@ const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
 
 pub(super) async fn run_inbound_loop(
+    receipt_outbox: ReceiptOutboxHandle,
     mut connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
     store: SqliteStore,
@@ -54,6 +56,7 @@ pub(super) async fn run_inbound_loop(
                     &http_client,
                     &hook_url,
                     &openclaw_runtime,
+                    &receipt_outbox,
                 )
                 .await;
             }
@@ -68,6 +71,7 @@ async fn handle_connector_frame(
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt_outbox: &ReceiptOutboxHandle,
 ) {
     match frame {
         ConnectorFrame::Deliver(deliver) => {
@@ -77,6 +81,7 @@ async fn handle_connector_frame(
                 http_client,
                 hook_url,
                 openclaw_runtime,
+                receipt_outbox,
                 deliver,
             )
             .await;
@@ -113,6 +118,7 @@ fn log_enqueue_ack(ack: &EnqueueAckFrame) {
 }
 
 pub(super) async fn run_inbound_retry_loop(
+    receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
@@ -130,7 +136,15 @@ pub(super) async fn run_inbound_retry_loop(
                 }
             }
             _ = interval.tick() => {
-                retry_due_inbound_deliveries(&store, &http_client, &hook_url, &openclaw_runtime).await;
+                let _ = receipt_outbox.flush_due().await;
+                retry_due_inbound_deliveries(
+                    &store,
+                    &http_client,
+                    &hook_url,
+                    &openclaw_runtime,
+                    &receipt_outbox,
+                )
+                .await;
             }
         }
     }
@@ -141,6 +155,7 @@ async fn retry_due_inbound_deliveries(
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt_outbox: &ReceiptOutboxHandle,
 ) {
     let due_items = match list_pending_due(store, now_utc_ms(), INBOUND_RETRY_BATCH_SIZE) {
         Ok(items) => items,
@@ -151,7 +166,15 @@ async fn retry_due_inbound_deliveries(
     };
 
     for item in due_items {
-        retry_pending_inbound_delivery(store, http_client, hook_url, openclaw_runtime, item).await;
+        retry_pending_inbound_delivery(
+            store,
+            http_client,
+            hook_url,
+            openclaw_runtime,
+            receipt_outbox,
+            item,
+        )
+        .await;
     }
 }
 
@@ -160,10 +183,11 @@ async fn retry_pending_inbound_delivery(
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt_outbox: &ReceiptOutboxHandle,
     item: InboundPendingItem,
 ) {
     let Ok(deliver) = build_deliver_from_pending(&item) else {
-        dead_letter_invalid_pending_payload(store, &item);
+        dead_letter_invalid_pending_payload(store, receipt_outbox, &item).await;
         return;
     };
 
@@ -177,8 +201,19 @@ async fn retry_pending_inbound_delivery(
     )
     .await
     {
-        Ok(()) => record_retry_delivery_success(store, &item),
-        Err(error) => handle_pending_retry_failure(store, &item, &error),
+        Ok(()) => {
+            record_retry_delivery_success(store, &item);
+            let _ = receipt_outbox
+                .enqueue_and_try_flush(DeliveryReceiptPayload {
+                    request_id: item.request_id.clone(),
+                    sender_agent_did: item.from_agent_did.clone(),
+                    recipient_agent_did: item.to_agent_did.clone(),
+                    status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+                    reason: None,
+                })
+                .await;
+        }
+        Err(error) => handle_pending_retry_failure(store, receipt_outbox, &item, &error).await,
     }
 }
 
@@ -199,18 +234,33 @@ fn build_deliver_from_pending(item: &InboundPendingItem) -> Result<DeliverFrame>
     })
 }
 
-fn dead_letter_invalid_pending_payload(store: &SqliteStore, item: &InboundPendingItem) {
+async fn dead_letter_invalid_pending_payload(
+    store: &SqliteStore,
+    receipt_outbox: &ReceiptOutboxHandle,
+    item: &InboundPendingItem,
+) {
     let reason = build_deliver_from_pending(item)
         .err()
         .map(|error| error.to_string())
         .unwrap_or_else(|| "invalid pending payload_json".to_string());
-    if let Err(error) = move_pending_to_dead_letter(store, &item.request_id, &reason) {
+    let moved_to_dead_letter = move_pending_to_dead_letter(store, &item.request_id, &reason);
+    if let Err(error) = moved_to_dead_letter {
         tracing::warn!(
             error = %error,
             request_id = %item.request_id,
             "failed to move invalid pending payload to dead letter"
         );
+        return;
     }
+    let _ = receipt_outbox
+        .enqueue_and_try_flush(DeliveryReceiptPayload {
+            request_id: item.request_id.clone(),
+            sender_agent_did: item.from_agent_did.clone(),
+            recipient_agent_did: item.to_agent_did.clone(),
+            status: DeliveryReceiptStatus::DeadLettered,
+            reason: Some(reason),
+        })
+        .await;
 }
 
 fn record_retry_delivery_success(store: &SqliteStore, item: &InboundPendingItem) {
@@ -241,28 +291,45 @@ pub(super) fn should_dead_letter_after_failure(current_attempt_count: i64) -> bo
     current_attempt_count.saturating_add(1) >= INBOUND_MAX_ATTEMPTS
 }
 
-fn handle_pending_retry_failure(
+async fn handle_pending_retry_failure(
     store: &SqliteStore,
+    receipt_outbox: &ReceiptOutboxHandle,
     item: &InboundPendingItem,
     error: &anyhow::Error,
 ) {
     if should_dead_letter_after_failure(item.attempt_count) {
-        dead_letter_pending_retry(store, &item.request_id, error);
+        dead_letter_pending_retry(store, receipt_outbox, item, error).await;
         return;
     }
 
     schedule_pending_retry(store, item, error);
 }
 
-fn dead_letter_pending_retry(store: &SqliteStore, request_id: &str, error: &anyhow::Error) {
+async fn dead_letter_pending_retry(
+    store: &SqliteStore,
+    receipt_outbox: &ReceiptOutboxHandle,
+    item: &InboundPendingItem,
+    error: &anyhow::Error,
+) {
     let reason = format!("max retry attempts exceeded: {error}");
-    if let Err(move_error) = move_pending_to_dead_letter(store, request_id, &reason) {
+    let moved_to_dead_letter = move_pending_to_dead_letter(store, &item.request_id, &reason);
+    if let Err(move_error) = moved_to_dead_letter {
         tracing::warn!(
             error = %move_error,
-            request_id,
+            request_id = %item.request_id,
             "failed to move pending inbound delivery to dead letter"
         );
+        return;
     }
+    let _ = receipt_outbox
+        .enqueue_and_try_flush(DeliveryReceiptPayload {
+            request_id: item.request_id.clone(),
+            sender_agent_did: item.from_agent_did.clone(),
+            recipient_agent_did: item.to_agent_did.clone(),
+            status: DeliveryReceiptStatus::DeadLettered,
+            reason: Some(reason),
+        })
+        .await;
 }
 
 fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error: &anyhow::Error) {
@@ -308,6 +375,7 @@ async fn handle_deliver_frame(
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt_outbox: &ReceiptOutboxHandle,
     deliver: DeliverFrame,
 ) {
     let sender_profile = lookup_sender_profile_headers(store, &deliver.from_agent_did);
@@ -319,6 +387,7 @@ async fn handle_deliver_frame(
         sender_profile.as_ref(),
     )
     .await;
+    let delivery_succeeded = delivery_result.is_ok();
     let persistence_result =
         persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
     log_persist_failure(&deliver.id, persistence_result.as_ref().err());
@@ -330,6 +399,18 @@ async fn handle_deliver_frame(
     let ack_accepted = ack_reason.is_none();
     send_deliver_ack(relay_sender, &deliver.id, ack_accepted, ack_reason).await;
     log_delivery_failure(&deliver, delivery_result.err());
+
+    if delivery_succeeded {
+        let _ = receipt_outbox
+            .enqueue_and_try_flush(DeliveryReceiptPayload {
+                request_id: deliver.id.clone(),
+                sender_agent_did: deliver.from_agent_did.clone(),
+                recipient_agent_did: deliver.to_agent_did.clone(),
+                status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+                reason: None,
+            })
+            .await;
+    }
 }
 
 fn log_persist_failure(request_id: &str, persistence_error: Option<&anyhow::Error>) {

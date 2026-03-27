@@ -304,6 +304,7 @@ dependencies = [
  "clap",
  "clawdentity-core",
  "reqwest",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",

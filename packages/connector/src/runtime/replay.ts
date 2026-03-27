@@ -22,7 +22,6 @@ import type {
 type DeliveryReceiptInput = {
   reason?: string;
   recipientAgentDid: string;
-  replyTo: string;
   requestId: string;
   senderAgentDid: string;
   status: "processed_by_openclaw" | "dead_lettered";
@@ -37,7 +36,7 @@ function groupDueItemsByLane(
     const laneKey =
       pending.conversationId !== undefined
         ? `conversation:${pending.conversationId}`
-        : "legacy-best-effort";
+        : "best-effort";
     const lane = laneByKey.get(laneKey);
     if (lane) {
       lane.push(pending);
@@ -233,25 +232,19 @@ export function createInboundReplayController(input: {
                 conversationId: pending.conversationId,
               });
 
-              if (pending.replyTo) {
-                try {
-                  await input.postDeliveryReceipt({
-                    requestId: pending.requestId,
-                    senderAgentDid: pending.fromAgentDid,
-                    recipientAgentDid: pending.toAgentDid,
-                    replyTo: pending.replyTo,
-                    status: "processed_by_openclaw",
-                  });
-                } catch (error) {
-                  input.logger.warn(
-                    "connector.inbound.delivery_receipt_failed",
-                    {
-                      requestId: pending.requestId,
-                      reason: sanitizeErrorReason(error),
-                      status: "processed_by_openclaw",
-                    },
-                  );
-                }
+              try {
+                await input.postDeliveryReceipt({
+                  requestId: pending.requestId,
+                  senderAgentDid: pending.fromAgentDid,
+                  recipientAgentDid: pending.toAgentDid,
+                  status: "processed_by_openclaw",
+                });
+              } catch (error) {
+                input.logger.warn("connector.inbound.delivery_receipt_failed", {
+                  requestId: pending.requestId,
+                  reason: sanitizeErrorReason(error),
+                  status: "processed_by_openclaw",
+                });
               }
             } catch (error) {
               if (
@@ -297,13 +290,12 @@ export function createInboundReplayController(input: {
                 reason,
               });
 
-              if (markResult.movedToDeadLetter && pending.replyTo) {
+              if (markResult.movedToDeadLetter) {
                 try {
                   await input.postDeliveryReceipt({
                     requestId: pending.requestId,
                     senderAgentDid: pending.fromAgentDid,
                     recipientAgentDid: pending.toAgentDid,
-                    replyTo: pending.replyTo,
                     status: "dead_lettered",
                     reason,
                   });

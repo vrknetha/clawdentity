@@ -8,6 +8,7 @@ import { ConnectorClient } from "./client.js";
 import { createConnectorInboundInbox } from "./inbound-inbox.js";
 import { createRuntimeAuthController } from "./runtime/auth-lifecycle.js";
 import { toInitialAuthBundle } from "./runtime/auth-storage.js";
+import { RECEIPT_OUTBOX_RETRY_INTERVAL_MS } from "./runtime/constants.js";
 import { sanitizeErrorReason } from "./runtime/errors.js";
 import { deliverReceiptToOpenclawHook } from "./runtime/openclaw.js";
 import { createOpenclawHookTokenController } from "./runtime/openclaw-hook-token.js";
@@ -18,11 +19,11 @@ import {
   loadInboundReplayPolicy,
   loadOpenclawProbePolicy,
 } from "./runtime/policy.js";
+import { createDeliveryReceiptOutbox } from "./runtime/receipt-outbox.js";
 import { createRelayService } from "./runtime/relay-service.js";
 import { loadSenderProfilesByDid } from "./runtime/relay-transform-peers.js";
 import { createInboundReplayController } from "./runtime/replay.js";
 import { createRuntimeRequestHandler } from "./runtime/server.js";
-import { loadTrustedReceiptTargets } from "./runtime/trusted-receipts.js";
 import type {
   ConnectorRuntimeHandle,
   OpenclawGatewayProbeStatus,
@@ -77,9 +78,6 @@ export async function startConnectorRuntime(
     RELAY_DELIVERY_RECEIPTS_PATH.slice(1),
     `${toHttpOriginFromWebSocketUrl(wsParsed)}/`,
   ).toString();
-  const defaultReceiptCallbackOrigin = new URL(defaultReceiptCallbackUrl)
-    .origin;
-
   const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
   const openclawProbeUrl = openclawBaseUrl;
   const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
@@ -90,12 +88,6 @@ export async function startConnectorRuntime(
 
   const inboundReplayPolicy = loadInboundReplayPolicy();
   const openclawProbePolicy = loadOpenclawProbePolicy();
-
-  const trustedReceiptTargets = await loadTrustedReceiptTargets({
-    configDir: input.configDir,
-    logger,
-  });
-  trustedReceiptTargets.origins.add(defaultReceiptCallbackOrigin);
 
   const inboundInbox = createConnectorInboundInbox({
     configDir: input.configDir,
@@ -113,6 +105,7 @@ export async function startConnectorRuntime(
   let runtimeStopping = false;
   let replayIntervalHandle: ReturnType<typeof setInterval> | undefined;
   let openclawProbeIntervalHandle: ReturnType<typeof setInterval> | undefined;
+  let receiptOutboxIntervalHandle: ReturnType<typeof setInterval> | undefined;
   const runtimeShutdownController = new AbortController();
 
   const openclawHookTokenController = createOpenclawHookTokenController({
@@ -143,11 +136,37 @@ export async function startConnectorRuntime(
     secretKey,
     ait: input.credentials.ait,
     defaultReceiptCallbackUrl,
-    trustedReceiptTargets,
     getCurrentAuth: authController.getCurrentAuth,
     setCurrentAuth: authController.persistCurrentAuth,
     syncAuthFromDisk: authController.syncAuthFromDisk,
   });
+
+  const receiptOutbox = createDeliveryReceiptOutbox({
+    configDir: input.configDir,
+    agentName: input.agentName,
+    inboundReplayPolicy,
+    logger,
+    sendReceipt: relayService.postDeliveryReceipt,
+  });
+
+  const queueReceiptAndTryFlush = async (receipt: {
+    reason?: string;
+    recipientAgentDid: string;
+    requestId: string;
+    senderAgentDid: string;
+    status: "processed_by_openclaw" | "dead_lettered";
+  }): Promise<void> => {
+    await receiptOutbox.enqueue(receipt);
+    try {
+      await receiptOutbox.flushDue();
+    } catch (error) {
+      logger.warn("connector.receipt_outbox.flush_failed", {
+        requestId: receipt.requestId,
+        status: receipt.status,
+        reason: sanitizeErrorReason(error),
+      });
+    }
+  };
 
   const replayController = createInboundReplayController({
     fetchImpl,
@@ -165,7 +184,7 @@ export async function startConnectorRuntime(
     openclawGatewayProbeStatus,
     openclawHookUrl,
     openclawProbeUrl,
-    postDeliveryReceipt: relayService.postDeliveryReceipt,
+    postDeliveryReceipt: queueReceiptAndTryFlush,
     runtimeShutdownSignal: runtimeShutdownController.signal,
     syncOpenclawHookToken: openclawHookTokenController.syncOpenclawHookToken,
   });
@@ -294,6 +313,10 @@ export async function startConnectorRuntime(
       clearInterval(openclawProbeIntervalHandle);
       openclawProbeIntervalHandle = undefined;
     }
+    if (receiptOutboxIntervalHandle !== undefined) {
+      clearInterval(receiptOutboxIntervalHandle);
+      receiptOutboxIntervalHandle = undefined;
+    }
     connectorClient.disconnect();
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -323,6 +346,7 @@ export async function startConnectorRuntime(
   await openclawProbeController.probeOpenclawGateway();
   connectorClient.connect();
   await inboundInbox.pruneDelivered();
+  await receiptOutbox.flushDue();
   void replayController.replayPendingInboundMessages();
 
   replayIntervalHandle = setInterval(() => {
@@ -332,6 +356,10 @@ export async function startConnectorRuntime(
   openclawProbeIntervalHandle = setInterval(() => {
     void openclawProbeController.probeOpenclawGateway();
   }, openclawProbePolicy.intervalMs);
+
+  receiptOutboxIntervalHandle = setInterval(() => {
+    void receiptOutbox.flushDue();
+  }, RECEIPT_OUTBOX_RETRY_INTERVAL_MS);
 
   logger.info("connector.runtime.started", {
     outboundUrl,

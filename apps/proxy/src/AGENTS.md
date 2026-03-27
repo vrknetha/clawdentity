@@ -60,6 +60,7 @@
 - Keep receipt queue event parsing/routing isolated in `queue-consumer/receipt-events.ts`; queue handlers should route events to sender relay sessions, not embed DO RPC JSON inline in `worker.ts`.
 - Keep queue-first receipt tests asserting status parity: both `processed_by_openclaw` and `dead_lettered` must remain observable end-to-end without status rewriting.
 - Keep queue failure policy explicit in `worker.ts`: unsupported/invalid queue payloads are acknowledged (not retried), and retries are reserved for transient delivery failures.
+- Keep `worker.test.ts` queue assertions aligned with `worker.ts` failure classification (`action` + `reasonCode`) so retry/ack semantics stay stable as new queue event types are added.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep production request logging policy in `server.ts` restrictive (`onlyErrors` with a slow-request threshold) and keep development/local verbose for debugging.

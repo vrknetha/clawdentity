@@ -1,11 +1,16 @@
 use anyhow::anyhow;
 use chrono::{Duration as ChronoDuration, Utc};
 use clawdentity_core::agent::AgentAuthRecord;
+use clawdentity_core::config::{CliConfig, ConfigPathOptions, get_config_dir, write_config};
+use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use serde_json::json;
 use std::collections::HashMap;
+use std::fs;
 
-use super::runtime_config::{agent_access_requires_refresh, normalize_proxy_ws_url};
+use super::runtime_config::{
+    agent_access_requires_refresh, load_receipt_post_headers, normalize_proxy_ws_url,
+};
 use super::{
     SenderProfileHeaders, build_deliver_ack_reason, build_openclaw_delivery_headers,
     build_openclaw_hook_payload, build_openclaw_receipt_payload, normalize_hook_path,
@@ -335,6 +340,14 @@ fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
         payload.get("message").and_then(|value| value.as_str()),
         payload.get("content").and_then(|value| value.as_str())
     );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("receipt"))
+            .and_then(|value| value.get("status"))
+            .and_then(|value| value.as_str()),
+        Some("dead_lettered")
+    );
 }
 
 #[test]
@@ -362,6 +375,14 @@ fn openclaw_receipt_payload_uses_text_for_wake_hooks() {
         payload.get("message").and_then(|value| value.as_str()),
         payload.get("text").and_then(|value| value.as_str())
     );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("receipt"))
+            .and_then(|value| value.get("status"))
+            .and_then(|value| value.as_str()),
+        Some("processed_by_openclaw")
+    );
 }
 
 #[test]
@@ -369,6 +390,160 @@ fn pending_retry_dead_letters_at_max_attempt_threshold() {
     assert!(!should_dead_letter_after_failure(0));
     assert!(!should_dead_letter_after_failure(1));
     assert!(should_dead_letter_after_failure(2));
+}
+
+fn encode_base64url(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+    let mut output = String::with_capacity((input.len() * 4).div_ceil(3));
+    let mut index = 0usize;
+    while index + 3 <= input.len() {
+        let block = ((input[index] as u32) << 16)
+            | ((input[index + 1] as u32) << 8)
+            | (input[index + 2] as u32);
+        output.push(ALPHABET[((block >> 18) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((block >> 12) & 0x3f) as usize] as char);
+        output.push(ALPHABET[((block >> 6) & 0x3f) as usize] as char);
+        output.push(ALPHABET[(block & 0x3f) as usize] as char);
+        index += 3;
+    }
+
+    match input.len() - index {
+        1 => {
+            let block = (input[index] as u32) << 16;
+            output.push(ALPHABET[((block >> 18) & 0x3f) as usize] as char);
+            output.push(ALPHABET[((block >> 12) & 0x3f) as usize] as char);
+        }
+        2 => {
+            let block = ((input[index] as u32) << 16) | ((input[index + 1] as u32) << 8);
+            output.push(ALPHABET[((block >> 18) & 0x3f) as usize] as char);
+            output.push(ALPHABET[((block >> 12) & 0x3f) as usize] as char);
+            output.push(ALPHABET[((block >> 6) & 0x3f) as usize] as char);
+        }
+        _ => {}
+    }
+
+    output
+}
+
+fn fixture_ait() -> String {
+    let header = r#"{"alg":"EdDSA","kid":"key-1","typ":"JWT"}"#;
+    let payload = r#"{"sub":"did:cdi:test:agent:alpha","ownerDid":"did:cdi:test:human:owner","cnf":{"jwk":{"x":"public-key-x"}},"exp":4102444800,"framework":"openclaw"}"#;
+    format!(
+        "{}.{}.sig",
+        encode_base64url(header.as_bytes()),
+        encode_base64url(payload.as_bytes())
+    )
+}
+
+fn setup_receipt_header_fixture() -> (ConfigPathOptions, String) {
+    let root = std::env::temp_dir().join(format!(
+        "clawdentity-connector-tests-{}-{}",
+        std::process::id(),
+        Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    fs::create_dir_all(&root).expect("create test root");
+
+    let options = ConfigPathOptions {
+        home_dir: Some(root),
+        registry_url_hint: None,
+    };
+    write_config(
+        &CliConfig {
+            registry_url: "https://registry.example".to_string(),
+            proxy_url: Some("https://proxy.example".to_string()),
+            api_key: None,
+            human_name: Some("Tester".to_string()),
+        },
+        &options,
+    )
+    .expect("write config");
+
+    let agent_name = "alpha".to_string();
+    let config_dir = get_config_dir(&options).expect("resolve config dir");
+    let agent_dir = config_dir.join(AGENTS_DIR).join(&agent_name);
+    fs::create_dir_all(&agent_dir).expect("create agent dir");
+
+    fs::write(
+        agent_dir.join(AIT_FILE_NAME),
+        format!("{}\n", fixture_ait()),
+    )
+    .expect("write ait");
+    fs::write(
+        agent_dir.join(SECRET_KEY_FILE_NAME),
+        format!("{}\n", encode_base64url(&[7_u8; 32])),
+    )
+    .expect("write secret key");
+    fs::write(
+        agent_dir.join("registry-auth.json"),
+        r#"{
+  "tokenType": "Bearer",
+  "accessToken": "clw_agt_access",
+  "accessExpiresAt": "2099-01-01T00:00:00Z",
+  "refreshToken": "clw_agt_refresh",
+  "refreshExpiresAt": "2099-01-08T00:00:00Z"
+}
+"#,
+    )
+    .expect("write registry auth");
+
+    (options, agent_name)
+}
+
+#[test]
+fn receipt_post_headers_nonce_uses_random_url_safe_shape() {
+    let (options, agent_name) = setup_receipt_header_fixture();
+    let headers = load_receipt_post_headers(
+        &options,
+        &agent_name,
+        "https://proxy.example/v1/relay/delivery-receipts",
+        br#"{"requestId":"req-1"}"#,
+    )
+    .expect("receipt headers");
+    let nonce = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-claw-nonce"))
+        .map(|(_, value)| value)
+        .expect("x-claw-nonce header is required");
+
+    assert!(!nonce.starts_with("receipt-"));
+    assert!(nonce.len() >= 22);
+    assert!(
+        nonce
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    );
+}
+
+#[test]
+fn receipt_post_headers_nonce_changes_between_calls() {
+    let (options, agent_name) = setup_receipt_header_fixture();
+    let headers_one = load_receipt_post_headers(
+        &options,
+        &agent_name,
+        "https://proxy.example/v1/relay/delivery-receipts",
+        br#"{"requestId":"req-1"}"#,
+    )
+    .expect("first receipt headers");
+    let headers_two = load_receipt_post_headers(
+        &options,
+        &agent_name,
+        "https://proxy.example/v1/relay/delivery-receipts",
+        br#"{"requestId":"req-1"}"#,
+    )
+    .expect("second receipt headers");
+    let nonce_one = headers_one
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-claw-nonce"))
+        .map(|(_, value)| value)
+        .expect("first nonce header");
+    let nonce_two = headers_two
+        .into_iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("x-claw-nonce"))
+        .map(|(_, value)| value)
+        .expect("second nonce header");
+
+    assert_ne!(nonce_one, nonce_two);
 }
 
 fn sample_auth_record(access_token: &str, expires_at: chrono::DateTime<Utc>) -> AgentAuthRecord {

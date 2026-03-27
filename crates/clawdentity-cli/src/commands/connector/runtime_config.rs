@@ -8,8 +8,8 @@ use clawdentity_core::agent::{AgentAuthRecord, inspect_agent};
 use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{
-    build_relay_connect_headers, fetch_registry_metadata, refresh_agent_auth,
-    resolve_openclaw_base_url, resolve_openclaw_hook_token,
+    SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata, new_frame_id,
+    refresh_agent_auth, resolve_openclaw_base_url, resolve_openclaw_hook_token, sign_http_request,
 };
 
 use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
@@ -17,6 +17,7 @@ use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_
 const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
 const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
+const RELAY_DELIVERY_RECEIPTS_PATH: &str = "/v1/relay/delivery-receipts";
 
 struct ConnectorRuntimeInputs {
     config: clawdentity_core::config::CliConfig,
@@ -38,10 +39,14 @@ pub(super) async fn resolve_runtime_config(
         &runtime_inputs.config.registry_url,
     )
     .await?;
+    let proxy_receipt_url = resolve_proxy_receipt_url(&proxy_ws_url)?;
+    let config_dir = runtime_inputs.config_dir.clone();
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
         agent_did: runtime_inputs.agent_did,
+        config_dir,
+        proxy_receipt_url,
         proxy_ws_url,
         openclaw_runtime: clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig {
             base_url: resolve_openclaw_base_url(
@@ -246,4 +251,65 @@ pub(super) fn normalize_proxy_ws_url(value: &str) -> Result<String> {
         url.set_path(RELAY_CONNECT_PATH);
     }
     Ok(url.to_string())
+}
+
+pub(super) fn resolve_proxy_receipt_url(proxy_ws_url: &str) -> Result<String> {
+    let mut url = reqwest::Url::parse(proxy_ws_url)
+        .map_err(|_| anyhow!("invalid proxy websocket URL: {proxy_ws_url}"))?;
+    match url.scheme() {
+        "ws" => {
+            url.set_scheme("http")
+                .map_err(|_| anyhow!("failed to normalize receipt URL scheme"))?;
+        }
+        "wss" => {
+            url.set_scheme("https")
+                .map_err(|_| anyhow!("failed to normalize receipt URL scheme"))?;
+        }
+        "http" | "https" => {}
+        _ => return Err(anyhow!("invalid proxy websocket scheme in {proxy_ws_url}")),
+    }
+    url.set_path(RELAY_DELIVERY_RECEIPTS_PATH);
+    url.set_query(None);
+    Ok(url.to_string())
+}
+
+fn to_path_with_query(url: &reqwest::Url) -> String {
+    match url.query() {
+        Some(query) if !query.is_empty() => format!("{}?{query}", url.path()),
+        _ => url.path().to_string(),
+    }
+}
+
+pub(super) fn load_receipt_post_headers(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    receipt_url: &str,
+    body: &[u8],
+) -> Result<Vec<(String, String)>> {
+    let runtime_inputs = resolve_runtime_inputs(options, agent_name)?;
+    let signing_key = clawdentity_core::decode_secret_key(&runtime_inputs.secret_key)?;
+    let parsed_url = reqwest::Url::parse(receipt_url)
+        .map_err(|_| anyhow!("invalid proxy receipt URL: {receipt_url}"))?;
+    let timestamp = Utc::now().timestamp().to_string();
+    let nonce = new_frame_id();
+    let signed = sign_http_request(&SignHttpRequestInput {
+        method: "POST",
+        path_with_query: &to_path_with_query(&parsed_url),
+        timestamp: &timestamp,
+        nonce: &nonce,
+        body,
+        secret_key: &signing_key,
+    })?;
+
+    let mut headers = Vec::with_capacity(signed.headers.len() + 2);
+    headers.push((
+        "authorization".to_string(),
+        format!("Claw {}", runtime_inputs.ait),
+    ));
+    headers.push((
+        "x-claw-agent-access".to_string(),
+        runtime_inputs.agent_auth.access_token.clone(),
+    ));
+    headers.extend(signed.headers);
+    Ok(headers)
 }
