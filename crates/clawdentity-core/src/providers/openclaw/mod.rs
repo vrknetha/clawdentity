@@ -18,13 +18,12 @@ pub use self::setup::{
     OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONFIG_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME,
     OPENCLAW_DEFAULT_BASE_URL, OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment,
     OpenclawConnectorsConfig, OpenclawRelayRuntimeConfig, build_connector_base_url,
-    connector_port_from_base_url, load_connector_assignments, load_relay_runtime_config,
-    list_configured_openclaw_agent_ids, openclaw_agent_name_path, openclaw_connectors_path,
-    openclaw_relay_runtime_path,
-    read_selected_openclaw_agent, resolve_connector_base_url, resolve_openclaw_base_url,
-    resolve_openclaw_config_path, resolve_openclaw_dir, resolve_openclaw_hook_token,
-    save_connector_assignment, save_relay_runtime_config, suggest_connector_base_url,
-    write_selected_openclaw_agent,
+    connector_port_from_base_url, list_configured_openclaw_agent_ids, load_connector_assignments,
+    load_relay_runtime_config, openclaw_agent_name_path, openclaw_connectors_path,
+    openclaw_relay_runtime_path, read_selected_openclaw_agent, resolve_connector_base_url,
+    resolve_openclaw_base_url, resolve_openclaw_config_path, resolve_openclaw_dir,
+    resolve_openclaw_hook_token, save_connector_assignment, save_relay_runtime_config,
+    suggest_connector_base_url, write_selected_openclaw_agent,
 };
 
 use self::assets::{
@@ -51,6 +50,7 @@ const PROVIDER_NAME: &str = "openclaw";
 const PROVIDER_DISPLAY_NAME: &str = "OpenClaw";
 const OPENCLAW_BINARY: &str = "openclaw";
 const OPENCLAW_WEBHOOK_PATH: &str = "/hooks/wake";
+const OPENCLAW_AGENT_HOOK_PATH: &str = "/hooks/agent";
 
 #[derive(Debug, Clone, Default)]
 pub struct OpenclawProvider {
@@ -73,6 +73,26 @@ struct OpenclawSetupArtifacts {
 }
 
 impl OpenclawProvider {
+    fn normalize_hook_path(value: &str) -> String {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return OPENCLAW_WEBHOOK_PATH.to_string();
+        }
+        let normalized = trimmed.trim_start_matches('/');
+        if normalized.is_empty() {
+            OPENCLAW_WEBHOOK_PATH.to_string()
+        } else {
+            format!("/{normalized}")
+        }
+    }
+
+    fn resolve_setup_hook_path(&self) -> String {
+        std::env::var("OPENCLAW_HOOK_PATH")
+            .ok()
+            .map(|value| Self::normalize_hook_path(&value))
+            .unwrap_or_else(|| OPENCLAW_WEBHOOK_PATH.to_string())
+    }
+
     fn install_home_dir(&self, opts: &InstallOptions) -> Result<PathBuf> {
         resolve_home_dir_with_fallback(opts.home_dir.as_deref(), self.home_dir_override.as_deref())
     }
@@ -135,7 +155,8 @@ impl OpenclawProvider {
             .to_string();
         let openclaw_config_path =
             resolve_openclaw_config_path(state_options.home_dir.as_deref(), None)?;
-        let openclaw_agent_id = self.resolve_setup_openclaw_agent_id(opts, &openclaw_config_path)?;
+        let openclaw_agent_id =
+            self.resolve_setup_openclaw_agent_id(opts, &openclaw_config_path)?;
         Ok(OpenclawSetupContext {
             state_options,
             config_dir,
@@ -209,6 +230,32 @@ impl OpenclawProvider {
         (existing_runtime, peers_path)
     }
 
+    fn backfill_legacy_openclaw_agent_ids(&self, config_dir: &Path) -> Result<Vec<String>> {
+        let assignments = load_connector_assignments(config_dir)?;
+        let mut backfilled_agents = Vec::new();
+        for (agent_name, assignment) in assignments.agents {
+            let has_agent_mapping = assignment
+                .openclaw_agent_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some();
+            if has_agent_mapping {
+                continue;
+            }
+            save_connector_assignment(
+                config_dir,
+                &agent_name,
+                &assignment.connector_base_url,
+                Some("main"),
+            )?;
+            backfilled_agents.push(agent_name);
+        }
+        backfilled_agents.sort();
+        backfilled_agents.dedup();
+        Ok(backfilled_agents)
+    }
+
     fn persist_setup_artifacts(
         &self,
         context: &OpenclawSetupContext,
@@ -216,6 +263,8 @@ impl OpenclawProvider {
         connector_base_url: &str,
         install_notes: Vec<String>,
     ) -> Result<OpenclawSetupArtifacts> {
+        let setup_hook_path = self.resolve_setup_hook_path();
+        let backfilled_agents = self.backfill_legacy_openclaw_agent_ids(&context.config_dir)?;
         let (_, relay_snapshot_path) =
             self.resolve_setup_runtime_paths(opts, &context.config_dir, &context.openclaw_dir);
         let marker_path = write_selected_openclaw_agent(&context.config_dir, &context.agent_name)?;
@@ -245,6 +294,8 @@ impl OpenclawProvider {
         Ok(self.finalize_setup_artifacts(
             context,
             connector_base_url,
+            &setup_hook_path,
+            &backfilled_agents,
             install_notes,
             [
                 marker_path,
@@ -317,6 +368,8 @@ impl OpenclawProvider {
         &self,
         context: &OpenclawSetupContext,
         connector_base_url: &str,
+        setup_hook_path: &str,
+        backfilled_agents: &[String],
         install_notes: Vec<String>,
         paths: [PathBuf; 5],
     ) -> OpenclawSetupArtifacts {
@@ -339,6 +392,17 @@ impl OpenclawProvider {
             "OpenClaw inbound routing target set to agent `{}` (applies when connector hook path is `/hooks/agent`)",
             context.openclaw_agent_id
         ));
+        if !backfilled_agents.is_empty() {
+            notes.push(format!(
+                "migrated legacy connector assignments to include `openclawAgentId=main` for: {}",
+                backfilled_agents.join(", ")
+            ));
+            if setup_hook_path == OPENCLAW_AGENT_HOOK_PATH {
+                notes.push(
+                    "warning: connector hook path is `/hooks/agent`; legacy assignments without explicit OpenClaw routing were backfilled to `main`.".to_string(),
+                );
+            }
+        }
         notes.push("next: run `openclaw dashboard` for a quick OpenClaw UI check".to_string());
         notes.push(
             "next: run `clawdentity provider doctor --for openclaw` to validate relay readiness"
@@ -600,6 +664,9 @@ impl PlatformProvider for OpenclawProvider {
 
     fn setup(&self, opts: &ProviderSetupOptions) -> Result<ProviderSetupResult> {
         self.ensure_openclaw_cli()?;
+        let home_dir = opts.home_dir.clone().or(self.home_dir_override.clone());
+        let config_path = resolve_openclaw_config_path(home_dir.as_deref(), None)?;
+        self.ensure_openclaw_base_ready(&config_path)?;
         let context = self.resolve_setup_context(opts)?;
         let connector_base_url =
             self.resolve_setup_connector_base_url(opts, &context.config_dir, &context.agent_name);

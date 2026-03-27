@@ -3,6 +3,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use clawdentity_core::agent::AgentAuthRecord;
 use clawdentity_core::config::{CliConfig, ConfigPathOptions, get_config_dir, write_config};
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
+use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use serde_json::json;
 use std::collections::HashMap;
@@ -16,9 +17,11 @@ use super::runtime_config::{
 };
 use super::{
     SenderProfileHeaders, build_deliver_ack_reason, build_openclaw_delivery_headers,
-    build_openclaw_hook_payload, build_openclaw_receipt_payload, normalize_hook_path,
-    should_dead_letter_after_failure,
+    build_openclaw_hook_payload, build_openclaw_receipt_payload, forward_deliver_to_openclaw,
+    normalize_hook_path, should_dead_letter_after_failure,
 };
+use wiremock::matchers::{body_json, method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[test]
 fn normalizes_hook_path_with_leading_slash() {
@@ -394,7 +397,7 @@ fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
         reason: Some("hook failed".to_string()),
     };
 
-    let payload = build_openclaw_receipt_payload("/hooks/agent", &receipt);
+    let payload = build_openclaw_receipt_payload("/hooks/agent", &receipt, Some("coder"));
     assert_eq!(
         payload.get("type").and_then(|value| value.as_str()),
         Some("clawdentity:receipt")
@@ -415,6 +418,26 @@ fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
             .and_then(|value| value.as_str()),
         Some("dead_lettered")
     );
+    assert_eq!(
+        payload.get("agentId").and_then(|value| value.as_str()),
+        Some("coder")
+    );
+}
+
+#[test]
+fn openclaw_receipt_payload_omits_agent_id_when_mapping_missing() {
+    let receipt = ReceiptFrame {
+        v: 1,
+        id: "receipt-1b".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        original_frame_id: "req-6b".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        status: ReceiptStatus::DeadLettered,
+        reason: Some("hook failed".to_string()),
+    };
+
+    let payload = build_openclaw_receipt_payload("/hooks/agent", &receipt, None);
+    assert!(payload.get("agentId").is_none());
 }
 
 #[test]
@@ -429,7 +452,7 @@ fn openclaw_receipt_payload_uses_text_for_wake_hooks() {
         reason: None,
     };
 
-    let payload = build_openclaw_receipt_payload("/hooks/wake", &receipt);
+    let payload = build_openclaw_receipt_payload("/hooks/wake", &receipt, Some("coder"));
     assert_eq!(
         payload.get("status").and_then(|value| value.as_str()),
         Some("processed_by_openclaw")
@@ -450,6 +473,57 @@ fn openclaw_receipt_payload_uses_text_for_wake_hooks() {
             .and_then(|value| value.as_str()),
         Some("processed_by_openclaw")
     );
+    assert!(payload.get("agentId").is_none());
+}
+
+#[tokio::test]
+async fn forward_delivery_posts_agent_id_for_agent_hook_path() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/hooks/agent"))
+        .and(body_json(json!({
+            "message": "hello over relay",
+            "content": "hello over relay",
+            "senderDid": "did:cdi:test:agent:sender",
+            "recipientDid": "did:cdi:test:agent:recipient",
+            "requestId": "req-e2e-1",
+            "agentId": "coder",
+            "metadata": {
+                "conversationId": serde_json::Value::Null,
+                "replyTo": serde_json::Value::Null,
+                "payload": {
+                    "message": "hello over relay"
+                }
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let runtime = OpenclawRuntimeConfig {
+        base_url: server.uri(),
+        hook_path: "/hooks/agent".to_string(),
+        hook_token: None,
+        target_agent_id: Some("coder".to_string()),
+    };
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-e2e-1".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        payload: json!({ "message": "hello over relay" }),
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+    let hook_url = runtime.hook_url().expect("hook url");
+    let client = reqwest::Client::new();
+
+    forward_deliver_to_openclaw(&client, &hook_url, &runtime, &deliver, None)
+        .await
+        .expect("forward delivery should succeed");
 }
 
 #[test]

@@ -9,6 +9,7 @@
 - Wake payloads must only include `sessionId` when the inbound payload explicitly carries one.
 - `/hooks/wake` remains the visible default for peer delivery; `/hooks/agent` is only for explicit isolated-hook routing.
 - Inject `agentId` into OpenClaw payloads only when delivering to `/hooks/agent` and a non-empty mapped `openclawAgentId` exists for the active Clawdentity agent.
+- Keep `/hooks/agent` routing symmetric for deliveries and receipts: when a mapped `openclawAgentId` exists, both payload types must include `agentId`.
 - Never inject `agentId` for `/hooks/wake`; wake-mode payload shape must stay stable for backward compatibility and visible chat delivery.
 - Runtime config resolution for OpenClaw routing must read per-agent `openclawAgentId` from connector assignment state and gracefully return `None` when mapping data is absent.
 - Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.

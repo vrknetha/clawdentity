@@ -15,7 +15,11 @@ pub(crate) fn build_openclaw_hook_payload(
     build_openclaw_agent_payload(deliver, openclaw_target_agent_id)
 }
 
-pub(crate) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptFrame) -> Value {
+pub(crate) fn build_openclaw_receipt_payload(
+    hook_path: &str,
+    receipt: &ReceiptFrame,
+    openclaw_target_agent_id: Option<&str>,
+) -> Value {
     let summary = render_receipt_summary(receipt);
     let status = receipt_status_str(&receipt.status);
     let receipt_json = build_openclaw_receipt_metadata(receipt);
@@ -37,7 +41,7 @@ pub(crate) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptF
         });
     }
 
-    json!({
+    let mut payload = json!({
         "type": "clawdentity:receipt",
         "originalFrameId": receipt.original_frame_id,
         "toAgentDid": receipt.to_agent_did,
@@ -49,7 +53,14 @@ pub(crate) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptF
         "metadata": {
             "receipt": receipt_json,
         },
-    })
+    });
+    if let Some(agent_id) = openclaw_target_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        payload["agentId"] = Value::String(agent_id.to_string());
+    }
+    payload
 }
 
 fn build_openclaw_receipt_metadata(receipt: &ReceiptFrame) -> Value {
