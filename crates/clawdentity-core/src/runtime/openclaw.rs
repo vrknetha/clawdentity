@@ -6,6 +6,7 @@ pub struct OpenclawRuntimeConfig {
     pub base_url: String,
     pub hook_path: String,
     pub hook_token: Option<String>,
+    pub target_agent_id: Option<String>,
 }
 
 impl OpenclawRuntimeConfig {
@@ -70,6 +71,7 @@ mod tests {
             base_url: "http://127.0.0.1:11434".to_string(),
             hook_path: "/v1/hooks/relay".to_string(),
             hook_token: None,
+            target_agent_id: None,
         };
         let url = config.hook_url().expect("hook url");
         assert_eq!(url, "http://127.0.0.1:11434/v1/hooks/relay");

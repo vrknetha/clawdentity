@@ -34,7 +34,7 @@ use receipts::{ReceiptDispatchRuntime, ReceiptOutboxHandle, start_receipt_outbox
 #[cfg(test)]
 use delivery::{
     build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
-    should_dead_letter_after_failure,
+    forward_deliver_to_openclaw, should_dead_letter_after_failure,
 };
 #[cfg(test)]
 use headers::{SenderProfileHeaders, build_openclaw_delivery_headers};

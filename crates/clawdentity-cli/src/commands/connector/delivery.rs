@@ -444,7 +444,7 @@ pub(super) fn build_deliver_ack_reason(
     }
 }
 
-async fn forward_deliver_to_openclaw(
+pub(super) async fn forward_deliver_to_openclaw(
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
@@ -456,6 +456,7 @@ async fn forward_deliver_to_openclaw(
         .json(&build_openclaw_hook_payload(
             &openclaw_runtime.hook_path,
             deliver,
+            openclaw_runtime.target_agent_id.as_deref(),
         ));
 
     for (name, value) in build_openclaw_delivery_headers(
@@ -495,6 +496,7 @@ async fn forward_receipt_to_openclaw(
         .json(&build_openclaw_receipt_payload(
             &openclaw_runtime.hook_path,
             receipt,
+            openclaw_runtime.target_agent_id.as_deref(),
         ));
 
     if let Some(token) = openclaw_runtime

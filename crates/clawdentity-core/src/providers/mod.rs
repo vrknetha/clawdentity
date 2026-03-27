@@ -163,6 +163,7 @@ pub struct ProviderDoctorResult {
 pub struct ProviderSetupOptions {
     pub home_dir: Option<PathBuf>,
     pub agent_name: Option<String>,
+    pub openclaw_agent_id: Option<String>,
     pub platform_base_url: Option<String>,
     pub webhook_host: Option<String>,
     pub webhook_port: Option<u16>,

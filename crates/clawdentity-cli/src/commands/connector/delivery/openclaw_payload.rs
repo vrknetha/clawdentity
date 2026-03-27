@@ -3,15 +3,23 @@ use serde_json::{Value, json};
 
 use super::super::normalize_hook_path;
 
-pub(crate) fn build_openclaw_hook_payload(hook_path: &str, deliver: &DeliverFrame) -> Value {
+pub(crate) fn build_openclaw_hook_payload(
+    hook_path: &str,
+    deliver: &DeliverFrame,
+    openclaw_target_agent_id: Option<&str>,
+) -> Value {
     if normalize_hook_path(hook_path) == "/hooks/wake" {
         return build_openclaw_wake_payload(deliver);
     }
 
-    build_openclaw_agent_payload(deliver)
+    build_openclaw_agent_payload(deliver, openclaw_target_agent_id)
 }
 
-pub(crate) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptFrame) -> Value {
+pub(crate) fn build_openclaw_receipt_payload(
+    hook_path: &str,
+    receipt: &ReceiptFrame,
+    openclaw_target_agent_id: Option<&str>,
+) -> Value {
     let summary = render_receipt_summary(receipt);
     let status = receipt_status_str(&receipt.status);
     let receipt_json = build_openclaw_receipt_metadata(receipt);
@@ -33,7 +41,7 @@ pub(crate) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptF
         });
     }
 
-    json!({
+    let mut payload = json!({
         "type": "clawdentity:receipt",
         "originalFrameId": receipt.original_frame_id,
         "toAgentDid": receipt.to_agent_did,
@@ -45,7 +53,14 @@ pub(crate) fn build_openclaw_receipt_payload(hook_path: &str, receipt: &ReceiptF
         "metadata": {
             "receipt": receipt_json,
         },
-    })
+    });
+    if let Some(agent_id) = openclaw_target_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        payload["agentId"] = Value::String(agent_id.to_string());
+    }
+    payload
 }
 
 fn build_openclaw_receipt_metadata(receipt: &ReceiptFrame) -> Value {
@@ -92,9 +107,12 @@ fn render_receipt_summary(receipt: &ReceiptFrame) -> String {
     lines.join("\n")
 }
 
-fn build_openclaw_agent_payload(deliver: &DeliverFrame) -> Value {
+fn build_openclaw_agent_payload(
+    deliver: &DeliverFrame,
+    openclaw_target_agent_id: Option<&str>,
+) -> Value {
     let message = extract_content(&deliver.payload);
-    json!({
+    let mut payload = json!({
         "message": message,
         "content": message,
         "senderDid": deliver.from_agent_did,
@@ -105,7 +123,14 @@ fn build_openclaw_agent_payload(deliver: &DeliverFrame) -> Value {
             "replyTo": deliver.reply_to,
             "payload": deliver.payload,
         },
-    })
+    });
+    if let Some(agent_id) = openclaw_target_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        payload["agentId"] = Value::String(agent_id.to_string());
+    }
+    payload
 }
 
 fn build_openclaw_wake_payload(deliver: &DeliverFrame) -> Value {

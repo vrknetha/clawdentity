@@ -94,7 +94,8 @@ async fn doctor_reports_healthy_when_runtime_is_ready() {
         .mount(&server)
         .await;
 
-    save_connector_assignment(&config_dir, "alpha", &server.uri()).expect("assignment");
+    save_connector_assignment(&config_dir, "alpha", &server.uri(), Some("main"))
+        .expect("assignment");
     let doctor_config_dir = config_dir.clone();
     let doctor_store = store.clone();
     let result = tokio::task::spawn_blocking(move || {

@@ -54,6 +54,7 @@ pub(crate) fn execute_provider_command(
         ProviderCommand::Setup {
             platform,
             agent_name,
+            openclaw_agent_id,
             platform_base_url,
             webhook_host,
             webhook_port,
@@ -74,6 +75,7 @@ pub(crate) fn execute_provider_command(
             let result = provider.setup(&ProviderSetupOptions {
                 home_dir,
                 agent_name,
+                openclaw_agent_id,
                 platform_base_url,
                 webhook_host,
                 webhook_port,

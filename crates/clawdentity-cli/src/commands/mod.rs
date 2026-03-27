@@ -185,6 +185,8 @@ pub enum ProviderCommand {
         #[arg(long)]
         agent_name: Option<String>,
         #[arg(long)]
+        openclaw_agent_id: Option<String>,
+        #[arg(long)]
         platform_base_url: Option<String>,
         #[arg(long)]
         webhook_host: Option<String>,
