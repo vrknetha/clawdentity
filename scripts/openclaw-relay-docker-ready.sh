@@ -167,13 +167,52 @@ require_container_http_ok() {
   docker exec "$container" sh -lc "curl -fsS --max-time 5 '$url' >/dev/null 2>&1" || fail "${label} check failed in ${container}: ${url}"
 }
 
+normalize_clawdentity_version() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr -d '[:space:]')"
+  raw="${raw#rust/v}"
+  raw="${raw#v}"
+  printf '%s' "$raw"
+}
+
+resolve_version_from_preserved_env() {
+  local alpha_env="$OPENCLAW_ALPHA_HOME/.env"
+  local beta_env="$OPENCLAW_BETA_HOME/.env"
+  local alpha_version
+  local beta_version
+  alpha_version="$(normalize_clawdentity_version "$(read_env_value "$alpha_env" "CLAWDENTITY_VERSION")")"
+  beta_version="$(normalize_clawdentity_version "$(read_env_value "$beta_env" "CLAWDENTITY_VERSION")")"
+
+  if [[ -n "$alpha_version" && -n "$beta_version" && "$alpha_version" != "$beta_version" ]]; then
+    log "Warning: preserved profile versions differ (alpha=${alpha_version}, beta=${beta_version}); using alpha"
+  fi
+
+  if [[ -n "$alpha_version" ]]; then
+    printf '%s' "$alpha_version"
+    return 0
+  fi
+  if [[ -n "$beta_version" ]]; then
+    printf '%s' "$beta_version"
+    return 0
+  fi
+  return 1
+}
+
+resolve_version_from_local_cargo() {
+  local cargo_toml="$REPO_ROOT/crates/clawdentity-cli/Cargo.toml"
+  [[ -f "$cargo_toml" ]] || return 1
+  awk -F'"' '/^version[[:space:]]*=[[:space:]]*"/ { print $2; exit }' "$cargo_toml"
+}
+
 resolve_latest_clawdentity_version() {
+  local source="manifest"
   if [[ -n "${CLAWDENTITY_VERSION:-}" ]]; then
-    CLAWDENTITY_LATEST_VERSION="${CLAWDENTITY_VERSION#rust/v}"
-    CLAWDENTITY_LATEST_VERSION="${CLAWDENTITY_LATEST_VERSION#v}"
+    CLAWDENTITY_LATEST_VERSION="$(normalize_clawdentity_version "${CLAWDENTITY_VERSION}")"
+    source="env-override"
   else
-    CLAWDENTITY_LATEST_VERSION="$(
-      curl -fsSL "$CLAWDENTITY_RELEASE_MANIFEST_URL" |
+    local fetched_version=""
+    if fetched_version="$(
+      curl -fsSL "$CLAWDENTITY_RELEASE_MANIFEST_URL" 2>/dev/null |
         node -e '
           let raw = "";
           process.stdin.on("data", (chunk) => {
@@ -189,11 +228,26 @@ resolve_latest_clawdentity_version() {
             process.stdout.write(version);
           });
         '
-    )" || fail "Failed to resolve latest CLI version from $CLAWDENTITY_RELEASE_MANIFEST_URL"
+    )"; then
+      CLAWDENTITY_LATEST_VERSION="$(normalize_clawdentity_version "$fetched_version")"
+    else
+      log "Warning: failed to resolve latest CLI version from $CLAWDENTITY_RELEASE_MANIFEST_URL"
+      if CLAWDENTITY_LATEST_VERSION="$(resolve_version_from_preserved_env)"; then
+        source="preserved-profile-env"
+      else
+        local cargo_version
+        cargo_version="$(resolve_version_from_local_cargo || true)"
+        cargo_version="$(normalize_clawdentity_version "$cargo_version")"
+        if [[ -n "$cargo_version" ]]; then
+          CLAWDENTITY_LATEST_VERSION="$cargo_version"
+          source="local-cargo"
+        fi
+      fi
+    fi
   fi
 
-  [[ -n "$CLAWDENTITY_LATEST_VERSION" ]] || fail "Resolved CLI version is empty"
-  log "Using clawdentity version ${CLAWDENTITY_LATEST_VERSION}"
+  [[ -n "$CLAWDENTITY_LATEST_VERSION" ]] || fail "Resolved CLI version is empty (set CLAWDENTITY_VERSION to override)"
+  log "Using clawdentity version ${CLAWDENTITY_LATEST_VERSION} (source: ${source})"
 }
 
 build_local_clawdentity_cli() {
@@ -479,6 +533,9 @@ clear_runtime_state() {
   local profile_path="$1"
   rm -f "$profile_path/memory/main.sqlite"
   rm -f "$profile_path/workspace/.openclaw/workspace-state.json"
+  rm -rf "$profile_path/.clawdentity"
+  rm -rf "$profile_path/.clawdentity-cli"
+  rm -rf "$profile_path/.clawdentity-state"
   rm -rf "$profile_path/workspace/.clawdentity"
   rm -rf "$profile_path/workspace/.clawdentity-cli"
   rm -rf "$profile_path/workspace/.clawdentity-state"
@@ -496,6 +553,7 @@ assert_profile_clean_state() {
   [[ ! -d "$profile_path/skills/clawdentity-openclaw-relay" ]] || fail "${profile_name}: skill artifacts survived reset"
   [[ ! -d "$profile_path/workspace/skills/clawdentity-openclaw-relay" ]] || fail "${profile_name}: workspace skill artifacts survived reset"
   [[ ! -f "$profile_path/hooks/transforms/relay-to-peer.mjs" ]] || fail "${profile_name}: relay transform survived reset"
+  [[ ! -d "$profile_path/.clawdentity" ]] || fail "${profile_name}: profile-home clawdentity state survived reset"
   [[ ! -d "$profile_path/workspace/.clawdentity" ]] || fail "${profile_name}: clawdentity workspace state survived reset"
 
   sessions_count="$({ find "$profile_path/agents/main/sessions" -type f 2>/dev/null || true; } | wc -l | tr -d ' ')"

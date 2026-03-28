@@ -24,6 +24,7 @@ const ONBOARDING_SESSION_VERSION: u32 = 1;
 const DEFAULT_PLATFORM: &str = "openclaw";
 const DEFAULT_PAIR_WAIT_SECONDS: u64 = 30;
 const DEFAULT_PAIR_POLL_INTERVAL_SECONDS: u64 = 3;
+const PAIRING_NOTIFICATION_TIMEOUT_SECONDS: u64 = 2;
 
 const FAILURE_CODE_MISSING_REQUIRED_INPUT: &str = "ONBOARDING_REQUIRED_INPUT_MISSING";
 const FAILURE_CODE_CONNECTOR_DOWN: &str = "ONBOARDING_CONNECTOR_DOWN";
@@ -929,7 +930,12 @@ async fn emit_pairing_saved_notification(
         "Clawdentity pairing accepted: {peer_agent_name} ({peer_human_name}) is saved as {peer_alias}."
     );
 
-    let client = reqwest::Client::new();
+    let Ok(client) = reqwest::Client::builder()
+        .timeout(Duration::from_secs(PAIRING_NOTIFICATION_TIMEOUT_SECONDS))
+        .build()
+    else {
+        return;
+    };
     let mut request = client
         .post(endpoint)
         .json(&json!({ "message": message, "text": message }));
