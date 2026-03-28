@@ -270,6 +270,7 @@ export class AgentRelaySession {
       requestId: input.requestId,
       senderAgentDid: input.senderAgentDid,
       recipientAgentDid: input.recipientAgentDid,
+      deliverySource: input.deliverySource,
       conversationId: input.conversationId,
       replyTo: input.replyTo,
       payload: input.payload,

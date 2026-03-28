@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -21,24 +22,46 @@ use super::headers::{
 };
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
+use pair_accepted::apply_pair_accepted_system_delivery;
 
 mod openclaw_payload;
+mod pair_accepted;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
 
+struct InboundRuntimeContext<'a> {
+    store: &'a SqliteStore,
+    config_dir: &'a Path,
+    relay_sender: &'a ConnectorClientSender,
+    http_client: &'a reqwest::Client,
+    hook_url: &'a str,
+    openclaw_runtime: &'a OpenclawRuntimeConfig,
+    receipt_outbox: &'a ReceiptOutboxHandle,
+}
+
 pub(super) async fn run_inbound_loop(
     receipt_outbox: ReceiptOutboxHandle,
     mut connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let hook_url = openclaw_runtime.hook_url()?;
     let http_client = create_http_client()?;
+    let context = InboundRuntimeContext {
+        store: &store,
+        config_dir: config_dir.as_path(),
+        relay_sender: &relay_sender,
+        http_client: &http_client,
+        hook_url: &hook_url,
+        openclaw_runtime: &openclaw_runtime,
+        receipt_outbox: &receipt_outbox,
+    };
 
     loop {
         tokio::select! {
@@ -51,46 +74,26 @@ pub(super) async fn run_inbound_loop(
                 let Some(frame) = frame else {
                     return Ok(());
                 };
-                handle_connector_frame(
-                    frame,
-                    &store,
-                    &relay_sender,
-                    &http_client,
-                    &hook_url,
-                    &openclaw_runtime,
-                    &receipt_outbox,
-                )
-                .await;
+                handle_connector_frame(frame, &context).await;
             }
         }
     }
 }
 
-async fn handle_connector_frame(
-    frame: ConnectorFrame,
-    store: &SqliteStore,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt_outbox: &ReceiptOutboxHandle,
-) {
+async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeContext<'_>) {
     match frame {
         ConnectorFrame::Deliver(deliver) => {
-            handle_deliver_frame(
-                store,
-                relay_sender,
-                http_client,
-                hook_url,
-                openclaw_runtime,
-                receipt_outbox,
-                deliver,
-            )
-            .await;
+            handle_deliver_frame(context, deliver).await;
         }
         ConnectorFrame::Receipt(receipt) => {
             if let Err(error) =
-                forward_receipt_to_openclaw(http_client, hook_url, openclaw_runtime, &receipt).await
+                forward_receipt_to_openclaw(
+                    context.http_client,
+                    context.hook_url,
+                    context.openclaw_runtime,
+                    &receipt,
+                )
+                .await
             {
                 tracing::warn!(
                     error = %error,
@@ -122,6 +125,7 @@ fn log_enqueue_ack(ack: &EnqueueAckFrame) {
 pub(super) async fn run_inbound_retry_loop(
     receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
@@ -141,6 +145,7 @@ pub(super) async fn run_inbound_retry_loop(
                 let _ = receipt_outbox.flush_due().await;
                 retry_due_inbound_deliveries(
                     &store,
+                    config_dir.as_path(),
                     &http_client,
                     &hook_url,
                     &openclaw_runtime,
@@ -154,6 +159,7 @@ pub(super) async fn run_inbound_retry_loop(
 
 async fn retry_due_inbound_deliveries(
     store: &SqliteStore,
+    config_dir: &Path,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
@@ -170,6 +176,7 @@ async fn retry_due_inbound_deliveries(
     for item in due_items {
         retry_pending_inbound_delivery(
             store,
+            config_dir,
             http_client,
             hook_url,
             openclaw_runtime,
@@ -182,16 +189,21 @@ async fn retry_due_inbound_deliveries(
 
 async fn retry_pending_inbound_delivery(
     store: &SqliteStore,
+    config_dir: &Path,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
     receipt_outbox: &ReceiptOutboxHandle,
     item: InboundPendingItem,
 ) {
-    let Ok(deliver) = build_deliver_from_pending(&item) else {
+    let Ok(mut deliver) = build_deliver_from_pending(&item) else {
         dead_letter_invalid_pending_payload(store, receipt_outbox, &item).await;
         return;
     };
+    if let Err(error) = apply_pair_accepted_system_delivery(store, config_dir, &mut deliver) {
+        handle_pending_retry_failure(store, receipt_outbox, &item, &error).await;
+        return;
+    }
 
     let sender_profile = lookup_sender_profile_headers(store, &item.from_agent_did);
     match forward_deliver_to_openclaw(
@@ -230,6 +242,7 @@ fn build_deliver_from_pending(item: &InboundPendingItem) -> Result<DeliverFrame>
         from_agent_did: item.from_agent_did.clone(),
         to_agent_did: item.to_agent_did.clone(),
         payload,
+        delivery_source: item.delivery_source.clone(),
         content_type: Some("application/json".to_string()),
         conversation_id: item.conversation_id.clone(),
         reply_to: item.reply_to.clone(),
@@ -371,27 +384,26 @@ fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error:
     }
 }
 
-async fn handle_deliver_frame(
-    store: &SqliteStore,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt_outbox: &ReceiptOutboxHandle,
-    deliver: DeliverFrame,
-) {
-    let sender_profile = lookup_sender_profile_headers(store, &deliver.from_agent_did);
-    let delivery_result = forward_deliver_to_openclaw(
-        http_client,
-        hook_url,
-        openclaw_runtime,
-        &deliver,
-        sender_profile.as_ref(),
-    )
-    .await;
+async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: DeliverFrame) {
+    let system_delivery_result =
+        apply_pair_accepted_system_delivery(context.store, context.config_dir, &mut deliver);
+    let sender_profile = lookup_sender_profile_headers(context.store, &deliver.from_agent_did);
+    let delivery_result = match system_delivery_result {
+        Ok(_) => {
+            forward_deliver_to_openclaw(
+                context.http_client,
+                context.hook_url,
+                context.openclaw_runtime,
+                &deliver,
+                sender_profile.as_ref(),
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
     let delivery_succeeded = delivery_result.is_ok();
     let persistence_result =
-        persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
+        persist_inbound_delivery_result(context.store, &deliver, delivery_result.as_ref()).await;
     log_persist_failure(&deliver.id, persistence_result.as_ref().err());
 
     let ack_reason = build_deliver_ack_reason(
@@ -399,11 +411,12 @@ async fn handle_deliver_frame(
         persistence_result.as_ref().err(),
     );
     let ack_accepted = ack_reason.is_none();
-    send_deliver_ack(relay_sender, &deliver.id, ack_accepted, ack_reason).await;
+    send_deliver_ack(context.relay_sender, &deliver.id, ack_accepted, ack_reason).await;
     log_delivery_failure(&deliver, delivery_result.err());
 
     if delivery_succeeded {
-        let _ = receipt_outbox
+        let _ = context
+            .receipt_outbox
             .enqueue_and_try_flush(DeliveryReceiptPayload {
                 request_id: deliver.id.clone(),
                 sender_agent_did: deliver.from_agent_did.clone(),
@@ -599,6 +612,7 @@ fn persist_pending_inbound_delivery(
             attempt_count: 1,
             last_error: Some(last_error),
             last_attempt_at_ms: Some(received_at_ms),
+            delivery_source: deliver.delivery_source.clone(),
             conversation_id: deliver.conversation_id.clone(),
             reply_to: deliver.reply_to.clone(),
         },

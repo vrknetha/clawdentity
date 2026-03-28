@@ -5,5 +5,6 @@ export const RELAY_RPC_RECORD_RECEIPT_PATH = "/rpc/record-delivery-receipt";
 export const RELAY_HEARTBEAT_INTERVAL_MS = 30_000;
 export const RELAY_HEARTBEAT_ACK_TIMEOUT_MS = 60_000;
 export const RELAY_QUEUE_STORAGE_KEY = "relay:delivery-queue";
+export const RELAY_DELIVERY_SOURCE_AGENT_ENQUEUE = "agent.enqueue";
 export const RELAY_SOCKET_SUPERSEDED_CLOSE_CODE = 1000;
 export const RELAY_SOCKET_STALE_CLOSE_CODE = 1011;

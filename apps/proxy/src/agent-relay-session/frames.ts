@@ -9,6 +9,7 @@ import {
 } from "@clawdentity/connector";
 import { generateUlid } from "@clawdentity/protocol";
 import { nowUtcMs, toIso } from "@clawdentity/sdk";
+import { RELAY_DELIVERY_SOURCE_AGENT_ENQUEUE } from "./constants.js";
 import type {
   RelayDeliveryInput,
   RelayDeliveryResult,
@@ -54,6 +55,7 @@ export function toDeliverFrame(input: RelayDeliveryInput): DeliverFrame {
     fromAgentDid: input.senderAgentDid,
     toAgentDid: input.recipientAgentDid,
     payload: input.payload,
+    deliverySource: input.deliverySource,
     conversationId: input.conversationId,
     replyTo: input.replyTo,
   };
@@ -108,6 +110,7 @@ export function toRelayDeliveryInputFromEnqueueFrame(input: {
     senderAgentDid: input.senderAgentDid,
     recipientAgentDid: input.frame.toAgentDid,
     payload: input.frame.payload,
+    deliverySource: RELAY_DELIVERY_SOURCE_AGENT_ENQUEUE,
     conversationId: input.frame.conversationId,
     replyTo: input.frame.replyTo,
   };

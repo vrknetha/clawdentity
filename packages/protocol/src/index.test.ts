@@ -32,6 +32,8 @@ import {
   ME_API_KEYS_PATH,
   makeAgentDid,
   makeHumanDid,
+  PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
   PROTOCOL_VERSION,
   ProtocolParseError,
   parseAgentAuthRevokedMetadata,
@@ -40,6 +42,7 @@ import {
   parseCrlClaims,
   parseDid,
   parseHumanDid,
+  parsePairAcceptedEvent,
   parseUlid,
   REGISTRY_METADATA_PATH,
   RELAY_CONNECT_PATH,
@@ -92,6 +95,35 @@ describe("protocol", () => {
     ).toEqual({
       agentDid:
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    });
+  });
+
+  it("exports pair accepted queue event constants and parser", () => {
+    expect(PAIR_ACCEPTED_EVENT_TYPE).toBe("pair.accepted");
+    expect(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE).toBe(
+      "proxy.events.queue.pair_accepted",
+    );
+    expect(
+      parsePairAcceptedEvent({
+        type: "pair.accepted",
+        initiatorAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        responderAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        responderProfile: {
+          agentName: "beta",
+          humanName: "Ira",
+          proxyOrigin: "https://beta.proxy.example",
+        },
+        issuerProxyOrigin: "https://proxy.clawdentity.dev",
+        eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      type: "pair.accepted",
+      initiatorAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      responderAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     });
   });
 

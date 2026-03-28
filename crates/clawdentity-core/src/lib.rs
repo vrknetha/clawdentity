@@ -111,7 +111,8 @@ pub use pairing::{
     PAIR_START_PATH, PAIR_STATUS_PATH, PAIRING_TICKET_PREFIX, PairConfirmInput, PairConfirmResult,
     PairProfile, PairStartResult, PairStatusKind, PairStatusOptions, PairStatusResult,
     assert_ticket_issuer_matches_proxy, confirm_pairing, get_pairing_status, parse_pairing_ticket,
-    parse_pairing_ticket_issuer_origin, start_pairing,
+    parse_pairing_ticket_issuer_origin, persist_confirmed_peer_from_profile_and_proxy_origin,
+    start_pairing,
 };
 pub use peers::{
     PeerEntry, PeersConfig, PersistPeerInput, derive_peer_alias_base, load_peers_config,

@@ -16,29 +16,6 @@ import {
 } from "./types.js";
 import { isNonEmptyString, parsePeerProfile } from "./utils.js";
 
-function normalizeOptionalCallbackUrl(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (!isNonEmptyString(value)) {
-    return undefined;
-  }
-
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(value);
-  } catch {
-    return undefined;
-  }
-
-  if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
-    return undefined;
-  }
-
-  return parsedUrl.toString();
-}
-
 export class ProxyTrustStateStorage {
   private readonly state: DurableObjectState;
 
@@ -285,25 +262,15 @@ export class ProxyTrustStateStorage {
         issuerProxyUrl?: unknown;
         publicKeyX?: unknown;
         allowResponderAgentDid?: unknown;
-        callbackUrl?: unknown;
       };
       const initiatorProfile = parsePeerProfile(entry.initiatorProfile);
-      const callbackUrl = normalizeOptionalCallbackUrl(entry.callbackUrl);
       if (
         !isNonEmptyString(entry.initiatorAgentDid) ||
         !initiatorProfile ||
         !isNonEmptyString(entry.issuerProxyUrl) ||
+        !isNonEmptyString(entry.publicKeyX) ||
         typeof entry.expiresAtMs !== "number" ||
         !Number.isInteger(entry.expiresAtMs)
-      ) {
-        continue;
-      }
-      if (entry.callbackUrl !== undefined && callbackUrl === undefined) {
-        continue;
-      }
-      if (
-        entry.publicKeyX !== undefined &&
-        !isNonEmptyString(entry.publicKeyX)
       ) {
         continue;
       }
@@ -330,13 +297,10 @@ export class ProxyTrustStateStorage {
         initiatorAgentDid: entry.initiatorAgentDid,
         initiatorProfile,
         issuerProxyUrl: parsedTicket.iss,
-        publicKeyX: isNonEmptyString(entry.publicKeyX)
-          ? entry.publicKeyX
-          : undefined,
+        publicKeyX: entry.publicKeyX,
         allowResponderAgentDid: isNonEmptyString(entry.allowResponderAgentDid)
           ? entry.allowResponderAgentDid
           : undefined,
-        callbackUrl,
       };
     }
 
@@ -373,11 +337,9 @@ export class ProxyTrustStateStorage {
         responderProfile?: unknown;
         issuerProxyUrl?: unknown;
         confirmedAtMs?: unknown;
-        callbackUrl?: unknown;
       };
       const initiatorProfile = parsePeerProfile(entry.initiatorProfile);
       const responderProfile = parsePeerProfile(entry.responderProfile);
-      const callbackUrl = normalizeOptionalCallbackUrl(entry.callbackUrl);
 
       if (
         !isNonEmptyString(entry.initiatorAgentDid) ||
@@ -390,9 +352,6 @@ export class ProxyTrustStateStorage {
         typeof entry.confirmedAtMs !== "number" ||
         !Number.isInteger(entry.confirmedAtMs)
       ) {
-        continue;
-      }
-      if (entry.callbackUrl !== undefined && callbackUrl === undefined) {
         continue;
       }
 
@@ -415,7 +374,6 @@ export class ProxyTrustStateStorage {
         responderProfile,
         issuerProxyUrl: parsedTicket.iss,
         confirmedAtMs: entry.confirmedAtMs,
-        callbackUrl,
       };
     }
 

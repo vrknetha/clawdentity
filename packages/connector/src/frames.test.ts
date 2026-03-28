@@ -37,6 +37,24 @@ describe("connector frame parsing", () => {
     expect(parsed).toEqual(frame);
   });
 
+  it("roundtrips a deliver frame with delivery source metadata", () => {
+    const frame = {
+      v: 1 as const,
+      type: "deliver" as const,
+      id: generateUlid(1700000000000),
+      ts: "2026-01-01T00:00:00.000Z",
+      fromAgentDid: createAgentDid(1700000000100),
+      toAgentDid: createAgentDid(1700000000200),
+      payload: { system: { type: "pair.accepted" } },
+      deliverySource: "proxy.events.queue.pair_accepted",
+    };
+
+    const serialized = serializeFrame(frame);
+    const parsed = parseFrame(serialized);
+
+    expect(parsed).toEqual(frame);
+  });
+
   it("parses binary frame payloads", () => {
     const heartbeat = {
       v: 1 as const,

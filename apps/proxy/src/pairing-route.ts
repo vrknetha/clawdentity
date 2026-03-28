@@ -1,4 +1,7 @@
-import { parseAgentDid as parseProtocolAgentDid } from "@clawdentity/protocol";
+import {
+  createPairAcceptedEvent,
+  parseAgentDid as parseProtocolAgentDid,
+} from "@clawdentity/protocol";
 import {
   AppError,
   createRegistryIdentityClient,
@@ -32,6 +35,9 @@ export { PAIR_CONFIRM_PATH, PAIR_START_PATH };
 export { PAIR_STATUS_PATH };
 
 type PairingRouteContext = Context<{
+  Bindings: {
+    EVENTS_QUEUE?: Queue<string>;
+  };
   Variables: ProxyRequestVariables;
 }>;
 
@@ -49,7 +55,6 @@ type CreatePairStartHandlerOptions = PairStartRuntimeOptions & {
 };
 
 export type PairConfirmRuntimeOptions = {
-  fetchImpl?: typeof fetch;
   nowMs?: () => number;
 };
 
@@ -178,7 +183,13 @@ function parseProfileName(value: unknown, label: string): string {
   return normalized;
 }
 
-function parsePeerProfile(value: unknown, label: string): PeerProfile {
+function parsePeerProfile(
+  value: unknown,
+  label: string,
+  options?: {
+    requireProxyOrigin?: boolean;
+  },
+): PeerProfile {
   if (typeof value !== "object" || value === null) {
     throw new AppError({
       code: "PROXY_PAIR_INVALID_BODY",
@@ -231,6 +242,13 @@ function parsePeerProfile(value: unknown, label: string): PeerProfile {
       });
     }
     profile.proxyOrigin = parsedProxyOrigin.origin;
+  } else if (options?.requireProxyOrigin === true) {
+    throw new AppError({
+      code: "PROXY_PAIR_INVALID_BODY",
+      message: `${label}.proxyOrigin is required`,
+      status: 400,
+      expose: true,
+    });
   }
 
   return profile;
@@ -263,47 +281,6 @@ function parseOptionalResponderAgentDid(value: unknown): string | undefined {
   }
 
   return candidate;
-}
-
-function parseOptionalCallbackUrl(value: unknown): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (typeof value !== "string") {
-    throw new AppError({
-      code: "PROXY_PAIR_INVALID_BODY",
-      message: "callbackUrl must be a valid http(s) URL",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  let parsedCallbackUrl: URL;
-  try {
-    parsedCallbackUrl = new URL(value.trim());
-  } catch {
-    throw new AppError({
-      code: "PROXY_PAIR_INVALID_BODY",
-      message: "callbackUrl must be a valid http(s) URL",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  if (
-    parsedCallbackUrl.protocol !== "https:" &&
-    parsedCallbackUrl.protocol !== "http:"
-  ) {
-    throw new AppError({
-      code: "PROXY_PAIR_INVALID_BODY",
-      message: "callbackUrl must be a valid http(s) URL",
-      status: 400,
-      expose: true,
-    });
-  }
-
-  return parsedCallbackUrl.toString();
 }
 
 async function parseJsonBody(c: PairingRouteContext): Promise<unknown> {
@@ -392,41 +369,58 @@ function toPairingStoreAppError(error: unknown): AppError {
   });
 }
 
-async function postPairConfirmCallback(input: {
-  callbackUrl: string;
+async function publishPairAcceptedEvent(input: {
   confirmedPairingTicket: {
     initiatorAgentDid: string;
-    initiatorProfile: PeerProfile;
     responderAgentDid: string;
     responderProfile: PeerProfile;
     issuerProxyUrl: string;
   };
-  fetchImpl: typeof fetch;
+  eventTimestampUtc: string;
+  eventsQueue?: Queue<string>;
   logger: Logger;
   requestId?: string;
 }): Promise<void> {
-  try {
-    const response = await input.fetchImpl(input.callbackUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        paired: true,
+  const responderProxyOrigin =
+    input.confirmedPairingTicket.responderProfile.proxyOrigin?.trim();
+  if (responderProxyOrigin === undefined || responderProxyOrigin.length === 0) {
+    input.logger.warn(
+      "proxy.pair.confirm.event_missing_responder_proxy_origin",
+      {
+        requestId: input.requestId,
         initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
-        initiatorProfile: input.confirmedPairingTicket.initiatorProfile,
         responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
-        responderProfile: input.confirmedPairingTicket.responderProfile,
-        issuerProxyUrl: input.confirmedPairingTicket.issuerProxyUrl,
-      }),
-    });
-    if (!response.ok) {
-      throw new Error(`Callback returned status ${response.status}`);
-    }
-  } catch (error) {
-    input.logger.warn("proxy.pair.confirm.callback_failed", {
+      },
+    );
+    return;
+  }
+
+  const event = createPairAcceptedEvent({
+    initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
+    responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
+    responderProfile: {
+      agentName: input.confirmedPairingTicket.responderProfile.agentName,
+      humanName: input.confirmedPairingTicket.responderProfile.humanName,
+      proxyOrigin: responderProxyOrigin,
+    },
+    issuerProxyOrigin: input.confirmedPairingTicket.issuerProxyUrl,
+    eventTimestampUtc: input.eventTimestampUtc,
+  });
+
+  if (input.eventsQueue === undefined) {
+    input.logger.warn("proxy.pair.confirm.event_queue_unavailable", {
       requestId: input.requestId,
-      callbackUrl: input.callbackUrl,
+      initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
+      responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
+    });
+    return;
+  }
+
+  try {
+    await input.eventsQueue.send(JSON.stringify(event));
+  } catch (error) {
+    input.logger.warn("proxy.pair.confirm.event_queue_publish_failed", {
+      requestId: input.requestId,
       initiatorAgentDid: input.confirmedPairingTicket.initiatorAgentDid,
       responderAgentDid: input.confirmedPairingTicket.responderAgentDid,
       error: error instanceof Error ? error.message : String(error),
@@ -455,7 +449,6 @@ export function createPairStartHandler(
       ttlSeconds?: unknown;
       initiatorProfile?: unknown;
       allowResponderAgentDid?: unknown;
-      callbackUrl?: unknown;
     };
     const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
     const initiatorProfile = parsePeerProfile(
@@ -465,7 +458,19 @@ export function createPairStartHandler(
     const allowResponderAgentDid = parseOptionalResponderAgentDid(
       body.allowResponderAgentDid,
     );
-    const callbackUrl = parseOptionalCallbackUrl(body.callbackUrl);
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "callbackUrl" in body &&
+      (body as { callbackUrl?: unknown }).callbackUrl !== undefined
+    ) {
+      throw new AppError({
+        code: "PROXY_PAIR_INVALID_BODY",
+        message: "callbackUrl is no longer supported",
+        status: 400,
+        expose: true,
+      });
+    }
     const internalServiceCredentials = parseInternalServiceCredentials({
       serviceId: options.registryInternalServiceId,
       serviceSecret: options.registryInternalServiceSecret,
@@ -520,7 +525,6 @@ export function createPairStartHandler(
         ticket: createdTicket.ticket,
         publicKeyX: signingKey.publicKeyX,
         allowResponderAgentDid,
-        callbackUrl,
         expiresAtMs,
         nowMs: issuedAtMs,
       })
@@ -535,7 +539,6 @@ export function createPairStartHandler(
       expiresAt: toIso(pairingTicketResult.expiresAtMs),
       pkid: signingKey.pkid,
       allowResponderAgentDid,
-      hasCallbackUrl: callbackUrl !== undefined,
     });
 
     return c.json({
@@ -550,7 +553,6 @@ export function createPairStartHandler(
 export function createPairConfirmHandler(
   options: CreatePairConfirmHandlerOptions,
 ): (c: PairingRouteContext) => Promise<Response> {
-  const fetchImpl = options.fetchImpl ?? fetch;
   const nowMs = options.nowMs ?? nowUtcMs;
 
   return async (c) => {
@@ -578,6 +580,9 @@ export function createPairConfirmHandler(
     const responderProfile = parsePeerProfile(
       body.responderProfile,
       "responderProfile",
+      {
+        requireProxyOrigin: true,
+      },
     );
 
     const ticket = normalizePairingTicketText(body.ticket);
@@ -617,18 +622,15 @@ export function createPairConfirmHandler(
       initiatorAgentDid: confirmedPairingTicket.initiatorAgentDid,
       responderAgentDid: confirmedPairingTicket.responderAgentDid,
       issuerProxyUrl: confirmedPairingTicket.issuerProxyUrl,
-      callbackUrl: confirmedPairingTicket.callbackUrl,
     });
 
-    if (confirmedPairingTicket.callbackUrl !== undefined) {
-      void postPairConfirmCallback({
-        callbackUrl: confirmedPairingTicket.callbackUrl,
-        confirmedPairingTicket,
-        fetchImpl,
-        logger: options.logger,
-        requestId: c.get("requestId"),
-      });
-    }
+    await publishPairAcceptedEvent({
+      confirmedPairingTicket,
+      eventTimestampUtc: toIso(nowMs()),
+      eventsQueue: c.env?.EVENTS_QUEUE,
+      logger: options.logger,
+      requestId: c.get("requestId"),
+    });
 
     return c.json(
       {

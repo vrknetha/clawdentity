@@ -42,6 +42,10 @@
           {
             "binding": "RECEIPT_QUEUE",
             "queue": "clawdentity-receipts-local"
+          },
+          {
+            "binding": "EVENTS_QUEUE",
+            "queue": "clawdentity-events-local"
           }
         ],
         "consumers": [
@@ -50,6 +54,12 @@
             "max_batch_size": 25,
             "max_batch_timeout": 5,
             "dead_letter_queue": "clawdentity-receipts-dlq-local"
+          },
+          {
+            "queue": "clawdentity-events-local",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "dead_letter_queue": "clawdentity-events-dlq-local"
           }
         ]
       },
@@ -95,6 +105,10 @@
           {
             "binding": "RECEIPT_QUEUE",
             "queue": "clawdentity-receipts-dev"
+          },
+          {
+            "binding": "EVENTS_QUEUE",
+            "queue": "clawdentity-events-dev"
           }
         ],
         "consumers": [
@@ -159,6 +173,10 @@
           {
             "binding": "RECEIPT_QUEUE",
             "queue": "clawdentity-receipts"
+          },
+          {
+            "binding": "EVENTS_QUEUE",
+            "queue": "clawdentity-events"
           }
         ],
         "consumers": [

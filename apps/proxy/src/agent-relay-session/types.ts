@@ -13,6 +13,7 @@ export type DurableObjectStateLike = {
 
 export type RelayDeliveryInput = {
   conversationId?: string;
+  deliverySource?: string;
   payload: unknown;
   recipientAgentDid: string;
   replyTo?: string;
@@ -79,6 +80,7 @@ export type QueuedRelayDelivery = {
   attemptCount: number;
   createdAtMs: number;
   deliveryId: string;
+  deliverySource?: string;
   expiresAtMs: number;
   nextAttemptAtMs: number;
   payload: unknown;

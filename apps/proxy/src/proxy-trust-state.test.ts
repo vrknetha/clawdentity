@@ -222,7 +222,6 @@ describe("ProxyTrustState", () => {
         issuerProxyUrl: "https://proxy-a.example.com",
         ticket: createdTicket.ticket,
         publicKeyX: createdTicket.publicKeyX,
-        callbackUrl: "https://callbacks.example.com/pairing/complete",
         expiresAtMs: 1_700_000_060_000,
         nowMs: 1_700_000_000_000,
       }),
@@ -245,7 +244,6 @@ describe("ProxyTrustState", () => {
         initiatorAgentDid: string;
         responderAgentDid: string;
         issuerProxyUrl: string;
-        callbackUrl?: string;
       },
     ).toEqual({
       initiatorAgentDid:
@@ -255,7 +253,6 @@ describe("ProxyTrustState", () => {
         "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
       responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
       issuerProxyUrl: "https://proxy-a.example.com",
-      callbackUrl: "https://callbacks.example.com/pairing/complete",
     });
 
     const pairCheckResponse = await proxyTrustState.fetch(
@@ -341,6 +338,39 @@ describe("ProxyTrustState", () => {
     });
   });
 
+  it("rejects callbackUrl field on ticket creation", async () => {
+    const { proxyTrustState } = createProxyTrustState();
+    const createdTicket = await createSignedTicket({
+      issuerProxyUrl: "https://proxy-a.example.com",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_060_000,
+    });
+
+    const ticketResponse = await proxyTrustState.fetch(
+      makeRequest(TRUST_STORE_ROUTES.createPairingTicket, {
+        initiatorAgentDid:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        initiatorProfile: INITIATOR_PROFILE,
+        issuerProxyUrl: "https://proxy-a.example.com",
+        ticket: createdTicket.ticket,
+        publicKeyX: createdTicket.publicKeyX,
+        callbackUrl: "https://callbacks.example.com/pairing/complete",
+        expiresAtMs: 1_700_000_060_000,
+        nowMs: 1_700_000_000_000,
+      }),
+    );
+
+    expect(ticketResponse.status).toBe(400);
+    expect(
+      (await ticketResponse.json()) as { error: { code: string } },
+    ).toEqual({
+      error: {
+        code: "PROXY_PAIR_START_INVALID_BODY",
+        message: "callbackUrl is no longer supported",
+      },
+    });
+  });
+
   it("normalizes pairing ticket expiry to whole seconds", async () => {
     const { proxyTrustState } = createProxyTrustState();
     const createdTicket = await createSignedTicket({
@@ -415,7 +445,7 @@ describe("ProxyTrustState", () => {
     });
   });
 
-  it("confirms legacy stored pairing ticket without publicKeyX", async () => {
+  it("rejects stored pairing ticket entries missing publicKeyX", async () => {
     const createdTicket = await createSignedTicket({
       issuerProxyUrl: "https://proxy-a.example.com",
       nowMs: 1_700_000_000_000,
@@ -444,17 +474,19 @@ describe("ProxyTrustState", () => {
       }),
     );
 
-    expect(confirmResponse.status).toBe(200);
+    expect(confirmResponse.status).toBe(404);
     expect(
       (await confirmResponse.json()) as {
-        initiatorAgentDid: string;
-        responderAgentDid: string;
+        error: {
+          code: string;
+          message: string;
+        };
       },
     ).toMatchObject({
-      initiatorAgentDid:
-        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97",
-      responderAgentDid:
-        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT343FD48SE5Z15FNC01",
+      error: {
+        code: "PROXY_PAIR_TICKET_NOT_FOUND",
+        message: "Pairing ticket not found",
+      },
     });
   });
 

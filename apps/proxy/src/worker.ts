@@ -14,6 +14,11 @@ import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
 import { ProxyTrustStoreError } from "./proxy-trust-store.js";
 import {
+  handlePairAcceptedQueueEvent,
+  PAIR_ACCEPTED_EVENT_TYPE,
+  parsePairAcceptedQueueEvent,
+} from "./queue-consumer/pairing-events.js";
+import {
   DELIVERY_RECEIPT_EVENT_TYPE,
   handleReceiptQueueEvent,
   parseReceiptQueueEvent,
@@ -57,6 +62,7 @@ export type ProxyWorkerBindings = {
   APP_VERSION?: string;
   PROXY_VERSION?: string;
   RECEIPT_QUEUE?: Queue<string>;
+  EVENTS_QUEUE?: Queue<string>;
   [key: string]: unknown;
 };
 
@@ -237,6 +243,18 @@ function parseRegistryRevocationQueueEvent(payload: unknown) {
   }
 }
 
+function parsePairAcceptedEvent(payload: unknown) {
+  try {
+    return parsePairAcceptedQueueEvent(payload);
+  } catch (error) {
+    throw new NonRetryableQueueError(
+      error instanceof Error
+        ? error.message
+        : "Invalid pair accepted queue event payload",
+    );
+  }
+}
+
 type QueueFailureAction = "ack" | "retry";
 
 function resolveQueueFailureAction(error: unknown): {
@@ -315,6 +333,25 @@ const worker = {
     for (const message of batch.messages) {
       try {
         const event = parseQueueEventEnvelope(message.body);
+        if (event.type === PAIR_ACCEPTED_EVENT_TYPE) {
+          const relaySessionNamespace = env.AGENT_RELAY_SESSION;
+          if (relaySessionNamespace === undefined) {
+            throw new MissingQueueBindingError(
+              "AGENT_RELAY_SESSION",
+              event.type,
+            );
+          }
+
+          const parsedPairAcceptedEvent = parsePairAcceptedEvent(event.payload);
+          await handlePairAcceptedQueueEvent({
+            event: parsedPairAcceptedEvent,
+            relaySessionNamespace,
+          });
+
+          message.ack();
+          continue;
+        }
+
         if (event.type === DELIVERY_RECEIPT_EVENT_TYPE) {
           const relaySessionNamespace = env.AGENT_RELAY_SESSION;
           if (relaySessionNamespace === undefined) {

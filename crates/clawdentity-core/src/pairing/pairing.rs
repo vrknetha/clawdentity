@@ -380,7 +380,6 @@ fn execute_pair_request(
 }
 
 fn resolve_peer_proxy_url(
-    ticket: &str,
     profile: &PairProfile,
     peer_proxy_origin: Option<String>,
 ) -> Result<String> {
@@ -394,20 +393,20 @@ fn resolve_peer_proxy_url(
             }
         })
         .or_else(|| profile.proxy_origin.clone())
-        .unwrap_or(parse_pairing_ticket_issuer_origin(ticket)?);
+        .ok_or_else(|| CoreError::InvalidInput("peer proxy origin is required".to_string()))?;
     let origin = parse_proxy_url(&resolved_origin)?;
     to_request_url(&origin, "/hooks/agent")
 }
 
-fn persist_confirmed_peer(
+/// Persist a confirmed peer and update OpenClaw relay peer projection.
+pub fn persist_confirmed_peer_from_profile_and_proxy_origin(
     store: &SqliteStore,
     config_dir: &Path,
-    ticket: &str,
     peer_did: &str,
     peer_profile: &PairProfile,
     peer_proxy_origin: Option<String>,
 ) -> Result<String> {
-    let peer_proxy_url = resolve_peer_proxy_url(ticket, peer_profile, peer_proxy_origin)?;
+    let peer_proxy_url = resolve_peer_proxy_url(peer_profile, peer_proxy_origin)?;
     let record = persist_peer(
         store,
         PersistPeerInput {
@@ -421,6 +420,27 @@ fn persist_confirmed_peer(
     let peers_config = load_peers_config(store)?;
     sync_openclaw_relay_peers_snapshot(config_dir, &peers_config)?;
     Ok(record.alias)
+}
+
+fn persist_confirmed_peer(
+    store: &SqliteStore,
+    config_dir: &Path,
+    ticket: &str,
+    peer_did: &str,
+    peer_profile: &PairProfile,
+    peer_proxy_origin: Option<String>,
+) -> Result<String> {
+    let resolved_peer_proxy_origin = peer_proxy_origin
+        .or_else(|| peer_profile.proxy_origin.clone())
+        .unwrap_or(parse_pairing_ticket_issuer_origin(ticket)?);
+
+    persist_confirmed_peer_from_profile_and_proxy_origin(
+        store,
+        config_dir,
+        peer_did,
+        peer_profile,
+        Some(resolved_peer_proxy_origin),
+    )
 }
 
 /// TODO(clawdentity): document `start_pairing`.
