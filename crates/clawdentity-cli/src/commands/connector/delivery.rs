@@ -32,6 +32,16 @@ const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
 
+struct InboundRuntimeContext<'a> {
+    store: &'a SqliteStore,
+    config_dir: &'a Path,
+    relay_sender: &'a ConnectorClientSender,
+    http_client: &'a reqwest::Client,
+    hook_url: &'a str,
+    openclaw_runtime: &'a OpenclawRuntimeConfig,
+    receipt_outbox: &'a ReceiptOutboxHandle,
+}
+
 pub(super) async fn run_inbound_loop(
     receipt_outbox: ReceiptOutboxHandle,
     mut connector_client: ConnectorClient,
@@ -43,6 +53,15 @@ pub(super) async fn run_inbound_loop(
 ) -> Result<()> {
     let hook_url = openclaw_runtime.hook_url()?;
     let http_client = create_http_client()?;
+    let context = InboundRuntimeContext {
+        store: &store,
+        config_dir: config_dir.as_path(),
+        relay_sender: &relay_sender,
+        http_client: &http_client,
+        hook_url: &hook_url,
+        openclaw_runtime: &openclaw_runtime,
+        receipt_outbox: &receipt_outbox,
+    };
 
     loop {
         tokio::select! {
@@ -55,49 +74,26 @@ pub(super) async fn run_inbound_loop(
                 let Some(frame) = frame else {
                     return Ok(());
                 };
-                handle_connector_frame(
-                    frame,
-                    &store,
-                    config_dir.as_path(),
-                    &relay_sender,
-                    &http_client,
-                    &hook_url,
-                    &openclaw_runtime,
-                    &receipt_outbox,
-                )
-                .await;
+                handle_connector_frame(frame, &context).await;
             }
         }
     }
 }
 
-async fn handle_connector_frame(
-    frame: ConnectorFrame,
-    store: &SqliteStore,
-    config_dir: &Path,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt_outbox: &ReceiptOutboxHandle,
-) {
+async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeContext<'_>) {
     match frame {
         ConnectorFrame::Deliver(deliver) => {
-            handle_deliver_frame(
-                store,
-                config_dir,
-                relay_sender,
-                http_client,
-                hook_url,
-                openclaw_runtime,
-                receipt_outbox,
-                deliver,
-            )
-            .await;
+            handle_deliver_frame(context, deliver).await;
         }
         ConnectorFrame::Receipt(receipt) => {
             if let Err(error) =
-                forward_receipt_to_openclaw(http_client, hook_url, openclaw_runtime, &receipt).await
+                forward_receipt_to_openclaw(
+                    context.http_client,
+                    context.hook_url,
+                    context.openclaw_runtime,
+                    &receipt,
+                )
+                .await
             {
                 tracing::warn!(
                     error = %error,
@@ -388,25 +384,16 @@ fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error:
     }
 }
 
-async fn handle_deliver_frame(
-    store: &SqliteStore,
-    config_dir: &Path,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt_outbox: &ReceiptOutboxHandle,
-    mut deliver: DeliverFrame,
-) {
+async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: DeliverFrame) {
     let system_delivery_result =
-        apply_pair_accepted_system_delivery(store, config_dir, &mut deliver);
-    let sender_profile = lookup_sender_profile_headers(store, &deliver.from_agent_did);
+        apply_pair_accepted_system_delivery(context.store, context.config_dir, &mut deliver);
+    let sender_profile = lookup_sender_profile_headers(context.store, &deliver.from_agent_did);
     let delivery_result = match system_delivery_result {
         Ok(_) => {
             forward_deliver_to_openclaw(
-                http_client,
-                hook_url,
-                openclaw_runtime,
+                context.http_client,
+                context.hook_url,
+                context.openclaw_runtime,
                 &deliver,
                 sender_profile.as_ref(),
             )
@@ -416,7 +403,7 @@ async fn handle_deliver_frame(
     };
     let delivery_succeeded = delivery_result.is_ok();
     let persistence_result =
-        persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
+        persist_inbound_delivery_result(context.store, &deliver, delivery_result.as_ref()).await;
     log_persist_failure(&deliver.id, persistence_result.as_ref().err());
 
     let ack_reason = build_deliver_ack_reason(
@@ -424,11 +411,12 @@ async fn handle_deliver_frame(
         persistence_result.as_ref().err(),
     );
     let ack_accepted = ack_reason.is_none();
-    send_deliver_ack(relay_sender, &deliver.id, ack_accepted, ack_reason).await;
+    send_deliver_ack(context.relay_sender, &deliver.id, ack_accepted, ack_reason).await;
     log_delivery_failure(&deliver, delivery_result.err());
 
     if delivery_succeeded {
-        let _ = receipt_outbox
+        let _ = context
+            .receipt_outbox
             .enqueue_and_try_flush(DeliveryReceiptPayload {
                 request_id: deliver.id.clone(),
                 sender_agent_did: deliver.from_agent_did.clone(),
