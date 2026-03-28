@@ -25,6 +25,7 @@
 - Connector runtime target classification may rely on implicit HTTP/HTTPS default ports when operators omit `:80` or `:443`; do not regress this to explicit-port-only parsing unless every caller is updated together.
 - Keep doctor and relay-test compatible with container-mounted OpenClaw homes and explicit env overrides.
 - Keep `provider doctor --for openclaw` read-only and CLI-free: diagnostics that only inspect local state or HTTP endpoints must not require the `openclaw` binary on PATH.
+- Doctor peer readiness semantics: empty peer state is a warning for fresh self-setup, and becomes a failure only when caller explicitly requests `--peer <alias>` that is not configured.
 - Explicit CLI home/state roots must beat ambient `OPENCLAW_*` env vars; isolated-home runs are a release gate.
 - When an explicit home already looks like an OpenClaw profile root (`openclaw.json`, `hooks/`, `skills/`), write directly into that root instead of inventing an extra `.openclaw/` layer.
 - Never rewrite `gateway.auth` from Clawdentity. OpenClaw owns token/password/trusted-proxy/SecretRef auth decisions.
