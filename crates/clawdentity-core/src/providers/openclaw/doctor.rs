@@ -765,7 +765,6 @@ pub fn run_openclaw_doctor(
             Some(serde_json::json!({ "pendingPath": pending_path, "pendingCount": pending_count })),
         );
     }
-
     if options.include_connector_runtime_check {
         run_connector_checks(
             &mut checks,
@@ -784,7 +783,6 @@ pub fn run_openclaw_doctor(
             Some(serde_json::json!({ "defaultConnectorBaseUrl": OPENCLAW_DEFAULT_BASE_URL })),
         );
     }
-
     let status = if checks
         .iter()
         .any(|check| check.status == DoctorCheckStatus::Fail)
@@ -796,7 +794,6 @@ pub fn run_openclaw_doctor(
 
     Ok(OpenclawDoctorResult { status, checks })
 }
-
 #[cfg(test)]
 #[path = "doctor_tests.rs"]
 mod tests;
