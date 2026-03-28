@@ -547,9 +547,6 @@ run() {
   printf 'beta_sessions=%s\n' "$(find "$OPENCLAW_BETA_HOME/agents/main/sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   [[ -d "$OPENCLAW_ALPHA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "alpha_skill_present=1" || echo "alpha_skill_present=0"
   [[ -d "$OPENCLAW_BETA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "beta_skill_present=1" || echo "beta_skill_present=0"
-  [[ -d "$OPENCLAW_ALPHA_HOME/workspace/node_modules/clawdentity" ]] && echo "alpha_pkg_present=1" || echo "alpha_pkg_present=0"
-  [[ -d "$OPENCLAW_BETA_HOME/workspace/node_modules/clawdentity" ]] && echo "beta_pkg_present=1" || echo "beta_pkg_present=0"
-
   log "Ready state complete"
 }
 
