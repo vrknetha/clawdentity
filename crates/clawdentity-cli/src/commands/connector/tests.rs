@@ -55,6 +55,18 @@ fn expected_agent_name_validation_rejects_mismatched_agent() {
 }
 
 #[test]
+fn expected_agent_name_validation_allows_unset_expected_name() {
+    let result = validate_expected_agent_name("alpha-local", None);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn expected_agent_name_validation_ignores_blank_expected_name() {
+    let result = validate_expected_agent_name("alpha-local", Some("   "));
+    assert!(result.is_ok());
+}
+
+#[test]
 fn preserves_ws_url_when_already_websocket() {
     let resolved =
         normalize_proxy_ws_url("wss://proxy.example/v1/relay/connect").expect("proxy ws url");

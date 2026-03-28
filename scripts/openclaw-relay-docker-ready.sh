@@ -257,7 +257,8 @@ build_local_clawdentity_cli() {
   log "Building local clawdentity CLI from workspace"
   cargo build --manifest-path "$REPO_ROOT/crates/Cargo.toml" -p clawdentity-cli
 
-  local cli_bin="$REPO_ROOT/crates/target/debug/clawdentity-cli"
+  local cargo_target_dir="${CARGO_TARGET_DIR:-$REPO_ROOT/crates/target}"
+  local cli_bin="$cargo_target_dir/debug/clawdentity-cli"
   [[ -x "$cli_bin" ]] || fail "Built CLI not found at $cli_bin"
   log "Local CLI build ready: $("$cli_bin" --version)"
 }
@@ -339,7 +340,7 @@ wait_for_ui() {
       log "Port ${port}: UI ready"
       return
     fi
-    if docker exec "$container" sh -lc "curl -fsS --max-time 2 http://127.0.0.1:18789/ >/dev/null 2>&1"; then
+    if docker exec "$container" sh -lc "curl -fsS --max-time 2 http://127.0.0.1:${port}/ >/dev/null 2>&1"; then
       log "Port ${port}: UI ready (container-local probe)"
       return
     fi
@@ -555,6 +556,8 @@ assert_profile_clean_state() {
   [[ ! -f "$profile_path/hooks/transforms/relay-to-peer.mjs" ]] || fail "${profile_name}: relay transform survived reset"
   [[ ! -d "$profile_path/.clawdentity" ]] || fail "${profile_name}: profile-home clawdentity state survived reset"
   [[ ! -d "$profile_path/workspace/.clawdentity" ]] || fail "${profile_name}: clawdentity workspace state survived reset"
+  [[ ! -d "$profile_path/workspace/.clawdentity-cli" ]] || fail "${profile_name}: clawdentity-cli workspace state survived reset"
+  [[ ! -d "$profile_path/workspace/.clawdentity-state" ]] || fail "${profile_name}: clawdentity-state workspace state survived reset"
 
   sessions_count="$({ find "$profile_path/agents/main/sessions" -type f 2>/dev/null || true; } | wc -l | tr -d ' ')"
   [[ "$sessions_count" == "0" ]] || fail "${profile_name}: expected 0 saved sessions after reset, found ${sessions_count}"
@@ -563,6 +566,7 @@ assert_profile_clean_state() {
 assert_profile_env_contract() {
   local profile_path="$1"
   local profile_name="$2"
+  local expected_agent_name="$3"
   local env_file="$profile_path/.env"
 
   assert_env_value "$env_file" "CLAWDENTITY_REGISTRY_URL" "$DOCKER_REGISTRY_URL"
@@ -572,6 +576,7 @@ assert_profile_env_contract() {
   assert_env_value "$env_file" "CLAWDENTITY_RELEASE_MANIFEST_URL" "$CLAWDENTITY_RELEASE_MANIFEST_URL"
   assert_env_value "$env_file" "CLAWDENTITY_INSTALL_DIR" "$CLAWDENTITY_INSTALL_DIR_IN_CONTAINER"
   assert_env_value "$env_file" "CLAWDENTITY_CLI_PATH" "$CLAWDENTITY_CLI_PATH_IN_CONTAINER"
+  assert_env_value "$env_file" "CLAWDENTITY_EXPECTED_AGENT_NAME" "$expected_agent_name"
 
   local path_value
   path_value="$(read_env_value "$env_file" "PATH")"
@@ -689,8 +694,8 @@ run() {
   remove_skill_artifacts "$OPENCLAW_BETA_HOME"
   assert_profile_clean_state "$OPENCLAW_ALPHA_HOME" "alpha"
   assert_profile_clean_state "$OPENCLAW_BETA_HOME" "beta"
-  assert_profile_env_contract "$OPENCLAW_ALPHA_HOME" "alpha"
-  assert_profile_env_contract "$OPENCLAW_BETA_HOME" "beta"
+  assert_profile_env_contract "$OPENCLAW_ALPHA_HOME" "alpha" "$ALPHA_EXPECTED_AGENT_NAME"
+  assert_profile_env_contract "$OPENCLAW_BETA_HOME" "beta" "$BETA_EXPECTED_AGENT_NAME"
 
   log "Starting dual OpenClaw stack"
   docker_compose_dual up -d

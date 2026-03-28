@@ -17,6 +17,7 @@
 - `openclaw-relay-docker-ready.sh` must write a site-base override into the OpenClaw profile `.env` so local OpenClaw skill installs can point at a local landing site without forking the published production skill/install assets.
 - `openclaw-relay-docker-ready.sh` must resolve one deterministic `CLAWDENTITY_VERSION` per run (manifest latest unless overridden) and mirror that into both profile `.env` files before onboarding.
 - `openclaw-relay-docker-ready.sh` must build the local workspace CLI (`cargo build -p clawdentity-cli`) before test runs when `BUILD_CLI_BEFORE_TEST=1`, and fail early if the built binary is missing.
+- `openclaw-relay-docker-ready.sh` must resolve the built CLI binary path from `CARGO_TARGET_DIR` when provided (fallback: `crates/target`) so custom target-dir builds do not fail false-negative checks.
 - `openclaw-relay-docker-ready.sh` must set `CLAWDENTITY_EXPECTED_AGENT_NAME` per profile (`alpha-local` for alpha, `beta-local` for beta by default) so connector startup fails fast when container ownership drifts.
 - `openclaw-relay-docker-ready.sh` reset cleanup must remove both workspace-level and profile-home `.clawdentity*` state so prompt-first onboarding session resumes cannot leak across clean resets.
 - `openclaw-relay-docker-ready.sh` version resolution must be outage-tolerant: prefer manifest latest, but fall back to preserved profile `CLAWDENTITY_VERSION` (or local Cargo version) instead of hard-failing clean resets when manifest fetch is unavailable.
@@ -39,6 +40,7 @@
 - The dual OpenClaw harness may keep a trusted-network browser SSRF policy in the local OpenClaw fixture, but do not assume that fixes prompt-first `web_fetch` for `host.docker.internal`; production-like onboarding tests should use a public-like HTTPS skill URL when OpenClaw's guarded fetch blocks private-network sources.
 - A clean reset must also remove OpenClaw workspace completion markers (`workspace/.openclaw/workspace-state.json`) so prompt-first onboarding starts from a genuinely fresh state.
 - The harness must verify local dependency readiness from host and container paths (`registry` health, `proxy` health, landing `/skill.md`) before reporting ready state.
+- UI readiness probes in `openclaw-relay-docker-ready.sh` must use the requested profile port for both host and container-local checks; never hardcode alpha-only ports inside shared helpers.
 - `openclaw-onboarding-e2e-check.sh` must stay deterministic and fail-fast:
   - requires explicit onboarding codes for alpha and beta via env vars.
   - runs `clawdentity onboarding run` as the primary UX path, not manual multi-command pairing steps.
