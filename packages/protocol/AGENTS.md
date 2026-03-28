@@ -33,6 +33,7 @@
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.
 - Keep pairing-acceptance queue contract in protocol exports (`pair.accepted`) so proxy producer and consumer share one payload parser/normalizer.
 - Parse and normalize pair-accepted payload values once in the protocol parser (DIDs, proxy origins, timestamp), require `responderProfile.proxyOrigin`, and pass normalized values downstream without duplicate re-validation in app layers.
+- Pair-accepted `eventTimestampUtc` parsing must enforce ISO-8601/RFC3339 shape and always normalize output to canonical UTC ISO (`toISOString`) so consumers never persist locale-dependent timestamp strings.
 - Keep trusted transport provenance constants for pair-accepted deliveries (`PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE`) in protocol exports so queue producers and consumers cannot drift.
 
 ## Testing

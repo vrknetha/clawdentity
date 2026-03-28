@@ -75,4 +75,44 @@ describe("pair accepted event contract", () => {
 
     expect(event.type).toBe(PAIR_ACCEPTED_EVENT_TYPE);
   });
+
+  it("rejects non-ISO event timestamps", () => {
+    expect(() =>
+      parsePairAcceptedEvent({
+        type: PAIR_ACCEPTED_EVENT_TYPE,
+        initiatorAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        responderAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        responderProfile: {
+          agentName: "beta",
+          humanName: "Ira",
+          proxyOrigin: "https://beta.proxy.example",
+        },
+        issuerProxyOrigin: "https://proxy.clawdentity.dev",
+        eventTimestampUtc: "March 28, 2026",
+      }),
+    ).toThrow(
+      "Pair accepted event field 'eventTimestampUtc' must be a valid ISO timestamp",
+    );
+  });
+
+  it("normalizes offset timestamps to canonical UTC ISO", () => {
+    const parsed = parsePairAcceptedEvent({
+      type: PAIR_ACCEPTED_EVENT_TYPE,
+      initiatorAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      responderAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      responderProfile: {
+        agentName: "beta",
+        humanName: "Ira",
+        proxyOrigin: "https://beta.proxy.example",
+      },
+      issuerProxyOrigin: "https://proxy.clawdentity.dev",
+      eventTimestampUtc: "2026-03-28T05:30:00+05:30",
+    });
+
+    expect(parsed.eventTimestampUtc).toBe("2026-03-28T00:00:00.000Z");
+  });
 });
