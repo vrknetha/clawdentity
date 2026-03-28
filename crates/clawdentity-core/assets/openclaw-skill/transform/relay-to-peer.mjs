@@ -15,6 +15,148 @@ function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
 
+// ../../packages/protocol/src/errors.ts
+var ProtocolParseError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "ProtocolParseError";
+    this.code = code;
+  }
+};
+
+// ../../node_modules/.pnpm/ulid@3.0.2/node_modules/ulid/dist/node/index.js
+import crypto from "crypto";
+var ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+var ENCODING_LEN = 32;
+var RANDOM_LEN = 16;
+var TIME_LEN = 10;
+var TIME_MAX = 281474976710655;
+var ULIDErrorCode;
+(function(ULIDErrorCode2) {
+  ULIDErrorCode2["Base32IncorrectEncoding"] = "B32_ENC_INVALID";
+  ULIDErrorCode2["DecodeTimeInvalidCharacter"] = "DEC_TIME_CHAR";
+  ULIDErrorCode2["DecodeTimeValueMalformed"] = "DEC_TIME_MALFORMED";
+  ULIDErrorCode2["EncodeTimeNegative"] = "ENC_TIME_NEG";
+  ULIDErrorCode2["EncodeTimeSizeExceeded"] = "ENC_TIME_SIZE_EXCEED";
+  ULIDErrorCode2["EncodeTimeValueMalformed"] = "ENC_TIME_MALFORMED";
+  ULIDErrorCode2["PRNGDetectFailure"] = "PRNG_DETECT";
+  ULIDErrorCode2["ULIDInvalid"] = "ULID_INVALID";
+  ULIDErrorCode2["Unexpected"] = "UNEXPECTED";
+  ULIDErrorCode2["UUIDInvalid"] = "UUID_INVALID";
+})(ULIDErrorCode || (ULIDErrorCode = {}));
+var ULIDError = class extends Error {
+  constructor(errorCode, message) {
+    super(`${message} (${errorCode})`);
+    this.name = "ULIDError";
+    this.code = errorCode;
+  }
+};
+function decodeTime(id) {
+  if (id.length !== TIME_LEN + RANDOM_LEN) {
+    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, "Malformed ULID");
+  }
+  const time3 = id.substr(0, TIME_LEN).toUpperCase().split("").reverse().reduce((carry, char, index) => {
+    const encodingIndex = ENCODING.indexOf(char);
+    if (encodingIndex === -1) {
+      throw new ULIDError(ULIDErrorCode.DecodeTimeInvalidCharacter, `Time decode error: Invalid character: ${char}`);
+    }
+    return carry += encodingIndex * Math.pow(ENCODING_LEN, index);
+  }, 0);
+  if (time3 > TIME_MAX) {
+    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, `Malformed ULID: timestamp too large: ${time3}`);
+  }
+  return time3;
+}
+function isValid(id) {
+  return typeof id === "string" && id.length === TIME_LEN + RANDOM_LEN && id.toUpperCase().split("").every((char) => ENCODING.indexOf(char) !== -1);
+}
+
+// ../../packages/protocol/src/ulid.ts
+var ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+function invalidUlid(value) {
+  return new ProtocolParseError("INVALID_ULID", `Invalid ULID: ${value}`);
+}
+function parseUlid(value) {
+  if (!ULID_PATTERN.test(value) || !isValid(value)) {
+    throw invalidUlid(value);
+  }
+  return {
+    value,
+    timestampMs: decodeTime(value)
+  };
+}
+
+// ../../packages/protocol/src/did.ts
+var DID_METHOD = "cdi";
+var MAX_AUTHORITY_LENGTH = 253;
+var DNS_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+function invalidDid(value) {
+  return new ProtocolParseError("INVALID_DID", `Invalid DID: ${value}`);
+}
+function ensureDidUlid(value, didValue) {
+  try {
+    parseUlid(value);
+  } catch {
+    throw invalidDid(didValue);
+  }
+}
+function ensureDidAuthority(authority, didValue) {
+  if (authority.length === 0 || authority.length > MAX_AUTHORITY_LENGTH) {
+    throw invalidDid(didValue);
+  }
+  const labels = authority.split(".");
+  if (labels.length < 2) {
+    throw invalidDid(didValue);
+  }
+  for (const label of labels) {
+    if (!DNS_LABEL_REGEX.test(label)) {
+      throw invalidDid(didValue);
+    }
+  }
+}
+function parseDid(value) {
+  const parts = value.split(":");
+  if (parts.length !== 5) {
+    throw invalidDid(value);
+  }
+  const [scheme, method, rawAuthority, rawEntity, rawUlid] = parts;
+  if (scheme !== "did" || method !== DID_METHOD) {
+    throw invalidDid(value);
+  }
+  ensureDidAuthority(rawAuthority, value);
+  if (rawEntity !== "human" && rawEntity !== "agent") {
+    throw invalidDid(value);
+  }
+  ensureDidUlid(rawUlid, value);
+  return {
+    method: DID_METHOD,
+    authority: rawAuthority,
+    entity: rawEntity,
+    ulid: rawUlid
+  };
+}
+function parseAgentDid(value) {
+  const parsed = parseDid(value);
+  if (parsed.entity !== "agent") {
+    throw invalidDid(value);
+  }
+  return {
+    ...parsed,
+    entity: "agent"
+  };
+}
+function parseHumanDid(value) {
+  const parsed = parseDid(value);
+  if (parsed.entity !== "human") {
+    throw invalidDid(value);
+  }
+  return {
+    ...parsed,
+    entity: "human"
+  };
+}
+
 // ../../packages/protocol/src/agent-registration-proof.ts
 var AGENT_REGISTRATION_PROOF_VERSION = "clawdentity.register.v1";
 var AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE = `${AGENT_REGISTRATION_PROOF_VERSION}
@@ -251,7 +393,7 @@ __export(external_exports, {
   tuple: () => tuple,
   uint32: () => uint32,
   uint64: () => uint64,
-  ulid: () => ulid2,
+  ulid: () => ulid3,
   undefined: () => _undefined3,
   union: () => union,
   unknown: () => unknown,
@@ -1575,7 +1717,7 @@ __export(regexes_exports, {
   sha512_hex: () => sha512_hex,
   string: () => string,
   time: () => time,
-  ulid: () => ulid,
+  ulid: () => ulid2,
   undefined: () => _undefined,
   unicodeEmail: () => unicodeEmail,
   uppercase: () => uppercase,
@@ -1587,7 +1729,7 @@ __export(regexes_exports, {
 });
 var cuid = /^[cC][^\s-]{8,}$/;
 var cuid2 = /^[0-9a-z]+$/;
-var ulid = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
+var ulid2 = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
 var xid = /^[0-9a-vA-V]{20}$/;
 var ksuid = /^[A-Za-z0-9]{27}$/;
 var nanoid = /^[a-zA-Z0-9_-]{21}$/;
@@ -2501,7 +2643,7 @@ var $ZodCUID2 = /* @__PURE__ */ $constructor("$ZodCUID2", (inst, def) => {
   $ZodStringFormat.init(inst, def);
 });
 var $ZodULID = /* @__PURE__ */ $constructor("$ZodULID", (inst, def) => {
-  def.pattern ?? (def.pattern = ulid);
+  def.pattern ?? (def.pattern = ulid2);
   $ZodStringFormat.init(inst, def);
 });
 var $ZodXID = /* @__PURE__ */ $constructor("$ZodXID", (inst, def) => {
@@ -12044,7 +12186,7 @@ __export(schemas_exports2, {
   tuple: () => tuple,
   uint32: () => uint32,
   uint64: () => uint64,
-  ulid: () => ulid2,
+  ulid: () => ulid3,
   undefined: () => _undefined3,
   union: () => union,
   unknown: () => unknown,
@@ -12409,7 +12551,7 @@ var ZodULID = /* @__PURE__ */ $constructor("ZodULID", (inst, def) => {
   $ZodULID.init(inst, def);
   ZodStringFormat.init(inst, def);
 });
-function ulid2(params) {
+function ulid3(params) {
   return _ulid(ZodULID, params);
 }
 var ZodXID = /* @__PURE__ */ $constructor("ZodXID", (inst, def) => {
@@ -13946,16 +14088,6 @@ function radix2(bits, revPadding = false) {
 }
 var base64urlnopad = /* @__PURE__ */ chain(/* @__PURE__ */ radix2(6), /* @__PURE__ */ alphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"), /* @__PURE__ */ join(""));
 
-// ../../packages/protocol/src/errors.ts
-var ProtocolParseError = class extends Error {
-  code;
-  constructor(code, message) {
-    super(message);
-    this.name = "ProtocolParseError";
-    this.code = code;
-  }
-};
-
 // ../../packages/protocol/src/base64url.ts
 function invalidBase64url(input) {
   return new ProtocolParseError(
@@ -13972,138 +14104,6 @@ function decodeBase64url(input) {
   } catch {
     throw invalidBase64url(input);
   }
-}
-
-// ../../node_modules/.pnpm/ulid@3.0.2/node_modules/ulid/dist/node/index.js
-import crypto from "crypto";
-var ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-var ENCODING_LEN = 32;
-var RANDOM_LEN = 16;
-var TIME_LEN = 10;
-var TIME_MAX = 281474976710655;
-var ULIDErrorCode;
-(function(ULIDErrorCode2) {
-  ULIDErrorCode2["Base32IncorrectEncoding"] = "B32_ENC_INVALID";
-  ULIDErrorCode2["DecodeTimeInvalidCharacter"] = "DEC_TIME_CHAR";
-  ULIDErrorCode2["DecodeTimeValueMalformed"] = "DEC_TIME_MALFORMED";
-  ULIDErrorCode2["EncodeTimeNegative"] = "ENC_TIME_NEG";
-  ULIDErrorCode2["EncodeTimeSizeExceeded"] = "ENC_TIME_SIZE_EXCEED";
-  ULIDErrorCode2["EncodeTimeValueMalformed"] = "ENC_TIME_MALFORMED";
-  ULIDErrorCode2["PRNGDetectFailure"] = "PRNG_DETECT";
-  ULIDErrorCode2["ULIDInvalid"] = "ULID_INVALID";
-  ULIDErrorCode2["Unexpected"] = "UNEXPECTED";
-  ULIDErrorCode2["UUIDInvalid"] = "UUID_INVALID";
-})(ULIDErrorCode || (ULIDErrorCode = {}));
-var ULIDError = class extends Error {
-  constructor(errorCode, message) {
-    super(`${message} (${errorCode})`);
-    this.name = "ULIDError";
-    this.code = errorCode;
-  }
-};
-function decodeTime(id) {
-  if (id.length !== TIME_LEN + RANDOM_LEN) {
-    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, "Malformed ULID");
-  }
-  const time3 = id.substr(0, TIME_LEN).toUpperCase().split("").reverse().reduce((carry, char, index) => {
-    const encodingIndex = ENCODING.indexOf(char);
-    if (encodingIndex === -1) {
-      throw new ULIDError(ULIDErrorCode.DecodeTimeInvalidCharacter, `Time decode error: Invalid character: ${char}`);
-    }
-    return carry += encodingIndex * Math.pow(ENCODING_LEN, index);
-  }, 0);
-  if (time3 > TIME_MAX) {
-    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, `Malformed ULID: timestamp too large: ${time3}`);
-  }
-  return time3;
-}
-function isValid(id) {
-  return typeof id === "string" && id.length === TIME_LEN + RANDOM_LEN && id.toUpperCase().split("").every((char) => ENCODING.indexOf(char) !== -1);
-}
-
-// ../../packages/protocol/src/ulid.ts
-var ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-function invalidUlid(value) {
-  return new ProtocolParseError("INVALID_ULID", `Invalid ULID: ${value}`);
-}
-function parseUlid(value) {
-  if (!ULID_PATTERN.test(value) || !isValid(value)) {
-    throw invalidUlid(value);
-  }
-  return {
-    value,
-    timestampMs: decodeTime(value)
-  };
-}
-
-// ../../packages/protocol/src/did.ts
-var DID_METHOD = "cdi";
-var MAX_AUTHORITY_LENGTH = 253;
-var DNS_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-function invalidDid(value) {
-  return new ProtocolParseError("INVALID_DID", `Invalid DID: ${value}`);
-}
-function ensureDidUlid(value, didValue) {
-  try {
-    parseUlid(value);
-  } catch {
-    throw invalidDid(didValue);
-  }
-}
-function ensureDidAuthority(authority, didValue) {
-  if (authority.length === 0 || authority.length > MAX_AUTHORITY_LENGTH) {
-    throw invalidDid(didValue);
-  }
-  const labels = authority.split(".");
-  if (labels.length < 2) {
-    throw invalidDid(didValue);
-  }
-  for (const label of labels) {
-    if (!DNS_LABEL_REGEX.test(label)) {
-      throw invalidDid(didValue);
-    }
-  }
-}
-function parseDid(value) {
-  const parts = value.split(":");
-  if (parts.length !== 5) {
-    throw invalidDid(value);
-  }
-  const [scheme, method, rawAuthority, rawEntity, rawUlid] = parts;
-  if (scheme !== "did" || method !== DID_METHOD) {
-    throw invalidDid(value);
-  }
-  ensureDidAuthority(rawAuthority, value);
-  if (rawEntity !== "human" && rawEntity !== "agent") {
-    throw invalidDid(value);
-  }
-  ensureDidUlid(rawUlid, value);
-  return {
-    method: DID_METHOD,
-    authority: rawAuthority,
-    entity: rawEntity,
-    ulid: rawUlid
-  };
-}
-function parseAgentDid(value) {
-  const parsed = parseDid(value);
-  if (parsed.entity !== "agent") {
-    throw invalidDid(value);
-  }
-  return {
-    ...parsed,
-    entity: "agent"
-  };
-}
-function parseHumanDid(value) {
-  const parsed = parseDid(value);
-  if (parsed.entity !== "human") {
-    throw invalidDid(value);
-  }
-  return {
-    ...parsed,
-    entity: "human"
-  };
 }
 
 // ../../packages/protocol/src/text.ts
