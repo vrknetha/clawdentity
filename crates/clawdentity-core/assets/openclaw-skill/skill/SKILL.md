@@ -278,8 +278,6 @@ Optional:
 6. Validate provider health.
 - OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
 - Run `clawdentity provider doctor --for <platform>`.
-- Compatibility fallback for older CLI builds:
-  - if `provider doctor` is unavailable for OpenClaw, run `clawdentity openclaw doctor --json`.
 - Use `--json` for automation and `--peer <alias>` when testing targeted routing.
 
 7. Validate relay path.
@@ -331,9 +329,6 @@ Do not ask for:
 - If `provider doctor` is unhealthy:
   - Re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>` only after the provider itself is healthy.
   - Re-run `provider doctor` and follow remediation output.
-- If `provider doctor` command is unavailable in an older OpenClaw-focused build:
-  - Run `clawdentity openclaw doctor --json`.
-  - Fix reported connector runtime issues, then re-run doctor.
 
 ### Auth errors
 - Invite/API key problems:
