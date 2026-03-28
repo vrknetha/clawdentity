@@ -43,6 +43,11 @@ DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://h
 DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://host.docker.internal:8787}}"
 CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
 DOCKER_SITE_BASE_URL="${DOCKER_SITE_BASE_URL:-http://host.docker.internal:4321}"
+CLAWDENTITY_RELEASE_MANIFEST_URL="${CLAWDENTITY_RELEASE_MANIFEST_URL:-https://downloads.clawdentity.com/rust/latest.json}"
+CLAWDENTITY_INSTALL_DIR_IN_CONTAINER="${CLAWDENTITY_INSTALL_DIR_IN_CONTAINER:-/home/node/.local/bin}"
+CLAWDENTITY_CLI_PATH_IN_CONTAINER="${CLAWDENTITY_CLI_PATH_IN_CONTAINER:-/home/node/.local/bin/clawdentity}"
+BUILD_CLI_BEFORE_TEST="${BUILD_CLI_BEFORE_TEST:-1}"
+CLAWDENTITY_LATEST_VERSION=""
 
 log() {
   printf '[openclaw-relay-ready] %s\n' "$*"
@@ -120,6 +125,89 @@ require_dir() {
 require_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "File not found: $path"
+}
+
+resolve_latest_clawdentity_version() {
+  if [[ -n "${CLAWDENTITY_VERSION:-}" ]]; then
+    CLAWDENTITY_LATEST_VERSION="${CLAWDENTITY_VERSION#rust/v}"
+    CLAWDENTITY_LATEST_VERSION="${CLAWDENTITY_LATEST_VERSION#v}"
+  else
+    CLAWDENTITY_LATEST_VERSION="$(
+      curl -fsSL "$CLAWDENTITY_RELEASE_MANIFEST_URL" |
+        node -e '
+          let raw = "";
+          process.stdin.on("data", (chunk) => {
+            raw += chunk;
+          });
+          process.stdin.on("end", () => {
+            const parsed = JSON.parse(raw);
+            const version =
+              typeof parsed.version === "string" ? parsed.version.trim() : "";
+            if (!version) {
+              process.exit(1);
+            }
+            process.stdout.write(version);
+          });
+        '
+    )" || fail "Failed to resolve latest CLI version from $CLAWDENTITY_RELEASE_MANIFEST_URL"
+  fi
+
+  [[ -n "$CLAWDENTITY_LATEST_VERSION" ]] || fail "Resolved CLI version is empty"
+  log "Using clawdentity version ${CLAWDENTITY_LATEST_VERSION}"
+}
+
+build_local_clawdentity_cli() {
+  [[ "$BUILD_CLI_BEFORE_TEST" == "1" ]] || return 0
+  require_command cargo
+
+  log "Building local clawdentity CLI from workspace"
+  cargo build --manifest-path "$REPO_ROOT/crates/Cargo.toml" -p clawdentity-cli
+
+  local cli_bin="$REPO_ROOT/crates/target/debug/clawdentity-cli"
+  [[ -x "$cli_bin" ]] || fail "Built CLI not found at $cli_bin"
+  log "Local CLI build ready: $("$cli_bin" --version)"
+}
+
+sync_clawdentity_install_env() {
+  node -e '
+    const fs = require("fs");
+    const envPaths = [process.argv[1], process.argv[2]];
+    const version = process.argv[3];
+    const manifestUrl = process.argv[4];
+    const installDir = process.argv[5];
+    const cliPath = process.argv[6];
+    const defaultPath = "/home/node/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games";
+
+    const upsertEnvValue = (raw, key, value) => {
+      const line = `${key}=${value}`;
+      const keyPattern = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
+      if (keyPattern.test(raw)) {
+        const next = raw.replace(keyPattern, line);
+        return next.endsWith("\n") ? next : `${next}\n`;
+      }
+      if (raw.trim().length === 0) {
+        return `${line}\n`;
+      }
+      return raw.endsWith("\n") ? `${raw}${line}\n` : `${raw}\n${line}\n`;
+    };
+
+    for (const envPath of envPaths) {
+      const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+      let next = raw;
+      next = upsertEnvValue(next, "CLAWDENTITY_VERSION", version);
+      next = upsertEnvValue(next, "CLAWDENTITY_RELEASE_MANIFEST_URL", manifestUrl);
+      next = upsertEnvValue(next, "CLAWDENTITY_INSTALL_DIR", installDir);
+      next = upsertEnvValue(next, "CLAWDENTITY_CLI_PATH", cliPath);
+      next = upsertEnvValue(next, "PATH", defaultPath);
+      fs.writeFileSync(envPath, next);
+    }
+  ' \
+    "$OPENCLAW_ALPHA_HOME/.env" \
+    "$OPENCLAW_BETA_HOME/.env" \
+    "$CLAWDENTITY_LATEST_VERSION" \
+    "$CLAWDENTITY_RELEASE_MANIFEST_URL" \
+    "$CLAWDENTITY_INSTALL_DIR_IN_CONTAINER" \
+    "$CLAWDENTITY_CLI_PATH_IN_CONTAINER"
 }
 
 docker_compose_dual() {
@@ -407,6 +495,9 @@ run() {
   require_file "$LOCAL_EXEC_APPROVALS_FILE"
   require_file "$HOST_CODEX_AUTH_FILE"
 
+  resolve_latest_clawdentity_version
+  build_local_clawdentity_cli
+
   local tmp_dir
   tmp_dir="$(mktemp -d)"
   trap 'rm -rf "${tmp_dir:-}"' EXIT
@@ -433,6 +524,7 @@ run() {
 
   log "Applying gateway defaults + clearing runtime state"
   write_gateway_defaults
+  sync_clawdentity_install_env
   install_host_codex_auth "$OPENCLAW_ALPHA_HOME"
   install_host_codex_auth "$OPENCLAW_BETA_HOME"
   clear_runtime_state "$OPENCLAW_ALPHA_HOME"
