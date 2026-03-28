@@ -39,6 +39,8 @@ ALPHA_CONTAINER="${ALPHA_CONTAINER:-clawdbot-agent-alpha-1}"
 BETA_CONTAINER="${BETA_CONTAINER:-clawdbot-agent-beta-1}"
 ALPHA_UI_PORT="${ALPHA_UI_PORT:-18789}"
 BETA_UI_PORT="${BETA_UI_PORT:-19001}"
+ALPHA_EXPECTED_AGENT_NAME="${ALPHA_EXPECTED_AGENT_NAME:-alpha-local}"
+BETA_EXPECTED_AGENT_NAME="${BETA_EXPECTED_AGENT_NAME:-beta-local}"
 DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://host.docker.internal:8788}}"
 DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://host.docker.internal:8787}}"
 CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
@@ -302,15 +304,15 @@ write_gateway_defaults() {
     const fs = require("fs");
     const crypto = require("crypto");
     const profileArgs = [
-      { configPath: process.argv[1], uiPort: process.argv[2] },
-      { configPath: process.argv[3], uiPort: process.argv[4] },
+      { configPath: process.argv[1], uiPort: process.argv[2], expectedAgentName: process.argv[3] },
+      { configPath: process.argv[4], uiPort: process.argv[5], expectedAgentName: process.argv[6] },
     ];
-    const registryUrl = process.argv[5];
-    const proxyUrl = process.argv[6];
-    const siteBaseUrl = process.argv[7];
-    const openclawPolicyPath = process.argv[8];
-    const execApprovalsPolicyPath = process.argv[9];
-    const modelRef = process.argv[10];
+    const registryUrl = process.argv[7];
+    const proxyUrl = process.argv[8];
+    const siteBaseUrl = process.argv[9];
+    const openclawPolicyPath = process.argv[10];
+    const execApprovalsPolicyPath = process.argv[11];
+    const modelRef = process.argv[12];
 
     const readEnvFile = (envPath) => (fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "");
 
@@ -348,7 +350,7 @@ write_gateway_defaults() {
     const openclawPolicy = JSON.parse(fs.readFileSync(openclawPolicyPath, "utf8"));
     const execApprovalsPolicy = JSON.parse(fs.readFileSync(execApprovalsPolicyPath, "utf8"));
 
-    for (const { configPath, uiPort } of profileArgs) {
+    for (const { configPath, uiPort, expectedAgentName } of profileArgs) {
       const envPath = configPath.replace(/openclaw\.json$/, ".env");
       const profileHome = configPath.replace(/\/openclaw\.json$/, "");
       const envRaw = readEnvFile(envPath);
@@ -425,6 +427,7 @@ write_gateway_defaults() {
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_REGISTRY_URL", registryUrl);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_PROXY_URL", proxyUrl);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_SITE_BASE_URL", siteBaseUrl);
+      nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_EXPECTED_AGENT_NAME", expectedAgentName);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CODEX_HOME", "/home/node/.openclaw/.codex");
       fs.writeFileSync(envPath, nextEnvRaw);
       const approvalsPath = `${profileHome}/exec-approvals.json`;
@@ -452,8 +455,10 @@ write_gateway_defaults() {
   ' \
     "$OPENCLAW_ALPHA_HOME/openclaw.json" \
     "$ALPHA_UI_PORT" \
+    "$ALPHA_EXPECTED_AGENT_NAME" \
     "$OPENCLAW_BETA_HOME/openclaw.json" \
     "$BETA_UI_PORT" \
+    "$BETA_EXPECTED_AGENT_NAME" \
     "$DOCKER_REGISTRY_URL" \
     "$DOCKER_PROXY_URL" \
     "$DOCKER_SITE_BASE_URL" \
@@ -646,8 +651,8 @@ run() {
   printf 'beta_sessions=%s\n' "$(find "$OPENCLAW_BETA_HOME/agents/main/sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   [[ -d "$OPENCLAW_ALPHA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "alpha_skill_present=1" || echo "alpha_skill_present=0"
   [[ -d "$OPENCLAW_BETA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "beta_skill_present=1" || echo "beta_skill_present=0"
-  echo "alpha_expected_agent_name=alpha-local"
-  echo "beta_expected_agent_name=beta-local"
+  echo "alpha_expected_agent_name=${ALPHA_EXPECTED_AGENT_NAME}"
+  echo "beta_expected_agent_name=${BETA_EXPECTED_AGENT_NAME}"
   echo "verify_stack_dependencies=${VERIFY_STACK_DEPENDENCIES}"
   log "Ready state complete"
 }

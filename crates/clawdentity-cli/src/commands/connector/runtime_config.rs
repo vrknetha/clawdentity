@@ -8,8 +8,8 @@ use clawdentity_core::agent::{AgentAuthRecord, inspect_agent};
 use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{
-    SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata, new_frame_id,
-    load_connector_assignments, refresh_agent_auth, resolve_openclaw_base_url,
+    SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata,
+    load_connector_assignments, new_frame_id, refresh_agent_auth, resolve_openclaw_base_url,
     resolve_openclaw_hook_token, sign_http_request,
 };
 
@@ -33,6 +33,7 @@ pub(super) async fn resolve_runtime_config(
     options: &ConfigPathOptions,
     input: StartConnectorInput,
 ) -> Result<ConnectorRuntimeConfig> {
+    enforce_expected_agent_name(&input.agent_name)?;
     let runtime_inputs = load_runtime_inputs(options, &input.agent_name).await?;
     let proxy_ws_url = resolve_proxy_ws_url(
         input.proxy_ws_url.as_deref(),
@@ -66,6 +67,35 @@ pub(super) async fn resolve_runtime_config(
         port: input.port,
         bind: input.bind,
     })
+}
+
+fn expected_agent_name_from_env() -> Option<String> {
+    env_trimmed("CLAWDENTITY_EXPECTED_AGENT_NAME")
+}
+
+pub(super) fn validate_expected_agent_name(
+    agent_name: &str,
+    expected_agent_name: Option<&str>,
+) -> Result<()> {
+    let selected = agent_name.trim();
+    let expected = expected_agent_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+
+    if selected == expected {
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "connector startup blocked for agent `{selected}`: this environment expects `{expected}`. Start the connector with `clawdentity connector start {expected}` or re-run onboarding so container ownership matches."
+    ))
+}
+
+fn enforce_expected_agent_name(agent_name: &str) -> Result<()> {
+    validate_expected_agent_name(agent_name, expected_agent_name_from_env().as_deref())
 }
 
 pub(super) fn resolve_openclaw_target_agent_id(

@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::runtime_config::{
     agent_access_requires_refresh, load_receipt_post_headers, normalize_proxy_ws_url,
-    resolve_openclaw_target_agent_id,
+    resolve_openclaw_target_agent_id, validate_expected_agent_name,
 };
 use super::{
     SenderProfileHeaders, build_deliver_ack_reason, build_openclaw_delivery_headers,
@@ -35,6 +35,23 @@ fn normalizes_hook_path_with_leading_slash() {
 fn normalizes_proxy_http_url_to_ws_connect_route() {
     let resolved = normalize_proxy_ws_url("http://127.0.0.1:13371").expect("proxy ws url");
     assert_eq!(resolved, "ws://127.0.0.1:13371/v1/relay/connect");
+}
+
+#[test]
+fn expected_agent_name_validation_allows_matching_agent() {
+    let result = validate_expected_agent_name("alpha-local", Some("alpha-local"));
+    assert!(result.is_ok());
+}
+
+#[test]
+fn expected_agent_name_validation_rejects_mismatched_agent() {
+    let error = validate_expected_agent_name("beta-local", Some("alpha-local"))
+        .expect_err("mismatched expected agent name should fail");
+    assert!(
+        error
+            .to_string()
+            .contains("this environment expects `alpha-local`")
+    );
 }
 
 #[test]

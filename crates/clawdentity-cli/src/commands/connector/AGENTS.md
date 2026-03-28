@@ -12,6 +12,7 @@
 - Keep `/hooks/agent` routing symmetric for deliveries and receipts: when a mapped `openclawAgentId` exists, both payload types must include `agentId`.
 - Never inject `agentId` for `/hooks/wake`; wake-mode payload shape must stay stable for backward compatibility and visible chat delivery.
 - Runtime config resolution for OpenClaw routing must read per-agent `openclawAgentId` from connector assignment state and gracefully return `None` when mapping data is absent.
+- Connector startup must enforce `CLAWDENTITY_EXPECTED_AGENT_NAME` when present and fail fast on mismatched agent selection; this prevents cross-container identity inversion in local dual-agent harnesses.
 - Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.
 - Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-human-name`) when local peer metadata exists.
 - Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.
