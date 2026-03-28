@@ -11,6 +11,7 @@
 - The file-size guard enforces an 800-line limit for tracked source files under `apps/**` and `packages/**`, excluding `dist`, `.wrangler`, `worker-configuration.d.ts`, `drizzle/meta`, and `node_modules`.
 
 - `openclaw-relay-docker-ready.sh` is the canonical clean-room reset harness for the dual OpenClaw Docker E2E flow.
+- `openclaw-onboarding-e2e-check.sh` is the canonical post-reset smoke check for prompt-first onboarding (`onboarding run` on both sides, pairing, and first bidirectional relay messages).
 - Keep `openclaw-relay-docker-ready.sh` free of npm/package-manager assumptions; it must work with Rust-owned skill installation only.
 - `openclaw-relay-docker-ready.sh` must preserve `CLAWDENTITY_REGISTRY_URL` / `CLAWDENTITY_PROXY_URL` as the canonical environment-level targets; use `DOCKER_REGISTRY_URL` / `DOCKER_PROXY_URL` only for explicit container-side overrides, with `host.docker.internal` as the final fallback.
 - `openclaw-relay-docker-ready.sh` must write a site-base override into the OpenClaw profile `.env` so local OpenClaw skill installs can point at a local landing site without forking the published production skill/install assets.
@@ -31,7 +32,12 @@
 - The dual OpenClaw harness may enable `tools.elevated` only for the internal `webchat` provider and set `agents.defaults.elevatedDefault=full` when the local Docker test goal is “no approval loops”; do not broaden this to general user channels or non-harness profiles.
 - Keep the harness exec defaults aligned with the trusted local operator use case: `tools.exec.security=full` and `tools.exec.ask=off` so the UI agent can run the installer and CLI onboarding commands directly inside the container without approval deadlocks.
 - The dual OpenClaw harness must seed `~/.openclaw/exec-approvals.json` from the local fixture with matching `full/off` defaults for `defaults` and `agents.main`; do not rely on `openclaw.json` alone because host-side exec approvals are enforced from the approvals file.
+- Shell traps in `openclaw-relay-docker-ready.sh` must not depend on `local` variables after the function returns; keep cleanup paths in scope for the `EXIT` trap or route cleanup through a helper so the reset cannot fail on `rm -rf ''`.
 - The dual OpenClaw harness must treat Codex OAuth as the supported fix for local OpenAI quota drift when the host already has working `~/.codex/auth.json`; keep API-key fallbacks only as preserved env state, not as the primary local model path.
 - The dual OpenClaw harness may keep a trusted-network browser SSRF policy in the local OpenClaw fixture, but do not assume that fixes prompt-first `web_fetch` for `host.docker.internal`; production-like onboarding tests should use a public-like HTTPS skill URL when OpenClaw's guarded fetch blocks private-network sources.
 - A clean reset must also remove OpenClaw workspace completion markers (`workspace/.openclaw/workspace-state.json`) so prompt-first onboarding starts from a genuinely fresh state.
 - The harness must verify local dependency readiness from host and container paths (`registry` health, `proxy` health, landing `/skill.md`) before reporting ready state.
+- `openclaw-onboarding-e2e-check.sh` must stay deterministic and fail-fast:
+  - requires explicit onboarding codes for alpha and beta via env vars.
+  - runs `clawdentity onboarding run` as the primary UX path, not manual multi-command pairing steps.
+  - asserts both sides reach `status=ready`, then verifies `provider doctor` and bidirectional `provider relay-test`.

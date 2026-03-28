@@ -498,7 +498,7 @@ assert_profile_clean_state() {
   [[ ! -f "$profile_path/hooks/transforms/relay-to-peer.mjs" ]] || fail "${profile_name}: relay transform survived reset"
   [[ ! -d "$profile_path/workspace/.clawdentity" ]] || fail "${profile_name}: clawdentity workspace state survived reset"
 
-  sessions_count="$(find "$profile_path/agents/main/sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  sessions_count="$({ find "$profile_path/agents/main/sessions" -type f 2>/dev/null || true; } | wc -l | tr -d ' ')"
   [[ "$sessions_count" == "0" ]] || fail "${profile_name}: expected 0 saved sessions after reset, found ${sessions_count}"
 }
 
@@ -597,9 +597,8 @@ run() {
   build_local_clawdentity_cli
   verify_host_stack_dependencies
 
-  local tmp_dir
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "${tmp_dir:-}"' EXIT
+  trap 'if [[ -n "${tmp_dir:-}" ]]; then rm -rf "$tmp_dir"; fi' EXIT
 
   if [[ "$PRESERVE_ENV" == "1" ]]; then
     [[ -f "$OPENCLAW_ALPHA_HOME/.env" ]] || fail "Missing .env: $OPENCLAW_ALPHA_HOME/.env"

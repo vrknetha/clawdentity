@@ -150,7 +150,7 @@ pub(super) fn apply_pair_accepted_system_delivery(
     config_dir: &Path,
     deliver: &mut DeliverFrame,
 ) -> Result<bool> {
-    if deliver.delivery_source.as_deref() != Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE) {
+    if !is_trusted_pair_accepted_delivery(deliver) {
         return Ok(false);
     }
 
@@ -185,6 +185,10 @@ pub(super) fn apply_pair_accepted_system_delivery(
     Ok(true)
 }
 
+pub(super) fn is_trusted_pair_accepted_delivery(deliver: &DeliverFrame) -> bool {
+    deliver.delivery_source.as_deref() == Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -193,7 +197,7 @@ mod tests {
     use serde_json::json;
 
     use super::PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE;
-    use super::apply_pair_accepted_system_delivery;
+    use super::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
 
     fn fixture_deliver_frame() -> clawdentity_core::DeliverFrame {
         clawdentity_core::DeliverFrame {
@@ -320,6 +324,16 @@ mod tests {
         assert!(!handled);
         let peers = list_peers(&store).expect("list peers");
         assert_eq!(peers.len(), 0);
+    }
+
+    #[test]
+    fn trusted_delivery_requires_queue_delivery_source() {
+        let trusted = fixture_deliver_frame();
+        assert!(is_trusted_pair_accepted_delivery(&trusted));
+
+        let mut untrusted = fixture_deliver_frame();
+        untrusted.delivery_source = Some("agent.enqueue".to_string());
+        assert!(!is_trusted_pair_accepted_delivery(&untrusted));
     }
 
     #[test]

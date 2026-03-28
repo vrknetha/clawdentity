@@ -380,7 +380,7 @@ fn resolve_confirm_input(
     }
 }
 
-fn build_local_pair_profile(
+pub(crate) fn build_local_pair_profile(
     agent_name: &str,
     config: &clawdentity_core::CliConfig,
     proxy_url: &str,
@@ -403,7 +403,7 @@ fn proxy_origin(proxy_url: &str) -> Result<String> {
     Ok(parsed.origin().unicode_serialization())
 }
 
-async fn resolve_pair_proxy_url(config: &clawdentity_core::CliConfig) -> Result<String> {
+pub(crate) async fn resolve_pair_proxy_url(config: &clawdentity_core::CliConfig) -> Result<String> {
     if let Ok(env_proxy) = std::env::var("CLAWDENTITY_PROXY_URL") {
         let trimmed = env_proxy.trim();
         if !trimmed.is_empty() {

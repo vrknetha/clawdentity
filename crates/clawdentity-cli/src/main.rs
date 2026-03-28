@@ -17,6 +17,7 @@ use clawdentity_core::{
 
 use crate::commands::connector::execute_connector_command;
 use crate::commands::install::execute_install_command;
+use crate::commands::onboarding::execute_onboarding_command;
 use crate::commands::pair::execute_pair_command;
 use crate::commands::provider::execute_provider_command;
 use crate::commands::verify::execute_verify_command;
@@ -465,6 +466,9 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Some(Commands::Pair { command }) => {
             execute_pair_command(&options, command, cli.json).await?;
+        }
+        Some(Commands::Onboarding { command }) => {
+            execute_onboarding_command(&options, command, cli.json).await?;
         }
         Some(Commands::Install {
             platform,
