@@ -13,6 +13,10 @@
 - `clawdentity-relay.json` is the runtime source of truth for projected `localAgentDid`; do not default transform runtime behavior to host `HOME` probing.
 - Missing or invalid projected `localAgentDid` is a setup/runtime error, not a reason to invent an alias-based relay lane.
 - Keep relay envelope semantics explicit: send `conversationId` as a top-level `/v1/outbound` field and strip only `peer` from the forwarded application payload.
+- Perform connector preflight health checks (`/v1/status`) before `/v1/outbound` handoff and keep probe timeout/cache TTL configurable for fast local-runtime failure signals.
+- All connector HTTP calls must run with explicit timeouts; never allow unbounded fetch waits in relay transforms.
+- Emit structured connector failure categories (`connector_unavailable`, `connector_timeout`, `connector_queue_full`, `connector_request_rejected`, `connector_request_failed`) with retry hints for OpenClaw-facing handling.
+- Keep outbound connector envelope canonical (`toAgentDid`, `payload`, optional `conversationId`); do not reintroduce legacy relay fields (`peerDid`, `peerProxyUrl`).
 
 ## Testing
 - Cover both default runtime metadata and explicit override behavior in transform tests.

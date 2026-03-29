@@ -59,9 +59,7 @@ fn reconcile_onboarding_session_object(session_object: &mut Map<String, Value>, 
     }
     session_object.insert("updatedAt".to_string(), json!(clawdentity_core::now_iso()));
 
-    let pairing = session_object
-        .entry("pairing")
-        .or_insert_with(|| json!({}));
+    let pairing = session_object.entry("pairing").or_insert_with(|| json!({}));
     if !pairing.is_object() {
         *pairing = json!({});
     }
@@ -554,7 +552,10 @@ mod tests {
         let raw = std::fs::read_to_string(temp.path().join("onboarding-session.json"))
             .expect("read onboarding session");
         let session: serde_json::Value = serde_json::from_str(&raw).expect("parse session");
-        assert_eq!(session.get("state").and_then(Value::as_str), Some("messaging_ready"));
+        assert_eq!(
+            session.get("state").and_then(Value::as_str),
+            Some("messaging_ready")
+        );
         assert_eq!(
             session
                 .get("pairing")

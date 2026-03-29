@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -22,6 +23,7 @@ const DEFAULT_CONNECTOR_PORT: u16 = 19400;
 const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
+type OutboundInflightMap = Arc<Mutex<HashMap<String, String>>>;
 
 mod delivery;
 mod headers;
@@ -258,6 +260,8 @@ async fn start_connector_runtime(
         },
         create_http_client()?,
     );
+    let outbound_inflight: OutboundInflightMap = Arc::new(Mutex::new(HashMap::new()));
+    let pending_receipt_notifications = Arc::new(Mutex::new(Vec::new()));
 
     let mut inbound_loop_task = spawn_inbound_loop_task(
         receipt_outbox.clone(),
@@ -266,6 +270,8 @@ async fn start_connector_runtime(
         store.clone(),
         runtime.config_dir.clone(),
         runtime.openclaw_runtime.clone(),
+        outbound_inflight.clone(),
+        pending_receipt_notifications.clone(),
         shutdown_rx.clone(),
     );
 
@@ -274,11 +280,12 @@ async fn start_connector_runtime(
         store.clone(),
         runtime.config_dir.clone(),
         runtime.openclaw_runtime.clone(),
+        pending_receipt_notifications,
         shutdown_rx.clone(),
     );
 
     let mut outbound_flush_task =
-        spawn_outbound_flush_task(store, relay_sender.clone(), shutdown_rx);
+        spawn_outbound_flush_task(store, relay_sender.clone(), outbound_inflight, shutdown_rx);
 
     if json {
         println!(
@@ -354,6 +361,8 @@ fn spawn_inbound_loop_task(
     store: SqliteStore,
     config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
+    outbound_inflight: OutboundInflightMap,
+    pending_receipt_notifications: Arc<Mutex<Vec<delivery::PendingReceiptNotification>>>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
@@ -364,6 +373,8 @@ fn spawn_inbound_loop_task(
             store,
             config_dir,
             openclaw_runtime,
+            outbound_inflight,
+            pending_receipt_notifications,
             shutdown_rx,
         )
         .await
@@ -373,9 +384,12 @@ fn spawn_inbound_loop_task(
 fn spawn_outbound_flush_task(
     store: SqliteStore,
     relay_sender: ConnectorClientSender,
+    outbound_inflight: OutboundInflightMap,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move { run_outbound_flush_loop(store, relay_sender, shutdown_rx).await })
+    tokio::spawn(async move {
+        run_outbound_flush_loop(store, relay_sender, outbound_inflight, shutdown_rx).await
+    })
 }
 
 fn spawn_inbound_retry_task(
@@ -383,6 +397,7 @@ fn spawn_inbound_retry_task(
     store: SqliteStore,
     config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
+    pending_receipt_notifications: Arc<Mutex<Vec<delivery::PendingReceiptNotification>>>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
@@ -391,6 +406,7 @@ fn spawn_inbound_retry_task(
             store,
             config_dir,
             openclaw_runtime,
+            pending_receipt_notifications,
             shutdown_rx,
         )
         .await
@@ -400,6 +416,7 @@ fn spawn_inbound_retry_task(
 async fn run_outbound_flush_loop(
     store: SqliteStore,
     relay_sender: ConnectorClientSender,
+    outbound_inflight: OutboundInflightMap,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let mut interval = tokio::time::interval(OUTBOUND_FLUSH_INTERVAL);
@@ -416,7 +433,7 @@ async fn run_outbound_flush_loop(
                 if !relay_sender.is_connected() {
                     continue;
                 }
-                if let Err(error) = flush_outbound_queue_to_relay(
+                match flush_outbound_queue_to_relay(
                     &store,
                     &relay_sender,
                     OUTBOUND_FLUSH_BATCH_SIZE,
@@ -424,7 +441,19 @@ async fn run_outbound_flush_loop(
                 )
                 .await
                 {
-                    tracing::warn!(error = %error, "failed to flush outbound queue to relay");
+                    Ok(result) => {
+                        if !result.sent_frames.is_empty() {
+                            let mut guard = outbound_inflight
+                                .lock()
+                                .map_err(|_| anyhow!("outbound inflight lock poisoned"))?;
+                            for sent in result.sent_frames {
+                                guard.insert(sent.frame_id, sent.to_agent_did);
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %error, "failed to flush outbound queue to relay");
+                    }
                 }
             }
         }

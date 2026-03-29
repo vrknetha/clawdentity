@@ -83,7 +83,8 @@ pub use db_inbound::{
 pub use db_outbound::{
     EnqueueOutboundInput, OutboundDeadLetterItem, OutboundQueueItem, delete_outbound,
     enqueue_outbound, list_outbound, list_outbound_dead_letter, move_outbound_to_dead_letter,
-    outbound_count, outbound_dead_letter_count, take_oldest_outbound,
+    outbound_count, outbound_dead_letter_count, outbound_queue_stats, requeue_outbound_retry,
+    take_due_outbound,
 };
 pub use db_peers::{
     PeerRecord, UpsertPeerInput, delete_peer, get_peer_by_alias, get_peer_by_did, list_peers,
@@ -147,7 +148,9 @@ pub use registry::{
 };
 pub use runtime_auth::{RelayConnectHeaders, build_relay_connect_headers};
 pub use runtime_openclaw::{OpenclawRuntimeConfig, check_openclaw_gateway_health};
-pub use runtime_relay::{FlushOutboundResult, flush_outbound_queue_to_relay};
+pub use runtime_relay::{
+    FlushOutboundResult, OutboundRetryPolicy, SentOutboundFrame, flush_outbound_queue_to_relay,
+};
 pub use runtime_replay::{
     PurgeResult, ReplayResult, purge_dead_letter_messages, replay_dead_letter_messages,
 };

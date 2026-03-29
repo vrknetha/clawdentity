@@ -14461,8 +14461,25 @@ async function loadPeersConfig(options = {}) {
 // src/transforms/relay-to-peer.ts
 var DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 var DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
+var DEFAULT_CONNECTOR_STATUS_PATH = "/v1/status";
+var DEFAULT_CONNECTOR_HEALTH_CACHE_TTL_MS = 5e3;
+var DEFAULT_CONNECTOR_HEALTH_TIMEOUT_MS = 1500;
+var DEFAULT_CONNECTOR_POST_TIMEOUT_MS = 1e4;
 var RELAY_RUNTIME_FILE_NAME = "clawdentity-relay.json";
 var RELAY_PEERS_FILE_NAME = "clawdentity-peers.json";
+var RelayTransformError = class extends Error {
+  category;
+  retryable;
+  statusCode;
+  constructor(input) {
+    super(input.message);
+    this.name = "RelayTransformError";
+    this.category = input.category;
+    this.retryable = input.retryable;
+    this.statusCode = input.statusCode;
+  }
+};
+var endpointHealthCache = /* @__PURE__ */ new Map();
 function getErrorCode2(error48) {
   if (!isRecord(error48)) {
     return void 0;
@@ -14485,6 +14502,23 @@ function parseOptionalString(value) {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : void 0;
+}
+function parseOptionalPositiveInteger(value) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return void 0;
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error("Relay runtime config timeout values must be positive integers");
+  }
+  return parsed;
 }
 function removePeerField(payload) {
   const outbound = {};
@@ -14520,7 +14554,7 @@ function parseConnectorBaseUrl(value) {
 function normalizeConnectorPath(value) {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    throw new Error("Connector outbound path is invalid");
+    throw new Error("Connector path is invalid");
   }
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
@@ -14549,6 +14583,7 @@ function parseRelayRuntimeConfig(value) {
   }
   const connectorBaseUrl = typeof value.connectorBaseUrl === "string" && value.connectorBaseUrl.trim().length > 0 ? parseConnectorBaseUrl(value.connectorBaseUrl.trim()) : void 0;
   const connectorPath = typeof value.connectorPath === "string" && value.connectorPath.trim().length > 0 ? normalizeConnectorPath(value.connectorPath) : void 0;
+  const connectorStatusPath = typeof value.connectorStatusPath === "string" && value.connectorStatusPath.trim().length > 0 ? normalizeConnectorPath(value.connectorStatusPath) : void 0;
   const peersConfigPath = typeof value.peersConfigPath === "string" && value.peersConfigPath.trim().length > 0 ? value.peersConfigPath.trim() : void 0;
   const localAgentDid = parseOptionalString(value.localAgentDid);
   if (localAgentDid) {
@@ -14559,10 +14594,23 @@ function parseRelayRuntimeConfig(value) {
     }
   }
   const connectorBaseUrls = Array.isArray(value.connectorBaseUrls) ? value.connectorBaseUrls.filter((item) => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0).map(parseConnectorBaseUrl) : void 0;
+  const connectorHealthCacheTtlMs = parseOptionalPositiveInteger(
+    value.connectorHealthCacheTtlMs
+  );
+  const connectorHealthTimeoutMs = parseOptionalPositiveInteger(
+    value.connectorHealthTimeoutMs
+  );
+  const connectorPostTimeoutMs = parseOptionalPositiveInteger(
+    value.connectorPostTimeoutMs
+  );
   return {
     connectorBaseUrl,
     connectorBaseUrls,
+    connectorHealthCacheTtlMs,
+    connectorHealthTimeoutMs,
     connectorPath,
+    connectorPostTimeoutMs,
+    connectorStatusPath,
     localAgentDid,
     peersConfigPath
   };
@@ -14614,8 +14662,10 @@ async function resolveLinuxDockerGatewayHost() {
 }
 async function resolveConnectorEndpoints(options) {
   const runtimeConfig = await loadRelayRuntimeConfig(options);
-  const pathInput = options.connectorPath ?? runtimeConfig.connectorPath ?? process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ?? DEFAULT_CONNECTOR_OUTBOUND_PATH;
-  const path = normalizeConnectorPath(pathInput.trim());
+  const outboundPathInput = options.connectorPath ?? runtimeConfig.connectorPath ?? process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ?? DEFAULT_CONNECTOR_OUTBOUND_PATH;
+  const outboundPath = normalizeConnectorPath(outboundPathInput.trim());
+  const statusPathInput = options.connectorStatusPath ?? runtimeConfig.connectorStatusPath ?? process.env.CLAWDENTITY_CONNECTOR_STATUS_PATH ?? DEFAULT_CONNECTOR_STATUS_PATH;
+  const statusPath = normalizeConnectorPath(statusPathInput.trim());
   const candidates = [];
   if (options.connectorBaseUrl) {
     candidates.push(parseConnectorBaseUrl(options.connectorBaseUrl.trim()));
@@ -14646,42 +14696,142 @@ async function resolveConnectorEndpoints(options) {
     }
   }
   const deduped = Array.from(new Set(candidates.map((candidate) => candidate)));
-  return deduped.map((baseUrl) => new URL(path, baseUrl).toString());
+  return deduped.map((baseUrl) => ({
+    outboundUrl: new URL(outboundPath, baseUrl).toString(),
+    statusUrl: new URL(statusPath, baseUrl).toString()
+  }));
 }
-function mapConnectorFailure(status) {
+function mapConnectorFailure(input) {
+  const status = input.status;
   if (status === 404) {
-    return new Error("Local connector outbound endpoint is unavailable");
-  }
-  if (status === 409) {
-    return new Error("Peer alias is not configured");
+    return new RelayTransformError({
+      category: "connector_unavailable",
+      message: "Local connector outbound endpoint is unavailable",
+      retryable: true,
+      statusCode: status
+    });
   }
   if (status === 400 || status === 422) {
-    return new Error("Local connector rejected outbound relay payload");
+    return new RelayTransformError({
+      category: "connector_request_rejected",
+      message: input.connectorMessage ?? "Local connector rejected outbound relay payload",
+      retryable: false,
+      statusCode: status
+    });
   }
-  return new Error("Local connector outbound relay request failed");
+  if (status === 507) {
+    return new RelayTransformError({
+      category: "connector_queue_full",
+      message: input.connectorMessage ?? "Local connector outbound queue is full",
+      retryable: true,
+      statusCode: status
+    });
+  }
+  return new RelayTransformError({
+    category: "connector_request_failed",
+    message: input.connectorMessage ?? "Local connector outbound relay request failed",
+    retryable: status >= 500,
+    statusCode: status
+  });
 }
-async function postToConnector(endpoint, payload, fetchImpl) {
+function isTimeoutLike(error48) {
+  if (!isRecord(error48)) {
+    return false;
+  }
+  return error48.name === "TimeoutError" || error48.name === "AbortError";
+}
+function normalizeRelayError(error48) {
+  if (error48 instanceof RelayTransformError) {
+    return error48;
+  }
+  if (isTimeoutLike(error48)) {
+    return new RelayTransformError({
+      category: "connector_timeout",
+      message: "Local connector outbound relay request timed out",
+      retryable: true
+    });
+  }
+  return new RelayTransformError({
+    category: "connector_unavailable",
+    message: "Local connector outbound relay request failed",
+    retryable: true
+  });
+}
+async function parseConnectorErrorMessage(response) {
+  try {
+    const payload = await response.json();
+    if (!isRecord(payload)) {
+      return void 0;
+    }
+    const errorPayload = payload.error;
+    if (!isRecord(errorPayload)) {
+      return void 0;
+    }
+    return typeof errorPayload.message === "string" ? errorPayload.message : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function computeHealthCacheTtlMs(options, runtimeConfig) {
+  return options.connectorHealthCacheTtlMs ?? runtimeConfig.connectorHealthCacheTtlMs ?? parseOptionalPositiveInteger(
+    process.env.CLAWDENTITY_CONNECTOR_HEALTH_CACHE_TTL_MS
+  ) ?? DEFAULT_CONNECTOR_HEALTH_CACHE_TTL_MS;
+}
+function computeHealthTimeoutMs(options, runtimeConfig) {
+  return options.connectorHealthTimeoutMs ?? runtimeConfig.connectorHealthTimeoutMs ?? parseOptionalPositiveInteger(
+    process.env.CLAWDENTITY_CONNECTOR_HEALTH_TIMEOUT_MS
+  ) ?? DEFAULT_CONNECTOR_HEALTH_TIMEOUT_MS;
+}
+function computePostTimeoutMs(options, runtimeConfig) {
+  return options.connectorPostTimeoutMs ?? runtimeConfig.connectorPostTimeoutMs ?? parseOptionalPositiveInteger(process.env.CLAWDENTITY_CONNECTOR_POST_TIMEOUT_MS) ?? DEFAULT_CONNECTOR_POST_TIMEOUT_MS;
+}
+async function isEndpointHealthy(input) {
+  const nowMs = Date.now();
+  const cacheEntry = endpointHealthCache.get(input.endpoint.statusUrl);
+  if (cacheEntry !== void 0 && nowMs - cacheEntry.checkedAtMs < input.healthCacheTtlMs) {
+    return cacheEntry.healthy;
+  }
+  let healthy = false;
+  try {
+    const response = await input.fetchImpl(input.endpoint.statusUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(input.healthTimeoutMs)
+    });
+    healthy = response.ok;
+  } catch {
+    healthy = false;
+  }
+  endpointHealthCache.set(input.endpoint.statusUrl, {
+    checkedAtMs: nowMs,
+    healthy
+  });
+  return healthy;
+}
+async function postToConnector(input) {
   let response;
   try {
-    response = await fetchImpl(endpoint, {
+    response = await input.fetchImpl(input.endpoint.outboundUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(input.payload),
+      signal: AbortSignal.timeout(input.timeoutMs)
     });
-  } catch {
-    throw new Error("Local connector outbound relay request failed");
+  } catch (error48) {
+    throw normalizeRelayError(error48);
   }
   if (!response.ok) {
-    throw mapConnectorFailure(response.status);
+    const connectorMessage = await parseConnectorErrorMessage(response);
+    throw mapConnectorFailure({
+      connectorMessage,
+      status: response.status
+    });
   }
 }
 function shouldTryNextConnectorEndpoint(error48) {
-  if (!(error48 instanceof Error)) {
-    return false;
-  }
-  return error48.message === "Local connector outbound relay request failed" || error48.message === "Local connector outbound endpoint is unavailable";
+  const normalized = normalizeRelayError(error48);
+  return normalized.retryable;
 }
 async function resolvePeersConfigPathOptions(options) {
   if (options.configPath !== void 0 || options.configDir !== void 0 || options.homeDir !== void 0) {
@@ -14746,32 +14896,70 @@ async function relayPayloadToPeer(payload, options = {}) {
   });
   const relayPayload = {
     conversationId,
-    peer: peerAlias,
-    peerDid: peerEntry.did,
-    peerProxyUrl: peerEntry.proxyUrl,
+    toAgentDid: peerEntry.did,
     payload: outboundPayload
   };
-  let lastError;
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
+  const healthCacheTtlMs = computeHealthCacheTtlMs(options, runtimeConfig);
+  const healthTimeoutMs = computeHealthTimeoutMs(options, runtimeConfig);
+  const postTimeoutMs = computePostTimeoutMs(options, runtimeConfig);
+  const healthyEndpoints = [];
   for (const endpoint of connectorEndpoints) {
+    if (await isEndpointHealthy({
+      endpoint,
+      fetchImpl,
+      healthCacheTtlMs,
+      healthTimeoutMs
+    })) {
+      healthyEndpoints.push(endpoint);
+    }
+  }
+  if (healthyEndpoints.length === 0) {
+    throw new RelayTransformError({
+      category: "connector_unavailable",
+      message: "Local connector status endpoint is unavailable",
+      retryable: true
+    });
+  }
+  let lastError;
+  for (const endpoint of healthyEndpoints) {
     try {
-      await postToConnector(endpoint, relayPayload, fetchImpl);
+      await postToConnector({
+        endpoint,
+        fetchImpl,
+        payload: relayPayload,
+        timeoutMs: postTimeoutMs
+      });
+      endpointHealthCache.set(endpoint.statusUrl, {
+        checkedAtMs: Date.now(),
+        healthy: true
+      });
       return null;
     } catch (error48) {
       lastError = error48;
+      endpointHealthCache.set(endpoint.statusUrl, {
+        checkedAtMs: Date.now(),
+        healthy: false
+      });
       if (!shouldTryNextConnectorEndpoint(error48)) {
-        throw error48;
+        throw normalizeRelayError(error48);
       }
     }
   }
-  if (lastError instanceof Error) {
-    throw lastError;
+  if (lastError !== void 0) {
+    throw normalizeRelayError(lastError);
   }
-  throw new Error("Local connector outbound relay request failed");
+  throw new RelayTransformError({
+    category: "connector_request_failed",
+    message: "Local connector outbound relay request failed",
+    retryable: true
+  });
 }
 async function relayToPeer(ctx) {
   return relayPayloadToPeer(ctx?.payload);
 }
 export {
+  RelayTransformError,
   relayToPeer as default,
   relayPayloadToPeer
 };
