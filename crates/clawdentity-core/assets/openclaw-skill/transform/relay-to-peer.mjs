@@ -14458,6 +14458,42 @@ async function loadPeersConfig(options = {}) {
   return parsePeersConfig(parsed, configPath);
 }
 
+// src/transforms/relay-health-cache.ts
+var endpointHealthCache = /* @__PURE__ */ new Map();
+var MAX_CONNECTOR_HEALTH_CACHE_ENTRIES = 256;
+function pruneEndpointHealthCache(nowMs, healthCacheTtlMs) {
+  for (const [statusUrl, entry] of endpointHealthCache.entries()) {
+    if (nowMs - entry.checkedAtMs >= healthCacheTtlMs) {
+      endpointHealthCache.delete(statusUrl);
+    }
+  }
+  if (endpointHealthCache.size <= MAX_CONNECTOR_HEALTH_CACHE_ENTRIES) {
+    return;
+  }
+  const sortedByAge = [...endpointHealthCache.entries()].sort(
+    (a, b) => a[1].checkedAtMs - b[1].checkedAtMs
+  );
+  const overflowCount = endpointHealthCache.size - MAX_CONNECTOR_HEALTH_CACHE_ENTRIES;
+  for (const [statusUrl] of sortedByAge.slice(0, overflowCount)) {
+    endpointHealthCache.delete(statusUrl);
+  }
+}
+function readEndpointHealthCache(input) {
+  pruneEndpointHealthCache(input.nowMs, input.healthCacheTtlMs);
+  const cacheEntry = endpointHealthCache.get(input.statusUrl);
+  if (cacheEntry !== void 0 && input.nowMs - cacheEntry.checkedAtMs < input.healthCacheTtlMs) {
+    return cacheEntry.healthy;
+  }
+  return void 0;
+}
+function writeEndpointHealthCache(input) {
+  pruneEndpointHealthCache(input.checkedAtMs, input.healthCacheTtlMs);
+  endpointHealthCache.set(input.statusUrl, {
+    checkedAtMs: input.checkedAtMs,
+    healthy: input.healthy
+  });
+}
+
 // src/transforms/relay-to-peer.ts
 var DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 var DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
@@ -14479,7 +14515,6 @@ var RelayTransformError = class extends Error {
     this.statusCode = input.statusCode;
   }
 };
-var endpointHealthCache = /* @__PURE__ */ new Map();
 function getErrorCode2(error48) {
   if (!isRecord(error48)) {
     return void 0;
@@ -14516,7 +14551,9 @@ function parseOptionalPositiveInteger(value) {
   }
   const parsed = Number.parseInt(trimmed, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error("Relay runtime config timeout values must be positive integers");
+    throw new Error(
+      "Relay runtime config timeout values must be positive integers"
+    );
   }
   return parsed;
 }
@@ -14783,13 +14820,19 @@ function computeHealthTimeoutMs(options, runtimeConfig) {
   ) ?? DEFAULT_CONNECTOR_HEALTH_TIMEOUT_MS;
 }
 function computePostTimeoutMs(options, runtimeConfig) {
-  return options.connectorPostTimeoutMs ?? runtimeConfig.connectorPostTimeoutMs ?? parseOptionalPositiveInteger(process.env.CLAWDENTITY_CONNECTOR_POST_TIMEOUT_MS) ?? DEFAULT_CONNECTOR_POST_TIMEOUT_MS;
+  return options.connectorPostTimeoutMs ?? runtimeConfig.connectorPostTimeoutMs ?? parseOptionalPositiveInteger(
+    process.env.CLAWDENTITY_CONNECTOR_POST_TIMEOUT_MS
+  ) ?? DEFAULT_CONNECTOR_POST_TIMEOUT_MS;
 }
 async function isEndpointHealthy(input) {
   const nowMs = Date.now();
-  const cacheEntry = endpointHealthCache.get(input.endpoint.statusUrl);
-  if (cacheEntry !== void 0 && nowMs - cacheEntry.checkedAtMs < input.healthCacheTtlMs) {
-    return cacheEntry.healthy;
+  const cached2 = readEndpointHealthCache({
+    statusUrl: input.endpoint.statusUrl,
+    nowMs,
+    healthCacheTtlMs: input.healthCacheTtlMs
+  });
+  if (cached2 !== void 0) {
+    return cached2;
   }
   let healthy = false;
   try {
@@ -14801,8 +14844,10 @@ async function isEndpointHealthy(input) {
   } catch {
     healthy = false;
   }
-  endpointHealthCache.set(input.endpoint.statusUrl, {
+  writeEndpointHealthCache({
+    statusUrl: input.endpoint.statusUrl,
     checkedAtMs: nowMs,
+    healthCacheTtlMs: input.healthCacheTtlMs,
     healthy
   });
   return healthy;
@@ -14930,19 +14975,25 @@ async function relayPayloadToPeer(payload, options = {}) {
         payload: relayPayload,
         timeoutMs: postTimeoutMs
       });
-      endpointHealthCache.set(endpoint.statusUrl, {
+      writeEndpointHealthCache({
+        statusUrl: endpoint.statusUrl,
         checkedAtMs: Date.now(),
+        healthCacheTtlMs,
         healthy: true
       });
       return null;
     } catch (error48) {
       lastError = error48;
-      endpointHealthCache.set(endpoint.statusUrl, {
+      const normalizedError = normalizeRelayError(error48);
+      const shouldMarkEndpointUnhealthy = normalizedError.category === "connector_unavailable" || normalizedError.category === "connector_timeout";
+      writeEndpointHealthCache({
+        statusUrl: endpoint.statusUrl,
         checkedAtMs: Date.now(),
-        healthy: false
+        healthCacheTtlMs,
+        healthy: !shouldMarkEndpointUnhealthy
       });
       if (!shouldTryNextConnectorEndpoint(error48)) {
-        throw normalizeRelayError(error48);
+        throw normalizedError;
       }
     }
   }
