@@ -125,6 +125,24 @@ ALTER TABLE inbound_pending
 ALTER TABLE inbound_dead_letter
     ADD COLUMN delivery_source TEXT;
 "#;
+const MIGRATION_NAME_PHASE6: &str = "0004_outbound_retry_policy";
+const MIGRATION_SQL_PHASE6: &str = r#"
+ALTER TABLE outbound_queue
+    ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE outbound_queue
+    ADD COLUMN next_attempt_at_ms INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE outbound_queue
+    ADD COLUMN last_attempt_at_ms INTEGER;
+
+ALTER TABLE outbound_queue
+    ADD COLUMN last_error TEXT;
+
+UPDATE outbound_queue
+SET next_attempt_at_ms = created_at_ms
+WHERE next_attempt_at_ms = 0;
+"#;
 
 #[derive(Clone)]
 pub struct SqliteStore {
@@ -199,6 +217,7 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE3, MIGRATION_SQL_PHASE3)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE4, MIGRATION_SQL_PHASE4)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE5, MIGRATION_SQL_PHASE5)?;
+    apply_migration_if_needed(connection, MIGRATION_NAME_PHASE6, MIGRATION_SQL_PHASE6)?;
     Ok(())
 }
 

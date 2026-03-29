@@ -19,6 +19,7 @@
 - Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-human-name`) when local peer metadata exists.
 - Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.
 - Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
+- Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
 - Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
 - Handle pairing acceptance system events in `delivery/pair_accepted.rs` and invoke that processor in both live inbound delivery flow and retry replay flow.
 - Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`; never duplicate direct peer upsert/snapshot logic in connector runtime.
@@ -32,6 +33,11 @@
 - Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
 - Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
 - Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.
+- Treat relay `enqueue_ack.accepted=false` as a first-class outbound failure signal: remove inflight tracking for that frame and emit an OpenClaw-visible dead-letter style notification instead of log-only handling.
+- Keep outbound inflight frame tracking synchronized between flush loop and inbound frame handling so enqueue acks can be correlated to `toAgentDid`, and record inflight correlation at queue/send time (not post-flush) to avoid ack races.
+- Never synthesize a production-looking fallback DID when enqueue-ack correlation is missing; drop and log unknown-ack failures to avoid misrouting receipts to real agents.
+- Keep receipt-forward retry buffering in `delivery.rs` for OpenClaw hook outages: queue failed receipt forwards with bounded exponential backoff and retry from the inbound retry loop.
+- Keep in-memory receipt-forward retry queues bounded by max pending, max attempts, and max age so connector processes cannot leak memory during prolonged hook outages.
 - Receipt callback routing authority is always the runtime-owned local proxy receipt URL; do not trust inbound `reply_to` for callback destination selection.
 - Receipt PoP nonces must be cryptographically random, URL-safe, and one-time per request signing call; never derive them from timestamps/counters.
 - Keep receipt payload tests asserting status parity at top-level and metadata level so `dead_lettered` and `processed_by_openclaw` stay externally consistent for OpenClaw hooks.

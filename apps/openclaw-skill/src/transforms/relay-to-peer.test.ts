@@ -3,7 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import relayToPeer, { relayPayloadToPeer } from "./relay-to-peer.js";
+import relayToPeer, {
+  type RelayTransformError,
+  relayPayloadToPeer,
+} from "./relay-to-peer.js";
 
 const ALPHA_AGENT_DID =
   "did:cdi:registry.example.test:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
@@ -50,6 +53,7 @@ function createRelaySandbox(): RelaySandbox {
       {
         connectorBaseUrl: "http://127.0.0.1:19400",
         connectorPath: "/v1/outbound",
+        connectorStatusPath: "/v1/status",
         localAgentDid: ALPHA_AGENT_DID,
         peersConfigPath,
       },
@@ -68,10 +72,24 @@ function createRelaySandbox(): RelaySandbox {
   };
 }
 
+function createHealthyConnectorFetch(): typeof fetch {
+  return vi.fn<typeof fetch>(async (url, init) => {
+    const normalized = typeof url === "string" ? url : url.toString();
+    if (normalized.endsWith("/v1/status")) {
+      return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
+    }
+    if (normalized.endsWith("/v1/outbound")) {
+      return new Response(JSON.stringify({ accepted: true }), { status: 202 });
+    }
+
+    throw new Error(`Unexpected URL: ${normalized} (${init?.method ?? "GET"})`);
+  }) as typeof fetch;
+}
+
 describe("relay-to-peer transform", () => {
-  it("posts outbound relay payload to local connector endpoint", async () => {
+  it("checks connector health, then posts outbound relay payload", async () => {
     const sandbox = createRelaySandbox();
-    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    const fetchMock = createHealthyConnectorFetch();
 
     try {
       const result = await relayPayloadToPeer(
@@ -84,15 +102,19 @@ describe("relay-to-peer transform", () => {
         },
         {
           configPath: sandbox.peersConfigPath,
-          fetchImpl: fetchMock as typeof fetch,
+          fetchImpl: fetchMock,
           runtimeConfigPath: sandbox.runtimeConfigPath,
+          connectorHealthCacheTtlMs: 1,
         },
       );
 
       expect(result).toBeNull();
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+        "http://127.0.0.1:19400/v1/status",
+      );
 
-      const [url, requestInit] = fetchMock.mock.calls[0] as [
+      const [url, requestInit] = fetchMock.mock.calls[1] as [
         string,
         RequestInit,
       ];
@@ -104,9 +126,7 @@ describe("relay-to-peer transform", () => {
             ALPHA_AGENT_DID,
             BETA_AGENT_DID,
           ),
-          peer: "beta",
-          peerDid: BETA_AGENT_DID,
-          peerProxyUrl: "https://peer.example.com/hooks/agent?source=skill",
+          toAgentDid: BETA_AGENT_DID,
           payload: {
             message: "hello",
             metadata: {
@@ -123,9 +143,18 @@ describe("relay-to-peer transform", () => {
     }
   });
 
-  it("supports connector endpoint override", async () => {
+  it("supports connector endpoint and status path overrides", async () => {
     const sandbox = createRelaySandbox();
-    const fetchMock = vi.fn(async () => new Response("", { status: 200 }));
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      const normalized = typeof url === "string" ? url : url.toString();
+      if (normalized.endsWith("/relay/status")) {
+        return new Response("ok", { status: 200 });
+      }
+      if (normalized.endsWith("/relay/outbound")) {
+        return new Response("", { status: 200 });
+      }
+      throw new Error(`unexpected URL ${normalized}`);
+    });
 
     try {
       const result = await relayPayloadToPeer(
@@ -136,6 +165,7 @@ describe("relay-to-peer transform", () => {
         {
           connectorBaseUrl: "http://127.0.0.1:19555",
           connectorPath: "/relay/outbound",
+          connectorStatusPath: "/relay/status",
           configPath: sandbox.peersConfigPath,
           fetchImpl: fetchMock as typeof fetch,
           runtimeConfigPath: sandbox.runtimeConfigPath,
@@ -143,6 +173,12 @@ describe("relay-to-peer transform", () => {
       );
 
       expect(result).toBeNull();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://127.0.0.1:19555/relay/status",
+        expect.objectContaining({
+          method: "GET",
+        }),
+      );
       expect(fetchMock).toHaveBeenCalledWith(
         "http://127.0.0.1:19555/relay/outbound",
         expect.objectContaining({
@@ -181,9 +217,7 @@ describe("relay-to-peer transform", () => {
           },
           {
             configPath: sandbox.peersConfigPath,
-            fetchImpl: vi.fn(
-              async () => new Response("", { status: 200 }),
-            ) as typeof fetch,
+            fetchImpl: createHealthyConnectorFetch(),
           },
         ),
       ).rejects.toThrow("Peer alias is not configured");
@@ -194,7 +228,13 @@ describe("relay-to-peer transform", () => {
 
   it("maps connector 404 response to deterministic error", async () => {
     const sandbox = createRelaySandbox();
-    const fetchMock = vi.fn(async () => new Response("", { status: 404 }));
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      const normalized = typeof url === "string" ? url : url.toString();
+      if (normalized.endsWith("/v1/status")) {
+        return new Response("ok", { status: 200 });
+      }
+      return new Response("", { status: 404 });
+    });
 
     try {
       await expect(
@@ -204,9 +244,11 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
           {
+            connectorBaseUrl: "http://127.0.0.1:19557",
             configPath: sandbox.peersConfigPath,
             fetchImpl: fetchMock as typeof fetch,
             runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 1,
           },
         ),
       ).rejects.toThrow("Local connector outbound endpoint is unavailable");
@@ -215,10 +257,82 @@ describe("relay-to-peer transform", () => {
     }
   });
 
-  it("maps connector network failures to deterministic error", async () => {
+  it("does not mark endpoint unhealthy after outbound payload rejection", async () => {
     const sandbox = createRelaySandbox();
-    const fetchMock = vi.fn(async () => {
-      throw new Error("connection refused");
+    let outboundAttempt = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      const normalized = typeof url === "string" ? url : url.toString();
+      if (normalized.endsWith("/v1/status")) {
+        return new Response("ok", { status: 200 });
+      }
+      if (normalized.endsWith("/v1/outbound")) {
+        outboundAttempt += 1;
+        if (outboundAttempt === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: "invalid payload",
+              },
+            }),
+            { status: 422 },
+          );
+        }
+        return new Response("", { status: 202 });
+      }
+      throw new Error(`unexpected URL ${normalized}`);
+    });
+
+    try {
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            message: "bad first",
+          },
+          {
+            connectorBaseUrl: "http://127.0.0.1:19556",
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 30_000,
+          },
+        ),
+      ).rejects.toMatchObject({
+        category: "connector_request_rejected",
+      } satisfies Partial<RelayTransformError>);
+
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            message: "good second",
+          },
+          {
+            connectorBaseUrl: "http://127.0.0.1:19556",
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 30_000,
+          },
+        ),
+      ).resolves.toBeNull();
+      expect(outboundAttempt).toBe(2);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("maps connector timeout failures to structured relay error", async () => {
+    const sandbox = createRelaySandbox();
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      const normalized = typeof url === "string" ? url : url.toString();
+      if (normalized.endsWith("/v1/status")) {
+        return new Response("ok", { status: 200 });
+      }
+
+      const timeoutError = new Error("timed out");
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
     });
 
     try {
@@ -232,9 +346,40 @@ describe("relay-to-peer transform", () => {
             configPath: sandbox.peersConfigPath,
             fetchImpl: fetchMock as typeof fetch,
             runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 1,
           },
         ),
-      ).rejects.toThrow("Local connector outbound relay request failed");
+      ).rejects.toMatchObject({
+        category: "connector_timeout",
+        retryable: true,
+      } satisfies Partial<RelayTransformError>);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("fails fast when all connector health checks fail", async () => {
+    const sandbox = createRelaySandbox();
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      throw new Error("connection refused");
+    });
+
+    try {
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            message: "hello",
+          },
+          {
+            connectorBaseUrl: "http://127.0.0.1:19557",
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 1,
+          },
+        ),
+      ).rejects.toThrow("Local connector status endpoint is unavailable");
     } finally {
       sandbox.cleanup();
     }
@@ -242,7 +387,7 @@ describe("relay-to-peer transform", () => {
 
   it("uses explicit payload conversationId as relay lane override", async () => {
     const sandbox = createRelaySandbox();
-    const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
+    const fetchMock = createHealthyConnectorFetch();
 
     try {
       await relayPayloadToPeer(
@@ -255,16 +400,15 @@ describe("relay-to-peer transform", () => {
           configPath: sandbox.peersConfigPath,
           fetchImpl: fetchMock as typeof fetch,
           runtimeConfigPath: sandbox.runtimeConfigPath,
+          connectorHealthCacheTtlMs: 1,
         },
       );
 
-      const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const [, requestInit] = fetchMock.mock.calls[1] as [string, RequestInit];
       expect(requestInit.body).toBe(
         JSON.stringify({
           conversationId: "channel:ops-thread-7",
-          peer: "beta",
-          peerDid: BETA_AGENT_DID,
-          peerProxyUrl: "https://peer.example.com/hooks/agent?source=skill",
+          toAgentDid: BETA_AGENT_DID,
           payload: {
             conversationId: "channel:ops-thread-7",
             message: "hello",
@@ -288,9 +432,7 @@ describe("relay-to-peer transform", () => {
           },
           {
             configPath: sandbox.peersConfigPath,
-            fetchImpl: vi.fn(
-              async () => new Response("", { status: 202 }),
-            ) as typeof fetch,
+            fetchImpl: createHealthyConnectorFetch(),
           },
         ),
       ).rejects.toThrow(

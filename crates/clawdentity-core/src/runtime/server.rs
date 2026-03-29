@@ -9,27 +9,29 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::connector_client::ConnectorClientSender;
-use crate::db::SqliteStore;
+use crate::db::{SqliteStore, now_utc_ms};
 use crate::db_inbound::{dead_letter_count, list_dead_letter, pending_count};
-use crate::db_outbound::{EnqueueOutboundInput, enqueue_outbound, outbound_count};
+use crate::db_outbound::{
+    EnqueueOutboundInput, enqueue_outbound, outbound_dead_letter_count, outbound_queue_stats,
+};
 use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
 use crate::runtime_relay::flush_outbound_queue_to_relay;
 use crate::runtime_replay::{purge_dead_letter_messages, replay_dead_letter_messages};
 
+const DEFAULT_OUTBOUND_MAX_PENDING: i64 = 10_000;
+
 #[derive(Clone)]
 pub struct RuntimeServerState {
     pub store: SqliteStore,
     pub relay_sender: Option<ConnectorClientSender>,
+    pub outbound_max_pending_override: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OutboundRequest {
-    #[serde(default)]
-    to_agent_did: Option<String>,
-    #[serde(default)]
-    peer_did: Option<String>,
+    to_agent_did: String,
     payload: serde_json::Value,
     #[serde(default)]
     conversation_id: Option<String>,
@@ -78,7 +80,16 @@ pub async fn run_runtime_server(
 }
 
 async fn status_handler(State(state): State<RuntimeServerState>) -> impl IntoResponse {
-    let outbound_pending = outbound_count(&state.store).unwrap_or(0);
+    let now_ms = now_utc_ms();
+    let outbound_stats = outbound_queue_stats(&state.store, now_ms).unwrap_or({
+        crate::db_outbound::OutboundQueueStats {
+            pending_count: 0,
+            retrying_count: 0,
+            oldest_created_at_ms: None,
+            next_retry_at_ms: None,
+        }
+    });
+    let outbound_dead_letter = outbound_dead_letter_count(&state.store).unwrap_or(0);
     let inbound_pending = pending_count(&state.store).unwrap_or(0);
     let inbound_dead_letter = dead_letter_count(&state.store).unwrap_or(0);
     let relay = state.relay_sender.as_ref();
@@ -93,7 +104,13 @@ async fn status_handler(State(state): State<RuntimeServerState>) -> impl IntoRes
             },
             "outbound": {
                 "queue": {
-                    "pendingCount": outbound_pending,
+                    "pendingCount": outbound_stats.pending_count,
+                    "retryingCount": outbound_stats.retrying_count,
+                    "deadLetterCount": outbound_dead_letter,
+                    "oldestAgeMs": outbound_stats
+                        .oldest_created_at_ms
+                        .map(|created_at_ms| now_ms.saturating_sub(created_at_ms)),
+                    "nextRetryAtMs": outbound_stats.next_retry_at_ms,
                 },
             },
             "inbound": {
@@ -109,24 +126,41 @@ async fn outbound_handler(
     State(state): State<RuntimeServerState>,
     Json(request): Json<OutboundRequest>,
 ) -> impl IntoResponse {
-    let Some(normalized_to_agent_did) = request.normalized_to_agent_did() else {
+    let normalized_to_agent_did = request.to_agent_did.trim().to_string();
+    if normalized_to_agent_did.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": {
                     "code": "INVALID_TO_AGENT_DID",
-                    "message": "toAgentDid or peerDid must be a valid agent DID",
+                    "message": "toAgentDid must be a valid agent DID",
                 }
             })),
         );
-    };
+    }
     if parse_agent_did(&normalized_to_agent_did).is_err() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": {
                     "code": "INVALID_TO_AGENT_DID",
-                    "message": "toAgentDid or peerDid must be a valid agent DID",
+                    "message": "toAgentDid must be a valid agent DID",
+                }
+            })),
+        );
+    }
+
+    let max_pending = resolve_outbound_max_pending(&state);
+    let current_pending = outbound_queue_stats(&state.store, now_utc_ms())
+        .map(|stats| stats.pending_count)
+        .unwrap_or(0);
+    if current_pending >= max_pending {
+        return (
+            StatusCode::INSUFFICIENT_STORAGE,
+            Json(json!({
+                "error": {
+                    "code": "CONNECTOR_OUTBOUND_QUEUE_FULL",
+                    "message": "Connector outbound queue is full",
                 }
             })),
         );
@@ -168,6 +202,18 @@ async fn outbound_handler(
             "frameId": frame_id,
         })),
     )
+}
+
+fn resolve_outbound_max_pending(state: &RuntimeServerState) -> i64 {
+    if let Some(override_limit) = state.outbound_max_pending_override {
+        return override_limit.max(1);
+    }
+
+    std::env::var("CONNECTOR_OUTBOUND_MAX_PENDING")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_OUTBOUND_MAX_PENDING)
 }
 
 async fn dead_letter_list_handler(State(state): State<RuntimeServerState>) -> impl IntoResponse {
@@ -260,17 +306,6 @@ fn normalize_request_ids(request_ids: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-impl OutboundRequest {
-    fn normalized_to_agent_did(&self) -> Option<String> {
-        self.to_agent_did
-            .as_deref()
-            .or(self.peer_did.as_deref())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use axum::body::{Body, to_bytes};
@@ -291,6 +326,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store,
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -320,6 +356,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -346,6 +383,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -372,12 +410,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn outbound_endpoint_accepts_legacy_peer_did_payload() {
+    async fn outbound_endpoint_rejects_legacy_peer_did_payload() {
         let temp = TempDir::new().expect("temp dir");
         let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -393,7 +432,49 @@ mod tests {
             )
             .await
             .expect("response");
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
-        assert_eq!(outbound_count(&store).expect("count"), 1);
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(outbound_count(&store).expect("count"), 0);
+    }
+
+    #[tokio::test]
+    async fn outbound_endpoint_returns_507_when_queue_limit_reached() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+        let app = create_runtime_router(RuntimeServerState {
+            store: store.clone(),
+            relay_sender: None,
+            outbound_max_pending_override: Some(1),
+        });
+
+        let first = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/outbound")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"world\"}}",
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(first.status(), StatusCode::ACCEPTED);
+
+        let second = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/outbound")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"again\"}}",
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(second.status(), StatusCode::INSUFFICIENT_STORAGE);
     }
 }

@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -11,8 +13,8 @@ use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientSender, ConnectorFrame,
-    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, ReceiptFrame, SqliteStore, new_frame_id,
-    now_iso,
+    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, ReceiptFrame, ReceiptStatus, SqliteStore,
+    new_frame_id, now_iso,
 };
 use serde_json::{Value, json};
 use tokio::sync::watch;
@@ -23,14 +25,32 @@ use super::headers::{
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
 use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
+use receipt_forward_queue::{
+    PendingReceiptNotification, PendingReceiptQueue, enqueue_pending_receipt_notification,
+    flush_pending_receipt_notifications,
+};
 
 mod openclaw_payload;
 mod pair_accepted;
+mod receipt_forward_queue;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
+
+pub(super) type OutboundInflightMap = Arc<Mutex<HashMap<String, String>>>;
+pub(super) type PendingReceiptQueueHandle = PendingReceiptQueue;
+
+pub(super) struct InboundLoopRuntime {
+    pub receipt_outbox: ReceiptOutboxHandle,
+    pub relay_sender: ConnectorClientSender,
+    pub store: SqliteStore,
+    pub config_dir: PathBuf,
+    pub openclaw_runtime: OpenclawRuntimeConfig,
+    pub outbound_inflight: OutboundInflightMap,
+    pub pending_receipt_notifications: PendingReceiptQueueHandle,
+}
 
 struct InboundRuntimeContext<'a> {
     store: &'a SqliteStore,
@@ -40,27 +60,27 @@ struct InboundRuntimeContext<'a> {
     hook_url: &'a str,
     openclaw_runtime: &'a OpenclawRuntimeConfig,
     receipt_outbox: &'a ReceiptOutboxHandle,
+    outbound_inflight: &'a OutboundInflightMap,
+    pending_receipt_notifications: &'a PendingReceiptQueueHandle,
 }
 
 pub(super) async fn run_inbound_loop(
-    receipt_outbox: ReceiptOutboxHandle,
     mut connector_client: ConnectorClient,
-    relay_sender: ConnectorClientSender,
-    store: SqliteStore,
-    config_dir: PathBuf,
-    openclaw_runtime: OpenclawRuntimeConfig,
+    runtime: InboundLoopRuntime,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let hook_url = openclaw_runtime.hook_url()?;
+    let hook_url = runtime.openclaw_runtime.hook_url()?;
     let http_client = create_http_client()?;
     let context = InboundRuntimeContext {
-        store: &store,
-        config_dir: config_dir.as_path(),
-        relay_sender: &relay_sender,
+        store: &runtime.store,
+        config_dir: runtime.config_dir.as_path(),
+        relay_sender: &runtime.relay_sender,
         http_client: &http_client,
         hook_url: &hook_url,
-        openclaw_runtime: &openclaw_runtime,
-        receipt_outbox: &receipt_outbox,
+        openclaw_runtime: &runtime.openclaw_runtime,
+        receipt_outbox: &runtime.receipt_outbox,
+        outbound_inflight: &runtime.outbound_inflight,
+        pending_receipt_notifications: &runtime.pending_receipt_notifications,
     };
 
     loop {
@@ -86,39 +106,87 @@ async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeC
             handle_deliver_frame(context, deliver).await;
         }
         ConnectorFrame::Receipt(receipt) => {
-            if let Err(error) = forward_receipt_to_openclaw(
+            enqueue_pending_receipt_notification(
+                context.pending_receipt_notifications,
+                PendingReceiptNotification::new(receipt),
+            );
+            flush_pending_receipt_notifications(
                 context.http_client,
                 context.hook_url,
                 context.openclaw_runtime,
-                &receipt,
+                context.pending_receipt_notifications,
             )
-            .await
-            {
-                tracing::warn!(
-                    error = %error,
-                    request_id = %receipt.original_frame_id,
-                    status = ?receipt.status,
-                    "failed to forward receipt payload to OpenClaw hook"
-                );
-            }
+            .await;
         }
-        ConnectorFrame::EnqueueAck(ack) => log_enqueue_ack(&ack),
+        ConnectorFrame::EnqueueAck(ack) => {
+            handle_enqueue_ack(context, ack).await;
+        }
         _ => {}
     }
 }
 
-fn log_enqueue_ack(ack: &EnqueueAckFrame) {
+async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAckFrame) {
     if ack.accepted {
+        let _ = take_inflight_to_agent_did(context.outbound_inflight, &ack.ack_id);
         tracing::debug!(ack_id = %ack.ack_id, "relay accepted outbound enqueue frame");
         return;
     }
 
     let reason = ack.reason.as_deref().unwrap_or("unknown");
+    let Some(to_agent_did) = take_inflight_to_agent_did(context.outbound_inflight, &ack.ack_id)
+    else {
+        tracing::warn!(
+            ack_id = %ack.ack_id,
+            reason,
+            "relay rejected outbound enqueue frame but no inflight mapping was found; dropping receipt to avoid misrouting"
+        );
+        return;
+    };
+
     tracing::warn!(
         ack_id = %ack.ack_id,
         reason,
         "relay rejected outbound enqueue frame"
     );
+
+    let receipt = build_enqueue_rejected_receipt(ack.ack_id, to_agent_did, reason);
+    enqueue_pending_receipt_notification(
+        context.pending_receipt_notifications,
+        PendingReceiptNotification::new(receipt),
+    );
+    flush_pending_receipt_notifications(
+        context.http_client,
+        context.hook_url,
+        context.openclaw_runtime,
+        context.pending_receipt_notifications,
+    )
+    .await;
+}
+
+fn take_inflight_to_agent_did(
+    outbound_inflight: &OutboundInflightMap,
+    ack_id: &str,
+) -> Option<String> {
+    outbound_inflight
+        .lock()
+        .ok()
+        .and_then(|mut inflight| inflight.remove(ack_id))
+}
+
+fn build_enqueue_rejected_receipt(
+    ack_id: String,
+    to_agent_did: String,
+    reason: &str,
+) -> ReceiptFrame {
+    ReceiptFrame {
+        v: CONNECTOR_FRAME_VERSION,
+        id: new_frame_id(),
+        ts: now_iso(),
+        original_frame_id: ack_id,
+        to_agent_did,
+        status: ReceiptStatus::DeadLettered,
+        reason: Some(format!("relay rejected outbound enqueue frame: {reason}")),
+    }
 }
 
 pub(super) async fn run_inbound_retry_loop(
@@ -126,6 +194,7 @@ pub(super) async fn run_inbound_retry_loop(
     store: SqliteStore,
     config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
+    pending_receipt_notifications: PendingReceiptQueueHandle,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let hook_url = openclaw_runtime.hook_url()?;
@@ -149,6 +218,13 @@ pub(super) async fn run_inbound_retry_loop(
                     &hook_url,
                     &openclaw_runtime,
                     &receipt_outbox,
+                )
+                .await;
+                flush_pending_receipt_notifications(
+                    &http_client,
+                    &hook_url,
+                    &openclaw_runtime,
+                    &pending_receipt_notifications,
                 )
                 .await;
             }
@@ -490,50 +566,6 @@ pub(super) async fn forward_deliver_to_openclaw(
         .map_err(|error| anyhow!("openclaw hook request failed: {error}"))?;
     if !response.status().is_success() {
         return Err(anyhow!("openclaw hook returned HTTP {}", response.status()));
-    }
-    Ok(())
-}
-
-async fn forward_receipt_to_openclaw(
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt: &ReceiptFrame,
-) -> Result<()> {
-    let mut request = http_client
-        .post(hook_url)
-        .header("content-type", "application/json")
-        .header(
-            "x-clawdentity-content-type",
-            "application/vnd.clawdentity.receipt+json",
-        )
-        .header("x-clawdentity-to-agent-did", &receipt.to_agent_did)
-        .header("x-clawdentity-verified", "true")
-        .header("x-request-id", &receipt.original_frame_id)
-        .json(&build_openclaw_receipt_payload(
-            &openclaw_runtime.hook_path,
-            receipt,
-            openclaw_runtime.target_agent_id.as_deref(),
-        ));
-
-    if let Some(token) = openclaw_runtime
-        .hook_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request = request.header("x-openclaw-token", token);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|error| anyhow!("openclaw receipt hook request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "openclaw receipt hook returned HTTP {}",
-            response.status()
-        ));
     }
     Ok(())
 }

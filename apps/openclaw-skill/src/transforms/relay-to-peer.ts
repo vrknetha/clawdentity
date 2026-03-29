@@ -8,23 +8,39 @@ import {
   loadPeersConfig,
   type PeersConfigPathOptions,
 } from "./peers-config.js";
+import {
+  readEndpointHealthCache,
+  writeEndpointHealthCache,
+} from "./relay-health-cache.js";
 
 const DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 const DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
+const DEFAULT_CONNECTOR_STATUS_PATH = "/v1/status";
+const DEFAULT_CONNECTOR_HEALTH_CACHE_TTL_MS = 5_000;
+const DEFAULT_CONNECTOR_HEALTH_TIMEOUT_MS = 1_500;
+const DEFAULT_CONNECTOR_POST_TIMEOUT_MS = 10_000;
 const RELAY_RUNTIME_FILE_NAME = "clawdentity-relay.json";
 const RELAY_PEERS_FILE_NAME = "clawdentity-peers.json";
 
 type RelayRuntimeConfig = {
   connectorBaseUrl?: string;
   connectorBaseUrls?: string[];
+  connectorHealthCacheTtlMs?: number;
+  connectorHealthTimeoutMs?: number;
   connectorPath?: string;
+  connectorPostTimeoutMs?: number;
+  connectorStatusPath?: string;
   localAgentDid?: string;
   peersConfigPath?: string;
 };
 
 export type RelayToPeerOptions = PeersConfigPathOptions & {
   connectorBaseUrl?: string;
+  connectorHealthCacheTtlMs?: number;
+  connectorHealthTimeoutMs?: number;
   connectorPath?: string;
+  connectorPostTimeoutMs?: number;
+  connectorStatusPath?: string;
   fetchImpl?: typeof fetch;
   runtimeConfigPath?: string;
 };
@@ -36,10 +52,39 @@ export type RelayTransformContext = {
 type ConnectorRelayRequest = {
   conversationId?: string;
   payload: Record<string, unknown>;
-  peer: string;
-  peerDid: string;
-  peerProxyUrl: string;
+  toAgentDid: string;
 };
+
+type ConnectorEndpoint = {
+  outboundUrl: string;
+  statusUrl: string;
+};
+
+type RelayErrorCategory =
+  | "connector_unavailable"
+  | "connector_timeout"
+  | "connector_queue_full"
+  | "connector_request_rejected"
+  | "connector_request_failed";
+
+export class RelayTransformError extends Error {
+  readonly category: RelayErrorCategory;
+  readonly retryable: boolean;
+  readonly statusCode?: number;
+
+  constructor(input: {
+    category: RelayErrorCategory;
+    message: string;
+    retryable: boolean;
+    statusCode?: number;
+  }) {
+    super(input.message);
+    this.name = "RelayTransformError";
+    this.category = input.category;
+    this.retryable = input.retryable;
+    this.statusCode = input.statusCode;
+  }
+}
 
 function getErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) {
@@ -69,6 +114,30 @@ function parseOptionalString(value: unknown): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseOptionalPositiveInteger(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(
+      "Relay runtime config timeout values must be positive integers",
+    );
+  }
+
+  return parsed;
 }
 
 function removePeerField(
@@ -120,7 +189,7 @@ function parseConnectorBaseUrl(value: string): string {
 function normalizeConnectorPath(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
-    throw new Error("Connector outbound path is invalid");
+    throw new Error("Connector path is invalid");
   }
 
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
@@ -164,6 +233,11 @@ function parseRelayRuntimeConfig(value: unknown): RelayRuntimeConfig {
     value.connectorPath.trim().length > 0
       ? normalizeConnectorPath(value.connectorPath)
       : undefined;
+  const connectorStatusPath =
+    typeof value.connectorStatusPath === "string" &&
+    value.connectorStatusPath.trim().length > 0
+      ? normalizeConnectorPath(value.connectorStatusPath)
+      : undefined;
   const peersConfigPath =
     typeof value.peersConfigPath === "string" &&
     value.peersConfigPath.trim().length > 0
@@ -186,10 +260,24 @@ function parseRelayRuntimeConfig(value: unknown): RelayRuntimeConfig {
         .map(parseConnectorBaseUrl)
     : undefined;
 
+  const connectorHealthCacheTtlMs = parseOptionalPositiveInteger(
+    value.connectorHealthCacheTtlMs,
+  );
+  const connectorHealthTimeoutMs = parseOptionalPositiveInteger(
+    value.connectorHealthTimeoutMs,
+  );
+  const connectorPostTimeoutMs = parseOptionalPositiveInteger(
+    value.connectorPostTimeoutMs,
+  );
+
   return {
     connectorBaseUrl,
     connectorBaseUrls,
+    connectorHealthCacheTtlMs,
+    connectorHealthTimeoutMs,
     connectorPath,
+    connectorPostTimeoutMs,
+    connectorStatusPath,
     localAgentDid,
     peersConfigPath,
   };
@@ -260,14 +348,21 @@ async function resolveLinuxDockerGatewayHost(): Promise<string | undefined> {
 
 async function resolveConnectorEndpoints(
   options: RelayToPeerOptions,
-): Promise<string[]> {
+): Promise<ConnectorEndpoint[]> {
   const runtimeConfig = await loadRelayRuntimeConfig(options);
-  const pathInput =
+  const outboundPathInput =
     options.connectorPath ??
     runtimeConfig.connectorPath ??
     process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ??
     DEFAULT_CONNECTOR_OUTBOUND_PATH;
-  const path = normalizeConnectorPath(pathInput.trim());
+  const outboundPath = normalizeConnectorPath(outboundPathInput.trim());
+
+  const statusPathInput =
+    options.connectorStatusPath ??
+    runtimeConfig.connectorStatusPath ??
+    process.env.CLAWDENTITY_CONNECTOR_STATUS_PATH ??
+    DEFAULT_CONNECTOR_STATUS_PATH;
+  const statusPath = normalizeConnectorPath(statusPathInput.trim());
 
   const candidates: string[] = [];
   if (options.connectorBaseUrl) {
@@ -309,57 +404,218 @@ async function resolveConnectorEndpoints(
   }
 
   const deduped = Array.from(new Set(candidates.map((candidate) => candidate)));
-  return deduped.map((baseUrl) => new URL(path, baseUrl).toString());
+  return deduped.map((baseUrl) => ({
+    outboundUrl: new URL(outboundPath, baseUrl).toString(),
+    statusUrl: new URL(statusPath, baseUrl).toString(),
+  }));
 }
 
-function mapConnectorFailure(status: number): Error {
-  if (status === 404) {
-    return new Error("Local connector outbound endpoint is unavailable");
-  }
+function mapConnectorFailure(input: {
+  connectorMessage?: string;
+  status: number;
+}): RelayTransformError {
+  const status = input.status;
 
-  if (status === 409) {
-    return new Error("Peer alias is not configured");
+  if (status === 404) {
+    return new RelayTransformError({
+      category: "connector_unavailable",
+      message: "Local connector outbound endpoint is unavailable",
+      retryable: true,
+      statusCode: status,
+    });
   }
 
   if (status === 400 || status === 422) {
-    return new Error("Local connector rejected outbound relay payload");
+    return new RelayTransformError({
+      category: "connector_request_rejected",
+      message:
+        input.connectorMessage ??
+        "Local connector rejected outbound relay payload",
+      retryable: false,
+      statusCode: status,
+    });
   }
 
-  return new Error("Local connector outbound relay request failed");
+  if (status === 507) {
+    return new RelayTransformError({
+      category: "connector_queue_full",
+      message:
+        input.connectorMessage ?? "Local connector outbound queue is full",
+      retryable: true,
+      statusCode: status,
+    });
+  }
+
+  return new RelayTransformError({
+    category: "connector_request_failed",
+    message:
+      input.connectorMessage ?? "Local connector outbound relay request failed",
+    retryable: status >= 500,
+    statusCode: status,
+  });
 }
 
-async function postToConnector(
-  endpoint: string,
-  payload: ConnectorRelayRequest,
-  fetchImpl: typeof fetch,
-): Promise<void> {
+function isTimeoutLike(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+
+  return error.name === "TimeoutError" || error.name === "AbortError";
+}
+
+function normalizeRelayError(error: unknown): RelayTransformError {
+  if (error instanceof RelayTransformError) {
+    return error;
+  }
+
+  if (isTimeoutLike(error)) {
+    return new RelayTransformError({
+      category: "connector_timeout",
+      message: "Local connector outbound relay request timed out",
+      retryable: true,
+    });
+  }
+
+  return new RelayTransformError({
+    category: "connector_unavailable",
+    message: "Local connector outbound relay request failed",
+    retryable: true,
+  });
+}
+
+async function parseConnectorErrorMessage(
+  response: Response,
+): Promise<string | undefined> {
+  try {
+    const payload: unknown = await response.json();
+    if (!isRecord(payload)) {
+      return undefined;
+    }
+
+    const errorPayload = payload.error;
+    if (!isRecord(errorPayload)) {
+      return undefined;
+    }
+
+    return typeof errorPayload.message === "string"
+      ? errorPayload.message
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function computeHealthCacheTtlMs(
+  options: RelayToPeerOptions,
+  runtimeConfig: RelayRuntimeConfig,
+): number {
+  return (
+    options.connectorHealthCacheTtlMs ??
+    runtimeConfig.connectorHealthCacheTtlMs ??
+    parseOptionalPositiveInteger(
+      process.env.CLAWDENTITY_CONNECTOR_HEALTH_CACHE_TTL_MS,
+    ) ??
+    DEFAULT_CONNECTOR_HEALTH_CACHE_TTL_MS
+  );
+}
+
+function computeHealthTimeoutMs(
+  options: RelayToPeerOptions,
+  runtimeConfig: RelayRuntimeConfig,
+): number {
+  return (
+    options.connectorHealthTimeoutMs ??
+    runtimeConfig.connectorHealthTimeoutMs ??
+    parseOptionalPositiveInteger(
+      process.env.CLAWDENTITY_CONNECTOR_HEALTH_TIMEOUT_MS,
+    ) ??
+    DEFAULT_CONNECTOR_HEALTH_TIMEOUT_MS
+  );
+}
+
+function computePostTimeoutMs(
+  options: RelayToPeerOptions,
+  runtimeConfig: RelayRuntimeConfig,
+): number {
+  return (
+    options.connectorPostTimeoutMs ??
+    runtimeConfig.connectorPostTimeoutMs ??
+    parseOptionalPositiveInteger(
+      process.env.CLAWDENTITY_CONNECTOR_POST_TIMEOUT_MS,
+    ) ??
+    DEFAULT_CONNECTOR_POST_TIMEOUT_MS
+  );
+}
+
+async function isEndpointHealthy(input: {
+  endpoint: ConnectorEndpoint;
+  fetchImpl: typeof fetch;
+  healthCacheTtlMs: number;
+  healthTimeoutMs: number;
+}): Promise<boolean> {
+  const nowMs = Date.now();
+  const cached = readEndpointHealthCache({
+    statusUrl: input.endpoint.statusUrl,
+    nowMs,
+    healthCacheTtlMs: input.healthCacheTtlMs,
+  });
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  let healthy = false;
+  try {
+    const response = await input.fetchImpl(input.endpoint.statusUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(input.healthTimeoutMs),
+    });
+    healthy = response.ok;
+  } catch {
+    healthy = false;
+  }
+
+  writeEndpointHealthCache({
+    statusUrl: input.endpoint.statusUrl,
+    checkedAtMs: nowMs,
+    healthCacheTtlMs: input.healthCacheTtlMs,
+    healthy,
+  });
+
+  return healthy;
+}
+
+async function postToConnector(input: {
+  endpoint: ConnectorEndpoint;
+  fetchImpl: typeof fetch;
+  payload: ConnectorRelayRequest;
+  timeoutMs: number;
+}): Promise<void> {
   let response: Response;
   try {
-    response = await fetchImpl(endpoint, {
+    response = await input.fetchImpl(input.endpoint.outboundUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(input.payload),
+      signal: AbortSignal.timeout(input.timeoutMs),
     });
-  } catch {
-    throw new Error("Local connector outbound relay request failed");
+  } catch (error) {
+    throw normalizeRelayError(error);
   }
 
   if (!response.ok) {
-    throw mapConnectorFailure(response.status);
+    const connectorMessage = await parseConnectorErrorMessage(response);
+    throw mapConnectorFailure({
+      connectorMessage,
+      status: response.status,
+    });
   }
 }
 
 function shouldTryNextConnectorEndpoint(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return (
-    error.message === "Local connector outbound relay request failed" ||
-    error.message === "Local connector outbound endpoint is unavailable"
-  );
+  const normalized = normalizeRelayError(error);
+  return normalized.retryable;
 }
 
 async function resolvePeersConfigPathOptions(
@@ -457,30 +713,80 @@ export async function relayPayloadToPeer(
   });
   const relayPayload: ConnectorRelayRequest = {
     conversationId,
-    peer: peerAlias,
-    peerDid: peerEntry.did,
-    peerProxyUrl: peerEntry.proxyUrl,
+    toAgentDid: peerEntry.did,
     payload: outboundPayload,
   };
 
-  let lastError: unknown;
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
+  const healthCacheTtlMs = computeHealthCacheTtlMs(options, runtimeConfig);
+  const healthTimeoutMs = computeHealthTimeoutMs(options, runtimeConfig);
+  const postTimeoutMs = computePostTimeoutMs(options, runtimeConfig);
+
+  const healthyEndpoints: ConnectorEndpoint[] = [];
   for (const endpoint of connectorEndpoints) {
+    if (
+      await isEndpointHealthy({
+        endpoint,
+        fetchImpl,
+        healthCacheTtlMs,
+        healthTimeoutMs,
+      })
+    ) {
+      healthyEndpoints.push(endpoint);
+    }
+  }
+
+  if (healthyEndpoints.length === 0) {
+    throw new RelayTransformError({
+      category: "connector_unavailable",
+      message: "Local connector status endpoint is unavailable",
+      retryable: true,
+    });
+  }
+
+  let lastError: unknown;
+  for (const endpoint of healthyEndpoints) {
     try {
-      await postToConnector(endpoint, relayPayload, fetchImpl);
+      await postToConnector({
+        endpoint,
+        fetchImpl,
+        payload: relayPayload,
+        timeoutMs: postTimeoutMs,
+      });
+      writeEndpointHealthCache({
+        statusUrl: endpoint.statusUrl,
+        checkedAtMs: Date.now(),
+        healthCacheTtlMs,
+        healthy: true,
+      });
       return null;
     } catch (error) {
       lastError = error;
+      const normalizedError = normalizeRelayError(error);
+      const shouldMarkEndpointUnhealthy =
+        normalizedError.category === "connector_unavailable" ||
+        normalizedError.category === "connector_timeout";
+      writeEndpointHealthCache({
+        statusUrl: endpoint.statusUrl,
+        checkedAtMs: Date.now(),
+        healthCacheTtlMs,
+        healthy: !shouldMarkEndpointUnhealthy,
+      });
       if (!shouldTryNextConnectorEndpoint(error)) {
-        throw error;
+        throw normalizedError;
       }
     }
   }
 
-  if (lastError instanceof Error) {
-    throw lastError;
+  if (lastError !== undefined) {
+    throw normalizeRelayError(lastError);
   }
 
-  throw new Error("Local connector outbound relay request failed");
+  throw new RelayTransformError({
+    category: "connector_request_failed",
+    message: "Local connector outbound relay request failed",
+    retryable: true,
+  });
 }
 
 export default async function relayToPeer(
