@@ -22,9 +22,12 @@
 - The local Docker release builder must persist Cargo registry/git caches across runs to avoid repeated cold downloads and keep reset loops fast.
 - The local Docker release builder must auto-retry once with a clean per-platform target cache when a Docker cargo build fails, so stale target artifacts do not block deterministic reset flows.
 - The local Docker release builder must emit both `linux-aarch64` and `linux-x86_64` archives so container-platform auto-detection in installer flows never misses local artifacts.
+- The local Docker release builder must persist a `.build-stamp.json` beside local artifacts (`git_commit`, `git_dirty`, `cargo_lock_hash`, `LOCAL_RELEASE_PROFILE`, `LOCAL_RELEASE_DOCKER_IMAGE`) and force archive rebuild whenever the current stamp differs.
+- The local Docker release builder must support `FORCE_REBUILD_LOCAL_RELEASE=1` as a manual override to rebuild artifacts even when stamp comparison matches.
 - The local Docker release builder default image must stay Debian 12-compatible (`rust:1.90-bookworm` baseline) so produced Linux binaries run on OpenClaw containers using glibc 2.36.
 - `openclaw-relay-docker-ready.sh` should default release-manifest resolution to local landing-hosted `latest-local.json` (`HOST_SITE_BASE_URL` for host checks, `DOCKER_SITE_BASE_URL` for container install env) so local Docker tests do not drift to public release versions.
 - `openclaw-relay-docker-ready.sh` must also mirror `CLAWDENTITY_DOWNLOADS_BASE_URL=$DOCKER_SITE_BASE_URL` into profile `.env` so installer runs that pin `CLAWDENTITY_VERSION` still download local artifacts instead of `downloads.clawdentity.com`.
+- `openclaw-relay-docker-ready.sh` must preserve any existing profile `PATH` entries and only ensure `/home/node/.local/bin` is present (prepend if missing); it must not clobber baseline/custom `PATH` values.
 - `openclaw-relay-docker-ready.sh` must build the local workspace CLI (`cargo build -p clawdentity-cli`) before test runs when `BUILD_CLI_BEFORE_TEST=1`, and fail early if the built binary is missing.
 - `openclaw-relay-docker-ready.sh` must resolve the built CLI binary path from `CARGO_TARGET_DIR` when provided (fallback: `crates/target`) so custom target-dir builds do not fail false-negative checks.
 - `openclaw-relay-docker-ready.sh` must set `CLAWDENTITY_EXPECTED_AGENT_NAME` per profile (`alpha-local` for alpha, `beta-local` for beta by default) so connector startup fails fast when container ownership drifts.

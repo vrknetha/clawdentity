@@ -51,6 +51,7 @@ HOST_PROXY_URL="${HOST_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://127.0.0.1:8787
 VERIFY_STACK_DEPENDENCIES="${VERIFY_STACK_DEPENDENCIES:-1}"
 SYNC_LOCAL_RELEASE_MANIFEST="${SYNC_LOCAL_RELEASE_MANIFEST:-1}"
 AUTO_BUILD_LOCAL_RELEASE="${AUTO_BUILD_LOCAL_RELEASE:-1}"
+FORCE_REBUILD_LOCAL_RELEASE="${FORCE_REBUILD_LOCAL_RELEASE:-0}"
 LOCAL_RELEASE_PROFILE="${LOCAL_RELEASE_PROFILE:-dev}"
 LOCAL_RELEASE_DOCKER_IMAGE="${LOCAL_RELEASE_DOCKER_IMAGE:-rust:1.90-bookworm}"
 LOCAL_RELEASE_CARGO_CACHE_ROOT="${LOCAL_RELEASE_CARGO_CACHE_ROOT:-$HOME/.cache/clawdentity-rust-docker}"
@@ -336,14 +337,85 @@ sync_local_release_manifest() {
   log "Synced local release manifest: $manifest_path (version ${version})"
 }
 
+compute_local_release_build_stamp() {
+  node -e '
+    const { createHash } = require("crypto");
+    const fs = require("fs");
+    const { spawnSync } = require("child_process");
+
+    const repoRoot = process.argv[1];
+    const profile = process.argv[2];
+    const dockerImage = process.argv[3];
+    const cargoLockPath = `${repoRoot}/crates/Cargo.lock`;
+
+    const runGit = (args) => {
+      const result = spawnSync("git", ["-C", repoRoot, ...args], {
+        encoding: "utf8",
+      });
+      if (result.status !== 0 || typeof result.stdout !== "string") {
+        return "";
+      }
+      return result.stdout.trim();
+    };
+
+    let cargoLockHash = "";
+    if (fs.existsSync(cargoLockPath) && fs.statSync(cargoLockPath).isFile()) {
+      const cargoLockBytes = fs.readFileSync(cargoLockPath);
+      cargoLockHash = createHash("sha256").update(cargoLockBytes).digest("hex");
+    }
+
+    const stamp = {
+      git_commit: runGit(["rev-parse", "HEAD"]) || "unknown",
+      git_dirty: runGit(["status", "--porcelain"]).length > 0,
+      cargo_lock_hash: cargoLockHash,
+      LOCAL_RELEASE_PROFILE: profile,
+      LOCAL_RELEASE_DOCKER_IMAGE: dockerImage,
+      generatedAt: new Date().toISOString(),
+    };
+
+    process.stdout.write(JSON.stringify(stamp));
+  ' "$REPO_ROOT" "$LOCAL_RELEASE_PROFILE" "$LOCAL_RELEASE_DOCKER_IMAGE"
+}
+
+local_release_build_stamp_matches() {
+  local stamp_path="$1"
+  local expected_stamp_json="$2"
+
+  node -e '
+    const fs = require("fs");
+    const [stampPath, expectedStampRaw] = process.argv.slice(1);
+    const expected = JSON.parse(expectedStampRaw);
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(stampPath, "utf8"));
+      const fields = [
+        "git_commit",
+        "git_dirty",
+        "cargo_lock_hash",
+        "LOCAL_RELEASE_PROFILE",
+        "LOCAL_RELEASE_DOCKER_IMAGE",
+      ];
+      const matches =
+        parsed &&
+        fields.every((field) => JSON.stringify(parsed[field]) === JSON.stringify(expected[field]));
+      process.exit(matches ? 0 : 1);
+    } catch {
+      process.exit(1);
+    }
+  ' "$stamp_path" "$expected_stamp_json"
+}
+
 ensure_local_release_artifacts() {
   local version="$1"
   local release_dir="$2"
   local checksums_path="$3"
+  local build_stamp_path="$release_dir/.build-stamp.json"
   local docker_workdir="/workspace/clawdentity"
   local release_rel="${release_dir#"$REPO_ROOT/"}"
   [[ "$release_rel" != "$release_dir" ]] || fail "Release directory must be under repo root: $release_dir"
   local docker_release_dir="$docker_workdir/$release_rel"
+  local current_build_stamp
+  current_build_stamp="$(compute_local_release_build_stamp)"
   local -a platform_matrix=(
     "linux-aarch64|linux/arm64"
     "linux-x86_64|linux/amd64"
@@ -355,8 +427,27 @@ ensure_local_release_artifacts() {
     local asset_file="clawdentity-${version}-${platform_label}.tar.gz"
     [[ -f "$release_dir/$asset_file" ]] || assets_complete=0
   done
-  if [[ "$assets_complete" == "1" && -f "$checksums_path" ]]; then
-    return 0
+  if [[ "$FORCE_REBUILD_LOCAL_RELEASE" == "1" ]]; then
+    log "FORCE_REBUILD_LOCAL_RELEASE=1; rebuilding local release artifacts for v${version}"
+    rm -f "$checksums_path" "$build_stamp_path"
+    for entry in "${platform_matrix[@]}"; do
+      local platform_label="${entry%%|*}"
+      rm -f "$release_dir/clawdentity-${version}-${platform_label}.tar.gz"
+    done
+    assets_complete=0
+  elif [[ "$assets_complete" == "1" && -f "$checksums_path" ]]; then
+    if [[ -f "$build_stamp_path" ]] &&
+      local_release_build_stamp_matches "$build_stamp_path" "$current_build_stamp"; then
+      return 0
+    fi
+
+    log "Local release artifacts for v${version} do not match current build stamp; rebuilding"
+    rm -f "$checksums_path" "$build_stamp_path"
+    for entry in "${platform_matrix[@]}"; do
+      local platform_label="${entry%%|*}"
+      rm -f "$release_dir/clawdentity-${version}-${platform_label}.tar.gz"
+    done
+    assets_complete=0
   fi
 
   [[ "$AUTO_BUILD_LOCAL_RELEASE" == "1" ]] || fail "Missing local release assets for v${version} and AUTO_BUILD_LOCAL_RELEASE=0"
@@ -452,6 +543,8 @@ ensure_local_release_artifacts() {
     "$checksums_path" \
     "$version"
 
+  printf '%s\n' "$current_build_stamp" > "$build_stamp_path"
+
   [[ -f "$checksums_path" ]] || fail "Failed to produce checksums file: $checksums_path"
   log "Generated local release assets for v${version} (linux-aarch64 + linux-x86_64)"
 }
@@ -466,6 +559,7 @@ sync_clawdentity_install_env() {
     const installDir = process.argv[6];
     const cliPath = process.argv[7];
     const defaultPath = "/home/node/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games";
+    const requiredPathEntry = "/home/node/.local/bin";
 
     const upsertEnvValue = (raw, key, value) => {
       const line = `${key}=${value}`;
@@ -480,6 +574,19 @@ sync_clawdentity_install_env() {
       return raw.endsWith("\n") ? `${raw}${line}\n` : `${raw}\n${line}\n`;
     };
 
+    const ensurePathIncludes = (raw) => {
+      const keyPattern = /^\s*PATH\s*=(.*)$/m;
+      const match = raw.match(keyPattern);
+      const existingPath = match ? match[1].trim() : "";
+      const seedPath = existingPath.length > 0 ? existingPath : defaultPath;
+      const pathParts = seedPath.split(":").map((value) => value.trim()).filter(Boolean);
+      if (!pathParts.includes(requiredPathEntry)) {
+        pathParts.unshift(requiredPathEntry);
+      }
+      const nextPath = pathParts.join(":");
+      return upsertEnvValue(raw, "PATH", nextPath);
+    };
+
     for (const envPath of envPaths) {
       const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
       let next = raw;
@@ -488,7 +595,7 @@ sync_clawdentity_install_env() {
       next = upsertEnvValue(next, "CLAWDENTITY_DOWNLOADS_BASE_URL", downloadsBaseUrl);
       next = upsertEnvValue(next, "CLAWDENTITY_INSTALL_DIR", installDir);
       next = upsertEnvValue(next, "CLAWDENTITY_CLI_PATH", cliPath);
-      next = upsertEnvValue(next, "PATH", defaultPath);
+      next = ensurePathIncludes(next);
       fs.writeFileSync(envPath, next);
     }
   ' \
