@@ -48,6 +48,7 @@ function toSystemPayload(event: PairAcceptedQueueEvent): {
       responderProfile: event.responderProfile,
       issuerProxyOrigin: event.issuerProxyOrigin,
       eventTimestampUtc: event.eventTimestampUtc,
+      message: event.message,
     },
   };
 }

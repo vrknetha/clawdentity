@@ -9,7 +9,9 @@
 - Route `delivery_receipt` events to the sender relay Durable Object using typed RPC helpers (`recordRelayDeliveryReceipt`) rather than ad-hoc `fetch` payload strings.
 - Route `agent.auth.revoked` events to proxy trust-state via typed trust-store methods (`markAgentRevoked`) rather than bespoke DO endpoint strings.
 - Route `pair.accepted` events to the initiator relay Durable Object using typed relay RPC helpers (`deliverToRelaySession`) with system payload wrapping.
+- Preserve optional `pair.accepted.message` during routing so initiator UX can show proxy-authored static notifications.
 - Queue-routed `pair.accepted` relay deliveries must set trusted delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`) so connector runtimes can reject spoofed payload-only system events.
+- Pair-accepted structured fields remain mandatory for trusted side effects; queue consumers must not treat `message` as a replacement for those fields.
 - Treat queue events as at-least-once: handlers must be idempotent against duplicate messages.
 - Keep the `delivery_receipt` queue contract minimal (sender/recipient/request/status/reason/timestamp) and avoid carrying callback-origin metadata that is not consumed by handlers.
 - Keep registry revocation queue handling strict: only hard revokes (`data.reason=agent_revoked`) with valid `data.metadata.agentDid` may mutate trust state.

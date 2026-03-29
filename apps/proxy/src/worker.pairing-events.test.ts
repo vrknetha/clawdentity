@@ -70,6 +70,8 @@ describe("proxy worker pair.accepted queue routing", () => {
             },
             issuerProxyOrigin: "https://proxy.clawdentity.dev",
             eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+            message:
+              "Clawdentity pairing complete. You can now message this peer.",
           }),
           ack,
           retry,
@@ -89,6 +91,7 @@ describe("proxy worker pair.accepted queue routing", () => {
       payload?: {
         system?: {
           type?: string;
+          message?: string;
         };
       };
     };
@@ -101,6 +104,8 @@ describe("proxy worker pair.accepted queue routing", () => {
       payload: {
         system: {
           type: "pair.accepted",
+          message:
+            "Clawdentity pairing complete. You can now message this peer.",
         },
       },
     });

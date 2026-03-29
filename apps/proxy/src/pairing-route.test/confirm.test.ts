@@ -332,6 +332,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       String(queueSendSpy.mock.calls[0]?.[0] ?? "{}"),
     ) as {
       type?: string;
+      message?: string;
       initiatorAgentDid?: string;
       responderAgentDid?: string;
       responderProfile?: {
@@ -341,6 +342,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     };
     expect(queuedBody).toMatchObject({
       type: "pair.accepted",
+      message: "Clawdentity pairing complete. You can now message this peer.",
       initiatorAgentDid: INITIATOR_AGENT_DID,
       responderAgentDid: RESPONDER_AGENT_DID,
       responderProfile: {

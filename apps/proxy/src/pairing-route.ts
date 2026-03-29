@@ -73,6 +73,8 @@ type CreatePairStatusHandlerOptions = PairStatusRuntimeOptions & {
 };
 
 const MAX_PROFILE_NAME_LENGTH = 64;
+const PAIR_ACCEPTED_NOTIFICATION_MESSAGE =
+  "Clawdentity pairing complete. You can now message this peer.";
 
 function parseInternalServiceCredentials(input: {
   serviceId?: string;
@@ -405,6 +407,7 @@ async function publishPairAcceptedEvent(input: {
     },
     issuerProxyOrigin: input.confirmedPairingTicket.issuerProxyUrl,
     eventTimestampUtc: input.eventTimestampUtc,
+    message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   });
 
   if (input.eventsQueue === undefined) {

@@ -20,6 +20,7 @@ describe("pair accepted queue events", () => {
       },
       issuerProxyOrigin: "https://proxy.clawdentity.dev/pair/confirm",
       eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      message: "Clawdentity pairing complete. You can now message this peer.",
     });
 
     expect(event).toEqual({
@@ -35,6 +36,7 @@ describe("pair accepted queue events", () => {
       },
       issuerProxyOrigin: "https://proxy.clawdentity.dev",
       eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      message: "Clawdentity pairing complete. You can now message this peer.",
     });
   });
 
@@ -82,6 +84,7 @@ describe("pair accepted queue events", () => {
         },
         issuerProxyOrigin: "https://proxy.clawdentity.dev",
         eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+        message: "Clawdentity pairing complete. You can now message this peer.",
       }),
       relaySessionNamespace,
     });
@@ -96,6 +99,7 @@ describe("pair accepted queue events", () => {
       payload?: {
         system?: {
           type?: string;
+          message?: string;
         };
       };
     };
@@ -107,5 +111,8 @@ describe("pair accepted queue events", () => {
     );
     expect(payload.deliverySource).toBe("proxy.events.queue.pair_accepted");
     expect(payload.payload?.system?.type).toBe(PAIR_ACCEPTED_EVENT_TYPE);
+    expect(payload.payload?.system?.message).toBe(
+      "Clawdentity pairing complete. You can now message this peer.",
+    );
   });
 });

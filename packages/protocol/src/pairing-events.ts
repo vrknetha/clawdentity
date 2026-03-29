@@ -17,6 +17,7 @@ export type PairAcceptedEvent = {
   responderProfile: PairAcceptedResponderProfile;
   issuerProxyOrigin: string;
   eventTimestampUtc: string;
+  message?: string;
 };
 
 function parseNonBlankString(value: unknown, field: string): string {
@@ -88,6 +89,14 @@ function parseTimestampUtc(value: unknown): string {
   return new Date(epochMs).toISOString();
 }
 
+function parseOptionalMessage(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return parseNonBlankString(value, "message");
+}
+
 function parseResponderProfile(value: unknown): PairAcceptedResponderProfile {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(
@@ -134,11 +143,14 @@ export function parsePairAcceptedEvent(payload: unknown): PairAcceptedEvent {
     responderProfile?: unknown;
     issuerProxyOrigin?: unknown;
     eventTimestampUtc?: unknown;
+    message?: unknown;
   };
 
   if (event.type !== PAIR_ACCEPTED_EVENT_TYPE) {
     throw new Error("Unsupported pair accepted event type");
   }
+
+  const message = parseOptionalMessage(event.message);
 
   return {
     type: PAIR_ACCEPTED_EVENT_TYPE,
@@ -156,6 +168,7 @@ export function parsePairAcceptedEvent(payload: unknown): PairAcceptedEvent {
       "issuerProxyOrigin",
     ),
     eventTimestampUtc: parseTimestampUtc(event.eventTimestampUtc),
+    ...(message === undefined ? {} : { message }),
   };
 }
 
@@ -165,6 +178,7 @@ export type CreatePairAcceptedEventInput = {
   responderProfile: PairAcceptedResponderProfile;
   issuerProxyOrigin: string;
   eventTimestampUtc: string;
+  message?: string;
 };
 
 export function createPairAcceptedEvent(
