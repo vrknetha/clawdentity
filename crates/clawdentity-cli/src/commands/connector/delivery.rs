@@ -36,14 +36,16 @@ const INBOUND_MAX_ATTEMPTS: i64 = 3;
 const RECEIPT_FORWARD_RETRY_INITIAL_DELAY_MS: i64 = 1_000;
 const RECEIPT_FORWARD_RETRY_MAX_DELAY_MS: i64 = 60_000;
 const RECEIPT_FORWARD_RETRY_BACKOFF_FACTOR: i64 = 2;
-const FALLBACK_UNKNOWN_AGENT_DID: &str =
-    "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
+const RECEIPT_FORWARD_MAX_ATTEMPTS: i64 = 30;
+const RECEIPT_FORWARD_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1_000;
+const RECEIPT_FORWARD_MAX_PENDING: usize = 10_000;
 
 pub(super) type OutboundInflightMap = Arc<Mutex<HashMap<String, String>>>;
 
 #[derive(Clone, Debug)]
 pub(super) struct PendingReceiptNotification {
     pub attempt_count: i64,
+    pub created_at_ms: i64,
     pub next_attempt_at_ms: i64,
     pub receipt: ReceiptFrame,
 }
@@ -116,6 +118,7 @@ async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeC
                 context.pending_receipt_notifications,
                 PendingReceiptNotification {
                     attempt_count: 0,
+                    created_at_ms: now_utc_ms(),
                     next_attempt_at_ms: now_utc_ms(),
                     receipt,
                 },
@@ -145,12 +148,19 @@ async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAck
     }
 
     let reason = ack.reason.as_deref().unwrap_or("unknown");
-    let to_agent_did = context
+    let Some(to_agent_did) = context
         .outbound_inflight
         .lock()
         .ok()
         .and_then(|mut inflight| inflight.remove(&ack.ack_id))
-        .unwrap_or_else(|| FALLBACK_UNKNOWN_AGENT_DID.to_string());
+    else {
+        tracing::warn!(
+            ack_id = %ack.ack_id,
+            reason,
+            "relay rejected outbound enqueue frame but no inflight mapping was found; dropping receipt to avoid misrouting"
+        );
+        return;
+    };
 
     tracing::warn!(
         ack_id = %ack.ack_id,
@@ -171,6 +181,7 @@ async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAck
         context.pending_receipt_notifications,
         PendingReceiptNotification {
             attempt_count: 0,
+            created_at_ms: now_utc_ms(),
             next_attempt_at_ms: now_utc_ms(),
             receipt,
         },
@@ -232,6 +243,18 @@ fn enqueue_pending_receipt_notification(
     notification: PendingReceiptNotification,
 ) {
     if let Ok(mut pending) = queue.lock() {
+        let now_ms = now_utc_ms();
+        pending.retain(|item| {
+            item.attempt_count < RECEIPT_FORWARD_MAX_ATTEMPTS
+                && now_ms.saturating_sub(item.created_at_ms) <= RECEIPT_FORWARD_MAX_AGE_MS
+        });
+        if pending.len() >= RECEIPT_FORWARD_MAX_PENDING {
+            tracing::warn!(
+                max_pending = RECEIPT_FORWARD_MAX_PENDING,
+                "dropping pending receipt notification because queue is full"
+            );
+            return;
+        }
         pending.push(notification);
     } else {
         tracing::warn!("failed to queue pending receipt notification: lock poisoned");
@@ -276,6 +299,24 @@ async fn flush_pending_receipt_notifications(
 
     let mut retry_notifications: Vec<PendingReceiptNotification> = Vec::new();
     for mut notification in due_notifications {
+        if notification.attempt_count >= RECEIPT_FORWARD_MAX_ATTEMPTS {
+            tracing::warn!(
+                request_id = %notification.receipt.original_frame_id,
+                status = ?notification.receipt.status,
+                attempt_count = notification.attempt_count,
+                "dropping pending receipt notification after max retry attempts"
+            );
+            continue;
+        }
+        if now_ms.saturating_sub(notification.created_at_ms) > RECEIPT_FORWARD_MAX_AGE_MS {
+            tracing::warn!(
+                request_id = %notification.receipt.original_frame_id,
+                status = ?notification.receipt.status,
+                age_ms = now_ms.saturating_sub(notification.created_at_ms),
+                "dropping pending receipt notification after max age"
+            );
+            continue;
+        }
         if let Err(error) = forward_receipt_to_openclaw(
             http_client,
             hook_url,
@@ -300,6 +341,15 @@ async fn flush_pending_receipt_notifications(
 
     if !retry_notifications.is_empty() {
         if let Ok(mut pending) = queue.lock() {
+            let capacity = RECEIPT_FORWARD_MAX_PENDING.saturating_sub(pending.len());
+            if retry_notifications.len() > capacity {
+                tracing::warn!(
+                    dropped = retry_notifications.len() - capacity,
+                    max_pending = RECEIPT_FORWARD_MAX_PENDING,
+                    "dropping pending receipt retries because queue is full"
+                );
+                retry_notifications.truncate(capacity);
+            }
             pending.extend(retry_notifications);
         } else {
             tracing::warn!("failed to requeue pending receipt notifications: lock poisoned");

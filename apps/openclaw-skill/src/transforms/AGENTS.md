@@ -17,6 +17,8 @@
 - All connector HTTP calls must run with explicit timeouts; never allow unbounded fetch waits in relay transforms.
 - Emit structured connector failure categories (`connector_unavailable`, `connector_timeout`, `connector_queue_full`, `connector_request_rejected`, `connector_request_failed`) with retry hints for OpenClaw-facing handling.
 - Keep outbound connector envelope canonical (`toAgentDid`, `payload`, optional `conversationId`); do not reintroduce legacy relay fields (`peerDid`, `peerProxyUrl`).
+- Keep connector health cache bounded and self-pruning (TTL + max entries); never allow unbounded per-endpoint growth in long-running transform hosts.
+- Do not mark endpoint health as down for request-level rejections (`4xx` payload/contract errors); reserve unhealthy marks for timeout/connectivity failures.
 
 ## Testing
 - Cover both default runtime metadata and explicit override behavior in transform tests.

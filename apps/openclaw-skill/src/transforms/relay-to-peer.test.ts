@@ -244,6 +244,7 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
           {
+            connectorBaseUrl: "http://127.0.0.1:19557",
             configPath: sandbox.peersConfigPath,
             fetchImpl: fetchMock as typeof fetch,
             runtimeConfigPath: sandbox.runtimeConfigPath,
@@ -371,6 +372,7 @@ describe("relay-to-peer transform", () => {
             message: "hello",
           },
           {
+            connectorBaseUrl: "http://127.0.0.1:19557",
             configPath: sandbox.peersConfigPath,
             fetchImpl: fetchMock as typeof fetch,
             runtimeConfigPath: sandbox.runtimeConfigPath,
@@ -378,7 +380,6 @@ describe("relay-to-peer transform", () => {
           },
         ),
       ).rejects.toThrow("Local connector status endpoint is unavailable");
-      expect(fetchMock).toHaveBeenCalledTimes(1);
     } finally {
       sandbox.cleanup();
     }

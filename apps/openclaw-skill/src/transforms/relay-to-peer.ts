@@ -8,6 +8,10 @@ import {
   loadPeersConfig,
   type PeersConfigPathOptions,
 } from "./peers-config.js";
+import {
+  readEndpointHealthCache,
+  writeEndpointHealthCache,
+} from "./relay-health-cache.js";
 
 const DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 const DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
@@ -81,13 +85,6 @@ export class RelayTransformError extends Error {
     this.statusCode = input.statusCode;
   }
 }
-
-type EndpointHealthCacheEntry = {
-  checkedAtMs: number;
-  healthy: boolean;
-};
-
-const endpointHealthCache = new Map<string, EndpointHealthCacheEntry>();
 
 function getErrorCode(error: unknown): string | undefined {
   if (!isRecord(error)) {
@@ -557,12 +554,13 @@ async function isEndpointHealthy(input: {
   healthTimeoutMs: number;
 }): Promise<boolean> {
   const nowMs = Date.now();
-  const cacheEntry = endpointHealthCache.get(input.endpoint.statusUrl);
-  if (
-    cacheEntry !== undefined &&
-    nowMs - cacheEntry.checkedAtMs < input.healthCacheTtlMs
-  ) {
-    return cacheEntry.healthy;
+  const cached = readEndpointHealthCache({
+    statusUrl: input.endpoint.statusUrl,
+    nowMs,
+    healthCacheTtlMs: input.healthCacheTtlMs,
+  });
+  if (cached !== undefined) {
+    return cached;
   }
 
   let healthy = false;
@@ -576,8 +574,10 @@ async function isEndpointHealthy(input: {
     healthy = false;
   }
 
-  endpointHealthCache.set(input.endpoint.statusUrl, {
+  writeEndpointHealthCache({
+    statusUrl: input.endpoint.statusUrl,
     checkedAtMs: nowMs,
+    healthCacheTtlMs: input.healthCacheTtlMs,
     healthy,
   });
 
@@ -753,8 +753,10 @@ export async function relayPayloadToPeer(
         payload: relayPayload,
         timeoutMs: postTimeoutMs,
       });
-      endpointHealthCache.set(endpoint.statusUrl, {
+      writeEndpointHealthCache({
+        statusUrl: endpoint.statusUrl,
         checkedAtMs: Date.now(),
+        healthCacheTtlMs,
         healthy: true,
       });
       return null;
@@ -764,8 +766,10 @@ export async function relayPayloadToPeer(
       const shouldMarkEndpointUnhealthy =
         normalizedError.category === "connector_unavailable" ||
         normalizedError.category === "connector_timeout";
-      endpointHealthCache.set(endpoint.statusUrl, {
+      writeEndpointHealthCache({
+        statusUrl: endpoint.statusUrl,
         checkedAtMs: Date.now(),
+        healthCacheTtlMs,
         healthy: !shouldMarkEndpointUnhealthy,
       });
       if (!shouldTryNextConnectorEndpoint(error)) {

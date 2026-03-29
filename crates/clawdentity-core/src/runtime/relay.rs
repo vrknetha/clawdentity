@@ -13,6 +13,13 @@ pub struct SentOutboundFrame {
     pub to_agent_did: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutboundSendObservation {
+    Queued,
+    Sent,
+    SendFailed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlushOutboundResult {
     pub sent_frames: Vec<SentOutboundFrame>,
@@ -90,15 +97,15 @@ fn compute_retry_delay_ms(attempt_count: i64, policy: &OutboundRetryPolicy) -> i
 
 /// TODO(clawdentity): document `flush_outbound_queue_to_relay_with_sent_observer`.
 #[allow(clippy::too_many_lines)]
-pub async fn flush_outbound_queue_to_relay_with_sent_observer<F>(
+pub async fn flush_outbound_queue_to_relay_with_send_observer<F>(
     store: &SqliteStore,
     relay: &ConnectorClientSender,
     max_items: usize,
     trusted_receipts: Option<&TrustedReceiptsStore>,
-    mut observe_sent: F,
+    mut observe_send: F,
 ) -> Result<FlushOutboundResult>
 where
-    F: FnMut(&SentOutboundFrame),
+    F: FnMut(&SentOutboundFrame, OutboundSendObservation),
 {
     let policy = OutboundRetryPolicy::from_env();
     let mut sent_frames: Vec<SentOutboundFrame> = Vec::new();
@@ -165,7 +172,9 @@ where
             reply_to: item.reply_to.clone(),
         });
 
+        observe_send(&sent_frame, OutboundSendObservation::Queued);
         if relay.send_frame(frame).await.is_err() {
+            observe_send(&sent_frame, OutboundSendObservation::SendFailed);
             if item.attempt_count + 1 >= policy.max_attempts {
                 move_outbound_to_dead_letter(
                     store,
@@ -187,7 +196,7 @@ where
             break;
         }
 
-        observe_sent(&sent_frame);
+        observe_send(&sent_frame, OutboundSendObservation::Sent);
         if let Some(receipts) = trusted_receipts {
             receipts.mark_trusted(item.frame_id.clone());
         }
@@ -200,6 +209,31 @@ where
         sent_count,
         failed_count,
     })
+}
+
+/// TODO(clawdentity): document `flush_outbound_queue_to_relay_with_sent_observer`.
+pub async fn flush_outbound_queue_to_relay_with_sent_observer<F>(
+    store: &SqliteStore,
+    relay: &ConnectorClientSender,
+    max_items: usize,
+    trusted_receipts: Option<&TrustedReceiptsStore>,
+    mut observe_sent: F,
+) -> Result<FlushOutboundResult>
+where
+    F: FnMut(&SentOutboundFrame),
+{
+    flush_outbound_queue_to_relay_with_send_observer(
+        store,
+        relay,
+        max_items,
+        trusted_receipts,
+        |sent, observation| {
+            if observation == OutboundSendObservation::Sent {
+                observe_sent(sent);
+            }
+        },
+    )
+    .await
 }
 
 /// TODO(clawdentity): document `flush_outbound_queue_to_relay`.

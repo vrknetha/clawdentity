@@ -11,8 +11,8 @@ use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
-    ConnectorServiceUninstallInput, CoreError, RuntimeServerState, SqliteStore,
-    flush_outbound_queue_to_relay_with_sent_observer, install_connector_service,
+    ConnectorServiceUninstallInput, CoreError, OutboundSendObservation, RuntimeServerState,
+    SqliteStore, flush_outbound_queue_to_relay_with_send_observer, install_connector_service,
     spawn_connector_client, uninstall_connector_service,
 };
 use serde_json::json;
@@ -247,6 +247,7 @@ async fn start_connector_runtime(
         RuntimeServerState {
             store: store.clone(),
             relay_sender: Some(relay_sender.clone()),
+            outbound_max_pending_override: None,
         },
         shutdown_rx.clone(),
     );
@@ -414,14 +415,22 @@ async fn run_outbound_flush_loop(
                 if !relay_sender.is_connected() {
                     continue;
                 }
-                match flush_outbound_queue_to_relay_with_sent_observer(
+                match flush_outbound_queue_to_relay_with_send_observer(
                     &store,
                     &relay_sender,
                     OUTBOUND_FLUSH_BATCH_SIZE,
                     None,
-                    |sent| {
+                    |sent, observation| {
                         if let Ok(mut guard) = outbound_inflight.lock() {
-                            guard.insert(sent.frame_id.clone(), sent.to_agent_did.clone());
+                            match observation {
+                                OutboundSendObservation::Queued => {
+                                    guard.insert(sent.frame_id.clone(), sent.to_agent_did.clone());
+                                }
+                                OutboundSendObservation::SendFailed => {
+                                    guard.remove(&sent.frame_id);
+                                }
+                                OutboundSendObservation::Sent => {}
+                            }
                         }
                     },
                 )

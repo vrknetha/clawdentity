@@ -25,6 +25,7 @@ const DEFAULT_OUTBOUND_MAX_PENDING: i64 = 10_000;
 pub struct RuntimeServerState {
     pub store: SqliteStore,
     pub relay_sender: Option<ConnectorClientSender>,
+    pub outbound_max_pending_override: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,11 +150,7 @@ async fn outbound_handler(
         );
     }
 
-    let max_pending = std::env::var("CONNECTOR_OUTBOUND_MAX_PENDING")
-        .ok()
-        .and_then(|value| value.trim().parse::<i64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_OUTBOUND_MAX_PENDING);
+    let max_pending = resolve_outbound_max_pending(&state);
     let current_pending = outbound_queue_stats(&state.store, now_utc_ms())
         .map(|stats| stats.pending_count)
         .unwrap_or(0);
@@ -205,6 +202,18 @@ async fn outbound_handler(
             "frameId": frame_id,
         })),
     )
+}
+
+fn resolve_outbound_max_pending(state: &RuntimeServerState) -> i64 {
+    if let Some(override_limit) = state.outbound_max_pending_override {
+        return override_limit.max(1);
+    }
+
+    std::env::var("CONNECTOR_OUTBOUND_MAX_PENDING")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_OUTBOUND_MAX_PENDING)
 }
 
 async fn dead_letter_list_handler(State(state): State<RuntimeServerState>) -> impl IntoResponse {
@@ -317,6 +326,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store,
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -346,6 +356,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -372,6 +383,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -404,6 +416,7 @@ mod tests {
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: None,
         });
 
         let response = app
@@ -425,14 +438,12 @@ mod tests {
 
     #[tokio::test]
     async fn outbound_endpoint_returns_507_when_queue_limit_reached() {
-        unsafe {
-            std::env::set_var("CONNECTOR_OUTBOUND_MAX_PENDING", "1");
-        }
         let temp = TempDir::new().expect("temp dir");
         let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
         let app = create_runtime_router(RuntimeServerState {
             store: store.clone(),
             relay_sender: None,
+            outbound_max_pending_override: Some(1),
         });
 
         let first = app
@@ -465,8 +476,5 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(second.status(), StatusCode::INSUFFICIENT_STORAGE);
-        unsafe {
-            std::env::remove_var("CONNECTOR_OUTBOUND_MAX_PENDING");
-        }
     }
 }
