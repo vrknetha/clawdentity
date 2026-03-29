@@ -23,6 +23,8 @@ use super::{
 use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod expected_agent_name;
+
 #[test]
 fn normalizes_hook_path_with_leading_slash() {
     assert_eq!(normalize_hook_path("hooks/agent"), "/hooks/agent");

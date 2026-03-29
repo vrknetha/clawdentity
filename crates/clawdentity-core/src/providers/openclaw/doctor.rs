@@ -26,6 +26,7 @@ const STATUS_PATH: &str = "/v1/status";
 #[serde(rename_all = "lowercase")]
 pub enum DoctorCheckStatus {
     Pass,
+    Warn,
     Fail,
 }
 
@@ -625,21 +626,41 @@ pub fn run_openclaw_doctor(
         );
     }
 
+    let requested_peer_alias = options
+        .peer_alias
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
     match load_peers_config(store) {
         Ok(peers) => {
             if peers.peers.is_empty() {
-                push_check(
-                    &mut checks,
-                    "state.peers",
-                    "Paired peers",
-                    DoctorCheckStatus::Fail,
-                    "no paired peers found",
-                    Some(
-                        "Complete proxy pairing via `/pair/start` + `/pair/confirm` and persist local peer state before relay checks.",
-                    ),
-                    None,
-                );
-            } else if let Some(peer_alias) = options.peer_alias.as_deref().map(str::trim) {
+                if let Some(peer_alias) = requested_peer_alias {
+                    push_check(
+                        &mut checks,
+                        "state.peers",
+                        "Paired peers",
+                        DoctorCheckStatus::Fail,
+                        format!("peer alias `{peer_alias}` is not configured"),
+                        Some(
+                            "Complete proxy pairing via `/pair/start` + `/pair/confirm` and persist local peer state before relay checks.",
+                        ),
+                        Some(serde_json::json!({ "peerAliases": [] })),
+                    );
+                } else {
+                    push_check(
+                        &mut checks,
+                        "state.peers",
+                        "Paired peers",
+                        DoctorCheckStatus::Warn,
+                        "no paired peers found",
+                        Some(
+                            "Complete proxy pairing via `/pair/start` + `/pair/confirm` before first cross-agent relay.",
+                        ),
+                        Some(serde_json::json!({ "peerCount": 0 })),
+                    );
+                }
+            } else if let Some(peer_alias) = requested_peer_alias {
                 if peers.peers.contains_key(peer_alias) {
                     push_check(
                         &mut checks,
@@ -744,7 +765,6 @@ pub fn run_openclaw_doctor(
             Some(serde_json::json!({ "pendingPath": pending_path, "pendingCount": pending_count })),
         );
     }
-
     if options.include_connector_runtime_check {
         run_connector_checks(
             &mut checks,
@@ -763,7 +783,6 @@ pub fn run_openclaw_doctor(
             Some(serde_json::json!({ "defaultConnectorBaseUrl": OPENCLAW_DEFAULT_BASE_URL })),
         );
     }
-
     let status = if checks
         .iter()
         .any(|check| check.status == DoctorCheckStatus::Fail)
@@ -775,7 +794,6 @@ pub fn run_openclaw_doctor(
 
     Ok(OpenclawDoctorResult { status, checks })
 }
-
 #[cfg(test)]
 #[path = "doctor_tests.rs"]
 mod tests;

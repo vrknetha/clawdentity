@@ -22,7 +22,7 @@ use super::headers::{
 };
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
-use pair_accepted::apply_pair_accepted_system_delivery;
+use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
 
 mod openclaw_payload;
 mod pair_accepted;
@@ -86,14 +86,13 @@ async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeC
             handle_deliver_frame(context, deliver).await;
         }
         ConnectorFrame::Receipt(receipt) => {
-            if let Err(error) =
-                forward_receipt_to_openclaw(
-                    context.http_client,
-                    context.hook_url,
-                    context.openclaw_runtime,
-                    &receipt,
-                )
-                .await
+            if let Err(error) = forward_receipt_to_openclaw(
+                context.http_client,
+                context.hook_url,
+                context.openclaw_runtime,
+                &receipt,
+            )
+            .await
             {
                 tracing::warn!(
                     error = %error,
@@ -200,7 +199,9 @@ async fn retry_pending_inbound_delivery(
         dead_letter_invalid_pending_payload(store, receipt_outbox, &item).await;
         return;
     };
-    if let Err(error) = apply_pair_accepted_system_delivery(store, config_dir, &mut deliver) {
+    if is_trusted_pair_accepted_delivery(&deliver)
+        && let Err(error) = apply_pair_accepted_system_delivery(store, config_dir, &mut deliver)
+    {
         handle_pending_retry_failure(store, receipt_outbox, &item, &error).await;
         return;
     }
@@ -385,8 +386,11 @@ fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error:
 }
 
 async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: DeliverFrame) {
-    let system_delivery_result =
-        apply_pair_accepted_system_delivery(context.store, context.config_dir, &mut deliver);
+    let system_delivery_result = if is_trusted_pair_accepted_delivery(&deliver) {
+        apply_pair_accepted_system_delivery(context.store, context.config_dir, &mut deliver)
+    } else {
+        Ok(false)
+    };
     let sender_profile = lookup_sender_profile_headers(context.store, &deliver.from_agent_did);
     let delivery_result = match system_delivery_result {
         Ok(_) => {

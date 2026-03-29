@@ -127,6 +127,7 @@ pub struct ProviderDoctorOptions {
 #[serde(rename_all = "lowercase")]
 pub enum ProviderDoctorCheckStatus {
     Pass,
+    Warn,
     Fail,
 }
 

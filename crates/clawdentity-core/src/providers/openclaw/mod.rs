@@ -73,6 +73,14 @@ struct OpenclawSetupArtifacts {
 }
 
 impl OpenclawProvider {
+    fn map_doctor_check_status(status: DoctorCheckStatus) -> ProviderDoctorCheckStatus {
+        match status {
+            DoctorCheckStatus::Pass => ProviderDoctorCheckStatus::Pass,
+            DoctorCheckStatus::Warn => ProviderDoctorCheckStatus::Warn,
+            DoctorCheckStatus::Fail => ProviderDoctorCheckStatus::Fail,
+        }
+    }
+
     fn normalize_hook_path(value: &str) -> String {
         let trimmed = value.trim();
         if trimmed.is_empty() {
@@ -428,11 +436,7 @@ impl OpenclawProvider {
                 .map(|check| crate::provider::ProviderDoctorCheck {
                     id: check.id,
                     label: check.label,
-                    status: if check.status == DoctorCheckStatus::Pass {
-                        ProviderDoctorCheckStatus::Pass
-                    } else {
-                        ProviderDoctorCheckStatus::Fail
-                    },
+                    status: Self::map_doctor_check_status(check.status),
                     message: check.message,
                     remediation_hint: check.remediation_hint,
                     details: check.details,
@@ -640,11 +644,7 @@ impl PlatformProvider for OpenclawProvider {
             .map(|check| crate::provider::ProviderDoctorCheck {
                 id: check.id,
                 label: check.label,
-                status: if check.status == DoctorCheckStatus::Pass {
-                    ProviderDoctorCheckStatus::Pass
-                } else {
-                    ProviderDoctorCheckStatus::Fail
-                },
+                status: Self::map_doctor_check_status(check.status),
                 message: check.message,
                 remediation_hint: check.remediation_hint,
                 details: check.details,

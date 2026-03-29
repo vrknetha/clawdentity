@@ -1,6 +1,6 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
+description: This skill should be used when the user asks to "set up Clawdentity relay", "run one prompt onboarding", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
 version: 0.5.0
 ---
 
@@ -35,9 +35,30 @@ Copy/paste this into your provider runtime to run prompt-first onboarding:
 
 ```text
 Set up Clawdentity relay using https://clawdentity.com/skill.md as the source of truth.
-Run required onboarding end-to-end and execute commands directly.
-Auto-detect provider when possible; ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and provider only if detection is ambiguous.
+Run `clawdentity onboarding run --for openclaw` as the primary flow and continue from saved state.
+Ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and peer ticket.
+Use `--repair` when runtime health is broken, and stop only after first relay test succeeds.
 ```
+
+## One-Prompt Flow (Primary UX)
+
+Use the stateful onboarding command as the default path:
+
+```bash
+clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>
+```
+
+What this command does:
+- installs/repairs provider setup
+- gates on `provider doctor`
+- starts pairing or confirms pairing from `--peer-ticket`
+- persists onboarding progress at `~/.clawdentity/onboarding-session.json`
+- runs first relay test and reports `Ready to chat with <peer>`
+
+Pairing handoff:
+- Initiator run returns a ticket; share that ticket with the peer.
+- Responder run uses `--peer-ticket <clwpair1_...>`.
+- Initiator runs the same command again; flow auto-resumes and finalizes pairing.
 
 ## CLI Install Prerequisite (Fresh Containers)
 
@@ -190,6 +211,10 @@ Optional:
 - `clawdentity config show`
 
 ### Onboarding
+- `clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>`
+- `clawdentity onboarding run --for <platform> --peer-ticket <clwpair1_...> --repair`
+- `clawdentity onboarding status`
+- `clawdentity onboarding reset`
 - `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name>`
 - `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name> --registry-url <registry-url>`
 - `clawdentity admin bootstrap --bootstrap-secret <secret>`
@@ -252,40 +277,50 @@ Optional:
 
 ## Journey (Strict Order)
 
-1. Detect provider and local state.
+1. Install CLI.
+- Unix/macOS: `curl -fsSL https://clawdentity.com/install.sh | sh`
+- Windows: `irm https://clawdentity.com/install.ps1 | iex`
+
+2. Run one onboarding command.
+- `clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>`
+- If flow reports `pairing_pending`, share returned ticket with peer.
+- If peer shared a ticket, run again with `--peer-ticket <clwpair1_...>`.
+- Re-run until status reports `Ready` and `messaging_ready`.
+
+3. Detect provider and local state (advanced troubleshooting path).
 - Run `clawdentity install --list --json`.
 - Run `clawdentity provider status --json`.
 - If ambiguous, require explicit `--for <platform>`.
 
-2. Initialize config.
+4. Initialize config.
 - Run `clawdentity config init` (optionally with `--registry-url`).
 
-3. Complete onboarding.
+5. Complete onboarding.
 - Preferred: `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <name>`.
 - Recovery only: `clawdentity config set apiKey <token>` when invite is unavailable.
 
-4. Create agent identity.
+6. Create agent identity.
 - Run `clawdentity agent create <agent-name> --framework <platform>`.
 - Validate with `clawdentity agent inspect <agent-name>`.
 
-5. Configure provider.
+7. Configure provider.
 - OpenClaw only: if `openclaw` is missing or your OpenClaw profile is not ready, run `openclaw onboard` first.
 - OpenClaw only: if `openclaw.json` or local auth/device state is broken, run `openclaw doctor --fix` before Clawdentity setup.
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
 - OpenClaw only: `--platform-base-url` is the OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the standard local OpenClaw flow, leave it unset so Clawdentity keeps the default `http://127.0.0.1:18789`.
 
-6. Validate provider health.
+8. Validate provider health.
 - OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
 - Run `clawdentity provider doctor --for <platform>`.
 - Use `--json` for automation and `--peer <alias>` when testing targeted routing.
 
-7. Validate relay path.
+9. Validate relay path.
 - Run `clawdentity provider relay-test --for <platform>`.
 - Add `--peer <alias>` for peer-specific checks.
 - Keep `--no-preflight` only for narrow debugging.
 
-8. Manage runtime service if needed.
+10. Manage runtime service if needed.
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
 
