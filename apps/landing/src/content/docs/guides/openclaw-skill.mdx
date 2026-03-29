@@ -210,7 +210,7 @@ Provider setup also persists per-agent connector assignment state in `~/.clawden
 }
 ```
 
-`openclawAgentId` is used only for `/hooks/agent` delivery. Default `/hooks/wake` behavior remains unchanged.
+`openclawAgentId` is used for `/hooks/agent` delivery (the default inbound connector path). If you explicitly switch connector delivery to `/hooks/wake`, this mapping is ignored.
 
 ## Provider doctor
 

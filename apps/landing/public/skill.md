@@ -1,6 +1,6 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "set up Clawdentity relay", "run one prompt onboarding", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
+description: This skill should be used when the user asks to "set up Clawdentity relay", "run one prompt onboarding", "configure provider relay", "run provider doctor", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
 version: 0.5.0
 ---
 
@@ -12,7 +12,7 @@ This skill uses the current Rust CLI command surface and works across providers:
 - NanoBot (`nanobot`)
 - NanoClaw (`nanoclaw`)
 
-Use this skill for onboarding, provider setup, diagnostics, relay test, and connector runtime operations.
+Use this skill for onboarding, provider setup, diagnostics, and connector runtime operations.
 
 ## Canonical URL (Single Source)
 
@@ -34,10 +34,12 @@ Use current Rust CLI command groups only.
 Copy/paste this into your provider runtime to run prompt-first onboarding:
 
 ```text
-Set up Clawdentity relay using https://clawdentity.com/skill.md as the source of truth.
+Set up Clawdentity relay using the provided HTTPS skill URL as the source of truth (for example, `https://<domain>/skill.md`).
+Install through the hosted installer flow first using the same origin as the provided skill URL (for example, `<skill-origin>/install.sh`) when the CLI is missing; do not switch to manual command-by-command fallback unless onboarding run fails.
 Run `clawdentity onboarding run --for openclaw` as the primary flow and continue from saved state.
+Use configured environment endpoints (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`) when present; do not ask me to paste registry/proxy URLs unless they are missing.
 Ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and peer ticket.
-Use `--repair` when runtime health is broken, and stop only after first relay test succeeds.
+Use `--repair` when runtime health is broken, and stop only after provider health is clean and pairing is complete.
 ```
 
 ## One-Prompt Flow (Primary UX)
@@ -53,7 +55,7 @@ What this command does:
 - gates on `provider doctor`
 - starts pairing or confirms pairing from `--peer-ticket`
 - persists onboarding progress at `~/.clawdentity/onboarding-session.json`
-- runs first relay test and reports `Ready to chat with <peer>`
+- completes pairing and reports `Ready to chat with <peer>`
 
 Pairing handoff:
 - Initiator run returns a ticket; share that ticket with the peer.
@@ -72,13 +74,13 @@ Use this install order:
 Unix (Linux/macOS):
 
 ```bash
-curl -fsSL https://clawdentity.com/install.sh | sh
+curl -fsSL <skill-origin>/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://clawdentity.com/install.ps1 | iex
+irm <skill-origin>/install.ps1 | iex
 ```
 
 Installer environment controls:
@@ -256,12 +258,6 @@ Optional:
 - `clawdentity provider doctor --for <platform> --platform-state-dir <path>`
 - `clawdentity provider doctor --for <platform> --connector-base-url <url>`
 - `clawdentity provider doctor --for <platform> --skip-connector-runtime`
-- `clawdentity provider relay-test`
-- `clawdentity provider relay-test --for <platform>`
-- `clawdentity provider relay-test --for <platform> --peer <alias>`
-- `clawdentity provider relay-test --for <platform> --message <text> --session-id <id>`
-- `clawdentity provider relay-test --for <platform> --platform-base-url <url> --webhook-token <token> --connector-base-url <url>`
-- `clawdentity provider relay-test --for <platform> --no-preflight`
 
 ### Connector Runtime (Manual/Advanced)
 - `clawdentity connector start <agent-name>`
@@ -278,8 +274,8 @@ Optional:
 ## Journey (Strict Order)
 
 1. Install CLI.
-- Unix/macOS: `curl -fsSL https://clawdentity.com/install.sh | sh`
-- Windows: `irm https://clawdentity.com/install.ps1 | iex`
+- Unix/macOS: `curl -fsSL <skill-origin>/install.sh | sh`
+- Windows: `irm <skill-origin>/install.ps1 | iex`
 
 2. Run one onboarding command.
 - `clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>`
@@ -315,12 +311,7 @@ Optional:
 - Run `clawdentity provider doctor --for <platform>`.
 - Use `--json` for automation and `--peer <alias>` when testing targeted routing.
 
-9. Validate relay path.
-- Run `clawdentity provider relay-test --for <platform>`.
-- Add `--peer <alias>` for peer-specific checks.
-- Keep `--no-preflight` only for narrow debugging.
-
-10. Manage runtime service if needed.
+9. Manage runtime service if needed.
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
 
@@ -333,7 +324,6 @@ Optional:
 | `agent create` | No | Fails if agent already exists |
 | `provider setup` | Usually yes | Reconciles provider config; review output paths |
 | `provider doctor` | Yes | Read-only checks |
-| `provider relay-test` | Mostly yes | Sends real probe traffic |
 | `connector service install` | Yes | Reconciles service |
 | `connector service uninstall` | Yes | Safe to repeat |
 

@@ -214,8 +214,8 @@ clawdentity provider setup \
 ```
 
 OpenClaw-specific setup options:
-- `--openclaw-agent-id <id>` — target OpenClaw agent ID used for connector delivery when you run with `/hooks/agent`; defaults to `main` and is validated against OpenClaw config during setup
-- Default delivery still targets `/hooks/wake`; the `openclawAgentId` mapping is dormant until you explicitly run the connector with `--openclaw-hook-path /hooks/agent` (or `OPENCLAW_HOOK_PATH=/hooks/agent`)
+- `--openclaw-agent-id <id>` — target OpenClaw agent ID used for connector delivery on default `/hooks/agent` routing; defaults to `main` and is validated against OpenClaw config during setup
+- If you explicitly switch connector delivery to `/hooks/wake`, `openclawAgentId` is ignored for that wake-only path
 
 ### `provider doctor`
 
@@ -298,7 +298,7 @@ clawdentity connector start <agentName> \
 Options:
 - `--proxy-ws-url <url>` — proxy websocket URL (or `CLAWDENTITY_PROXY_WS_URL` env)
 - `--openclaw-base-url <url>` — OpenClaw base URL (default `OPENCLAW_BASE_URL` env or `http://127.0.0.1:18789`)
-- `--openclaw-hook-path <path>` — OpenClaw hooks path (default `OPENCLAW_HOOK_PATH` env or `/hooks/wake`)
+- `--openclaw-hook-path <path>` — OpenClaw hooks path (default `OPENCLAW_HOOK_PATH` env or `/hooks/agent`)
 - `--openclaw-hook-token <token>` — OpenClaw hooks token (default `OPENCLAW_HOOK_TOKEN` env)
 
 ### `connector service install`

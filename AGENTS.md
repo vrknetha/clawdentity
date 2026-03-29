@@ -82,6 +82,7 @@ Use `docs/` as system of record:
 - Rust crate publish order is strict: publish `clawdentity-core` before `clawdentity-cli`.
 - Rust binary builds must use the same `rust/vX.Y.Z` tag created by the crate publish flow.
 - Rust binary releases must publish cross-platform assets for Windows x64, Linux x64/aarch64, and macOS x64/aarch64.
+- Local harness-generated landing artifacts (`apps/landing/public/rust/latest-local.json` and `apps/landing/public/rust/v*/`) are ephemeral test outputs and must stay untracked in git.
 - Keep release asset names stable:
   - `clawdentity-<version>-linux-x86_64.tar.gz`
   - `clawdentity-<version>-linux-aarch64.tar.gz`

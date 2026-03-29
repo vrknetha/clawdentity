@@ -34,6 +34,11 @@ fn normalizes_hook_path_with_leading_slash() {
 }
 
 #[test]
+fn default_openclaw_hook_path_targets_agent_hook() {
+    assert_eq!(super::DEFAULT_OPENCLAW_HOOK_PATH, "/hooks/agent");
+}
+
+#[test]
 fn normalizes_proxy_http_url_to_ws_connect_route() {
     let resolved = normalize_proxy_ws_url("http://127.0.0.1:13371").expect("proxy ws url");
     assert_eq!(resolved, "ws://127.0.0.1:13371/v1/relay/connect");

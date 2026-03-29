@@ -11,11 +11,25 @@
 - The file-size guard enforces an 800-line limit for tracked source files under `apps/**` and `packages/**`, excluding `dist`, `.wrangler`, `worker-configuration.d.ts`, `drizzle/meta`, and `node_modules`.
 
 - `openclaw-relay-docker-ready.sh` is the canonical clean-room reset harness for the dual OpenClaw Docker E2E flow.
+- `openclaw-relay-docker-ready.sh` must default `DOCKER_COMPOSE_FILE` to a repo-relative sibling path (`$REPO_ROOT/../openclaw/docker-compose.dual.yml`), not a developer-local absolute machine path.
+- `openclaw-relay-docker-ready.sh` must fail fast at startup when `DOCKER_COMPOSE_FILE` is missing (clear `require_file` error) before any Docker lifecycle commands run.
 - `openclaw-onboarding-e2e-check.sh` is the canonical post-reset smoke check for prompt-first onboarding (`onboarding run` on both sides, pairing, and first bidirectional relay messages).
 - Keep `openclaw-relay-docker-ready.sh` free of npm/package-manager assumptions; it must work with Rust-owned skill installation only.
-- `openclaw-relay-docker-ready.sh` must preserve `CLAWDENTITY_REGISTRY_URL` / `CLAWDENTITY_PROXY_URL` as the canonical environment-level targets; use `DOCKER_REGISTRY_URL` / `DOCKER_PROXY_URL` only for explicit container-side overrides, with `host.docker.internal` as the final fallback.
+- `openclaw-relay-docker-ready.sh` must treat `DOCKER_REGISTRY_URL` / `DOCKER_PROXY_URL` as Docker-runtime source of truth; default them directly to `host.docker.internal` values and never derive container defaults from host `.env` values like `127.0.0.1`.
 - `openclaw-relay-docker-ready.sh` must write a site-base override into the OpenClaw profile `.env` so local OpenClaw skill installs can point at a local landing site without forking the published production skill/install assets.
 - `openclaw-relay-docker-ready.sh` must resolve one deterministic `CLAWDENTITY_VERSION` per run (manifest latest unless overridden) and mirror that into both profile `.env` files before onboarding.
+- `openclaw-relay-docker-ready.sh` must keep local production-like install mapping deterministic by syncing `apps/landing/public/rust/latest-local.json` to the current workspace CLI version before reset when `SYNC_LOCAL_RELEASE_MANIFEST=1`.
+- `openclaw-relay-docker-ready.sh` must auto-generate missing local release assets for the current workspace Rust version when `AUTO_BUILD_LOCAL_RELEASE=1`, so version bumps do not require manual manifest/file rewiring.
+- The local Docker release builder should default to a fast dev profile for local testing (`LOCAL_RELEASE_PROFILE=dev`), with `release` opt-in only when explicitly required.
+- The local Docker release builder must persist Cargo registry/git caches across runs to avoid repeated cold downloads and keep reset loops fast.
+- The local Docker release builder must auto-retry once with a clean per-platform target cache when a Docker cargo build fails, so stale target artifacts do not block deterministic reset flows.
+- The local Docker release builder must emit both `linux-aarch64` and `linux-x86_64` archives so container-platform auto-detection in installer flows never misses local artifacts.
+- The local Docker release builder must persist a `.build-stamp.json` beside local artifacts (`git_commit`, `git_dirty`, `cargo_lock_hash`, `LOCAL_RELEASE_PROFILE`, `LOCAL_RELEASE_DOCKER_IMAGE`) and force archive rebuild whenever the current stamp differs.
+- The local Docker release builder must support `FORCE_REBUILD_LOCAL_RELEASE=1` as a manual override to rebuild artifacts even when stamp comparison matches.
+- The local Docker release builder default image must stay Debian 12-compatible (`rust:1.90-bookworm` baseline) so produced Linux binaries run on OpenClaw containers using glibc 2.36.
+- `openclaw-relay-docker-ready.sh` should default release-manifest resolution to local landing-hosted `latest-local.json` (`HOST_SITE_BASE_URL` for host checks, `DOCKER_SITE_BASE_URL` for container install env) so local Docker tests do not drift to public release versions.
+- `openclaw-relay-docker-ready.sh` must also mirror `CLAWDENTITY_DOWNLOADS_BASE_URL=$DOCKER_SITE_BASE_URL` into profile `.env` so installer runs that pin `CLAWDENTITY_VERSION` still download local artifacts instead of `downloads.clawdentity.com`.
+- `openclaw-relay-docker-ready.sh` must preserve any existing profile `PATH` entries and only ensure `/home/node/.local/bin` is present (prepend if missing); it must not clobber baseline/custom `PATH` values.
 - `openclaw-relay-docker-ready.sh` must build the local workspace CLI (`cargo build -p clawdentity-cli`) before test runs when `BUILD_CLI_BEFORE_TEST=1`, and fail early if the built binary is missing.
 - `openclaw-relay-docker-ready.sh` must resolve the built CLI binary path from `CARGO_TARGET_DIR` when provided (fallback: `crates/target`) so custom target-dir builds do not fail false-negative checks.
 - `openclaw-relay-docker-ready.sh` must set `CLAWDENTITY_EXPECTED_AGENT_NAME` per profile (`alpha-local` for alpha, `beta-local` for beta by default) so connector startup fails fast when container ownership drifts.

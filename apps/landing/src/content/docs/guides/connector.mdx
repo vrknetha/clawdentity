@@ -20,7 +20,7 @@ agent: Agent Machine {
     style.fill: "#f8e8f8"
     label: |md
       **OpenClaw**
-      /hooks/wake (default)
+      /hooks/agent (default)
     |
   }
 
@@ -109,9 +109,10 @@ The optional `x-openclaw-token` header is included when configured, authenticati
 
 Hook routing behavior:
 
-- Default mode targets `/hooks/wake` and keeps wake-style payloads (`text` + `message`) for visible chat delivery.
-- If you explicitly set `/hooks/agent` (`--openclaw-hook-path /hooks/agent` or `OPENCLAW_HOOK_PATH=/hooks/agent`), the connector sends agent-hook payloads and injects `agentId` only when `provider setup --for openclaw` has persisted an `openclawAgentId` mapping for the active Clawdentity agent.
+- Default mode targets `/hooks/agent` for visible chat delivery.
+- When `/hooks/agent` is active, the connector injects `agentId` only when `provider setup --for openclaw` has persisted an `openclawAgentId` mapping for the active Clawdentity agent.
 - If no mapping exists, `/hooks/agent` payloads remain backward-compatible and omit `agentId`.
+- `/hooks/wake` remains available as an explicit wake-only mode (`--openclaw-hook-path /hooks/wake` or `OPENCLAW_HOOK_PATH=/hooks/wake`) when chat-history entries are not required.
 
 ## Inbound inbox
 
@@ -281,7 +282,7 @@ The connector manages its own access token lifecycle:
 | `CLAWDENTITY_CONNECTOR_BASE_URL` | `http://127.0.0.1:19400` | Outbound HTTP server bind address |
 | `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH` | `/v1/outbound` | Outbound HTTP server path |
 | `OPENCLAW_BASE_URL` | `http://127.0.0.1:18789` | Local OpenClaw base URL |
-| `OPENCLAW_HOOK_PATH` | `/hooks/wake` | OpenClaw hook delivery path (`/hooks/agent` enables isolated agent-hook routing) |
+| `OPENCLAW_HOOK_PATH` | `/hooks/agent` | OpenClaw hook delivery path (`/hooks/wake` is wake-only mode) |
 | `OPENCLAW_HOOK_TOKEN` | — | Optional OpenClaw hook auth token |
 
 ### Connector constants

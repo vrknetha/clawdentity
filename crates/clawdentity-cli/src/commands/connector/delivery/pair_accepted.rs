@@ -1,3 +1,5 @@
+use std::fs;
+use std::io::ErrorKind;
 use std::path::Path;
 
 use anyhow::{Result, anyhow};
@@ -7,10 +9,107 @@ use clawdentity_core::{
     persist_confirmed_peer_from_profile_and_proxy_origin,
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use tracing::warn;
 
 const PAIR_ACCEPTED_SYSTEM_EVENT_TYPE: &str = "pair.accepted";
 const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE: &str = "proxy.events.queue.pair_accepted";
+const ONBOARDING_SESSION_FILE_NAME: &str = "onboarding-session.json";
+// Serialized `OnboardingState` / `PairingProgressState` values are snake_case.
+const ONBOARDING_STATE_PAIRING_PENDING: &str = "pairing_pending";
+const ONBOARDING_STATE_PAIRED: &str = "paired";
+const ONBOARDING_STATE_MESSAGING_READY: &str = "messaging_ready";
+const ONBOARDING_PAIRING_PHASE_PEER_SAVED: &str = "peer_saved";
+
+fn read_onboarding_session(path: &Path) -> Result<Option<Value>> {
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(anyhow!(
+                "failed to read onboarding session {}: {error}",
+                path.display()
+            ));
+        }
+    };
+
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let session = serde_json::from_str::<Value>(&raw).map_err(|error| {
+        anyhow!(
+            "failed to parse onboarding session {}: {error}",
+            path.display()
+        )
+    })?;
+    Ok(Some(session))
+}
+
+fn should_promote_onboarding_state(current_state: Option<&str>) -> bool {
+    matches!(
+        current_state,
+        None | Some(ONBOARDING_STATE_PAIRING_PENDING) | Some(ONBOARDING_STATE_PAIRED)
+    )
+}
+
+fn reconcile_onboarding_session_object(session_object: &mut Map<String, Value>, peer_alias: &str) {
+    if should_promote_onboarding_state(session_object.get("state").and_then(Value::as_str)) {
+        session_object.insert("state".to_string(), json!(ONBOARDING_STATE_MESSAGING_READY));
+    }
+    session_object.insert("updatedAt".to_string(), json!(clawdentity_core::now_iso()));
+
+    let pairing = session_object
+        .entry("pairing")
+        .or_insert_with(|| json!({}));
+    if !pairing.is_object() {
+        *pairing = json!({});
+    }
+
+    if let Some(pairing_object) = pairing.as_object_mut() {
+        pairing_object.insert("peerAlias".to_string(), json!(peer_alias));
+        pairing_object.insert(
+            "phase".to_string(),
+            json!(ONBOARDING_PAIRING_PHASE_PEER_SAVED),
+        );
+    }
+}
+
+fn write_onboarding_session(path: &Path, session: &Value) -> Result<()> {
+    let payload = format!("{}\n", serde_json::to_string_pretty(session)?);
+    fs::write(path, payload).map_err(|error| {
+        anyhow!(
+            "failed to write onboarding session {}: {error}",
+            path.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let permissions = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(path, permissions).map_err(|error| {
+            anyhow!(
+                "failed to set onboarding session permissions {}: {error}",
+                path.display()
+            )
+        })?;
+    }
+
+    Ok(())
+}
+
+fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &str) -> Result<()> {
+    let path = config_dir.join(ONBOARDING_SESSION_FILE_NAME);
+    let Some(mut session) = read_onboarding_session(&path)? else {
+        return Ok(());
+    };
+    let session_object = session
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("onboarding session {} is not an object", path.display()))?;
+    reconcile_onboarding_session_object(session_object, peer_alias);
+    write_onboarding_session(&path, &session)
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -193,6 +292,14 @@ pub(super) fn apply_pair_accepted_system_delivery(
         Some(event.responder_profile.proxy_origin.clone()),
     )?;
 
+    if let Err(error) = reconcile_onboarding_session_pairing_state(config_dir, &peer_alias) {
+        warn!(
+            error = %error,
+            path = %config_dir.join(ONBOARDING_SESSION_FILE_NAME).display(),
+            "failed to reconcile onboarding session after trusted pair.accepted delivery"
+        );
+    }
+
     deliver.payload = build_notification_payload(&event, &peer_alias);
     Ok(true)
 }
@@ -206,7 +313,7 @@ mod tests {
     use tempfile::TempDir;
 
     use clawdentity_core::{list_peers, now_iso};
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE;
     use super::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
@@ -413,5 +520,125 @@ mod tests {
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default();
         assert!(message.contains("Clawdentity pairing accepted"));
+    }
+
+    #[test]
+    fn pair_accepted_updates_stale_onboarding_session_to_messaging_ready() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let snapshot_path = temp.path().join("relay-peers.json");
+        write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+        std::fs::write(
+            temp.path().join("onboarding-session.json"),
+            serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "state": "pairing_pending",
+                "platform": "openclaw",
+                "agentName": "alpha-local",
+                "displayName": "Alpha Local",
+                "pairing": {
+                    "ticket": "clwpair1_demo",
+                    "phase": "waiting_for_confirm"
+                },
+                "updatedAt": "2026-03-29T00:00:00.000Z"
+            }))
+            .expect("serialize onboarding session"),
+        )
+        .expect("write onboarding session");
+
+        let mut deliver = fixture_deliver_frame();
+        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
+
+        let raw = std::fs::read_to_string(temp.path().join("onboarding-session.json"))
+            .expect("read onboarding session");
+        let session: serde_json::Value = serde_json::from_str(&raw).expect("parse session");
+        assert_eq!(session.get("state").and_then(Value::as_str), Some("messaging_ready"));
+        assert_eq!(
+            session
+                .get("pairing")
+                .and_then(|value| value.get("phase"))
+                .and_then(Value::as_str),
+            Some("peer_saved")
+        );
+        let peer_alias = session
+            .get("pairing")
+            .and_then(|value| value.get("peerAlias"))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(!peer_alias.trim().is_empty());
+        assert_eq!(
+            session
+                .get("pairing")
+                .and_then(|value| value.get("ticket"))
+                .and_then(Value::as_str),
+            Some("clwpair1_demo")
+        );
+    }
+
+    #[test]
+    fn pair_accepted_does_not_fail_when_onboarding_session_is_invalid_json() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let snapshot_path = temp.path().join("relay-peers.json");
+        write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+        std::fs::write(temp.path().join("onboarding-session.json"), "{not-json")
+            .expect("write invalid onboarding session");
+
+        let mut deliver = fixture_deliver_frame();
+        let handled = apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver)
+            .expect("pair accepted should still succeed");
+        assert!(handled);
+
+        let peers = list_peers(&store).expect("list peers");
+        assert_eq!(peers.len(), 1);
+    }
+
+    #[test]
+    fn pair_accepted_does_not_override_non_pairing_onboarding_state() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let snapshot_path = temp.path().join("relay-peers.json");
+        write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+        std::fs::write(
+            temp.path().join("onboarding-session.json"),
+            serde_json::to_string_pretty(&json!({
+                "version": 1,
+                "state": "custom_terminal_state",
+                "platform": "openclaw",
+                "agentName": "alpha-local",
+                "displayName": "Alpha Local",
+                "pairing": {
+                    "ticket": "clwpair1_demo",
+                    "phase": "waiting_for_confirm"
+                },
+                "updatedAt": "2026-03-29T00:00:00.000Z"
+            }))
+            .expect("serialize onboarding session"),
+        )
+        .expect("write onboarding session");
+
+        let mut deliver = fixture_deliver_frame();
+        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
+
+        let raw = std::fs::read_to_string(temp.path().join("onboarding-session.json"))
+            .expect("read onboarding session");
+        let session: serde_json::Value = serde_json::from_str(&raw).expect("parse session");
+        assert_eq!(
+            session.get("state").and_then(Value::as_str),
+            Some("custom_terminal_state")
+        );
+        assert_eq!(
+            session
+                .get("pairing")
+                .and_then(|value| value.get("phase"))
+                .and_then(Value::as_str),
+            Some("peer_saved")
+        );
     }
 }

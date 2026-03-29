@@ -6,17 +6,18 @@
 ## Rules
 - `assets.rs` is the single place that projects bundled OpenClaw skill files into local OpenClaw state.
 - OpenClaw skill asset installs may rewrite the canonical site origin only from explicit local/operator overrides (`CLAWDENTITY_SITE_BASE_URL` in process env or the profile `.env`); never bake non-production URLs into the published asset bundle.
+- Skill asset rendering must rewrite both canonical production installer URLs and `<skill-origin>/install.*` placeholders to the resolved site origin so local/operator bundles stay deterministic after skill template wording changes.
 - Profile `.env` parsing for OpenClaw skill asset rewrites must ignore inline comments after unquoted values so local preview URLs stay valid.
 - Keep provider setup OpenClaw-first: require a readable `openclaw.json`, preserve existing OpenClaw auth, then persist Clawdentity relay metadata.
 - Provider setup must project the selected local agent DID into `hooks/transforms/clawdentity-relay.json` as `localAgentDid`; the container/runtime transform must not need host-home agent lookup for relay lane derivation.
 - Keep OpenClaw target validation strict: provider setup/runtime metadata must treat `openclawBaseUrl` as the OpenClaw gateway only, never the Clawdentity registry or proxy.
-- Inbound peer delivery for OpenClaw must target the visible main-session ingress (`/hooks/wake`) by default; `/hooks/agent` creates isolated hook sessions and hides relay traffic from normal chat UX.
+- Inbound peer delivery for OpenClaw must target `/hooks/agent` by default for visible chat-history ingress; treat `/hooks/wake` as an explicit wake-only path.
 - Provider setup must persist `openclawAgentId` per Clawdentity agent in `~/.clawdentity/openclaw-connectors.json`, defaulting to `main` when the operator omits `--openclaw-agent-id`.
 - Provider setup should backfill legacy connector assignments missing `openclawAgentId` to `main` so `/hooks/agent` routing does not depend on implicit fallback behavior.
 - Setup must validate `openclawAgentId` against OpenClaw-configured agent IDs from `openclaw.json` and fail fast with remediation when the requested ID is unknown.
 - Connector assignment parsing must stay backward-compatible with legacy entries that do not contain `openclawAgentId`.
-- Wake-style inbound payloads must carry the rendered relay copy in both `text` and top-level `message`; OpenClaw may accept the hook without surfacing it when `message` is omitted.
-- Wake-style inbound payloads must only include `sessionId` when the inbound relay payload explicitly provides one; never hardcode `"main"` because operators may use a different default session.
+- When `/hooks/wake` is used explicitly, wake-style inbound payloads must carry the rendered relay copy in both `text` and top-level `message`; OpenClaw may accept the hook without surfacing it when `message` is omitted.
+- When `/hooks/wake` is used explicitly, include `sessionId` only when the inbound relay payload explicitly provides one; never hardcode `"main"` because operators may use a different default session.
 - The custom `send-to-peer` hook mapping must stay on OpenClaw `wake` action semantics; `agent` mappings no longer guarantee that side-effect transforms relay anything before local hook completion.
 - Provider setup must surface readiness honestly: if relay metadata was saved but the connector hop is still dead, return an action-required setup status instead of reporting success.
 - Provider setup must propagate explicit `connector_base_url` and `relay_transform_peers_path` overrides unchanged into every persisted artifact; do not recompute host lists or fallback file paths from partial inputs.
@@ -34,5 +35,5 @@
 - Public OpenClaw helper functions need `///` docs, and runtime helpers that start repeating config writes or branch-heavy auth logic should be split before they cross the 50-line rule.
 - Use `openclaw onboard`, `openclaw doctor --fix`, and `openclaw dashboard` in remediation text when OpenClaw itself is broken.
 - Keep detection and setup helpers `clippy -D warnings` clean; prefer flattened `if let ... && ...` control flow over nested single-branch checks.
-- URL collision guards must compare OpenClaw, proxy, and registry service origins, not full URLs with paths, so `/hooks/wake` suffixes cannot bypass misconfiguration checks.
+- URL collision guards must compare OpenClaw, proxy, and registry service origins, not full URLs with paths, so hook-path suffixes cannot bypass misconfiguration checks.
 - Do not reintroduce JS CLI bundle dependencies.

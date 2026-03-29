@@ -26,3 +26,13 @@ url = "2.5.8"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
+
+[profile.dev]
+debug = 1
+incremental = true
+codegen-units = 256
+
+[profile.test]
+debug = 1
+incremental = true
+codegen-units = 256
