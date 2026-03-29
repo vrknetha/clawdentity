@@ -609,7 +609,6 @@ sync_clawdentity_install_env() {
 }
 
 docker_compose_dual() {
-  [[ -f "$DOCKER_COMPOSE_FILE" ]] || fail "docker compose file not found: $DOCKER_COMPOSE_FILE"
   docker compose -f "$DOCKER_COMPOSE_FILE" "$@"
 }
 
@@ -957,6 +956,7 @@ run() {
   require_command curl
   require_dir "$BASELINE_ALPHA"
   require_dir "$BASELINE_BETA"
+  require_file "$DOCKER_COMPOSE_FILE"
   require_file "$LOCAL_OPENCLAW_POLICY_FILE"
   require_file "$LOCAL_EXEC_APPROVALS_FILE"
   require_file "$HOST_CODEX_AUTH_FILE"
