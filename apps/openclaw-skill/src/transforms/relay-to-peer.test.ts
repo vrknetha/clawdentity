@@ -256,6 +256,71 @@ describe("relay-to-peer transform", () => {
     }
   });
 
+  it("does not mark endpoint unhealthy after outbound payload rejection", async () => {
+    const sandbox = createRelaySandbox();
+    let outboundAttempt = 0;
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      const normalized = typeof url === "string" ? url : url.toString();
+      if (normalized.endsWith("/v1/status")) {
+        return new Response("ok", { status: 200 });
+      }
+      if (normalized.endsWith("/v1/outbound")) {
+        outboundAttempt += 1;
+        if (outboundAttempt === 1) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: "invalid payload",
+              },
+            }),
+            { status: 422 },
+          );
+        }
+        return new Response("", { status: 202 });
+      }
+      throw new Error(`unexpected URL ${normalized}`);
+    });
+
+    try {
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            message: "bad first",
+          },
+          {
+            connectorBaseUrl: "http://127.0.0.1:19556",
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 30_000,
+          },
+        ),
+      ).rejects.toMatchObject({
+        category: "connector_request_rejected",
+      } satisfies Partial<RelayTransformError>);
+
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            message: "good second",
+          },
+          {
+            connectorBaseUrl: "http://127.0.0.1:19556",
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: fetchMock as typeof fetch,
+            runtimeConfigPath: sandbox.runtimeConfigPath,
+            connectorHealthCacheTtlMs: 30_000,
+          },
+        ),
+      ).resolves.toBeNull();
+      expect(outboundAttempt).toBe(2);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
   it("maps connector timeout failures to structured relay error", async () => {
     const sandbox = createRelaySandbox();
     const fetchMock = vi.fn<typeof fetch>(async (url) => {

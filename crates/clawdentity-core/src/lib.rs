@@ -150,6 +150,7 @@ pub use runtime_auth::{RelayConnectHeaders, build_relay_connect_headers};
 pub use runtime_openclaw::{OpenclawRuntimeConfig, check_openclaw_gateway_health};
 pub use runtime_relay::{
     FlushOutboundResult, OutboundRetryPolicy, SentOutboundFrame, flush_outbound_queue_to_relay,
+    flush_outbound_queue_to_relay_with_sent_observer,
 };
 pub use runtime_replay::{
     PurgeResult, ReplayResult, purge_dead_letter_messages, replay_dead_letter_messages,

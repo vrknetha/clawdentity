@@ -760,12 +760,16 @@ export async function relayPayloadToPeer(
       return null;
     } catch (error) {
       lastError = error;
+      const normalizedError = normalizeRelayError(error);
+      const shouldMarkEndpointUnhealthy =
+        normalizedError.category === "connector_unavailable" ||
+        normalizedError.category === "connector_timeout";
       endpointHealthCache.set(endpoint.statusUrl, {
         checkedAtMs: Date.now(),
-        healthy: false,
+        healthy: !shouldMarkEndpointUnhealthy,
       });
       if (!shouldTryNextConnectorEndpoint(error)) {
-        throw normalizeRelayError(error);
+        throw normalizedError;
       }
     }
   }

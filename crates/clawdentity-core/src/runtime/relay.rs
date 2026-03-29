@@ -88,14 +88,18 @@ fn compute_retry_delay_ms(attempt_count: i64, policy: &OutboundRetryPolicy) -> i
     (backoff.floor() as i64).clamp(1, policy.max_delay_ms)
 }
 
-/// TODO(clawdentity): document `flush_outbound_queue_to_relay`.
+/// TODO(clawdentity): document `flush_outbound_queue_to_relay_with_sent_observer`.
 #[allow(clippy::too_many_lines)]
-pub async fn flush_outbound_queue_to_relay(
+pub async fn flush_outbound_queue_to_relay_with_sent_observer<F>(
     store: &SqliteStore,
     relay: &ConnectorClientSender,
     max_items: usize,
     trusted_receipts: Option<&TrustedReceiptsStore>,
-) -> Result<FlushOutboundResult> {
+    mut observe_sent: F,
+) -> Result<FlushOutboundResult>
+where
+    F: FnMut(&SentOutboundFrame),
+{
     let policy = OutboundRetryPolicy::from_env();
     let mut sent_frames: Vec<SentOutboundFrame> = Vec::new();
     let mut sent_count = 0_usize;
@@ -146,6 +150,11 @@ pub async fn flush_outbound_queue_to_relay(
             }
         };
 
+        let sent_frame = SentOutboundFrame {
+            frame_id: item.frame_id.clone(),
+            to_agent_did: item.to_agent_did.clone(),
+        };
+
         let frame = ConnectorFrame::Enqueue(EnqueueFrame {
             v: CONNECTOR_FRAME_VERSION,
             id: item.frame_id.clone(),
@@ -178,13 +187,11 @@ pub async fn flush_outbound_queue_to_relay(
             break;
         }
 
+        observe_sent(&sent_frame);
         if let Some(receipts) = trusted_receipts {
             receipts.mark_trusted(item.frame_id.clone());
         }
-        sent_frames.push(SentOutboundFrame {
-            frame_id: item.frame_id,
-            to_agent_did: item.to_agent_did,
-        });
+        sent_frames.push(sent_frame);
         sent_count += 1;
     }
 
@@ -193,6 +200,23 @@ pub async fn flush_outbound_queue_to_relay(
         sent_count,
         failed_count,
     })
+}
+
+/// TODO(clawdentity): document `flush_outbound_queue_to_relay`.
+pub async fn flush_outbound_queue_to_relay(
+    store: &SqliteStore,
+    relay: &ConnectorClientSender,
+    max_items: usize,
+    trusted_receipts: Option<&TrustedReceiptsStore>,
+) -> Result<FlushOutboundResult> {
+    flush_outbound_queue_to_relay_with_sent_observer(
+        store,
+        relay,
+        max_items,
+        trusted_receipts,
+        |_| {},
+    )
+    .await
 }
 
 fn dead_letter_malformed_outbound_payload(

@@ -12,8 +12,8 @@ use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
     ConnectorServiceUninstallInput, CoreError, RuntimeServerState, SqliteStore,
-    flush_outbound_queue_to_relay, install_connector_service, spawn_connector_client,
-    uninstall_connector_service,
+    flush_outbound_queue_to_relay_with_sent_observer, install_connector_service,
+    spawn_connector_client, uninstall_connector_service,
 };
 use serde_json::json;
 use tokio::sync::watch;
@@ -30,7 +30,7 @@ mod headers;
 mod receipts;
 mod runtime_config;
 
-use delivery::{run_inbound_loop, run_inbound_retry_loop};
+use delivery::{InboundLoopRuntime, run_inbound_loop, run_inbound_retry_loop};
 use receipts::{ReceiptDispatchRuntime, ReceiptOutboxHandle, start_receipt_outbox_worker};
 
 #[cfg(test)]
@@ -263,17 +263,17 @@ async fn start_connector_runtime(
     let outbound_inflight: OutboundInflightMap = Arc::new(Mutex::new(HashMap::new()));
     let pending_receipt_notifications = Arc::new(Mutex::new(Vec::new()));
 
-    let mut inbound_loop_task = spawn_inbound_loop_task(
-        receipt_outbox.clone(),
-        client,
-        relay_sender.clone(),
-        store.clone(),
-        runtime.config_dir.clone(),
-        runtime.openclaw_runtime.clone(),
-        outbound_inflight.clone(),
-        pending_receipt_notifications.clone(),
-        shutdown_rx.clone(),
-    );
+    let inbound_runtime = InboundLoopRuntime {
+        receipt_outbox: receipt_outbox.clone(),
+        relay_sender: relay_sender.clone(),
+        store: store.clone(),
+        config_dir: runtime.config_dir.clone(),
+        openclaw_runtime: runtime.openclaw_runtime.clone(),
+        outbound_inflight: outbound_inflight.clone(),
+        pending_receipt_notifications: pending_receipt_notifications.clone(),
+    };
+    let mut inbound_loop_task =
+        spawn_inbound_loop_task(client, inbound_runtime, shutdown_rx.clone());
 
     let mut inbound_retry_task = spawn_inbound_retry_task(
         receipt_outbox,
@@ -355,30 +355,11 @@ fn spawn_runtime_server_task(
 }
 
 fn spawn_inbound_loop_task(
-    receipt_outbox: ReceiptOutboxHandle,
     connector_client: ConnectorClient,
-    relay_sender: ConnectorClientSender,
-    store: SqliteStore,
-    config_dir: PathBuf,
-    openclaw_runtime: OpenclawRuntimeConfig,
-    outbound_inflight: OutboundInflightMap,
-    pending_receipt_notifications: Arc<Mutex<Vec<delivery::PendingReceiptNotification>>>,
+    runtime: InboundLoopRuntime,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move {
-        run_inbound_loop(
-            receipt_outbox,
-            connector_client,
-            relay_sender,
-            store,
-            config_dir,
-            openclaw_runtime,
-            outbound_inflight,
-            pending_receipt_notifications,
-            shutdown_rx,
-        )
-        .await
-    })
+    tokio::spawn(async move { run_inbound_loop(connector_client, runtime, shutdown_rx).await })
 }
 
 fn spawn_outbound_flush_task(
@@ -433,24 +414,20 @@ async fn run_outbound_flush_loop(
                 if !relay_sender.is_connected() {
                     continue;
                 }
-                match flush_outbound_queue_to_relay(
+                match flush_outbound_queue_to_relay_with_sent_observer(
                     &store,
                     &relay_sender,
                     OUTBOUND_FLUSH_BATCH_SIZE,
                     None,
+                    |sent| {
+                        if let Ok(mut guard) = outbound_inflight.lock() {
+                            guard.insert(sent.frame_id.clone(), sent.to_agent_did.clone());
+                        }
+                    },
                 )
                 .await
                 {
-                    Ok(result) => {
-                        if !result.sent_frames.is_empty() {
-                            let mut guard = outbound_inflight
-                                .lock()
-                                .map_err(|_| anyhow!("outbound inflight lock poisoned"))?;
-                            for sent in result.sent_frames {
-                                guard.insert(sent.frame_id, sent.to_agent_did);
-                            }
-                        }
-                    }
+                    Ok(_) => {}
                     Err(error) => {
                         tracing::warn!(error = %error, "failed to flush outbound queue to relay");
                     }

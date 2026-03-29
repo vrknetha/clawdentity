@@ -80,7 +80,7 @@ pub async fn run_runtime_server(
 
 async fn status_handler(State(state): State<RuntimeServerState>) -> impl IntoResponse {
     let now_ms = now_utc_ms();
-    let outbound_stats = outbound_queue_stats(&state.store, now_ms).unwrap_or_else(|_| {
+    let outbound_stats = outbound_queue_stats(&state.store, now_ms).unwrap_or({
         crate::db_outbound::OutboundQueueStats {
             pending_count: 0,
             retrying_count: 0,

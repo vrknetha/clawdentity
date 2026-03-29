@@ -48,6 +48,16 @@ pub(super) struct PendingReceiptNotification {
     pub receipt: ReceiptFrame,
 }
 
+pub(super) struct InboundLoopRuntime {
+    pub receipt_outbox: ReceiptOutboxHandle,
+    pub relay_sender: ConnectorClientSender,
+    pub store: SqliteStore,
+    pub config_dir: PathBuf,
+    pub openclaw_runtime: OpenclawRuntimeConfig,
+    pub outbound_inflight: OutboundInflightMap,
+    pub pending_receipt_notifications: Arc<Mutex<Vec<PendingReceiptNotification>>>,
+}
+
 struct InboundRuntimeContext<'a> {
     store: &'a SqliteStore,
     config_dir: &'a Path,
@@ -61,28 +71,22 @@ struct InboundRuntimeContext<'a> {
 }
 
 pub(super) async fn run_inbound_loop(
-    receipt_outbox: ReceiptOutboxHandle,
     mut connector_client: ConnectorClient,
-    relay_sender: ConnectorClientSender,
-    store: SqliteStore,
-    config_dir: PathBuf,
-    openclaw_runtime: OpenclawRuntimeConfig,
-    outbound_inflight: OutboundInflightMap,
-    pending_receipt_notifications: Arc<Mutex<Vec<PendingReceiptNotification>>>,
+    runtime: InboundLoopRuntime,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let hook_url = openclaw_runtime.hook_url()?;
+    let hook_url = runtime.openclaw_runtime.hook_url()?;
     let http_client = create_http_client()?;
     let context = InboundRuntimeContext {
-        store: &store,
-        config_dir: config_dir.as_path(),
-        relay_sender: &relay_sender,
+        store: &runtime.store,
+        config_dir: runtime.config_dir.as_path(),
+        relay_sender: &runtime.relay_sender,
         http_client: &http_client,
         hook_url: &hook_url,
-        openclaw_runtime: &openclaw_runtime,
-        receipt_outbox: &receipt_outbox,
-        outbound_inflight: &outbound_inflight,
-        pending_receipt_notifications: &pending_receipt_notifications,
+        openclaw_runtime: &runtime.openclaw_runtime,
+        receipt_outbox: &runtime.receipt_outbox,
+        outbound_inflight: &runtime.outbound_inflight,
+        pending_receipt_notifications: &runtime.pending_receipt_notifications,
     };
 
     loop {
