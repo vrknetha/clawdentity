@@ -24,7 +24,7 @@ load_dotenv() {
 
 load_dotenv "$CLAWDENTITY_ENV_FILE"
 
-DOCKER_COMPOSE_FILE="${DOCKER_COMPOSE_FILE:-/Users/dev/Workdir/openclaw/docker-compose.dual.yml}"
+DOCKER_COMPOSE_FILE="${DOCKER_COMPOSE_FILE:-$REPO_ROOT/../openclaw/docker-compose.dual.yml}"
 
 OPENCLAW_ALPHA_HOME="${OPENCLAW_ALPHA_HOME:-$HOME/.openclaw-alpha}"
 OPENCLAW_BETA_HOME="${OPENCLAW_BETA_HOME:-$HOME/.openclaw-beta}"
@@ -39,10 +39,29 @@ ALPHA_CONTAINER="${ALPHA_CONTAINER:-clawdbot-agent-alpha-1}"
 BETA_CONTAINER="${BETA_CONTAINER:-clawdbot-agent-beta-1}"
 ALPHA_UI_PORT="${ALPHA_UI_PORT:-18789}"
 BETA_UI_PORT="${BETA_UI_PORT:-19001}"
-DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://host.docker.internal:8788}}"
-DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://host.docker.internal:8787}}"
+ALPHA_EXPECTED_AGENT_NAME="${ALPHA_EXPECTED_AGENT_NAME:-alpha-local}"
+BETA_EXPECTED_AGENT_NAME="${BETA_EXPECTED_AGENT_NAME:-beta-local}"
 CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
 DOCKER_SITE_BASE_URL="${DOCKER_SITE_BASE_URL:-http://host.docker.internal:4321}"
+HOST_SITE_BASE_URL="${HOST_SITE_BASE_URL:-$CLAWDENTITY_SITE_BASE_URL}"
+DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-http://host.docker.internal:8788}"
+DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-http://host.docker.internal:8787}"
+HOST_REGISTRY_URL="${HOST_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://127.0.0.1:8788}}"
+HOST_PROXY_URL="${HOST_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://127.0.0.1:8787}}"
+VERIFY_STACK_DEPENDENCIES="${VERIFY_STACK_DEPENDENCIES:-1}"
+SYNC_LOCAL_RELEASE_MANIFEST="${SYNC_LOCAL_RELEASE_MANIFEST:-1}"
+AUTO_BUILD_LOCAL_RELEASE="${AUTO_BUILD_LOCAL_RELEASE:-1}"
+FORCE_REBUILD_LOCAL_RELEASE="${FORCE_REBUILD_LOCAL_RELEASE:-0}"
+LOCAL_RELEASE_PROFILE="${LOCAL_RELEASE_PROFILE:-dev}"
+LOCAL_RELEASE_DOCKER_IMAGE="${LOCAL_RELEASE_DOCKER_IMAGE:-rust:1.90-bookworm}"
+LOCAL_RELEASE_CARGO_CACHE_ROOT="${LOCAL_RELEASE_CARGO_CACHE_ROOT:-$HOME/.cache/clawdentity-rust-docker}"
+CLAWDENTITY_RELEASE_MANIFEST_URL_INPUT="${CLAWDENTITY_RELEASE_MANIFEST_URL:-}"
+CLAWDENTITY_RELEASE_MANIFEST_URL="${CLAWDENTITY_RELEASE_MANIFEST_URL_INPUT:-${DOCKER_SITE_BASE_URL%/}/rust/latest-local.json}"
+HOST_RELEASE_MANIFEST_URL="${HOST_RELEASE_MANIFEST_URL:-${CLAWDENTITY_RELEASE_MANIFEST_URL_INPUT:-${HOST_SITE_BASE_URL%/}/rust/latest-local.json}}"
+CLAWDENTITY_INSTALL_DIR_IN_CONTAINER="${CLAWDENTITY_INSTALL_DIR_IN_CONTAINER:-/home/node/.local/bin}"
+CLAWDENTITY_CLI_PATH_IN_CONTAINER="${CLAWDENTITY_CLI_PATH_IN_CONTAINER:-/home/node/.local/bin/clawdentity}"
+BUILD_CLI_BEFORE_TEST="${BUILD_CLI_BEFORE_TEST:-1}"
+CLAWDENTITY_LATEST_VERSION=""
 
 log() {
   printf '[openclaw-relay-ready] %s\n' "$*"
@@ -122,8 +141,474 @@ require_file() {
   [[ -f "$path" ]] || fail "File not found: $path"
 }
 
+read_env_value() {
+  local env_file="$1"
+  local key="$2"
+
+  [[ -f "$env_file" ]] || return 0
+  awk -F= -v search="$key" '
+    $0 ~ /^[[:space:]]*#/ { next }
+    $1 == search { value = substr($0, index($0, "=") + 1) }
+    END { if (value != "") print value }
+  ' "$env_file"
+}
+
+assert_env_value() {
+  local env_file="$1"
+  local key="$2"
+  local expected="$3"
+  local actual
+  actual="$(read_env_value "$env_file" "$key")"
+  [[ "$actual" == "$expected" ]] || fail "Expected ${key}=${expected} in ${env_file}, found '${actual:-<missing>}'"
+}
+
+require_http_ok() {
+  local url="$1"
+  local label="$2"
+  curl -fsS --max-time 5 "$url" >/dev/null 2>&1 || fail "${label} check failed: ${url}"
+}
+
+require_container_http_ok() {
+  local container="$1"
+  local url="$2"
+  local label="$3"
+  docker exec "$container" sh -lc "curl -fsS --max-time 5 '$url' >/dev/null 2>&1" || fail "${label} check failed in ${container}: ${url}"
+}
+
+normalize_clawdentity_version() {
+  local raw="$1"
+  raw="$(printf '%s' "$raw" | tr -d '[:space:]')"
+  raw="${raw#rust/v}"
+  raw="${raw#v}"
+  printf '%s' "$raw"
+}
+
+resolve_version_from_preserved_env() {
+  local alpha_env="$OPENCLAW_ALPHA_HOME/.env"
+  local beta_env="$OPENCLAW_BETA_HOME/.env"
+  local alpha_version
+  local beta_version
+  alpha_version="$(normalize_clawdentity_version "$(read_env_value "$alpha_env" "CLAWDENTITY_VERSION")")"
+  beta_version="$(normalize_clawdentity_version "$(read_env_value "$beta_env" "CLAWDENTITY_VERSION")")"
+
+  if [[ -n "$alpha_version" && -n "$beta_version" && "$alpha_version" != "$beta_version" ]]; then
+    log "Warning: preserved profile versions differ (alpha=${alpha_version}, beta=${beta_version}); using alpha"
+  fi
+
+  if [[ -n "$alpha_version" ]]; then
+    printf '%s' "$alpha_version"
+    return 0
+  fi
+  if [[ -n "$beta_version" ]]; then
+    printf '%s' "$beta_version"
+    return 0
+  fi
+  return 1
+}
+
+resolve_version_from_local_cargo() {
+  local cargo_toml="$REPO_ROOT/crates/clawdentity-cli/Cargo.toml"
+  [[ -f "$cargo_toml" ]] || return 1
+  awk -F'"' '/^version[[:space:]]*=[[:space:]]*"/ { print $2; exit }' "$cargo_toml"
+}
+
+resolve_latest_clawdentity_version() {
+  local source="manifest"
+  if [[ -n "${CLAWDENTITY_VERSION:-}" ]]; then
+    CLAWDENTITY_LATEST_VERSION="$(normalize_clawdentity_version "${CLAWDENTITY_VERSION}")"
+    source="env-override"
+  else
+    local fetched_version=""
+    if fetched_version="$(
+      curl -fsSL "$HOST_RELEASE_MANIFEST_URL" 2>/dev/null |
+        node -e '
+          let raw = "";
+          process.stdin.on("data", (chunk) => {
+            raw += chunk;
+          });
+          process.stdin.on("end", () => {
+            const parsed = JSON.parse(raw);
+            const version =
+              typeof parsed.version === "string" ? parsed.version.trim() : "";
+            if (!version) {
+              process.exit(1);
+            }
+            process.stdout.write(version);
+          });
+        '
+    )"; then
+      CLAWDENTITY_LATEST_VERSION="$(normalize_clawdentity_version "$fetched_version")"
+    else
+      log "Warning: failed to resolve latest CLI version from $HOST_RELEASE_MANIFEST_URL"
+      if CLAWDENTITY_LATEST_VERSION="$(resolve_version_from_preserved_env)"; then
+        source="preserved-profile-env"
+      else
+        local cargo_version
+        cargo_version="$(resolve_version_from_local_cargo || true)"
+        cargo_version="$(normalize_clawdentity_version "$cargo_version")"
+        if [[ -n "$cargo_version" ]]; then
+          CLAWDENTITY_LATEST_VERSION="$cargo_version"
+          source="local-cargo"
+        fi
+      fi
+    fi
+  fi
+
+  [[ -n "$CLAWDENTITY_LATEST_VERSION" ]] || fail "Resolved CLI version is empty (set CLAWDENTITY_VERSION to override)"
+  log "Using clawdentity version ${CLAWDENTITY_LATEST_VERSION} (source: ${source})"
+}
+
+build_local_clawdentity_cli() {
+  [[ "$BUILD_CLI_BEFORE_TEST" == "1" ]] || return 0
+  require_command cargo
+
+  log "Building local clawdentity CLI from workspace"
+  cargo build --manifest-path "$REPO_ROOT/crates/Cargo.toml" -p clawdentity-cli
+
+  local cargo_target_dir="${CARGO_TARGET_DIR:-$REPO_ROOT/crates/target}"
+  local cli_bin="$cargo_target_dir/debug/clawdentity-cli"
+  [[ -x "$cli_bin" ]] || fail "Built CLI not found at $cli_bin"
+  log "Local CLI build ready: $("$cli_bin" --version)"
+}
+
+sync_local_release_manifest() {
+  [[ "$SYNC_LOCAL_RELEASE_MANIFEST" == "1" ]] || return 0
+
+  local version
+  version="$(resolve_version_from_local_cargo || true)"
+  version="$(normalize_clawdentity_version "$version")"
+  [[ -n "$version" ]] || fail "Could not resolve CLI version from crates/clawdentity-cli/Cargo.toml"
+
+  local rust_root="$REPO_ROOT/apps/landing/public/rust"
+  local release_dir="$rust_root/v${version}"
+  local checksums_path="$release_dir/clawdentity-${version}-checksums.txt"
+  local manifest_path="$rust_root/latest-local.json"
+
+  ensure_local_release_artifacts "$version" "$release_dir" "$checksums_path"
+
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+
+    const [releaseDir, checksumsPath, manifestPath, version, dockerSiteBaseUrl] = process.argv.slice(1);
+    const entries = fs.readdirSync(releaseDir);
+    const assets = {};
+
+    for (const fileName of entries) {
+      const match = fileName.match(/^clawdentity-([0-9]+\.[0-9]+\.[0-9]+)-(.+)\.(tar\.gz|zip)$/);
+      if (!match) {
+        continue;
+      }
+      if (match[1] !== version) {
+        continue;
+      }
+      const platform = match[2];
+      assets[platform] = {
+        fileName,
+        url: `${dockerSiteBaseUrl}/rust/v${version}/${fileName}`,
+      };
+    }
+
+    if (Object.keys(assets).length === 0) {
+      throw new Error(`No release assets found in ${releaseDir} for version ${version}`);
+    }
+    if (!fs.existsSync(checksumsPath)) {
+      throw new Error(`Missing checksums file: ${checksumsPath}`);
+    }
+
+    const manifest = {
+      version,
+      tag: `rust/v${version}`,
+      publishedAt: new Date().toISOString(),
+      assetBaseUrl: `${dockerSiteBaseUrl}/rust/v${version}`,
+      checksumsUrl: `${dockerSiteBaseUrl}/rust/v${version}/clawdentity-${version}-checksums.txt`,
+      assets,
+    };
+
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  ' \
+    "$release_dir" \
+    "$checksums_path" \
+    "$manifest_path" \
+    "$version" \
+    "${DOCKER_SITE_BASE_URL%/}"
+
+  log "Synced local release manifest: $manifest_path (version ${version})"
+}
+
+compute_local_release_build_stamp() {
+  node -e '
+    const { createHash } = require("crypto");
+    const fs = require("fs");
+    const { spawnSync } = require("child_process");
+
+    const repoRoot = process.argv[1];
+    const profile = process.argv[2];
+    const dockerImage = process.argv[3];
+    const cargoLockPath = `${repoRoot}/crates/Cargo.lock`;
+
+    const runGit = (args) => {
+      const result = spawnSync("git", ["-C", repoRoot, ...args], {
+        encoding: "utf8",
+      });
+      if (result.status !== 0 || typeof result.stdout !== "string") {
+        return "";
+      }
+      return result.stdout.trim();
+    };
+
+    let cargoLockHash = "";
+    if (fs.existsSync(cargoLockPath) && fs.statSync(cargoLockPath).isFile()) {
+      const cargoLockBytes = fs.readFileSync(cargoLockPath);
+      cargoLockHash = createHash("sha256").update(cargoLockBytes).digest("hex");
+    }
+
+    const stamp = {
+      git_commit: runGit(["rev-parse", "HEAD"]) || "unknown",
+      git_dirty: runGit(["status", "--porcelain"]).length > 0,
+      cargo_lock_hash: cargoLockHash,
+      LOCAL_RELEASE_PROFILE: profile,
+      LOCAL_RELEASE_DOCKER_IMAGE: dockerImage,
+      generatedAt: new Date().toISOString(),
+    };
+
+    process.stdout.write(JSON.stringify(stamp));
+  ' "$REPO_ROOT" "$LOCAL_RELEASE_PROFILE" "$LOCAL_RELEASE_DOCKER_IMAGE"
+}
+
+local_release_build_stamp_matches() {
+  local stamp_path="$1"
+  local expected_stamp_json="$2"
+
+  node -e '
+    const fs = require("fs");
+    const [stampPath, expectedStampRaw] = process.argv.slice(1);
+    const expected = JSON.parse(expectedStampRaw);
+
+    try {
+      const parsed = JSON.parse(fs.readFileSync(stampPath, "utf8"));
+      const fields = [
+        "git_commit",
+        "git_dirty",
+        "cargo_lock_hash",
+        "LOCAL_RELEASE_PROFILE",
+        "LOCAL_RELEASE_DOCKER_IMAGE",
+      ];
+      const matches =
+        parsed &&
+        fields.every((field) => JSON.stringify(parsed[field]) === JSON.stringify(expected[field]));
+      process.exit(matches ? 0 : 1);
+    } catch {
+      process.exit(1);
+    }
+  ' "$stamp_path" "$expected_stamp_json"
+}
+
+ensure_local_release_artifacts() {
+  local version="$1"
+  local release_dir="$2"
+  local checksums_path="$3"
+  local build_stamp_path="$release_dir/.build-stamp.json"
+  local docker_workdir="/workspace/clawdentity"
+  local release_rel="${release_dir#"$REPO_ROOT/"}"
+  [[ "$release_rel" != "$release_dir" ]] || fail "Release directory must be under repo root: $release_dir"
+  local docker_release_dir="$docker_workdir/$release_rel"
+  local current_build_stamp
+  current_build_stamp="$(compute_local_release_build_stamp)"
+  local -a platform_matrix=(
+    "linux-aarch64|linux/arm64"
+    "linux-x86_64|linux/amd64"
+  )
+
+  local assets_complete=1
+  for entry in "${platform_matrix[@]}"; do
+    local platform_label="${entry%%|*}"
+    local asset_file="clawdentity-${version}-${platform_label}.tar.gz"
+    [[ -f "$release_dir/$asset_file" ]] || assets_complete=0
+  done
+  if [[ "$FORCE_REBUILD_LOCAL_RELEASE" == "1" ]]; then
+    log "FORCE_REBUILD_LOCAL_RELEASE=1; rebuilding local release artifacts for v${version}"
+    rm -f "$checksums_path" "$build_stamp_path"
+    for entry in "${platform_matrix[@]}"; do
+      local platform_label="${entry%%|*}"
+      rm -f "$release_dir/clawdentity-${version}-${platform_label}.tar.gz"
+    done
+    assets_complete=0
+  elif [[ "$assets_complete" == "1" && -f "$checksums_path" ]]; then
+    if [[ -f "$build_stamp_path" ]] &&
+      local_release_build_stamp_matches "$build_stamp_path" "$current_build_stamp"; then
+      return 0
+    fi
+
+    log "Local release artifacts for v${version} do not match current build stamp; rebuilding"
+    rm -f "$checksums_path" "$build_stamp_path"
+    for entry in "${platform_matrix[@]}"; do
+      local platform_label="${entry%%|*}"
+      rm -f "$release_dir/clawdentity-${version}-${platform_label}.tar.gz"
+    done
+    assets_complete=0
+  fi
+
+  [[ "$AUTO_BUILD_LOCAL_RELEASE" == "1" ]] || fail "Missing local release assets for v${version} and AUTO_BUILD_LOCAL_RELEASE=0"
+  require_command docker
+  mkdir -p "$release_dir"
+
+  local cargo_build_args="-p clawdentity-cli"
+  local built_binary_relpath="debug/clawdentity-cli"
+
+  case "$LOCAL_RELEASE_PROFILE" in
+    dev) ;;
+    release)
+      cargo_build_args="$cargo_build_args --release"
+      built_binary_relpath="release/clawdentity-cli"
+      ;;
+    *)
+      fail "Unsupported LOCAL_RELEASE_PROFILE=${LOCAL_RELEASE_PROFILE} (expected dev or release)"
+      ;;
+  esac
+
+  for entry in "${platform_matrix[@]}"; do
+    local platform_label="${entry%%|*}"
+    local docker_platform="${entry##*|}"
+    local asset_file="clawdentity-${version}-${platform_label}.tar.gz"
+    local asset_path="$release_dir/$asset_file"
+    local platform_cache_root="$LOCAL_RELEASE_CARGO_CACHE_ROOT/${platform_label}"
+    local host_registry_cache_dir="$platform_cache_root/registry"
+    local host_git_cache_dir="$platform_cache_root/git"
+    local host_target_cache_dir="$platform_cache_root/target"
+    local docker_target_dir="/cache/target-${platform_label}"
+    mkdir -p "$host_registry_cache_dir" "$host_git_cache_dir" "$host_target_cache_dir"
+
+    if [[ -f "$asset_path" ]]; then
+      continue
+    fi
+
+    log "Building ${platform_label} local release asset for v${version} via Docker (profile: ${LOCAL_RELEASE_PROFILE})"
+    local build_succeeded=0
+    for attempt in 1 2; do
+      if docker run --rm --platform "$docker_platform" \
+        -v "$REPO_ROOT:$docker_workdir" \
+        -v "$host_registry_cache_dir:/usr/local/cargo/registry" \
+        -v "$host_git_cache_dir:/usr/local/cargo/git" \
+        -v "$host_target_cache_dir:$docker_target_dir" \
+        -w "$docker_workdir/crates" \
+        "$LOCAL_RELEASE_DOCKER_IMAGE" \
+        bash -lc "
+          set -euo pipefail
+          /usr/local/cargo/bin/cargo build $cargo_build_args --target-dir '$docker_target_dir'
+          rm -rf /tmp/clawdentity-release && mkdir -p /tmp/clawdentity-release
+          cp '$docker_target_dir/$built_binary_relpath' /tmp/clawdentity-release/clawdentity
+          mkdir -p '$docker_release_dir'
+          tar -czf '$docker_release_dir/$asset_file' -C /tmp/clawdentity-release clawdentity
+        "; then
+        build_succeeded=1
+        break
+      fi
+
+      if [[ "$attempt" == "1" ]]; then
+        log "Build failed for ${platform_label}; clearing target cache and retrying once"
+        rm -rf "$host_target_cache_dir"
+        mkdir -p "$host_target_cache_dir"
+      fi
+    done
+
+    [[ "$build_succeeded" == "1" ]] || fail "Failed to build ${platform_label} local release asset for v${version}"
+
+    [[ -f "$asset_path" ]] || fail "Failed to produce local release asset: $asset_path"
+  done
+
+  node -e '
+    const crypto = require("crypto");
+    const fs = require("fs");
+    const path = require("path");
+    const releaseDir = process.argv[1];
+    const checksumsPath = process.argv[2];
+    const version = process.argv[3];
+    const files = fs
+      .readdirSync(releaseDir)
+      .filter((file) => new RegExp(`^clawdentity-${version}-.+\\.(tar\\.gz|zip)$`).test(file))
+      .sort();
+    if (files.length === 0) {
+      throw new Error(`No release assets found in ${releaseDir} for ${version}`);
+    }
+    const lines = files.map((file) => {
+      const data = fs.readFileSync(path.join(releaseDir, file));
+      const hash = crypto.createHash("sha256").update(data).digest("hex");
+      return `${hash}  ${file}`;
+    });
+    fs.writeFileSync(checksumsPath, `${lines.join("\n")}\n`);
+  ' \
+    "$release_dir" \
+    "$checksums_path" \
+    "$version"
+
+  printf '%s\n' "$current_build_stamp" > "$build_stamp_path"
+
+  [[ -f "$checksums_path" ]] || fail "Failed to produce checksums file: $checksums_path"
+  log "Generated local release assets for v${version} (linux-aarch64 + linux-x86_64)"
+}
+
+sync_clawdentity_install_env() {
+  node -e '
+    const fs = require("fs");
+    const envPaths = [process.argv[1], process.argv[2]];
+    const version = process.argv[3];
+    const manifestUrl = process.argv[4];
+    const downloadsBaseUrl = process.argv[5];
+    const installDir = process.argv[6];
+    const cliPath = process.argv[7];
+    const defaultPath = "/home/node/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games";
+    const requiredPathEntry = "/home/node/.local/bin";
+
+    const upsertEnvValue = (raw, key, value) => {
+      const line = `${key}=${value}`;
+      const keyPattern = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
+      if (keyPattern.test(raw)) {
+        const next = raw.replace(keyPattern, line);
+        return next.endsWith("\n") ? next : `${next}\n`;
+      }
+      if (raw.trim().length === 0) {
+        return `${line}\n`;
+      }
+      return raw.endsWith("\n") ? `${raw}${line}\n` : `${raw}\n${line}\n`;
+    };
+
+    const ensurePathIncludes = (raw) => {
+      const keyPattern = /^\s*PATH\s*=(.*)$/m;
+      const match = raw.match(keyPattern);
+      const existingPath = match ? match[1].trim() : "";
+      const seedPath = existingPath.length > 0 ? existingPath : defaultPath;
+      const pathParts = seedPath.split(":").map((value) => value.trim()).filter(Boolean);
+      if (!pathParts.includes(requiredPathEntry)) {
+        pathParts.unshift(requiredPathEntry);
+      }
+      const nextPath = pathParts.join(":");
+      return upsertEnvValue(raw, "PATH", nextPath);
+    };
+
+    for (const envPath of envPaths) {
+      const raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "";
+      let next = raw;
+      next = upsertEnvValue(next, "CLAWDENTITY_VERSION", version);
+      next = upsertEnvValue(next, "CLAWDENTITY_RELEASE_MANIFEST_URL", manifestUrl);
+      next = upsertEnvValue(next, "CLAWDENTITY_DOWNLOADS_BASE_URL", downloadsBaseUrl);
+      next = upsertEnvValue(next, "CLAWDENTITY_INSTALL_DIR", installDir);
+      next = upsertEnvValue(next, "CLAWDENTITY_CLI_PATH", cliPath);
+      next = ensurePathIncludes(next);
+      fs.writeFileSync(envPath, next);
+    }
+  ' \
+    "$OPENCLAW_ALPHA_HOME/.env" \
+    "$OPENCLAW_BETA_HOME/.env" \
+    "$CLAWDENTITY_LATEST_VERSION" \
+    "$CLAWDENTITY_RELEASE_MANIFEST_URL" \
+    "$DOCKER_SITE_BASE_URL" \
+    "$CLAWDENTITY_INSTALL_DIR_IN_CONTAINER" \
+    "$CLAWDENTITY_CLI_PATH_IN_CONTAINER"
+}
+
 docker_compose_dual() {
-  [[ -f "$DOCKER_COMPOSE_FILE" ]] || fail "docker compose file not found: $DOCKER_COMPOSE_FILE"
   docker compose -f "$DOCKER_COMPOSE_FILE" "$@"
 }
 
@@ -157,7 +642,7 @@ wait_for_ui() {
       log "Port ${port}: UI ready"
       return
     fi
-    if docker exec "$container" sh -lc "curl -fsS --max-time 2 http://127.0.0.1:18789/ >/dev/null 2>&1"; then
+    if docker exec "$container" sh -lc "curl -fsS --max-time 2 http://127.0.0.1:${port}/ >/dev/null 2>&1"; then
       log "Port ${port}: UI ready (container-local probe)"
       return
     fi
@@ -176,15 +661,15 @@ write_gateway_defaults() {
     const fs = require("fs");
     const crypto = require("crypto");
     const profileArgs = [
-      { configPath: process.argv[1], uiPort: process.argv[2] },
-      { configPath: process.argv[3], uiPort: process.argv[4] },
+      { configPath: process.argv[1], uiPort: process.argv[2], expectedAgentName: process.argv[3] },
+      { configPath: process.argv[4], uiPort: process.argv[5], expectedAgentName: process.argv[6] },
     ];
-    const registryUrl = process.argv[5];
-    const proxyUrl = process.argv[6];
-    const siteBaseUrl = process.argv[7];
-    const openclawPolicyPath = process.argv[8];
-    const execApprovalsPolicyPath = process.argv[9];
-    const modelRef = process.argv[10];
+    const registryUrl = process.argv[7];
+    const proxyUrl = process.argv[8];
+    const siteBaseUrl = process.argv[9];
+    const openclawPolicyPath = process.argv[10];
+    const execApprovalsPolicyPath = process.argv[11];
+    const modelRef = process.argv[12];
 
     const readEnvFile = (envPath) => (fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "");
 
@@ -222,7 +707,7 @@ write_gateway_defaults() {
     const openclawPolicy = JSON.parse(fs.readFileSync(openclawPolicyPath, "utf8"));
     const execApprovalsPolicy = JSON.parse(fs.readFileSync(execApprovalsPolicyPath, "utf8"));
 
-    for (const { configPath, uiPort } of profileArgs) {
+    for (const { configPath, uiPort, expectedAgentName } of profileArgs) {
       const envPath = configPath.replace(/openclaw\.json$/, ".env");
       const profileHome = configPath.replace(/\/openclaw\.json$/, "");
       const envRaw = readEnvFile(envPath);
@@ -299,6 +784,7 @@ write_gateway_defaults() {
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_REGISTRY_URL", registryUrl);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_PROXY_URL", proxyUrl);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_SITE_BASE_URL", siteBaseUrl);
+      nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_EXPECTED_AGENT_NAME", expectedAgentName);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CODEX_HOME", "/home/node/.openclaw/.codex");
       fs.writeFileSync(envPath, nextEnvRaw);
       const approvalsPath = `${profileHome}/exec-approvals.json`;
@@ -326,8 +812,10 @@ write_gateway_defaults() {
   ' \
     "$OPENCLAW_ALPHA_HOME/openclaw.json" \
     "$ALPHA_UI_PORT" \
+    "$ALPHA_EXPECTED_AGENT_NAME" \
     "$OPENCLAW_BETA_HOME/openclaw.json" \
     "$BETA_UI_PORT" \
+    "$BETA_EXPECTED_AGENT_NAME" \
     "$DOCKER_REGISTRY_URL" \
     "$DOCKER_PROXY_URL" \
     "$DOCKER_SITE_BASE_URL" \
@@ -348,9 +836,74 @@ clear_runtime_state() {
   local profile_path="$1"
   rm -f "$profile_path/memory/main.sqlite"
   rm -f "$profile_path/workspace/.openclaw/workspace-state.json"
+  rm -rf "$profile_path/.clawdentity"
+  rm -rf "$profile_path/.clawdentity-cli"
+  rm -rf "$profile_path/.clawdentity-state"
+  rm -rf "$profile_path/workspace/.clawdentity"
+  rm -rf "$profile_path/workspace/.clawdentity-cli"
+  rm -rf "$profile_path/workspace/.clawdentity-state"
   if [[ -d "$profile_path/agents/main/sessions" ]]; then
     find "$profile_path/agents/main/sessions" -type f -delete
   fi
+}
+
+assert_profile_clean_state() {
+  local profile_path="$1"
+  local profile_name="$2"
+  local sessions_count
+
+  [[ ! -f "$profile_path/workspace/.openclaw/workspace-state.json" ]] || fail "${profile_name}: stale workspace-state.json present after reset"
+  [[ ! -d "$profile_path/skills/clawdentity-openclaw-relay" ]] || fail "${profile_name}: skill artifacts survived reset"
+  [[ ! -d "$profile_path/workspace/skills/clawdentity-openclaw-relay" ]] || fail "${profile_name}: workspace skill artifacts survived reset"
+  [[ ! -f "$profile_path/hooks/transforms/relay-to-peer.mjs" ]] || fail "${profile_name}: relay transform survived reset"
+  [[ ! -d "$profile_path/.clawdentity" ]] || fail "${profile_name}: profile-home clawdentity state survived reset"
+  [[ ! -d "$profile_path/workspace/.clawdentity" ]] || fail "${profile_name}: clawdentity workspace state survived reset"
+  [[ ! -d "$profile_path/workspace/.clawdentity-cli" ]] || fail "${profile_name}: clawdentity-cli workspace state survived reset"
+  [[ ! -d "$profile_path/workspace/.clawdentity-state" ]] || fail "${profile_name}: clawdentity-state workspace state survived reset"
+
+  sessions_count="$({ find "$profile_path/agents/main/sessions" -type f 2>/dev/null || true; } | wc -l | tr -d ' ')"
+  [[ "$sessions_count" == "0" ]] || fail "${profile_name}: expected 0 saved sessions after reset, found ${sessions_count}"
+}
+
+assert_profile_env_contract() {
+  local profile_path="$1"
+  local profile_name="$2"
+  local expected_agent_name="$3"
+  local env_file="$profile_path/.env"
+
+  assert_env_value "$env_file" "CLAWDENTITY_REGISTRY_URL" "$DOCKER_REGISTRY_URL"
+  assert_env_value "$env_file" "CLAWDENTITY_PROXY_URL" "$DOCKER_PROXY_URL"
+  assert_env_value "$env_file" "CLAWDENTITY_SITE_BASE_URL" "$DOCKER_SITE_BASE_URL"
+  assert_env_value "$env_file" "CLAWDENTITY_VERSION" "$CLAWDENTITY_LATEST_VERSION"
+  assert_env_value "$env_file" "CLAWDENTITY_RELEASE_MANIFEST_URL" "$CLAWDENTITY_RELEASE_MANIFEST_URL"
+  assert_env_value "$env_file" "CLAWDENTITY_DOWNLOADS_BASE_URL" "$DOCKER_SITE_BASE_URL"
+  assert_env_value "$env_file" "CLAWDENTITY_INSTALL_DIR" "$CLAWDENTITY_INSTALL_DIR_IN_CONTAINER"
+  assert_env_value "$env_file" "CLAWDENTITY_CLI_PATH" "$CLAWDENTITY_CLI_PATH_IN_CONTAINER"
+  assert_env_value "$env_file" "CLAWDENTITY_EXPECTED_AGENT_NAME" "$expected_agent_name"
+
+  local path_value
+  path_value="$(read_env_value "$env_file" "PATH")"
+  [[ "$path_value" == *"/home/node/.local/bin"* ]] || fail "${profile_name}: PATH in ${env_file} is missing /home/node/.local/bin"
+}
+
+verify_host_stack_dependencies() {
+  [[ "$VERIFY_STACK_DEPENDENCIES" == "1" ]] || return 0
+  local host_skill_url="${HOST_SITE_BASE_URL%/}/skill.md"
+  require_http_ok "${HOST_REGISTRY_URL%/}/health" "registry health"
+  require_http_ok "${HOST_PROXY_URL%/}/health" "proxy health"
+  require_http_ok "$host_skill_url" "landing skill"
+  require_http_ok "$HOST_RELEASE_MANIFEST_URL" "landing release manifest"
+}
+
+verify_container_stack_dependencies() {
+  [[ "$VERIFY_STACK_DEPENDENCIES" == "1" ]] || return 0
+
+  local container
+  for container in "$ALPHA_CONTAINER" "$BETA_CONTAINER"; do
+    require_container_http_ok "$container" "${DOCKER_REGISTRY_URL%/}/health" "registry health"
+    require_container_http_ok "$container" "${DOCKER_PROXY_URL%/}/health" "proxy health"
+    require_container_http_ok "$container" "${DOCKER_SITE_BASE_URL%/}/skill.md" "landing skill"
+  done
 }
 
 install_host_codex_auth() {
@@ -403,13 +956,18 @@ run() {
   require_command curl
   require_dir "$BASELINE_ALPHA"
   require_dir "$BASELINE_BETA"
+  require_file "$DOCKER_COMPOSE_FILE"
   require_file "$LOCAL_OPENCLAW_POLICY_FILE"
   require_file "$LOCAL_EXEC_APPROVALS_FILE"
   require_file "$HOST_CODEX_AUTH_FILE"
 
-  local tmp_dir
+  build_local_clawdentity_cli
+  sync_local_release_manifest
+  resolve_latest_clawdentity_version
+  verify_host_stack_dependencies
+
   tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "${tmp_dir:-}"' EXIT
+  trap 'if [[ -n "${tmp_dir:-}" ]]; then rm -rf "$tmp_dir"; fi' EXIT
 
   if [[ "$PRESERVE_ENV" == "1" ]]; then
     [[ -f "$OPENCLAW_ALPHA_HOME/.env" ]] || fail "Missing .env: $OPENCLAW_ALPHA_HOME/.env"
@@ -433,18 +991,24 @@ run() {
 
   log "Applying gateway defaults + clearing runtime state"
   write_gateway_defaults
+  sync_clawdentity_install_env
   install_host_codex_auth "$OPENCLAW_ALPHA_HOME"
   install_host_codex_auth "$OPENCLAW_BETA_HOME"
   clear_runtime_state "$OPENCLAW_ALPHA_HOME"
   clear_runtime_state "$OPENCLAW_BETA_HOME"
   remove_skill_artifacts "$OPENCLAW_ALPHA_HOME"
   remove_skill_artifacts "$OPENCLAW_BETA_HOME"
+  assert_profile_clean_state "$OPENCLAW_ALPHA_HOME" "alpha"
+  assert_profile_clean_state "$OPENCLAW_BETA_HOME" "beta"
+  assert_profile_env_contract "$OPENCLAW_ALPHA_HOME" "alpha" "$ALPHA_EXPECTED_AGENT_NAME"
+  assert_profile_env_contract "$OPENCLAW_BETA_HOME" "beta" "$BETA_EXPECTED_AGENT_NAME"
 
   log "Starting dual OpenClaw stack"
   docker_compose_dual up -d
 
   wait_for_ui 18789 "$ALPHA_CONTAINER"
   wait_for_ui 19001 "$BETA_CONTAINER"
+  verify_container_stack_dependencies
   log "Starting temporary Control UI device auto-approval watchers"
   start_device_pairing_autoapprove "$ALPHA_CONTAINER" "$DEVICE_AUTO_APPROVE_SECONDS"
   start_device_pairing_autoapprove "$BETA_CONTAINER" "$DEVICE_AUTO_APPROVE_SECONDS"
@@ -455,9 +1019,9 @@ run() {
   printf 'beta_sessions=%s\n' "$(find "$OPENCLAW_BETA_HOME/agents/main/sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   [[ -d "$OPENCLAW_ALPHA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "alpha_skill_present=1" || echo "alpha_skill_present=0"
   [[ -d "$OPENCLAW_BETA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "beta_skill_present=1" || echo "beta_skill_present=0"
-  [[ -d "$OPENCLAW_ALPHA_HOME/workspace/node_modules/clawdentity" ]] && echo "alpha_pkg_present=1" || echo "alpha_pkg_present=0"
-  [[ -d "$OPENCLAW_BETA_HOME/workspace/node_modules/clawdentity" ]] && echo "beta_pkg_present=1" || echo "beta_pkg_present=0"
-
+  echo "alpha_expected_agent_name=${ALPHA_EXPECTED_AGENT_NAME}"
+  echo "beta_expected_agent_name=${BETA_EXPECTED_AGENT_NAME}"
+  echo "verify_stack_dependencies=${VERIFY_STACK_DEPENDENCIES}"
   log "Ready state complete"
 }
 

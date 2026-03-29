@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -10,27 +11,57 @@ use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientSender, ConnectorFrame,
-    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, SqliteStore, new_frame_id, now_iso,
+    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, ReceiptFrame, SqliteStore, new_frame_id,
+    now_iso,
 };
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use super::normalize_hook_path;
+use super::headers::{
+    SenderProfileHeaders, build_openclaw_delivery_headers, lookup_sender_profile_headers,
+};
+use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
+pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
+use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
+
+mod openclaw_payload;
+mod pair_accepted;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
 
+struct InboundRuntimeContext<'a> {
+    store: &'a SqliteStore,
+    config_dir: &'a Path,
+    relay_sender: &'a ConnectorClientSender,
+    http_client: &'a reqwest::Client,
+    hook_url: &'a str,
+    openclaw_runtime: &'a OpenclawRuntimeConfig,
+    receipt_outbox: &'a ReceiptOutboxHandle,
+}
+
 pub(super) async fn run_inbound_loop(
+    receipt_outbox: ReceiptOutboxHandle,
     mut connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let hook_url = openclaw_runtime.hook_url()?;
     let http_client = create_http_client()?;
+    let context = InboundRuntimeContext {
+        store: &store,
+        config_dir: config_dir.as_path(),
+        relay_sender: &relay_sender,
+        http_client: &http_client,
+        hook_url: &hook_url,
+        openclaw_runtime: &openclaw_runtime,
+        receipt_outbox: &receipt_outbox,
+    };
 
     loop {
         tokio::select! {
@@ -43,39 +74,33 @@ pub(super) async fn run_inbound_loop(
                 let Some(frame) = frame else {
                     return Ok(());
                 };
-                handle_connector_frame(
-                    frame,
-                    &store,
-                    &relay_sender,
-                    &http_client,
-                    &hook_url,
-                    &openclaw_runtime,
-                )
-                .await;
+                handle_connector_frame(frame, &context).await;
             }
         }
     }
 }
 
-async fn handle_connector_frame(
-    frame: ConnectorFrame,
-    store: &SqliteStore,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-) {
+async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeContext<'_>) {
     match frame {
         ConnectorFrame::Deliver(deliver) => {
-            handle_deliver_frame(
-                store,
-                relay_sender,
-                http_client,
-                hook_url,
-                openclaw_runtime,
-                deliver,
+            handle_deliver_frame(context, deliver).await;
+        }
+        ConnectorFrame::Receipt(receipt) => {
+            if let Err(error) = forward_receipt_to_openclaw(
+                context.http_client,
+                context.hook_url,
+                context.openclaw_runtime,
+                &receipt,
             )
-            .await;
+            .await
+            {
+                tracing::warn!(
+                    error = %error,
+                    request_id = %receipt.original_frame_id,
+                    status = ?receipt.status,
+                    "failed to forward receipt payload to OpenClaw hook"
+                );
+            }
         }
         ConnectorFrame::EnqueueAck(ack) => log_enqueue_ack(&ack),
         _ => {}
@@ -97,7 +122,9 @@ fn log_enqueue_ack(ack: &EnqueueAckFrame) {
 }
 
 pub(super) async fn run_inbound_retry_loop(
+    receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
@@ -114,7 +141,16 @@ pub(super) async fn run_inbound_retry_loop(
                 }
             }
             _ = interval.tick() => {
-                retry_due_inbound_deliveries(&store, &http_client, &hook_url, &openclaw_runtime).await;
+                let _ = receipt_outbox.flush_due().await;
+                retry_due_inbound_deliveries(
+                    &store,
+                    config_dir.as_path(),
+                    &http_client,
+                    &hook_url,
+                    &openclaw_runtime,
+                    &receipt_outbox,
+                )
+                .await;
             }
         }
     }
@@ -122,9 +158,11 @@ pub(super) async fn run_inbound_retry_loop(
 
 async fn retry_due_inbound_deliveries(
     store: &SqliteStore,
+    config_dir: &Path,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt_outbox: &ReceiptOutboxHandle,
 ) {
     let due_items = match list_pending_due(store, now_utc_ms(), INBOUND_RETRY_BATCH_SIZE) {
         Ok(items) => items,
@@ -135,25 +173,62 @@ async fn retry_due_inbound_deliveries(
     };
 
     for item in due_items {
-        retry_pending_inbound_delivery(store, http_client, hook_url, openclaw_runtime, item).await;
+        retry_pending_inbound_delivery(
+            store,
+            config_dir,
+            http_client,
+            hook_url,
+            openclaw_runtime,
+            receipt_outbox,
+            item,
+        )
+        .await;
     }
 }
 
 async fn retry_pending_inbound_delivery(
     store: &SqliteStore,
+    config_dir: &Path,
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt_outbox: &ReceiptOutboxHandle,
     item: InboundPendingItem,
 ) {
-    let Ok(deliver) = build_deliver_from_pending(&item) else {
-        dead_letter_invalid_pending_payload(store, &item);
+    let Ok(mut deliver) = build_deliver_from_pending(&item) else {
+        dead_letter_invalid_pending_payload(store, receipt_outbox, &item).await;
         return;
     };
+    if is_trusted_pair_accepted_delivery(&deliver)
+        && let Err(error) = apply_pair_accepted_system_delivery(store, config_dir, &mut deliver)
+    {
+        handle_pending_retry_failure(store, receipt_outbox, &item, &error).await;
+        return;
+    }
 
-    match forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await {
-        Ok(()) => record_retry_delivery_success(store, &item),
-        Err(error) => handle_pending_retry_failure(store, &item, &error),
+    let sender_profile = lookup_sender_profile_headers(store, &item.from_agent_did);
+    match forward_deliver_to_openclaw(
+        http_client,
+        hook_url,
+        openclaw_runtime,
+        &deliver,
+        sender_profile.as_ref(),
+    )
+    .await
+    {
+        Ok(()) => {
+            record_retry_delivery_success(store, &item);
+            let _ = receipt_outbox
+                .enqueue_and_try_flush(DeliveryReceiptPayload {
+                    request_id: item.request_id.clone(),
+                    sender_agent_did: item.from_agent_did.clone(),
+                    recipient_agent_did: item.to_agent_did.clone(),
+                    status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+                    reason: None,
+                })
+                .await;
+        }
+        Err(error) => handle_pending_retry_failure(store, receipt_outbox, &item, &error).await,
     }
 }
 
@@ -168,24 +243,40 @@ fn build_deliver_from_pending(item: &InboundPendingItem) -> Result<DeliverFrame>
         from_agent_did: item.from_agent_did.clone(),
         to_agent_did: item.to_agent_did.clone(),
         payload,
+        delivery_source: item.delivery_source.clone(),
         content_type: Some("application/json".to_string()),
         conversation_id: item.conversation_id.clone(),
         reply_to: item.reply_to.clone(),
     })
 }
 
-fn dead_letter_invalid_pending_payload(store: &SqliteStore, item: &InboundPendingItem) {
+async fn dead_letter_invalid_pending_payload(
+    store: &SqliteStore,
+    receipt_outbox: &ReceiptOutboxHandle,
+    item: &InboundPendingItem,
+) {
     let reason = build_deliver_from_pending(item)
         .err()
         .map(|error| error.to_string())
         .unwrap_or_else(|| "invalid pending payload_json".to_string());
-    if let Err(error) = move_pending_to_dead_letter(store, &item.request_id, &reason) {
+    let moved_to_dead_letter = move_pending_to_dead_letter(store, &item.request_id, &reason);
+    if let Err(error) = moved_to_dead_letter {
         tracing::warn!(
             error = %error,
             request_id = %item.request_id,
             "failed to move invalid pending payload to dead letter"
         );
+        return;
     }
+    let _ = receipt_outbox
+        .enqueue_and_try_flush(DeliveryReceiptPayload {
+            request_id: item.request_id.clone(),
+            sender_agent_did: item.from_agent_did.clone(),
+            recipient_agent_did: item.to_agent_did.clone(),
+            status: DeliveryReceiptStatus::DeadLettered,
+            reason: Some(reason),
+        })
+        .await;
 }
 
 fn record_retry_delivery_success(store: &SqliteStore, item: &InboundPendingItem) {
@@ -216,28 +307,45 @@ pub(super) fn should_dead_letter_after_failure(current_attempt_count: i64) -> bo
     current_attempt_count.saturating_add(1) >= INBOUND_MAX_ATTEMPTS
 }
 
-fn handle_pending_retry_failure(
+async fn handle_pending_retry_failure(
     store: &SqliteStore,
+    receipt_outbox: &ReceiptOutboxHandle,
     item: &InboundPendingItem,
     error: &anyhow::Error,
 ) {
     if should_dead_letter_after_failure(item.attempt_count) {
-        dead_letter_pending_retry(store, &item.request_id, error);
+        dead_letter_pending_retry(store, receipt_outbox, item, error).await;
         return;
     }
 
     schedule_pending_retry(store, item, error);
 }
 
-fn dead_letter_pending_retry(store: &SqliteStore, request_id: &str, error: &anyhow::Error) {
+async fn dead_letter_pending_retry(
+    store: &SqliteStore,
+    receipt_outbox: &ReceiptOutboxHandle,
+    item: &InboundPendingItem,
+    error: &anyhow::Error,
+) {
     let reason = format!("max retry attempts exceeded: {error}");
-    if let Err(move_error) = move_pending_to_dead_letter(store, request_id, &reason) {
+    let moved_to_dead_letter = move_pending_to_dead_letter(store, &item.request_id, &reason);
+    if let Err(move_error) = moved_to_dead_letter {
         tracing::warn!(
             error = %move_error,
-            request_id,
+            request_id = %item.request_id,
             "failed to move pending inbound delivery to dead letter"
         );
+        return;
     }
+    let _ = receipt_outbox
+        .enqueue_and_try_flush(DeliveryReceiptPayload {
+            request_id: item.request_id.clone(),
+            sender_agent_did: item.from_agent_did.clone(),
+            recipient_agent_did: item.to_agent_did.clone(),
+            status: DeliveryReceiptStatus::DeadLettered,
+            reason: Some(reason),
+        })
+        .await;
 }
 
 fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error: &anyhow::Error) {
@@ -277,18 +385,29 @@ fn schedule_pending_retry(store: &SqliteStore, item: &InboundPendingItem, error:
     }
 }
 
-async fn handle_deliver_frame(
-    store: &SqliteStore,
-    relay_sender: &ConnectorClientSender,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    deliver: DeliverFrame,
-) {
-    let delivery_result =
-        forward_deliver_to_openclaw(http_client, hook_url, openclaw_runtime, &deliver).await;
+async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: DeliverFrame) {
+    let system_delivery_result = if is_trusted_pair_accepted_delivery(&deliver) {
+        apply_pair_accepted_system_delivery(context.store, context.config_dir, &mut deliver)
+    } else {
+        Ok(false)
+    };
+    let sender_profile = lookup_sender_profile_headers(context.store, &deliver.from_agent_did);
+    let delivery_result = match system_delivery_result {
+        Ok(_) => {
+            forward_deliver_to_openclaw(
+                context.http_client,
+                context.hook_url,
+                context.openclaw_runtime,
+                &deliver,
+                sender_profile.as_ref(),
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    };
+    let delivery_succeeded = delivery_result.is_ok();
     let persistence_result =
-        persist_inbound_delivery_result(store, &deliver, delivery_result.as_ref()).await;
+        persist_inbound_delivery_result(context.store, &deliver, delivery_result.as_ref()).await;
     log_persist_failure(&deliver.id, persistence_result.as_ref().err());
 
     let ack_reason = build_deliver_ack_reason(
@@ -296,8 +415,21 @@ async fn handle_deliver_frame(
         persistence_result.as_ref().err(),
     );
     let ack_accepted = ack_reason.is_none();
-    send_deliver_ack(relay_sender, &deliver.id, ack_accepted, ack_reason).await;
+    send_deliver_ack(context.relay_sender, &deliver.id, ack_accepted, ack_reason).await;
     log_delivery_failure(&deliver, delivery_result.err());
+
+    if delivery_succeeded {
+        let _ = context
+            .receipt_outbox
+            .enqueue_and_try_flush(DeliveryReceiptPayload {
+                request_id: deliver.id.clone(),
+                sender_agent_did: deliver.from_agent_did.clone(),
+                recipient_agent_did: deliver.to_agent_did.clone(),
+                status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+                reason: None,
+            })
+            .await;
+    }
 }
 
 fn log_persist_failure(request_id: &str, persistence_error: Option<&anyhow::Error>) {
@@ -329,20 +461,59 @@ pub(super) fn build_deliver_ack_reason(
     }
 }
 
-async fn forward_deliver_to_openclaw(
+pub(super) async fn forward_deliver_to_openclaw(
     http_client: &reqwest::Client,
     hook_url: &str,
     openclaw_runtime: &OpenclawRuntimeConfig,
     deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+) -> Result<()> {
+    let mut request = http_client
+        .post(hook_url)
+        .json(&build_openclaw_hook_payload(
+            &openclaw_runtime.hook_path,
+            deliver,
+            openclaw_runtime.target_agent_id.as_deref(),
+        ));
+
+    for (name, value) in build_openclaw_delivery_headers(
+        deliver,
+        sender_profile,
+        openclaw_runtime.hook_token.as_deref(),
+    ) {
+        request = request.header(name, value);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| anyhow!("openclaw hook request failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(anyhow!("openclaw hook returned HTTP {}", response.status()));
+    }
+    Ok(())
+}
+
+async fn forward_receipt_to_openclaw(
+    http_client: &reqwest::Client,
+    hook_url: &str,
+    openclaw_runtime: &OpenclawRuntimeConfig,
+    receipt: &ReceiptFrame,
 ) -> Result<()> {
     let mut request = http_client
         .post(hook_url)
         .header("content-type", "application/json")
-        .header("x-clawdentity-agent-did", &deliver.from_agent_did)
-        .header("x-clawdentity-to-agent-did", &deliver.to_agent_did)
-        .json(&build_openclaw_hook_payload(
+        .header(
+            "x-clawdentity-content-type",
+            "application/vnd.clawdentity.receipt+json",
+        )
+        .header("x-clawdentity-to-agent-did", &receipt.to_agent_did)
+        .header("x-clawdentity-verified", "true")
+        .header("x-request-id", &receipt.original_frame_id)
+        .json(&build_openclaw_receipt_payload(
             &openclaw_runtime.hook_path,
-            deliver,
+            receipt,
+            openclaw_runtime.target_agent_id.as_deref(),
         ));
 
     if let Some(token) = openclaw_runtime
@@ -357,120 +528,14 @@ async fn forward_deliver_to_openclaw(
     let response = request
         .send()
         .await
-        .map_err(|error| anyhow!("openclaw hook request failed: {error}"))?;
+        .map_err(|error| anyhow!("openclaw receipt hook request failed: {error}"))?;
     if !response.status().is_success() {
-        return Err(anyhow!("openclaw hook returned HTTP {}", response.status()));
+        return Err(anyhow!(
+            "openclaw receipt hook returned HTTP {}",
+            response.status()
+        ));
     }
     Ok(())
-}
-
-pub(super) fn build_openclaw_hook_payload(hook_path: &str, deliver: &DeliverFrame) -> Value {
-    if normalize_hook_path(hook_path) == "/hooks/wake" {
-        return build_openclaw_wake_payload(deliver);
-    }
-
-    build_openclaw_agent_payload(deliver)
-}
-
-fn build_openclaw_agent_payload(deliver: &DeliverFrame) -> Value {
-    let message = extract_content(&deliver.payload);
-    json!({
-        "message": message,
-        "content": message,
-        "senderDid": deliver.from_agent_did,
-        "recipientDid": deliver.to_agent_did,
-        "requestId": deliver.id,
-        "metadata": {
-            "conversationId": deliver.conversation_id,
-            "replyTo": deliver.reply_to,
-            "payload": deliver.payload,
-        },
-    })
-}
-
-fn build_openclaw_wake_payload(deliver: &DeliverFrame) -> Value {
-    let wake_text = render_openclaw_wake_text(deliver);
-    let session_id = deliver
-        .payload
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let mut payload = json!({
-        "message": wake_text,
-        "text": wake_text,
-        "mode": "now",
-    });
-    if let Some(session_id) = session_id {
-        payload["sessionId"] = Value::String(session_id.to_string());
-    }
-    payload
-}
-
-fn render_openclaw_wake_text(deliver: &DeliverFrame) -> String {
-    let message = extract_content(&deliver.payload);
-    let mut lines = vec![format!(
-        "Clawdentity peer message from {}",
-        deliver.from_agent_did
-    )];
-
-    if !message.trim().is_empty() {
-        lines.push(String::new());
-        lines.push(message);
-    }
-    append_optional_line(
-        &mut lines,
-        Some(deliver.id.as_str()).filter(|value| !value.trim().is_empty()),
-        "Request ID",
-        true,
-    );
-    append_optional_line(
-        &mut lines,
-        deliver
-            .conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-        "Conversation ID",
-        false,
-    );
-    append_optional_line(
-        &mut lines,
-        deliver
-            .reply_to
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-        "Reply To",
-        false,
-    );
-
-    lines.join("\n")
-}
-
-fn append_optional_line(lines: &mut Vec<String>, value: Option<&str>, label: &str, pad: bool) {
-    if let Some(value) = value {
-        if pad {
-            lines.push(String::new());
-        }
-        lines.push(format!("{label}: {value}"));
-    }
-}
-
-fn extract_content(payload: &Value) -> String {
-    if let Some(content) = payload.get("content").and_then(Value::as_str) {
-        return content.to_string();
-    }
-    if let Some(message) = payload.get("message").and_then(Value::as_str) {
-        return message.to_string();
-    }
-    if let Some(text) = payload.get("text").and_then(Value::as_str) {
-        return text.to_string();
-    }
-    if let Some(text) = payload.as_str() {
-        return text.to_string();
-    }
-    payload.to_string()
 }
 
 async fn persist_inbound_delivery_result(
@@ -551,6 +616,7 @@ fn persist_pending_inbound_delivery(
             attempt_count: 1,
             last_error: Some(last_error),
             last_attempt_at_ms: Some(received_at_ms),
+            delivery_source: deliver.delivery_source.clone(),
             conversation_id: deliver.conversation_id.clone(),
             reply_to: deliver.reply_to.clone(),
         },

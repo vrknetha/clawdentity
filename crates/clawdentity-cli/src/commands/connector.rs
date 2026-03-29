@@ -1,10 +1,12 @@
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
 use clawdentity_core::config::ConfigPathOptions;
+use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
@@ -17,19 +19,25 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const DEFAULT_CONNECTOR_PORT: u16 = 19400;
-const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/wake";
+const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
 
 mod delivery;
+mod headers;
+mod receipts;
 mod runtime_config;
 
 use delivery::{run_inbound_loop, run_inbound_retry_loop};
+use receipts::{ReceiptDispatchRuntime, ReceiptOutboxHandle, start_receipt_outbox_worker};
 
 #[cfg(test)]
 use delivery::{
-    build_deliver_ack_reason, build_openclaw_hook_payload, should_dead_letter_after_failure,
+    build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
+    forward_deliver_to_openclaw, should_dead_letter_after_failure,
 };
+#[cfg(test)]
+use headers::{SenderProfileHeaders, build_openclaw_delivery_headers};
 
 #[derive(Debug, Subcommand)]
 pub enum ConnectorCommand {
@@ -89,6 +97,8 @@ pub(super) struct StartConnectorInput {
 pub(super) struct ConnectorRuntimeConfig {
     agent_name: String,
     agent_did: String,
+    config_dir: PathBuf,
+    proxy_receipt_url: String,
     proxy_ws_url: String,
     openclaw_runtime: OpenclawRuntimeConfig,
     port: u16,
@@ -239,16 +249,30 @@ async fn start_connector_runtime(
         shutdown_rx.clone(),
     );
 
+    let receipt_outbox = start_receipt_outbox_worker(
+        ReceiptDispatchRuntime {
+            options: options.clone(),
+            config_dir: runtime.config_dir.clone(),
+            agent_name: runtime.agent_name.clone(),
+            proxy_receipt_url: runtime.proxy_receipt_url.clone(),
+        },
+        create_http_client()?,
+    );
+
     let mut inbound_loop_task = spawn_inbound_loop_task(
+        receipt_outbox.clone(),
         client,
         relay_sender.clone(),
         store.clone(),
+        runtime.config_dir.clone(),
         runtime.openclaw_runtime.clone(),
         shutdown_rx.clone(),
     );
 
     let mut inbound_retry_task = spawn_inbound_retry_task(
+        receipt_outbox,
         store.clone(),
+        runtime.config_dir.clone(),
         runtime.openclaw_runtime.clone(),
         shutdown_rx.clone(),
     );
@@ -324,17 +348,21 @@ fn spawn_runtime_server_task(
 }
 
 fn spawn_inbound_loop_task(
+    receipt_outbox: ReceiptOutboxHandle,
     connector_client: ConnectorClient,
     relay_sender: ConnectorClientSender,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
         run_inbound_loop(
+            receipt_outbox,
             connector_client,
             relay_sender,
             store,
+            config_dir,
             openclaw_runtime,
             shutdown_rx,
         )
@@ -351,11 +379,22 @@ fn spawn_outbound_flush_task(
 }
 
 fn spawn_inbound_retry_task(
+    receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
+    config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move { run_inbound_retry_loop(store, openclaw_runtime, shutdown_rx).await })
+    tokio::spawn(async move {
+        run_inbound_retry_loop(
+            receipt_outbox,
+            store,
+            config_dir,
+            openclaw_runtime,
+            shutdown_rx,
+        )
+        .await
+    })
 }
 
 async fn run_outbound_flush_loop(

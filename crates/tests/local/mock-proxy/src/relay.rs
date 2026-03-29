@@ -61,6 +61,7 @@ pub async fn relay_deliver_handler(
         from_agent_did,
         to_agent_did: body.to_agent_did.trim().to_string(),
         payload: body.payload,
+        delivery_source: None,
         content_type: body.content_type,
         conversation_id: body.conversation_id,
         reply_to: body.reply_to,
@@ -173,6 +174,7 @@ async fn handle_client_frame(
                 from_agent_did: sender_did.to_string(),
                 to_agent_did: enqueue.to_agent_did.clone(),
                 payload: enqueue.payload,
+                delivery_source: None,
                 content_type: None,
                 conversation_id: enqueue.conversation_id,
                 reply_to: enqueue.reply_to,
@@ -196,6 +198,11 @@ async fn handle_client_frame(
         ConnectorFrame::HeartbeatAck(_) => {}
         ConnectorFrame::EnqueueAck(_) => {}
         ConnectorFrame::DeliverAck(_) => {}
+        ConnectorFrame::Receipt(receipt) => {
+            let target_did = receipt.to_agent_did.clone();
+            let _ =
+                route_or_queue_frame(state, &target_did, ConnectorFrame::Receipt(receipt)).await;
+        }
     }
 }
 

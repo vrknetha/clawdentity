@@ -8,8 +8,9 @@ use clawdentity_core::agent::{AgentAuthRecord, inspect_agent};
 use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{
-    build_relay_connect_headers, fetch_registry_metadata, refresh_agent_auth,
-    resolve_openclaw_base_url, resolve_openclaw_hook_token,
+    SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata,
+    load_connector_assignments, new_frame_id, refresh_agent_auth, resolve_openclaw_base_url,
+    resolve_openclaw_hook_token, sign_http_request,
 };
 
 use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
@@ -17,6 +18,7 @@ use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_
 const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
 const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
+const RELAY_DELIVERY_RECEIPTS_PATH: &str = "/v1/relay/delivery-receipts";
 
 struct ConnectorRuntimeInputs {
     config: clawdentity_core::config::CliConfig,
@@ -31,6 +33,7 @@ pub(super) async fn resolve_runtime_config(
     options: &ConfigPathOptions,
     input: StartConnectorInput,
 ) -> Result<ConnectorRuntimeConfig> {
+    enforce_expected_agent_name(&input.agent_name)?;
     let runtime_inputs = load_runtime_inputs(options, &input.agent_name).await?;
     let proxy_ws_url = resolve_proxy_ws_url(
         input.proxy_ws_url.as_deref(),
@@ -38,10 +41,16 @@ pub(super) async fn resolve_runtime_config(
         &runtime_inputs.config.registry_url,
     )
     .await?;
+    let proxy_receipt_url = resolve_proxy_receipt_url(&proxy_ws_url)?;
+    let config_dir = runtime_inputs.config_dir.clone();
+    let target_agent_id =
+        resolve_openclaw_target_agent_id(&runtime_inputs.config_dir, &input.agent_name)?;
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
         agent_did: runtime_inputs.agent_did,
+        config_dir,
+        proxy_receipt_url,
         proxy_ws_url,
         openclaw_runtime: clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig {
             base_url: resolve_openclaw_base_url(
@@ -53,10 +62,54 @@ pub(super) async fn resolve_runtime_config(
                 &runtime_inputs.config_dir,
                 input.openclaw_hook_token.as_deref(),
             )?,
+            target_agent_id,
         },
         port: input.port,
         bind: input.bind,
     })
+}
+
+fn expected_agent_name_from_env() -> Option<String> {
+    env_trimmed("CLAWDENTITY_EXPECTED_AGENT_NAME")
+}
+
+pub(super) fn validate_expected_agent_name(
+    agent_name: &str,
+    expected_agent_name: Option<&str>,
+) -> Result<()> {
+    let selected = agent_name.trim();
+    let expected = expected_agent_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+
+    if selected == expected {
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "connector startup blocked for agent `{selected}`: this environment expects `{expected}`. Start the connector with `clawdentity connector start {expected}` or re-run onboarding so container ownership matches."
+    ))
+}
+
+fn enforce_expected_agent_name(agent_name: &str) -> Result<()> {
+    validate_expected_agent_name(agent_name, expected_agent_name_from_env().as_deref())
+}
+
+pub(super) fn resolve_openclaw_target_agent_id(
+    config_dir: &Path,
+    agent_name: &str,
+) -> Result<Option<String>> {
+    let assignments = load_connector_assignments(config_dir)?;
+    Ok(assignments
+        .agents
+        .get(agent_name)
+        .and_then(|assignment| assignment.openclaw_agent_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned))
 }
 
 pub(super) fn load_connector_headers(
@@ -246,4 +299,65 @@ pub(super) fn normalize_proxy_ws_url(value: &str) -> Result<String> {
         url.set_path(RELAY_CONNECT_PATH);
     }
     Ok(url.to_string())
+}
+
+pub(super) fn resolve_proxy_receipt_url(proxy_ws_url: &str) -> Result<String> {
+    let mut url = reqwest::Url::parse(proxy_ws_url)
+        .map_err(|_| anyhow!("invalid proxy websocket URL: {proxy_ws_url}"))?;
+    match url.scheme() {
+        "ws" => {
+            url.set_scheme("http")
+                .map_err(|_| anyhow!("failed to normalize receipt URL scheme"))?;
+        }
+        "wss" => {
+            url.set_scheme("https")
+                .map_err(|_| anyhow!("failed to normalize receipt URL scheme"))?;
+        }
+        "http" | "https" => {}
+        _ => return Err(anyhow!("invalid proxy websocket scheme in {proxy_ws_url}")),
+    }
+    url.set_path(RELAY_DELIVERY_RECEIPTS_PATH);
+    url.set_query(None);
+    Ok(url.to_string())
+}
+
+fn to_path_with_query(url: &reqwest::Url) -> String {
+    match url.query() {
+        Some(query) if !query.is_empty() => format!("{}?{query}", url.path()),
+        _ => url.path().to_string(),
+    }
+}
+
+pub(super) fn load_receipt_post_headers(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    receipt_url: &str,
+    body: &[u8],
+) -> Result<Vec<(String, String)>> {
+    let runtime_inputs = resolve_runtime_inputs(options, agent_name)?;
+    let signing_key = clawdentity_core::decode_secret_key(&runtime_inputs.secret_key)?;
+    let parsed_url = reqwest::Url::parse(receipt_url)
+        .map_err(|_| anyhow!("invalid proxy receipt URL: {receipt_url}"))?;
+    let timestamp = Utc::now().timestamp().to_string();
+    let nonce = new_frame_id();
+    let signed = sign_http_request(&SignHttpRequestInput {
+        method: "POST",
+        path_with_query: &to_path_with_query(&parsed_url),
+        timestamp: &timestamp,
+        nonce: &nonce,
+        body,
+        secret_key: &signing_key,
+    })?;
+
+    let mut headers = Vec::with_capacity(signed.headers.len() + 2);
+    headers.push((
+        "authorization".to_string(),
+        format!("Claw {}", runtime_inputs.ait),
+    ));
+    headers.push((
+        "x-claw-agent-access".to_string(),
+        runtime_inputs.agent_auth.access_token.clone(),
+    ));
+    headers.extend(signed.headers);
+    Ok(headers)
 }

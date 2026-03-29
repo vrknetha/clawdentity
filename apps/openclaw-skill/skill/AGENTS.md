@@ -10,9 +10,12 @@
 - Keep immutable fallback mirrors pinned to released artifacts only; never point fallback guidance at mutable branch URLs.
 - `SKILL.md` and `references/*.md` must use command-first remediation with executable Rust CLI commands.
 - Treat Rust CLI command surfaces as the source of truth for this skill. Do not add npm or TS-only execution steps.
-- Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor|relay-test}`.
+- Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor}`.
+- Prompt-first onboarding should prioritize `clawdentity onboarding run --for <platform>` as the default install/setup/pairing/messaging flow, with manual command groups documented as advanced fallback.
+- Prompt-first onboarding should assume registry/proxy URLs come from environment defaults when available (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`); do not require users to paste those URLs into the prompt for standard local Docker validation.
 - OpenClaw wording must stay OpenClaw-first: OpenClaw owns OpenClaw setup and auth, Clawdentity adds relay setup after OpenClaw is healthy.
 - Keep OpenClaw base URL guidance explicit: `--platform-base-url` / `openclawBaseUrl` refer only to the OpenClaw gateway, never the Clawdentity registry or proxy.
+- Keep proxy identity guidance header-first by default. Document body injection only as an explicit `INJECT_IDENTITY_INTO_MESSAGE=true` legacy compatibility override.
 - Keep local harness/testing instructions out of user-facing documentation; those belong in internal testing skills or operator runbooks, not the published skill/docs.
 - When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
 - Keep a single canonical skill URL path:

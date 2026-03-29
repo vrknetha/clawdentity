@@ -19,7 +19,7 @@ The SDK handles AIT verification and PoP request signing:
 
 - **AIT verification** — verify registry-signed JWTs offline using cached public keys
 - **PoP signing** — generate `X-Claw-*` headers for outbound requests
-- **PoP verification** — validate inbound PoP signatures against AIT `cnf` keys
+- **PoP verification** — validate inbound PoP signatures against AIT `cnf` keys, including timestamp freshness by default
 - **CRL verification** — verify signed CRL JWTs
 
 ### CRL cache
@@ -51,6 +51,16 @@ Tracks nonces for replay protection:
 - Default TTL: 5 minutes (`DEFAULT_NONCE_TTL_MS = 300000`)
 - Per-agent nonce tracking
 - Automatic expiry purge on each `tryAcceptNonce` call
+
+### HTTP proof verification
+
+`verifyHttpRequest(input)` now enforces all of these by default:
+- body hash match
+- signature verification
+- timestamp format validation (`X-Claw-Timestamp` must be unix seconds)
+- timestamp freshness window (`maxTimestampSkewSeconds`, default 300s)
+
+Use `verifyHttpRequestWithReplayProtection(input)` when you want signature + timestamp freshness + nonce replay detection in one call.
 
 ### Agent auth client
 

@@ -109,7 +109,15 @@ describe("proxy config", () => {
     expect(localConfig.registryUrl).toBe(DEFAULT_NON_PRODUCTION_REGISTRY_URL);
   });
 
-  it("allows disabling identity injection via env override", () => {
+  it("allows enabling identity injection via env override", () => {
+    const config = parseProxyConfig({
+      INJECT_IDENTITY_INTO_MESSAGE: "true",
+    });
+
+    expect(config.injectIdentityIntoMessage).toBe(true);
+  });
+
+  it("allows explicitly disabling identity injection via env override", () => {
     const config = parseProxyConfig({
       INJECT_IDENTITY_INTO_MESSAGE: "false",
     });
@@ -314,6 +322,23 @@ describe("proxy config loading", () => {
       );
 
       expect(config.injectIdentityIntoMessage).toBe(true);
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("uses header-only forwarding when identity injection is not configured", () => {
+    const sandbox = createSandbox();
+    try {
+      const config = loadProxyConfig(
+        {},
+        {
+          cwd: sandbox.cwd,
+          homeDir: sandbox.root,
+        },
+      );
+
+      expect(config.injectIdentityIntoMessage).toBe(false);
     } finally {
       sandbox.cleanup();
     }

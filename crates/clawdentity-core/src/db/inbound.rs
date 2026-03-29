@@ -17,6 +17,7 @@ pub struct InboundPendingItem {
     pub attempt_count: i64,
     pub last_error: Option<String>,
     pub last_attempt_at_ms: Option<i64>,
+    pub delivery_source: Option<String>,
     pub conversation_id: Option<String>,
     pub reply_to: Option<String>,
 }
@@ -33,6 +34,7 @@ pub struct InboundDeadLetterItem {
     pub attempt_count: i64,
     pub last_error: Option<String>,
     pub last_attempt_at_ms: Option<i64>,
+    pub delivery_source: Option<String>,
     pub conversation_id: Option<String>,
     pub reply_to: Option<String>,
     pub dead_lettered_at_ms: i64,
@@ -72,8 +74,9 @@ fn map_pending_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InboundPendingIt
         attempt_count: row.get(8)?,
         last_error: row.get(9)?,
         last_attempt_at_ms: row.get(10)?,
-        conversation_id: row.get(11)?,
-        reply_to: row.get(12)?,
+        delivery_source: row.get(11)?,
+        conversation_id: row.get(12)?,
+        reply_to: row.get(13)?,
     })
 }
 
@@ -89,10 +92,11 @@ fn map_dead_letter_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InboundDeadL
         attempt_count: row.get(7)?,
         last_error: row.get(8)?,
         last_attempt_at_ms: row.get(9)?,
-        conversation_id: row.get(10)?,
-        reply_to: row.get(11)?,
-        dead_lettered_at_ms: row.get(12)?,
-        dead_letter_reason: row.get(13)?,
+        delivery_source: row.get(10)?,
+        conversation_id: row.get(11)?,
+        reply_to: row.get(12)?,
+        dead_lettered_at_ms: row.get(13)?,
+        dead_letter_reason: row.get(14)?,
     })
 }
 
@@ -128,8 +132,8 @@ pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<(
             "INSERT INTO inbound_pending (
                 request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
                 received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
-                conversation_id, reply_to
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                delivery_source, conversation_id, reply_to
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ON CONFLICT(request_id) DO UPDATE SET
                 frame_id = excluded.frame_id,
                 from_agent_did = excluded.from_agent_did,
@@ -141,6 +145,7 @@ pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<(
                 attempt_count = excluded.attempt_count,
                 last_error = excluded.last_error,
                 last_attempt_at_ms = excluded.last_attempt_at_ms,
+                delivery_source = excluded.delivery_source,
                 conversation_id = excluded.conversation_id,
                 reply_to = excluded.reply_to",
             params![
@@ -155,6 +160,7 @@ pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<(
                 item.attempt_count,
                 parse_optional_non_empty(item.last_error),
                 item.last_attempt_at_ms,
+                parse_optional_non_empty(item.delivery_source),
                 parse_optional_non_empty(item.conversation_id),
                 parse_optional_non_empty(item.reply_to),
             ],
@@ -174,7 +180,7 @@ pub fn list_pending_due(
         let mut statement = connection.prepare(
             "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
                     received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
-                    conversation_id, reply_to
+                    delivery_source, conversation_id, reply_to
              FROM inbound_pending
              WHERE next_attempt_at_ms <= ?1
              ORDER BY next_attempt_at_ms ASC, received_at_ms ASC
@@ -205,7 +211,7 @@ pub fn get_pending(store: &SqliteStore, request_id: &str) -> Result<Option<Inbou
         let mut statement = connection.prepare(
             "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
                     received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
-                    conversation_id, reply_to
+                    delivery_source, conversation_id, reply_to
              FROM inbound_pending
              WHERE request_id = ?1",
         )?;
@@ -283,7 +289,7 @@ pub fn move_pending_to_dead_letter(
         let mut select_statement = connection.prepare(
             "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
                     received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
-                    conversation_id, reply_to
+                    delivery_source, conversation_id, reply_to
              FROM inbound_pending
              WHERE request_id = ?1",
         )?;
@@ -298,9 +304,9 @@ pub fn move_pending_to_dead_letter(
         connection.execute(
             "INSERT INTO inbound_dead_letter (
                 request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
-                received_at_ms, attempt_count, last_error, last_attempt_at_ms, conversation_id, reply_to,
-                dead_lettered_at_ms, dead_letter_reason
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                received_at_ms, attempt_count, last_error, last_attempt_at_ms, delivery_source,
+                conversation_id, reply_to, dead_lettered_at_ms, dead_letter_reason
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(request_id) DO UPDATE SET
                 frame_id = excluded.frame_id,
                 from_agent_did = excluded.from_agent_did,
@@ -311,6 +317,7 @@ pub fn move_pending_to_dead_letter(
                 attempt_count = excluded.attempt_count,
                 last_error = excluded.last_error,
                 last_attempt_at_ms = excluded.last_attempt_at_ms,
+                delivery_source = excluded.delivery_source,
                 conversation_id = excluded.conversation_id,
                 reply_to = excluded.reply_to,
                 dead_lettered_at_ms = excluded.dead_lettered_at_ms,
@@ -326,6 +333,7 @@ pub fn move_pending_to_dead_letter(
                 pending.attempt_count,
                 pending.last_error,
                 pending.last_attempt_at_ms,
+                pending.delivery_source,
                 pending.conversation_id,
                 pending.reply_to,
                 dead_lettered_at_ms,
@@ -360,8 +368,8 @@ pub fn list_dead_letter(store: &SqliteStore, limit: usize) -> Result<Vec<Inbound
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
             "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
-                    received_at_ms, attempt_count, last_error, last_attempt_at_ms, conversation_id, reply_to,
-                    dead_lettered_at_ms, dead_letter_reason
+                    received_at_ms, attempt_count, last_error, last_attempt_at_ms, delivery_source,
+                    conversation_id, reply_to, dead_lettered_at_ms, dead_letter_reason
              FROM inbound_dead_letter
              ORDER BY dead_lettered_at_ms DESC, request_id DESC
              LIMIT ?1",
@@ -397,8 +405,8 @@ pub fn replay_dead_letter(
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
             "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
-                    received_at_ms, attempt_count, last_error, last_attempt_at_ms, conversation_id, reply_to,
-                    dead_lettered_at_ms, dead_letter_reason
+                    received_at_ms, attempt_count, last_error, last_attempt_at_ms, delivery_source,
+                    conversation_id, reply_to, dead_lettered_at_ms, dead_letter_reason
              FROM inbound_dead_letter
              WHERE request_id = ?1",
         )?;
@@ -413,8 +421,8 @@ pub fn replay_dead_letter(
             "INSERT INTO inbound_pending (
                 request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
                 received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
-                conversation_id, reply_to
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                delivery_source, conversation_id, reply_to
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ON CONFLICT(request_id) DO UPDATE SET
                 frame_id = excluded.frame_id,
                 from_agent_did = excluded.from_agent_did,
@@ -426,6 +434,7 @@ pub fn replay_dead_letter(
                 attempt_count = excluded.attempt_count,
                 last_error = excluded.last_error,
                 last_attempt_at_ms = excluded.last_attempt_at_ms,
+                delivery_source = excluded.delivery_source,
                 conversation_id = excluded.conversation_id,
                 reply_to = excluded.reply_to",
             params![
@@ -440,6 +449,7 @@ pub fn replay_dead_letter(
                 dead_letter.attempt_count,
                 dead_letter.last_error,
                 dead_letter.last_attempt_at_ms,
+                dead_letter.delivery_source,
                 dead_letter.conversation_id,
                 dead_letter.reply_to,
             ],
@@ -572,6 +582,7 @@ mod tests {
             attempt_count: 0,
             last_error: None,
             last_attempt_at_ms: None,
+            delivery_source: None,
             conversation_id: Some("conv-1".to_string()),
             reply_to: None,
         }

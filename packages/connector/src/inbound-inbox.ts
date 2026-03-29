@@ -6,10 +6,7 @@ import {
   INBOUND_INBOX_DIR_NAME,
 } from "./inbound-inbox/constants.js";
 import { parseOptionalNonEmptyString } from "./inbound-inbox/parse.js";
-import {
-  InboundInboxStorage,
-  type InboundInboxWriteTransaction,
-} from "./inbound-inbox/storage.js";
+import { InboundInboxStorage } from "./inbound-inbox/storage.js";
 import type {
   ConnectorInboundDeadLetterItem,
   ConnectorInboundInboxEnqueueResult,
@@ -307,24 +304,9 @@ export class ConnectorInboundInbox {
   }
 
   async pruneDelivered(): Promise<void> {
-    await this.storage.withWriteLock(async () => {
-      this.storage.runInTransaction(
-        (transaction: InboundInboxWriteTransaction) => {
-          const counts = transaction.getPruneCounts();
-          if (
-            counts.beforePendingCount === counts.afterPendingCount &&
-            counts.beforeDeadLetterCount === counts.afterDeadLetterCount
-          ) {
-            return;
-          }
-
-          transaction.appendEvent({
-            type: "inbox_pruned",
-            details: counts,
-          });
-        },
-      );
-    });
+    // SQLite mode removes delivered rows immediately (deletePending/deleteDeadLetter),
+    // so there is nothing stale to prune during startup reconciliation.
+    return;
   }
 
   async getSnapshot(): Promise<ConnectorInboundInboxSnapshot> {

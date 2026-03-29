@@ -1,5 +1,15 @@
 export const PROTOCOL_VERSION = "0.0.0";
 
+export {
+  AGENT_AUTH_ISSUED_EVENT_TYPE,
+  AGENT_AUTH_REFRESH_REJECTED_EVENT_TYPE,
+  AGENT_AUTH_REFRESHED_EVENT_TYPE,
+  AGENT_AUTH_REVOKED_EVENT_TYPE,
+  AGENT_AUTH_REVOKED_METADATA_AGENT_DID_KEY,
+  AGENT_AUTH_REVOKED_REASON_AGENT_REVOKED,
+  createAgentAuthRevokedMetadata,
+  parseAgentAuthRevokedMetadata,
+} from "./agent-auth-events.js";
 export type { AgentRegistrationProofMessageInput } from "./agent-registration-proof.js";
 export {
   AGENT_REGISTRATION_PROOF_MESSAGE_TEMPLATE,
@@ -53,4 +63,16 @@ export {
   CLAW_PROOF_CANONICAL_VERSION,
   canonicalizeRequest,
 } from "./http-signing.js";
+export type {
+  CreatePairAcceptedEventInput,
+  PairAcceptedEvent,
+  PairAcceptedResponderProfile,
+} from "./pairing-events.js";
+export {
+  createPairAcceptedEvent,
+  PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
+  PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
+  parsePairAcceptedEvent,
+} from "./pairing-events.js";
 export { generateUlid, parseUlid } from "./ulid.js";

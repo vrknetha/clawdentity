@@ -83,7 +83,6 @@ async function createSignedTicketFixture(input: {
 function createPairingApp(input?: {
   environment?: "local" | "development" | "production";
   startFetchImpl?: typeof fetch;
-  confirmFetchImpl?: typeof fetch;
   nowMs?: () => number;
 }) {
   const trustStore = createInMemoryProxyTrustStore();
@@ -101,7 +100,6 @@ function createPairingApp(input?: {
         nowMs: input?.nowMs,
       },
       confirm: {
-        fetchImpl: input?.confirmFetchImpl,
         nowMs: input?.nowMs,
       },
       status: {

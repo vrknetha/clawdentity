@@ -67,8 +67,8 @@ pub use connector_client::{
 };
 pub use connector_frames::{
     CONNECTOR_FRAME_VERSION, ConnectorFrame, DeliverAckFrame, DeliverFrame, EnqueueAckFrame,
-    EnqueueFrame, HeartbeatAckFrame, HeartbeatFrame, new_frame_id, now_iso, parse_frame,
-    serialize_frame, validate_frame,
+    EnqueueFrame, HeartbeatAckFrame, HeartbeatFrame, ReceiptFrame, ReceiptStatus, new_frame_id,
+    now_iso, parse_frame, serialize_frame, validate_frame,
 };
 pub use crl::{
     CRL_CACHE_TTL_MS, CrlClaims, CrlRevocation, CrlVerificationKey, is_jti_revoked, load_crl_claims,
@@ -86,7 +86,8 @@ pub use db_outbound::{
     outbound_count, outbound_dead_letter_count, take_oldest_outbound,
 };
 pub use db_peers::{
-    PeerRecord, UpsertPeerInput, delete_peer, get_peer_by_alias, list_peers, upsert_peer,
+    PeerRecord, UpsertPeerInput, delete_peer, get_peer_by_alias, get_peer_by_did, list_peers,
+    upsert_peer,
 };
 pub use db_verify_cache::{
     VerifyCacheEntry, delete_verify_cache_entry, get_verify_cache_entry, purge_verify_cache_before,
@@ -110,7 +111,8 @@ pub use pairing::{
     PAIR_START_PATH, PAIR_STATUS_PATH, PAIRING_TICKET_PREFIX, PairConfirmInput, PairConfirmResult,
     PairProfile, PairStartResult, PairStatusKind, PairStatusOptions, PairStatusResult,
     assert_ticket_issuer_matches_proxy, confirm_pairing, get_pairing_status, parse_pairing_ticket,
-    parse_pairing_ticket_issuer_origin, start_pairing,
+    parse_pairing_ticket_issuer_origin, persist_confirmed_peer_from_profile_and_proxy_origin,
+    start_pairing,
 };
 pub use peers::{
     PeerEntry, PeersConfig, PersistPeerInput, derive_peer_alias_base, load_peers_config,

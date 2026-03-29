@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use tempfile::TempDir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -12,9 +14,7 @@ use crate::config::{CliConfig, ConfigPathOptions, write_config};
 use crate::db::SqliteStore;
 use crate::peers::{PersistPeerInput, persist_peer};
 
-#[tokio::test]
-async fn doctor_reports_healthy_when_runtime_is_ready() {
-    let temp = TempDir::new().expect("temp dir");
+fn setup_healthy_openclaw_doctor_state(temp: &TempDir) -> (PathBuf, PathBuf, SqliteStore) {
     let config_dir = temp.path().join("state");
     std::fs::create_dir_all(config_dir.join("agents/alpha")).expect("agent dir");
     std::fs::write(config_dir.join("agents/alpha/ait.jwt"), "token").expect("ait");
@@ -72,6 +72,13 @@ async fn doctor_reports_healthy_when_runtime_is_ready() {
     std::fs::write(openclaw_dir.join("devices/pending.json"), "[]").expect("pending");
 
     let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("db");
+    (config_dir, openclaw_dir, store)
+}
+
+#[tokio::test]
+async fn doctor_reports_healthy_when_runtime_is_ready() {
+    let temp = TempDir::new().expect("temp dir");
+    let (config_dir, openclaw_dir, store) = setup_healthy_openclaw_doctor_state(&temp);
     let _ = persist_peer(
         &store,
         PersistPeerInput {
@@ -94,7 +101,8 @@ async fn doctor_reports_healthy_when_runtime_is_ready() {
         .mount(&server)
         .await;
 
-    save_connector_assignment(&config_dir, "alpha", &server.uri()).expect("assignment");
+    save_connector_assignment(&config_dir, "alpha", &server.uri(), Some("main"))
+        .expect("assignment");
     let doctor_config_dir = config_dir.clone();
     let doctor_store = store.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -112,6 +120,57 @@ async fn doctor_reports_healthy_when_runtime_is_ready() {
     .expect("join")
     .expect("doctor");
     assert_eq!(result.status, DoctorStatus::Healthy);
+}
+
+#[test]
+fn doctor_warns_when_no_peers_are_configured() {
+    let temp = TempDir::new().expect("temp dir");
+    let (config_dir, openclaw_dir, store) = setup_healthy_openclaw_doctor_state(&temp);
+
+    let result = run_openclaw_doctor(
+        &config_dir,
+        &store,
+        OpenclawDoctorOptions {
+            openclaw_dir: Some(openclaw_dir),
+            include_connector_runtime_check: false,
+            ..OpenclawDoctorOptions::default()
+        },
+    )
+    .expect("doctor");
+
+    assert_eq!(result.status, DoctorStatus::Healthy);
+    assert!(result.checks.iter().any(|check| {
+        check.id == "state.peers"
+            && check.status == super::DoctorCheckStatus::Warn
+            && check.message.contains("no paired peers found")
+    }));
+}
+
+#[test]
+fn doctor_fails_when_requested_peer_alias_is_missing() {
+    let temp = TempDir::new().expect("temp dir");
+    let (config_dir, openclaw_dir, store) = setup_healthy_openclaw_doctor_state(&temp);
+
+    let result = run_openclaw_doctor(
+        &config_dir,
+        &store,
+        OpenclawDoctorOptions {
+            openclaw_dir: Some(openclaw_dir),
+            peer_alias: Some("beta".to_string()),
+            include_connector_runtime_check: false,
+            ..OpenclawDoctorOptions::default()
+        },
+    )
+    .expect("doctor");
+
+    assert_eq!(result.status, DoctorStatus::Unhealthy);
+    assert!(result.checks.iter().any(|check| {
+        check.id == "state.peers"
+            && check.status == super::DoctorCheckStatus::Fail
+            && check
+                .message
+                .contains("peer alias `beta` is not configured")
+    }));
 }
 
 #[test]

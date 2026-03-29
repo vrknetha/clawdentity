@@ -105,9 +105,9 @@ After installing the skill, set up the agent for peer communication:
 
 3. **Set up OpenClaw integration**:
    ```bash
-   clawdentity provider setup --for openclaw --agent-name my-agent
+   clawdentity provider setup --for openclaw --agent-name my-agent [--openclaw-agent-id <openclawAgentId>]
    ```
-   This provisions the connector runtime, wires hooks, stabilizes gateway auth, and runs readiness checks.
+   This provisions the connector runtime, wires hooks, stabilizes gateway auth, and runs readiness checks. If `--openclaw-agent-id` is omitted, setup persists `main` as the default routed OpenClaw agent ID.
 
 4. **Run diagnostics** to verify everything is healthy:
    ```bash
@@ -193,6 +193,24 @@ After `provider setup --for openclaw`, the relay runtime config is stored at `~/
 ```
 
 `openclawBaseUrl` is the local OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the normal local OpenClaw flow this should stay at `http://127.0.0.1:18789` unless the operator intentionally moved the OpenClaw gateway elsewhere.
+
+### Connector assignment state
+
+Provider setup also persists per-agent connector assignment state in `~/.clawdentity/openclaw-connectors.json`:
+
+```json
+{
+  "agents": {
+    "my-agent": {
+      "connectorBaseUrl": "http://127.0.0.1:19400/",
+      "openclawAgentId": "main",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  }
+}
+```
+
+`openclawAgentId` is used for `/hooks/agent` delivery (the default inbound connector path). If you explicitly switch connector delivery to `/hooks/wake`, this mapping is ignored.
 
 ## Provider doctor
 

@@ -13,6 +13,36 @@ import {
 import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
 
 describe("AgentRelaySession delivery", () => {
+  it("pushes receipt frames to active websocket connectors when receipts are recorded", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
+    const connectorSocket = createMockSocket();
+    const ws = connectorSocket as unknown as WebSocket;
+    harness.connectedSockets.push(ws);
+
+    const receiptRequestId = generateUlid(Date.now());
+    await relaySession.recordDeliveryReceipt({
+      requestId: receiptRequestId,
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      status: "dead_lettered",
+      reason: "hook rejected",
+    });
+
+    expect(connectorSocket.send).toHaveBeenCalledTimes(1);
+    const frame = parseFrame(connectorSocket.send.mock.calls[0]?.[0]);
+    expect(frame.type).toBe("receipt");
+    if (frame.type === "receipt") {
+      expect(frame.originalFrameId).toBe(receiptRequestId);
+      expect(frame.toAgentDid).toBe(RECIPIENT_AGENT_DID);
+      expect(frame.status).toBe("dead_lettered");
+      expect(frame.reason).toBe("hook rejected");
+    }
+  });
+
   it("delivers relay frames to active websocket connectors", async () => {
     const harness = createStateHarness();
     const relaySession = new AgentRelaySession(harness.state, {
@@ -209,6 +239,57 @@ describe("AgentRelaySession delivery", () => {
     if (senderAckFrame.type === "enqueue_ack") {
       expect(senderAckFrame.ackId).toBeTruthy();
       expect(senderAckFrame.accepted).toBe(true);
+    }
+  });
+
+  it("drains stored receipt frames to connector on reconnect", async () => {
+    const harness = createStateHarness();
+    const relaySession = new AgentRelaySession(harness.state, {
+      ...LOCAL_RELAY_ENV,
+      RELAY_RETRY_JITTER_RATIO: "0",
+    });
+
+    const receiptRequestId = generateUlid(Date.now());
+    await relaySession.recordDeliveryReceipt({
+      requestId: receiptRequestId,
+      senderAgentDid: SENDER_AGENT_DID,
+      recipientAgentDid: RECIPIENT_AGENT_DID,
+      status: "processed_by_openclaw",
+    });
+
+    const pairClient = createMockSocket();
+    const pairServer = createMockSocket();
+    await withMockWebSocketPair(pairClient, pairServer, async () => {
+      let connectError: unknown;
+      try {
+        await relaySession.fetch(
+          new Request(`https://relay.example.test${RELAY_CONNECT_PATH}`, {
+            method: "GET",
+            headers: {
+              upgrade: "websocket",
+              "x-claw-connector-agent-did": RECIPIENT_AGENT_DID,
+            },
+          }),
+        );
+      } catch (error) {
+        connectError = error;
+      }
+
+      if (connectError !== undefined) {
+        expect(connectError).toBeInstanceOf(RangeError);
+      }
+    });
+
+    expect(pairServer.send).toHaveBeenCalled();
+    const sentFrames = pairServer.send.mock.calls.map((call) =>
+      parseFrame(call[0]),
+    );
+    const receiptFrame = sentFrames.find((frame) => frame.type === "receipt");
+    expect(receiptFrame?.type).toBe("receipt");
+    if (receiptFrame?.type === "receipt") {
+      expect(receiptFrame.originalFrameId).toBe(receiptRequestId);
+      expect(receiptFrame.status).toBe("processed_by_openclaw");
+      expect(receiptFrame.toAgentDid).toBe(RECIPIENT_AGENT_DID);
     }
   });
 

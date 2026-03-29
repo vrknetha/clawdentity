@@ -122,6 +122,8 @@ function createApp(input: {
     createPairingTicket: vi.fn(),
     confirmPairingTicket: vi.fn(),
     getPairingTicketStatus: vi.fn(),
+    markAgentRevoked: vi.fn(async () => {}),
+    isAgentRevoked: vi.fn(async () => false),
     isAgentKnown: vi.fn(async () => true),
     isPairAllowed: vi.fn(async (pair) =>
       input.allowedPairs.some(
@@ -139,8 +141,25 @@ function createApp(input: {
   });
 }
 
+function createReceiptQueueHarness() {
+  const sentMessages: string[] = [];
+  return {
+    sentMessages,
+    queue: {
+      send: vi.fn(async (body: string) => {
+        sentMessages.push(body);
+      }),
+      sendBatch: vi.fn(async (messages: MessageSendRequest<string>[]) => {
+        for (const message of messages) {
+          sentMessages.push(message.body);
+        }
+      }),
+    } as unknown as Queue<string>,
+  };
+}
+
 describe("relay delivery receipt route", () => {
-  it("accepts POST receipt updates for authenticated recipient", async () => {
+  it("accepts POST receipt updates via direct DO only when ENVIRONMENT is explicitly local", async () => {
     const relayHarness = createRelayReceiptHarness();
     const app = createApp({
       allowedPairs: [
@@ -172,6 +191,7 @@ describe("relay delivery receipt route", () => {
       },
       {
         AGENT_RELAY_SESSION: relayHarness.namespace,
+        ENVIRONMENT: "local",
       },
     );
 
@@ -180,6 +200,196 @@ describe("relay delivery receipt route", () => {
     expect(relayHarness.recordInputs).toHaveLength(1);
     expect(relayHarness.recordInputs[0]?.requestId).toBe("req-1");
     expect(relayHarness.recordInputs[0]?.status).toBe("processed_by_openclaw");
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledTimes(1);
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledWith(
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+    );
+  });
+
+  it("publishes receipt events to queue when RECEIPT_QUEUE binding is configured", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const queueHarness = createReceiptQueueHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "req-queue-1",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          status: "processed_by_openclaw",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+        RECEIPT_QUEUE: queueHarness.queue,
+      },
+    );
+
+    expect(response.status).toBe(202);
+    expect(queueHarness.sentMessages).toHaveLength(1);
+    expect(relayHarness.recordInputs).toHaveLength(0);
+    const queued = JSON.parse(queueHarness.sentMessages[0] ?? "{}") as {
+      type?: string;
+      requestId?: string;
+      status?: string;
+    };
+    expect(queued.type).toBe("delivery_receipt");
+    expect(queued.requestId).toBe("req-queue-1");
+    expect(queued.status).toBe("processed_by_openclaw");
+  });
+
+  it("publishes dead_lettered receipt events to queue without direct DO writes", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const queueHarness = createReceiptQueueHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "req-queue-dead",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          status: "dead_lettered",
+          reason: "openclaw hook failed",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+        RECEIPT_QUEUE: queueHarness.queue,
+      },
+    );
+
+    expect(response.status).toBe(202);
+    expect(queueHarness.sentMessages).toHaveLength(1);
+    expect(relayHarness.recordInputs).toHaveLength(0);
+    const queued = JSON.parse(queueHarness.sentMessages[0] ?? "{}") as {
+      type?: string;
+      requestId?: string;
+      status?: string;
+      reason?: string;
+    };
+    expect(queued.type).toBe("delivery_receipt");
+    expect(queued.requestId).toBe("req-queue-dead");
+    expect(queued.status).toBe("dead_lettered");
+    expect(queued.reason).toBe("openclaw hook failed");
+  });
+
+  it("returns 503 when queue binding is missing outside local environment", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "req-queue-required",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          status: "processed_by_openclaw",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+        ENVIRONMENT: "production",
+      },
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_RECEIPT_QUEUE_UNAVAILABLE");
+    expect(relayHarness.recordInputs).toHaveLength(0);
+  });
+
+  it("returns 503 when queue binding is missing and ENVIRONMENT is not set", async () => {
+    const relayHarness = createRelayReceiptHarness();
+    const app = createApp({
+      allowedPairs: [
+        {
+          initiator:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          responder:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        },
+      ],
+    });
+
+    const response = await app.request(
+      RELAY_DELIVERY_RECEIPTS_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-claw-agent-access": "token",
+        },
+        body: JSON.stringify({
+          requestId: "req-queue-env-unset",
+          senderAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+          recipientAgentDid:
+            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+          status: "processed_by_openclaw",
+        }),
+      },
+      {
+        AGENT_RELAY_SESSION: relayHarness.namespace,
+      },
+    );
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_RELAY_RECEIPT_QUEUE_UNAVAILABLE");
+    expect(relayHarness.recordInputs).toHaveLength(0);
   });
 
   it("rejects POST when recipient differs from authenticated agent DID", async () => {
@@ -380,6 +590,10 @@ describe("relay delivery receipt route", () => {
     expect(body.receipt?.state).toBe("processed_by_openclaw");
     expect(relayHarness.lookupInputs).toHaveLength(1);
     expect(relayHarness.lookupInputs[0]?.senderAgentDid).toBe(
+      "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+    );
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledTimes(1);
+    expect(relayHarness.namespace.idFromName).toHaveBeenCalledWith(
       "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
     );
   });

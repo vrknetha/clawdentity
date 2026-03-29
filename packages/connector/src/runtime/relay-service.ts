@@ -21,7 +21,6 @@ import { isRetryableRelayAuthError } from "./errors.js";
 import type {
   OutboundDeliveryReceiptStatus,
   OutboundRelayRequest,
-  TrustedReceiptTargets,
 } from "./types.js";
 import { toPathWithQuery } from "./url.js";
 
@@ -36,14 +35,12 @@ type RelayServiceInput = {
   secretKey: Uint8Array;
   setCurrentAuth: (nextAuth: AgentAuthBundle) => Promise<void>;
   syncAuthFromDisk: () => Promise<void>;
-  trustedReceiptTargets: TrustedReceiptTargets;
 };
 
 export function createRelayService(input: RelayServiceInput): {
   postDeliveryReceipt: (inputReceipt: {
     reason?: string;
     recipientAgentDid: string;
-    replyTo: string;
     requestId: string;
     senderAgentDid: string;
     status: OutboundDeliveryReceiptStatus;
@@ -53,13 +50,12 @@ export function createRelayService(input: RelayServiceInput): {
   const relayToPeer = async (request: OutboundRelayRequest): Promise<void> => {
     await input.syncAuthFromDisk();
     const peerUrl = new URL(request.peerProxyUrl);
-    input.trustedReceiptTargets.origins.add(peerUrl.origin);
-    input.trustedReceiptTargets.byAgentDid.set(request.peerDid, peerUrl.origin);
     const body = JSON.stringify(request.payload ?? {});
     const refreshKey = `${REFRESH_SINGLE_FLIGHT_PREFIX}:${input.configDir}:${input.agentName}`;
 
     const performRelay = async (auth: AgentAuthBundle): Promise<void> => {
-      const replyTo = request.replyTo ?? input.defaultReceiptCallbackUrl;
+      // Callback routing authority is the local runtime-owned receipt endpoint.
+      const replyTo = input.defaultReceiptCallbackUrl;
       const unixSeconds = Math.floor(nowUtcMs() / 1000).toString();
       const nonce = encodeBase64url(randomBytes(NONCE_SIZE));
       const signed = await signHttpRequest({
@@ -127,46 +123,33 @@ export function createRelayService(input: RelayServiceInput): {
     });
   };
 
+  let ownReceiptUrl: URL;
+  try {
+    ownReceiptUrl = new URL(input.defaultReceiptCallbackUrl);
+  } catch {
+    throw new AppError({
+      code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+      message: "Delivery receipt callback target is invalid",
+      status: 500,
+    });
+  }
+
+  if (ownReceiptUrl.pathname !== RELAY_DELIVERY_RECEIPTS_PATH) {
+    throw new AppError({
+      code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
+      message: "Delivery receipt callback target is invalid",
+      status: 500,
+    });
+  }
+
   const postDeliveryReceipt = async (inputReceipt: {
     reason?: string;
     recipientAgentDid: string;
-    replyTo: string;
     requestId: string;
     senderAgentDid: string;
     status: OutboundDeliveryReceiptStatus;
   }): Promise<void> => {
     await input.syncAuthFromDisk();
-    const receiptUrl = new URL(inputReceipt.replyTo);
-    if (receiptUrl.pathname !== RELAY_DELIVERY_RECEIPTS_PATH) {
-      throw new AppError({
-        code: "CONNECTOR_DELIVERY_RECEIPT_INVALID_TARGET",
-        message: "Delivery receipt callback target is invalid",
-        status: 400,
-      });
-    }
-    const expectedSenderOrigin = input.trustedReceiptTargets.byAgentDid.get(
-      inputReceipt.senderAgentDid,
-    );
-    if (
-      expectedSenderOrigin !== undefined &&
-      receiptUrl.origin !== expectedSenderOrigin
-    ) {
-      throw new AppError({
-        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
-        message: "Delivery receipt callback target is untrusted",
-        status: 400,
-      });
-    }
-    if (
-      expectedSenderOrigin === undefined &&
-      !input.trustedReceiptTargets.origins.has(receiptUrl.origin)
-    ) {
-      throw new AppError({
-        code: "CONNECTOR_DELIVERY_RECEIPT_UNTRUSTED_TARGET",
-        message: "Delivery receipt callback target is untrusted",
-        status: 400,
-      });
-    }
 
     const body = JSON.stringify({
       requestId: inputReceipt.requestId,
@@ -183,14 +166,14 @@ export function createRelayService(input: RelayServiceInput): {
       const nonce = encodeBase64url(randomBytes(NONCE_SIZE));
       const signed = await signHttpRequest({
         method: "POST",
-        pathWithQuery: toPathWithQuery(receiptUrl),
+        pathWithQuery: toPathWithQuery(ownReceiptUrl),
         timestamp: unixSeconds,
         nonce,
         body: new TextEncoder().encode(body),
         secretKey: input.secretKey,
       });
 
-      const response = await input.fetchImpl(receiptUrl.toString(), {
+      const response = await input.fetchImpl(ownReceiptUrl.toString(), {
         method: "POST",
         headers: {
           Authorization: `Claw ${input.ait}`,

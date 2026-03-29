@@ -258,7 +258,9 @@ Primary responsibilities:
 Operational behavior:
 - shields OpenClaw from direct internet exposure
 - supports local/dev/fresh Wrangler run modes
-- can inject sanitized identity metadata into forwarded message payloads
+- forwards the original `/hooks/agent` JSON payload unchanged by default
+- delivers identity metadata through structured headers and connector frame fields
+- can inject sanitized identity metadata into forwarded message payloads only when operators explicitly enable the legacy compatibility flag
 
 ### OpenClaw Skill (`apps/openclaw-skill`)
 

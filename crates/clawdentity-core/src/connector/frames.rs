@@ -15,6 +15,7 @@ pub enum ConnectorFrame {
     DeliverAck(DeliverAckFrame),
     Enqueue(EnqueueFrame),
     EnqueueAck(EnqueueAckFrame),
+    Receipt(ReceiptFrame),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +44,8 @@ pub struct DeliverFrame {
     #[serde(rename = "toAgentDid")]
     pub to_agent_did: String,
     pub payload: serde_json::Value,
+    #[serde(rename = "deliverySource", skip_serializing_if = "Option::is_none")]
+    pub delivery_source: Option<String>,
     #[serde(rename = "contentType", skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     #[serde(rename = "conversationId", skip_serializing_if = "Option::is_none")]
@@ -89,6 +92,27 @@ pub struct EnqueueAckFrame {
     pub reason: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReceiptStatus {
+    ProcessedByOpenclaw,
+    DeadLettered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReceiptFrame {
+    pub v: i64,
+    pub id: String,
+    pub ts: String,
+    #[serde(rename = "originalFrameId")]
+    pub original_frame_id: String,
+    #[serde(rename = "toAgentDid")]
+    pub to_agent_did: String,
+    pub status: ReceiptStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 fn validate_frame_base(version: i64, id: &str, ts: &str) -> Result<()> {
     if version != CONNECTOR_FRAME_VERSION {
         return Err(CoreError::InvalidInput(format!(
@@ -111,42 +135,70 @@ fn validate_agent_did(value: &str, field_name: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_ack_id(value: &str, field_name: &str) -> Result<()> {
+    Ulid::from_string(value)
+        .map_err(|_| CoreError::InvalidInput(format!("invalid {field_name}: {value}")))?;
+    Ok(())
+}
+
+fn validate_heartbeat_ack_frame(frame: &HeartbeatAckFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.ack_id, "heartbeat ackId")
+}
+
+fn validate_deliver_frame(frame: &DeliverFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_agent_did(&frame.from_agent_did, "fromAgentDid")?;
+    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+    if let Some(delivery_source) = &frame.delivery_source
+        && delivery_source.trim().is_empty()
+    {
+        return Err(CoreError::InvalidInput(
+            "deliverySource must not be blank".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_deliver_ack_frame(frame: &DeliverAckFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.ack_id, "deliver ackId")
+}
+
+fn validate_enqueue_frame(frame: &EnqueueFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_agent_did(&frame.to_agent_did, "toAgentDid")
+}
+
+fn validate_enqueue_ack_frame(frame: &EnqueueAckFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.ack_id, "enqueue ackId")
+}
+
+fn validate_receipt_frame(frame: &ReceiptFrame) -> Result<()> {
+    validate_frame_base(frame.v, &frame.id, &frame.ts)?;
+    validate_ack_id(&frame.original_frame_id, "receipt originalFrameId")?;
+    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+    if let Some(reason) = &frame.reason
+        && reason.trim().is_empty()
+    {
+        return Err(CoreError::InvalidInput(
+            "receipt reason must not be blank".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// TODO(clawdentity): document `validate_frame`.
 pub fn validate_frame(frame: &ConnectorFrame) -> Result<()> {
     match frame {
         ConnectorFrame::Heartbeat(frame) => validate_frame_base(frame.v, &frame.id, &frame.ts),
-        ConnectorFrame::HeartbeatAck(frame) => {
-            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-            Ulid::from_string(&frame.ack_id).map_err(|_| {
-                CoreError::InvalidInput(format!("invalid heartbeat ackId: {}", frame.ack_id))
-            })?;
-            Ok(())
-        }
-        ConnectorFrame::Deliver(frame) => {
-            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-            validate_agent_did(&frame.from_agent_did, "fromAgentDid")?;
-            validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
-            Ok(())
-        }
-        ConnectorFrame::DeliverAck(frame) => {
-            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-            Ulid::from_string(&frame.ack_id).map_err(|_| {
-                CoreError::InvalidInput(format!("invalid deliver ackId: {}", frame.ack_id))
-            })?;
-            Ok(())
-        }
-        ConnectorFrame::Enqueue(frame) => {
-            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-            validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
-            Ok(())
-        }
-        ConnectorFrame::EnqueueAck(frame) => {
-            validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-            Ulid::from_string(&frame.ack_id).map_err(|_| {
-                CoreError::InvalidInput(format!("invalid enqueue ackId: {}", frame.ack_id))
-            })?;
-            Ok(())
-        }
+        ConnectorFrame::HeartbeatAck(frame) => validate_heartbeat_ack_frame(frame),
+        ConnectorFrame::Deliver(frame) => validate_deliver_frame(frame),
+        ConnectorFrame::DeliverAck(frame) => validate_deliver_ack_frame(frame),
+        ConnectorFrame::Enqueue(frame) => validate_enqueue_frame(frame),
+        ConnectorFrame::EnqueueAck(frame) => validate_enqueue_ack_frame(frame),
+        ConnectorFrame::Receipt(frame) => validate_receipt_frame(frame),
     }
 }
 
@@ -181,8 +233,8 @@ pub fn new_frame_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CONNECTOR_FRAME_VERSION, ConnectorFrame, EnqueueFrame, new_frame_id, now_iso, parse_frame,
-        serialize_frame,
+        CONNECTOR_FRAME_VERSION, ConnectorFrame, EnqueueFrame, ReceiptFrame, ReceiptStatus,
+        new_frame_id, now_iso, parse_frame, serialize_frame,
     };
 
     #[test]
@@ -196,6 +248,24 @@ mod tests {
             payload: serde_json::json!({"text":"hello"}),
             conversation_id: Some("conv-1".to_string()),
             reply_to: None,
+        });
+
+        let encoded = serialize_frame(&frame).expect("serialize");
+        let decoded = parse_frame(encoded).expect("parse");
+        assert_eq!(decoded, frame);
+    }
+
+    #[test]
+    fn serialize_and_parse_receipt_frame() {
+        let frame = ConnectorFrame::Receipt(ReceiptFrame {
+            v: CONNECTOR_FRAME_VERSION,
+            id: new_frame_id(),
+            ts: now_iso(),
+            original_frame_id: new_frame_id(),
+            to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
+                .to_string(),
+            status: ReceiptStatus::DeadLettered,
+            reason: Some("hook rejected".to_string()),
         });
 
         let encoded = serialize_frame(&frame).expect("serialize");

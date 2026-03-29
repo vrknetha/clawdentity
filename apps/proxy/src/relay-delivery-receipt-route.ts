@@ -1,4 +1,5 @@
-import { AppError, type Logger } from "@clawdentity/sdk";
+import { RELAY_DELIVERY_RECEIPTS_PATH } from "@clawdentity/protocol";
+import { AppError, type Logger, nowIso } from "@clawdentity/sdk";
 import type { Context } from "hono";
 import {
   type AgentRelaySessionNamespace,
@@ -9,14 +10,17 @@ import {
 } from "./agent-relay-session.js";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
+import { DELIVERY_RECEIPT_EVENT_TYPE } from "./queue-consumer/receipt-events.js";
 import { assertTrustedPair } from "./trust-policy.js";
 
-export { RELAY_DELIVERY_RECEIPTS_PATH } from "@clawdentity/protocol";
+export { RELAY_DELIVERY_RECEIPTS_PATH };
 
 type ProxyContext = Context<{
   Variables: ProxyRequestVariables;
   Bindings: {
     AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
+    ENVIRONMENT?: string;
+    RECEIPT_QUEUE?: Queue<string>;
   };
 }>;
 
@@ -88,6 +92,15 @@ function parseRequiredQuery(value: string | undefined, field: string): string {
   return value.trim();
 }
 
+function normalizeEnvironment(value: string | undefined): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function resolveSessionNamespace(c: ProxyContext): AgentRelaySessionNamespace {
   const namespace = c.env.AGENT_RELAY_SESSION;
   if (namespace === undefined) {
@@ -114,8 +127,8 @@ export function createRelayDeliveryReceiptPostHandler(
       });
     }
 
-    const payload = parseRecordInput(await c.req.json());
-    if (payload.recipientAgentDid !== auth.agentDid) {
+    const parsedPayload = parseRecordInput(await c.req.json());
+    if (parsedPayload.recipientAgentDid !== auth.agentDid) {
       throw new AppError({
         code: "PROXY_RELAY_RECEIPT_FORBIDDEN",
         message: "Recipient DID does not match authenticated agent",
@@ -126,27 +139,71 @@ export function createRelayDeliveryReceiptPostHandler(
 
     await assertTrustedPair({
       trustStore: input.trustStore,
-      initiatorAgentDid: payload.senderAgentDid,
-      responderAgentDid: payload.recipientAgentDid,
+      initiatorAgentDid: parsedPayload.senderAgentDid,
+      responderAgentDid: parsedPayload.recipientAgentDid,
     });
 
-    const sessionNamespace = resolveSessionNamespace(c);
-    const relaySession = sessionNamespace.get(
-      sessionNamespace.idFromName(payload.recipientAgentDid),
-    );
-
-    try {
-      await recordRelayDeliveryReceipt(relaySession, payload);
-    } catch (error) {
-      if (error instanceof RelaySessionDeliveryError) {
-        input.logger.warn("proxy.relay.receipt_record_failed", {
-          code: error.code,
-          status: error.status,
+    const environment = normalizeEnvironment(c.env.ENVIRONMENT);
+    const receiptQueue = c.env.RECEIPT_QUEUE;
+    if (receiptQueue === undefined) {
+      if (environment !== "local") {
+        input.logger.warn("proxy.relay.receipt_queue_unavailable", {
+          environment: environment ?? "unset",
+          fallbackAllowed: false,
+        });
+        throw new AppError({
+          code: "PROXY_RELAY_RECEIPT_QUEUE_UNAVAILABLE",
+          message: "Relay delivery receipt queue is unavailable",
+          status: 503,
+          details: {
+            environment: environment ?? "unset",
+            fallbackAllowed: false,
+          },
         });
       }
+
+      const sessionNamespace = resolveSessionNamespace(c);
+      const relaySession = sessionNamespace.get(
+        sessionNamespace.idFromName(parsedPayload.senderAgentDid),
+      );
+      try {
+        await recordRelayDeliveryReceipt(relaySession, parsedPayload);
+      } catch (error) {
+        if (error instanceof RelaySessionDeliveryError) {
+          input.logger.warn("proxy.relay.receipt_record_failed", {
+            code: error.code,
+            status: error.status,
+          });
+        }
+        throw new AppError({
+          code: "PROXY_RELAY_RECEIPT_WRITE_FAILED",
+          message: "Failed to record relay delivery receipt",
+          status: 502,
+        });
+      }
+
+      return c.json({ accepted: true }, 202);
+    }
+
+    try {
+      await receiptQueue.send(
+        JSON.stringify({
+          type: DELIVERY_RECEIPT_EVENT_TYPE,
+          requestId: parsedPayload.requestId,
+          senderAgentDid: parsedPayload.senderAgentDid,
+          recipientAgentDid: parsedPayload.recipientAgentDid,
+          status: parsedPayload.status,
+          reason: parsedPayload.reason,
+          processedAt: nowIso(),
+        }),
+      );
+    } catch (error) {
+      input.logger.warn("proxy.relay.receipt_queue_publish_failed", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
       throw new AppError({
-        code: "PROXY_RELAY_RECEIPT_WRITE_FAILED",
-        message: "Failed to record relay delivery receipt",
+        code: "PROXY_RELAY_RECEIPT_QUEUE_FAILED",
+        message: "Failed to queue relay delivery receipt",
         status: 502,
       });
     }
@@ -168,6 +225,7 @@ export function createRelayDeliveryReceiptGetHandler(
       });
     }
 
+    const senderAgentDid = auth.agentDid;
     const requestId = parseRequiredQuery(c.req.query("requestId"), "requestId");
     const recipientAgentDid = parseRequiredQuery(
       c.req.query("recipientAgentDid"),
@@ -176,19 +234,19 @@ export function createRelayDeliveryReceiptGetHandler(
 
     await assertTrustedPair({
       trustStore: input.trustStore,
-      initiatorAgentDid: auth.agentDid,
+      initiatorAgentDid: senderAgentDid,
       responderAgentDid: recipientAgentDid,
     });
 
     const sessionNamespace = resolveSessionNamespace(c);
     const relaySession = sessionNamespace.get(
-      sessionNamespace.idFromName(recipientAgentDid),
+      sessionNamespace.idFromName(senderAgentDid),
     );
 
     try {
       const lookup = await getRelayDeliveryReceipt(relaySession, {
         requestId,
-        senderAgentDid: auth.agentDid,
+        senderAgentDid,
       });
       if (!lookup.found || lookup.receipt === undefined) {
         return c.json(

@@ -1,5 +1,6 @@
 import {
   generateUlid,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   makeAgentDid as protocolMakeAgentDid,
   makeHumanDid as protocolMakeHumanDid,
 } from "@clawdentity/protocol";
@@ -63,6 +64,7 @@ import { parseProxyConfig } from "../config.js";
 import { PAIR_CONFIRM_PATH } from "../pairing-constants.js";
 import { createInMemoryProxyTrustStore } from "../proxy-trust-store.js";
 import { createProxyApp } from "../server.js";
+import { type ProxyWorkerBindings, worker } from "../worker.js";
 
 async function createSignedTicketFixture(input: {
   issuerProxyUrl: string;
@@ -92,7 +94,6 @@ async function createSignedTicketFixture(input: {
 function createPairingApp(input?: {
   environment?: "local" | "development" | "production";
   startFetchImpl?: typeof fetch;
-  confirmFetchImpl?: typeof fetch;
   nowMs?: () => number;
 }) {
   const trustStore = createInMemoryProxyTrustStore();
@@ -110,7 +111,6 @@ function createPairingApp(input?: {
         nowMs: input?.nowMs,
       },
       confirm: {
-        fetchImpl: input?.confirmFetchImpl,
         nowMs: input?.nowMs,
       },
       status: {
@@ -289,113 +289,9 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     });
   });
 
-  it("posts callback on confirm and does not fail on callback errors", async () => {
-    const callbackFetchMock = vi.fn(
-      async (requestInput: unknown, _requestInit?: RequestInit) => {
-        if (String(requestInput).includes("/success")) {
-          return new Response(null, { status: 202 });
-        }
-        throw new Error("callback unavailable");
-      },
-    );
-    const callbackFetch = callbackFetchMock as unknown as typeof fetch;
+  it("publishes pair.accepted event to queue on confirm", async () => {
+    const queueSendSpy = vi.fn(async (_message: string) => {});
     const { app, trustStore } = createPairingApp({
-      confirmFetchImpl: callbackFetch,
-      nowMs: () => 1_700_000_000_000,
-    });
-    const createdTicket = await createSignedTicketFixture({
-      issuerProxyUrl: "http://localhost",
-      nowMs: 1_700_000_000_000,
-      expiresAtMs: 1_700_000_900_000,
-    });
-
-    const successTicket = await trustStore.createPairingTicket({
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      initiatorProfile: INITIATOR_PROFILE,
-      issuerProxyUrl: "http://localhost",
-      ticket: createdTicket.ticket,
-      publicKeyX: createdTicket.publicKeyX,
-      callbackUrl: "https://callbacks.example.com/success",
-      expiresAtMs: 1_700_000_900_000,
-      nowMs: 1_700_000_000_000,
-    });
-
-    const successResponse = await app.request(PAIR_CONFIRM_PATH, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-test-agent-did": RESPONDER_AGENT_DID,
-      },
-      body: JSON.stringify({
-        ticket: successTicket.ticket,
-        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
-      }),
-    });
-
-    expect(successResponse.status).toBe(201);
-    expect(callbackFetchMock).toHaveBeenCalledTimes(1);
-    const successCallbackRequestInit = callbackFetchMock.mock.calls[0]?.[1] as
-      | RequestInit
-      | undefined;
-    expect(successCallbackRequestInit?.method).toBe("POST");
-    expect(
-      JSON.parse(String(successCallbackRequestInit?.body ?? "{}")) as {
-        paired?: boolean;
-        initiatorAgentDid?: string;
-        responderAgentDid?: string;
-      },
-    ).toMatchObject({
-      paired: true,
-      initiatorAgentDid: INITIATOR_AGENT_DID,
-      responderAgentDid: RESPONDER_AGENT_DID,
-    });
-
-    const failureTicketFixture = await createSignedTicketFixture({
-      issuerProxyUrl: "http://localhost",
-      nowMs: 1_700_000_000_010,
-      expiresAtMs: 1_700_000_900_000,
-    });
-    const failureTicket = await trustStore.createPairingTicket({
-      initiatorAgentDid: makeAgentDid(generateUlid(1_700_000_000_010)),
-      initiatorProfile: INITIATOR_PROFILE,
-      issuerProxyUrl: "http://localhost",
-      ticket: failureTicketFixture.ticket,
-      publicKeyX: failureTicketFixture.publicKeyX,
-      callbackUrl: "https://callbacks.example.com/failure",
-      expiresAtMs: 1_700_000_900_000,
-      nowMs: 1_700_000_000_010,
-    });
-    const failureResponderAgentDid = makeAgentDid(
-      generateUlid(1_700_000_000_020),
-    );
-    const failureResponse = await app.request(PAIR_CONFIRM_PATH, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-test-agent-did": failureResponderAgentDid,
-      },
-      body: JSON.stringify({
-        ticket: failureTicket.ticket,
-        responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
-      }),
-    });
-
-    expect(failureResponse.status).toBe(201);
-    expect(callbackFetchMock).toHaveBeenCalledTimes(2);
-  });
-
-  it("does not block confirm response while callback delivery is pending", async () => {
-    let resolveCallback:
-      | ((value: Response | PromiseLike<Response>) => void)
-      | undefined;
-    const callbackFetchMock = vi.fn(
-      async () =>
-        await new Promise<Response>((resolve) => {
-          resolveCallback = resolve;
-        }),
-    );
-    const { app, trustStore } = createPairingApp({
-      confirmFetchImpl: callbackFetchMock as unknown as typeof fetch,
       nowMs: () => 1_700_000_000_000,
     });
     const createdTicket = await createSignedTicketFixture({
@@ -409,13 +305,12 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       issuerProxyUrl: "http://localhost",
       ticket: createdTicket.ticket,
       publicKeyX: createdTicket.publicKeyX,
-      callbackUrl: "https://callbacks.example.com/pending",
       expiresAtMs: 1_700_000_900_000,
       nowMs: 1_700_000_000_000,
     });
 
-    const confirmPromise = Promise.resolve(
-      app.request(PAIR_CONFIRM_PATH, {
+    const response = await app.fetch(
+      new Request(`https://proxy.example.test${PAIR_CONFIRM_PATH}`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -426,22 +321,189 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
           responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
         }),
       }),
+      {
+        EVENTS_QUEUE: {
+          send: queueSendSpy,
+        } as unknown as Queue<string>,
+      },
     );
 
-    let settled = false;
-    void confirmPromise.then(() => {
-      settled = true;
-    });
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 50);
-    });
-
-    expect(settled).toBe(true);
-    const response = await confirmPromise;
     expect(response.status).toBe(201);
-    expect(callbackFetchMock).toHaveBeenCalledTimes(1);
+    expect(queueSendSpy).toHaveBeenCalledTimes(1);
+    const queuedBody = JSON.parse(
+      String(queueSendSpy.mock.calls[0]?.[0] ?? "{}"),
+    ) as {
+      type?: string;
+      message?: string;
+      initiatorAgentDid?: string;
+      responderAgentDid?: string;
+      responderProfile?: {
+        agentName?: string;
+      };
+      issuerProxyOrigin?: string;
+    };
+    expect(queuedBody).toMatchObject({
+      type: "pair.accepted",
+      message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      responderAgentDid: RESPONDER_AGENT_DID,
+      responderProfile: {
+        agentName: RESPONDER_PROFILE_WITH_PROXY_ORIGIN.agentName,
+      },
+      issuerProxyOrigin: "http://localhost",
+    });
+  });
 
-    resolveCallback?.(new Response(null, { status: 202 }));
+  it("routes confirm-published pair.accepted event through worker queue to connector delivery", async () => {
+    const queueSendSpy = vi.fn(async (_message: string) => {});
+    const { app, trustStore } = createPairingApp({
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const confirmResponse = await app.fetch(
+      new Request(`https://proxy.example.test${PAIR_CONFIRM_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-agent-did": RESPONDER_AGENT_DID,
+        },
+        body: JSON.stringify({
+          ticket: ticket.ticket,
+          responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+        }),
+      }),
+      {
+        EVENTS_QUEUE: {
+          send: queueSendSpy,
+        } as unknown as Queue<string>,
+      },
+    );
+
+    expect(confirmResponse.status).toBe(201);
+    const queuedBody = String(queueSendSpy.mock.calls[0]?.[0] ?? "");
+    expect(queuedBody.length).toBeGreaterThan(0);
+
+    const relayDeliveryFetchSpy = vi.fn(async (_request: Request) =>
+      Response.json({ accepted: true }, { status: 202 }),
+    );
+    const relaySessionNamespace: NonNullable<
+      ProxyWorkerBindings["AGENT_RELAY_SESSION"]
+    > = {
+      idFromName: vi.fn(
+        (name: string) =>
+          ({ toString: () => name }) as unknown as DurableObjectId,
+      ),
+      get: vi.fn(() => ({
+        fetch: async (request: Request) => relayDeliveryFetchSpy(request),
+      })),
+    };
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+    await worker.queue(
+      {
+        messages: [
+          {
+            body: queuedBody,
+            ack,
+            retry,
+          },
+        ],
+      } as unknown as MessageBatch<string>,
+      {
+        ENVIRONMENT: "local",
+        REGISTRY_URL: "https://registry.example.test",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
+        AGENT_RELAY_SESSION: relaySessionNamespace,
+      },
+    );
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+    expect(relayDeliveryFetchSpy).toHaveBeenCalledTimes(1);
+
+    const request = relayDeliveryFetchSpy.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe("/rpc/deliver-to-connector");
+    const relayPayload = (await request.json()) as {
+      senderAgentDid?: string;
+      recipientAgentDid?: string;
+      payload?: {
+        system?: {
+          type?: string;
+          message?: string;
+        };
+      };
+    };
+    expect(relayPayload).toMatchObject({
+      senderAgentDid: RESPONDER_AGENT_DID,
+      recipientAgentDid: INITIATOR_AGENT_DID,
+      payload: {
+        system: {
+          type: "pair.accepted",
+          message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
+        },
+      },
+    });
+  });
+
+  it("keeps confirm successful when pair.accepted queue publish fails", async () => {
+    const queueSendSpy = vi.fn(async () => {
+      throw new Error("queue unavailable");
+    });
+    const { app, trustStore } = createPairingApp({
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const response = await app.fetch(
+      new Request(`https://proxy.example.test${PAIR_CONFIRM_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-agent-did": RESPONDER_AGENT_DID,
+        },
+        body: JSON.stringify({
+          ticket: ticket.ticket,
+          responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+        }),
+      }),
+      {
+        EVENTS_QUEUE: {
+          send: queueSendSpy,
+        } as unknown as Queue<string>,
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(queueSendSpy).toHaveBeenCalledTimes(1);
   });
 
   it("rejects confirm when signature does not match persisted publicKeyX", async () => {

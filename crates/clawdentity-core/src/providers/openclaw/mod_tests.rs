@@ -16,8 +16,10 @@ use super::{
     OPENCLAW_CONFIG_FILE_NAME, OpenclawProvider,
     assets::{transform_peers_path, transform_runtime_path},
     load_connector_assignments, resolve_openclaw_dir,
-    test_support::{install_mock_openclaw_cli, write_openclaw_profile},
+    test_support::{install_mock_openclaw_cli, seed_inspectable_agent, write_openclaw_profile},
 };
+
+const ALPHA_AGENT_DID: &str = "did:cdi:registry.example.test:agent:01HF7YAT00W6W7CM7N3W5FDXT4";
 
 #[test]
 fn detection_checks_home_and_path_evidence() {
@@ -144,12 +146,19 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
         vec![bin_dir.path().to_path_buf()],
     );
     let openclaw_dir = resolve_openclaw_dir(Some(home.path()), None).expect("openclaw dir");
+    let config_dir = get_config_dir(&ConfigPathOptions {
+        home_dir: Some(home.path().to_path_buf()),
+        registry_url_hint: None,
+    })
+    .expect("config dir");
+    seed_inspectable_agent(&config_dir, "alpha", ALPHA_AGENT_DID);
     let custom_peers_path = home.path().join("runtime").join("custom-peers.json");
 
     let result = provider
         .setup(&ProviderSetupOptions {
             home_dir: None,
             agent_name: Some("alpha".to_string()),
+            openclaw_agent_id: None,
             platform_base_url: Some("http://127.0.0.1:19001".to_string()),
             webhook_host: None,
             webhook_port: None,
@@ -190,12 +199,10 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
         runtime.get("peersConfigPath").and_then(Value::as_str),
         Some(custom_peers_path.to_string_lossy().as_ref())
     );
-
-    let config_dir = get_config_dir(&ConfigPathOptions {
-        home_dir: Some(home.path().to_path_buf()),
-        registry_url_hint: None,
-    })
-    .expect("config dir");
+    assert_eq!(
+        runtime.get("localAgentDid").and_then(Value::as_str),
+        Some(ALPHA_AGENT_DID)
+    );
     let assignments = load_connector_assignments(&config_dir).expect("assignments");
     assert_eq!(
         assignments
@@ -203,6 +210,13 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
             .get("alpha")
             .map(|entry| entry.connector_base_url.as_str()),
         Some("https://relay.example.test:24444/")
+    );
+    assert_eq!(
+        assignments
+            .agents
+            .get("alpha")
+            .and_then(|entry| entry.openclaw_agent_id.as_deref()),
+        Some("main")
     );
 
     let config_body =
@@ -217,6 +231,119 @@ fn setup_honors_explicit_connector_url_and_custom_peers_path() {
             .and_then(|value| value.get("mode"))
             .and_then(Value::as_str),
         Some("password")
+    );
+}
+
+#[test]
+fn setup_persists_explicit_openclaw_agent_id() {
+    let home = TempDir::new().expect("temp home");
+    let bin_dir = install_mock_openclaw_cli();
+    write_openclaw_profile(
+        home.path(),
+        r#"{
+  "agents": {
+    "list": [
+      { "id": "main" },
+      { "id": "coder" }
+    ]
+  },
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+    );
+    let provider = OpenclawProvider::with_test_context(
+        home.path().to_path_buf(),
+        vec![bin_dir.path().to_path_buf()],
+    );
+    let config_dir = get_config_dir(&ConfigPathOptions {
+        home_dir: Some(home.path().to_path_buf()),
+        registry_url_hint: None,
+    })
+    .expect("config dir");
+    seed_inspectable_agent(&config_dir, "alpha", ALPHA_AGENT_DID);
+
+    let result = provider
+        .setup(&ProviderSetupOptions {
+            agent_name: Some("alpha".to_string()),
+            openclaw_agent_id: Some("coder".to_string()),
+            platform_base_url: Some("http://127.0.0.1:19001".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect("setup");
+
+    assert_eq!(result.status, ProviderSetupStatus::ActionRequired);
+    let assignments = load_connector_assignments(&config_dir).expect("assignments");
+    assert_eq!(
+        assignments
+            .agents
+            .get("alpha")
+            .and_then(|entry| entry.openclaw_agent_id.as_deref()),
+        Some("coder")
+    );
+}
+
+#[test]
+fn setup_backfills_legacy_connector_assignments_with_default_agent_id() {
+    let home = TempDir::new().expect("temp home");
+    let bin_dir = install_mock_openclaw_cli();
+    write_openclaw_profile(
+        home.path(),
+        r#"{
+  "agents": {
+    "list": [
+      { "id": "main" },
+      { "id": "coder" }
+    ]
+  },
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+    );
+    let provider = OpenclawProvider::with_test_context(
+        home.path().to_path_buf(),
+        vec![bin_dir.path().to_path_buf()],
+    );
+    let config_dir = get_config_dir(&ConfigPathOptions {
+        home_dir: Some(home.path().to_path_buf()),
+        registry_url_hint: None,
+    })
+    .expect("config dir");
+    seed_inspectable_agent(&config_dir, "alpha", ALPHA_AGENT_DID);
+    super::save_connector_assignment(&config_dir, "legacy-agent", "http://127.0.0.1:19411", None)
+        .expect("legacy assignment");
+
+    let result = provider
+        .setup(&ProviderSetupOptions {
+            agent_name: Some("alpha".to_string()),
+            platform_base_url: Some("http://127.0.0.1:19001".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect("setup");
+
+    assert_eq!(result.status, ProviderSetupStatus::ActionRequired);
+    assert!(
+        result
+            .notes
+            .iter()
+            .any(|note| note.contains("migrated legacy connector assignments"))
+    );
+    let assignments = load_connector_assignments(&config_dir).expect("assignments");
+    assert_eq!(
+        assignments
+            .agents
+            .get("legacy-agent")
+            .and_then(|entry| entry.openclaw_agent_id.as_deref()),
+        Some("main")
     );
 }
 
@@ -287,6 +414,75 @@ fn setup_requires_openclaw_onboarding_first() {
         .expect_err("missing openclaw config should fail");
 
     assert!(error.to_string().contains("openclaw onboard"));
+}
+
+#[test]
+fn setup_reports_onboarding_error_before_agent_id_validation() {
+    let home = TempDir::new().expect("temp home");
+    let bin_dir = install_mock_openclaw_cli();
+    let provider = OpenclawProvider::with_test_context(
+        home.path().to_path_buf(),
+        vec![bin_dir.path().to_path_buf()],
+    );
+
+    let error = provider
+        .setup(&ProviderSetupOptions {
+            agent_name: Some("alpha".to_string()),
+            openclaw_agent_id: Some("coder".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect_err("missing openclaw config should fail before agent id validation");
+
+    assert!(error.to_string().contains("openclaw onboard"));
+    assert!(!error.to_string().contains("is not configured"));
+}
+
+#[test]
+fn setup_rejects_unknown_openclaw_agent_id() {
+    let home = TempDir::new().expect("temp home");
+    let bin_dir = install_mock_openclaw_cli();
+    write_openclaw_profile(
+        home.path(),
+        r#"{
+  "agents": {
+    "list": [
+      { "id": "main" },
+      { "id": "coder" }
+    ]
+  },
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "gateway-token"
+    }
+  }
+}
+"#,
+    );
+    let provider = OpenclawProvider::with_test_context(
+        home.path().to_path_buf(),
+        vec![bin_dir.path().to_path_buf()],
+    );
+    let config_dir = get_config_dir(&ConfigPathOptions {
+        home_dir: Some(home.path().to_path_buf()),
+        registry_url_hint: None,
+    })
+    .expect("config dir");
+    seed_inspectable_agent(&config_dir, "alpha", ALPHA_AGENT_DID);
+
+    let error = provider
+        .setup(&ProviderSetupOptions {
+            agent_name: Some("alpha".to_string()),
+            openclaw_agent_id: Some("missing".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect_err("unknown OpenClaw agent id should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("OpenClaw agent id `missing` is not configured")
+    );
 }
 
 #[test]

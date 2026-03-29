@@ -1,6 +1,6 @@
 ---
 name: clawdentity_openclaw_relay
-description: This skill should be used when the user asks to "set up Clawdentity relay", "configure provider relay", "run provider doctor", "run provider relay test", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
+description: This skill should be used when the user asks to "set up Clawdentity relay", "run one prompt onboarding", "configure provider relay", "run provider doctor", "bootstrap registry", "redeem starter pass", "redeem invite", "create agent credentials", "install connector service", or needs multi-provider relay onboarding with the `clawdentity` CLI.
 version: 0.5.0
 ---
 
@@ -12,7 +12,7 @@ This skill uses the current Rust CLI command surface and works across providers:
 - NanoBot (`nanobot`)
 - NanoClaw (`nanoclaw`)
 
-Use this skill for onboarding, provider setup, diagnostics, relay test, and connector runtime operations.
+Use this skill for onboarding, provider setup, diagnostics, and connector runtime operations.
 
 ## Canonical URL (Single Source)
 
@@ -34,10 +34,33 @@ Use current Rust CLI command groups only.
 Copy/paste this into your provider runtime to run prompt-first onboarding:
 
 ```text
-Set up Clawdentity relay using https://clawdentity.com/skill.md as the source of truth.
-Run required onboarding end-to-end and execute commands directly.
-Auto-detect provider when possible; ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and provider only if detection is ambiguous.
+Set up Clawdentity relay using the provided HTTPS skill URL as the source of truth (for example, `https://<domain>/skill.md`).
+Install through the hosted installer flow first using the same origin as the provided skill URL (for example, `<skill-origin>/install.sh`) when the CLI is missing; do not switch to manual command-by-command fallback unless onboarding run fails.
+Run `clawdentity onboarding run --for openclaw` as the primary flow and continue from saved state.
+Use configured environment endpoints (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`) when present; do not ask me to paste registry/proxy URLs unless they are missing.
+Ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and peer ticket.
+Use `--repair` when runtime health is broken, and stop only after provider health is clean and pairing is complete.
 ```
+
+## One-Prompt Flow (Primary UX)
+
+Use the stateful onboarding command as the default path:
+
+```bash
+clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>
+```
+
+What this command does:
+- installs/repairs provider setup
+- gates on `provider doctor`
+- starts pairing or confirms pairing from `--peer-ticket`
+- persists onboarding progress at `~/.clawdentity/onboarding-session.json`
+- completes pairing and reports `Ready to chat with <peer>`
+
+Pairing handoff:
+- Initiator run returns a ticket; share that ticket with the peer.
+- Responder run uses `--peer-ticket <clwpair1_...>`.
+- Initiator runs the same command again; flow auto-resumes and finalizes pairing.
 
 ## CLI Install Prerequisite (Fresh Containers)
 
@@ -51,13 +74,13 @@ Use this install order:
 Unix (Linux/macOS):
 
 ```bash
-curl -fsSL https://clawdentity.com/install.sh | sh
+curl -fsSL <skill-origin>/install.sh | sh
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://clawdentity.com/install.ps1 | iex
+irm <skill-origin>/install.ps1 | iex
 ```
 
 Installer environment controls:
@@ -190,6 +213,10 @@ Optional:
 - `clawdentity config show`
 
 ### Onboarding
+- `clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>`
+- `clawdentity onboarding run --for <platform> --peer-ticket <clwpair1_...> --repair`
+- `clawdentity onboarding status`
+- `clawdentity onboarding reset`
 - `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name>`
 - `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <human-name> --registry-url <registry-url>`
 - `clawdentity admin bootstrap --bootstrap-secret <secret>`
@@ -231,12 +258,6 @@ Optional:
 - `clawdentity provider doctor --for <platform> --platform-state-dir <path>`
 - `clawdentity provider doctor --for <platform> --connector-base-url <url>`
 - `clawdentity provider doctor --for <platform> --skip-connector-runtime`
-- `clawdentity provider relay-test`
-- `clawdentity provider relay-test --for <platform>`
-- `clawdentity provider relay-test --for <platform> --peer <alias>`
-- `clawdentity provider relay-test --for <platform> --message <text> --session-id <id>`
-- `clawdentity provider relay-test --for <platform> --platform-base-url <url> --webhook-token <token> --connector-base-url <url>`
-- `clawdentity provider relay-test --for <platform> --no-preflight`
 
 ### Connector Runtime (Manual/Advanced)
 - `clawdentity connector start <agent-name>`
@@ -252,40 +273,45 @@ Optional:
 
 ## Journey (Strict Order)
 
-1. Detect provider and local state.
+1. Install CLI.
+- Unix/macOS: `curl -fsSL <skill-origin>/install.sh | sh`
+- Windows: `irm <skill-origin>/install.ps1 | iex`
+
+2. Run one onboarding command.
+- `clawdentity onboarding run --for <platform> --onboarding-code <clw_stp_...|clw_inv_...> --display-name <name> --agent-name <name>`
+- If flow reports `pairing_pending`, share returned ticket with peer.
+- If peer shared a ticket, run again with `--peer-ticket <clwpair1_...>`.
+- Re-run until status reports `Ready` and `messaging_ready`.
+
+3. Detect provider and local state (advanced troubleshooting path).
 - Run `clawdentity install --list --json`.
 - Run `clawdentity provider status --json`.
 - If ambiguous, require explicit `--for <platform>`.
 
-2. Initialize config.
+4. Initialize config.
 - Run `clawdentity config init` (optionally with `--registry-url`).
 
-3. Complete onboarding.
+5. Complete onboarding.
 - Preferred: `clawdentity invite redeem <clw_stp_...|clw_inv_...> --display-name <name>`.
 - Recovery only: `clawdentity config set apiKey <token>` when invite is unavailable.
 
-4. Create agent identity.
+6. Create agent identity.
 - Run `clawdentity agent create <agent-name> --framework <platform>`.
 - Validate with `clawdentity agent inspect <agent-name>`.
 
-5. Configure provider.
+7. Configure provider.
 - OpenClaw only: if `openclaw` is missing or your OpenClaw profile is not ready, run `openclaw onboard` first.
 - OpenClaw only: if `openclaw.json` or local auth/device state is broken, run `openclaw doctor --fix` before Clawdentity setup.
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
 - OpenClaw only: `--platform-base-url` is the OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the standard local OpenClaw flow, leave it unset so Clawdentity keeps the default `http://127.0.0.1:18789`.
 
-6. Validate provider health.
+8. Validate provider health.
 - OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
 - Run `clawdentity provider doctor --for <platform>`.
 - Use `--json` for automation and `--peer <alias>` when testing targeted routing.
 
-7. Validate relay path.
-- Run `clawdentity provider relay-test --for <platform>`.
-- Add `--peer <alias>` for peer-specific checks.
-- Keep `--no-preflight` only for narrow debugging.
-
-8. Manage runtime service if needed.
+9. Manage runtime service if needed.
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
 
@@ -298,7 +324,6 @@ Optional:
 | `agent create` | No | Fails if agent already exists |
 | `provider setup` | Usually yes | Reconciles provider config; review output paths |
 | `provider doctor` | Yes | Read-only checks |
-| `provider relay-test` | Mostly yes | Sends real probe traffic |
 | `connector service install` | Yes | Reconciles service |
 | `connector service uninstall` | Yes | Safe to repeat |
 
@@ -472,17 +497,33 @@ and `message` fields before local handling is skipped.
   - do not relay
 - If `payload.peer` exists:
   - resolve peer from `peers.json`
+  - derive a default relay `conversationId` only from stable DIDs: projected `localAgentDid` + peer DID
+  - if `payload.conversationId` is a non-empty string, treat it as an explicit relay-lane override
   - remove `peer` from forwarded body
   - send JSON POST to local connector outbound endpoint
   - return `null` to skip local handling
 
-## Relay Agent Selection Contract
+## Relay Runtime Metadata Contract
 
-Relay resolves local agent name in this order:
-1. transform option `agentName`
-2. `CLAWDENTITY_AGENT_NAME`
-3. `~/.clawdentity/openclaw-agent-name`
-4. single local agent fallback from `~/.clawdentity/agents/`
+`hooks/transforms/clawdentity-relay.json` is projected by `clawdentity provider setup --for openclaw --agent-name <agent-name>`.
+
+Required fields for relay lane derivation:
+
+```json
+{
+  "connectorBaseUrl": "http://127.0.0.1:19400",
+  "connectorBaseUrls": ["http://127.0.0.1:19400"],
+  "connectorPath": "/v1/outbound",
+  "localAgentDid": "did:cdi:<authority>:agent:01H...",
+  "peersConfigPath": "/path/to/clawdentity-peers.json"
+}
+```
+
+Rules:
+- `localAgentDid` is the primary source of truth for default relay `conversationId` derivation.
+- Transform must read projected `localAgentDid` from `clawdentity-relay.json`; production/runtime behavior must not depend on host-local Clawdentity state.
+- Production/container runtime behavior must not depend on probing host `HOME`.
+- Missing or invalid `localAgentDid` is a setup/runtime error. Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>`.
 
 ## Local OpenClaw Base URL Contract
 
@@ -507,6 +548,7 @@ Rules:
 
 The transform does not send directly to the peer proxy. It posts to the local connector runtime:
 - Endpoint candidates are loaded from OpenClaw-local `hooks/transforms/clawdentity-relay.json` (generated by provider setup for OpenClaw) and attempted in order.
+- The same runtime file must also provide `localAgentDid` for default relay lane derivation.
 - Default fallback endpoint remains `http://127.0.0.1:19400/v1/outbound`.
 - Runtime may also use:
   - `CLAWDENTITY_CONNECTOR_BASE_URL`
@@ -521,6 +563,7 @@ Outbound JSON body sent by transform:
   "peer": "beta",
   "peerDid": "did:cdi:<authority>:agent:01H...",
   "peerProxyUrl": "https://beta-proxy.example.com/hooks/agent",
+  "conversationId": "<explicit-or-derived-relay-lane>",
   "payload": {
     "event": "agent.message"
   }
@@ -529,13 +572,19 @@ Outbound JSON body sent by transform:
 
 Rules:
 - `payload.peer` is removed before creating the `payload` object above.
+- Transform sends relay `conversationId` as a top-level connector field, not as hidden ordering metadata inside the forwarded payload body.
+- Default relay `conversationId` is deterministic per local-agent/peer-agent pair so one peer relationship stays on one replay lane by default.
+- Default relay `conversationId` must be derived from sorted `localAgentDid` + peer DID so alias renames do not change replay lanes.
+- `payload.conversationId` may override the default relay lane when the caller intentionally wants a different lane.
+- Only `peer` is stripped from the forwarded application payload for compatibility; `conversationId` may still remain inside the application payload if the caller included it there.
 - Transform sends `Content-Type: application/json` only.
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 
 ## Error Conditions
 
 Relay fails when:
-- no selected local agent can be resolved
+- projected relay runtime metadata is missing `localAgentDid`
+- projected relay runtime metadata has invalid `localAgentDid`
 - peer alias missing from config
 - local connector outbound endpoint is unavailable (`404`)
 - local connector reports unknown peer alias (`409`)
@@ -570,7 +619,14 @@ Recovery: rerun onboarding (`clawdentity invite redeem <clw_stp_...|clw_inv_...>
 
 ## Identity Injection
 
-When identity injection is enabled (proxy env `INJECT_IDENTITY_INTO_MESSAGE`, default `true`), the proxy prepends an identity block to the `message` field of relayed payloads.
+By default, the proxy forwards the original relay payload unchanged and sends identity separately through structured metadata:
+
+- `x-clawdentity-agent-did`
+- `x-clawdentity-to-agent-did`
+- `x-clawdentity-verified`
+- connector/runtime sender fields such as `fromAgentDid`
+
+When identity injection is explicitly enabled (proxy env `INJECT_IDENTITY_INTO_MESSAGE=true`), the proxy prepends an identity block to the `message` field of relayed payloads for legacy consumers.
 
 ### Block format
 
@@ -595,7 +651,7 @@ The block is separated from the original message by a blank line (`\n\n`).
 
 ### Programmatic access
 
-The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbound inbox items (`ConnectorInboundInboxItem`) also expose `fromAgentDid` for programmatic sender identification without parsing the identity block.
+The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbound inbox items (`ConnectorInboundInboxItem`) also expose `fromAgentDid` for programmatic sender identification without parsing the identity block. Header-based metadata remains the canonical identity transport; body parsing is legacy-only compatibility mode.
 
 ## Pairing Error Codes
 
@@ -676,6 +732,7 @@ When running in Docker or similar container runtimes:
 - `provider setup --for openclaw` writes Docker-aware endpoint candidates into `clawdentity-relay.json`:
   - `host.docker.internal`, `gateway.docker.internal`, Linux bridge (`172.17.0.1`), default gateway, and loopback.
   - Candidates are attempted in order by the relay transform.
+- `provider setup --for openclaw` also projects `localAgentDid` into `clawdentity-relay.json` so the transform can derive a stable relay lane inside the container without mounting host `~/.clawdentity`.
 - Use provider setup options plus connector service controls when the connector runs as a separate container or process.
 - Required env overrides for container networking:
   - `OPENCLAW_BASE_URL` — point to OpenClaw inside/outside the container network.
@@ -961,7 +1018,7 @@ These variables configure the Clawdentity proxy server (operator-facing, not CLI
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `INJECT_IDENTITY_INTO_MESSAGE` | Enable/disable identity block injection into relayed messages | `true` |
+| `INJECT_IDENTITY_INTO_MESSAGE` | Enable/disable legacy identity block injection into relayed messages | `false` |
 | `RELAY_QUEUE_MAX_MESSAGES_PER_AGENT` | Max queued messages per agent | `500` |
 | `RELAY_QUEUE_TTL_SECONDS` | Queue message time-to-live | `3600` |
 | `RELAY_RETRY_INITIAL_MS` | Initial retry delay for relay delivery | `1000` |

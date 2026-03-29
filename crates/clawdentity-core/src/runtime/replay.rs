@@ -84,6 +84,7 @@ mod tests {
             attempt_count: 0,
             last_error: None,
             last_attempt_at_ms: None,
+            delivery_source: None,
             conversation_id: None,
             reply_to: None,
         }

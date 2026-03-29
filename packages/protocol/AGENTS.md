@@ -24,11 +24,21 @@
 - Keep T02 canonicalization minimal and deterministic; replay/skew/nonce policy enforcement is handled in later tickets (`T07`, `T08`, `T09`).
 - Define shared API route fragments in protocol exports (for example `ADMIN_BOOTSTRAP_PATH`) so CLI/SDK/apps avoid hardcoded duplicate endpoint literals.
 - Keep lifecycle route constants together in `endpoints.ts` (e.g., `ADMIN_BOOTSTRAP_PATH`, `AGENT_REGISTRATION_CHALLENGE_PATH`, `AGENT_AUTH_REFRESH_PATH`, `AGENT_AUTH_VALIDATE_PATH`, `ME_API_KEYS_PATH`) so registry, proxy, and CLI stay contract-synchronized.
+- Keep agent-auth queue contract constants in protocol exports (`agent.auth.revoked`, `agent_revoked`, metadata key `agentDid`) so registry publishers and proxy consumers cannot drift.
+- Keep revocation metadata parsing/normalization centralized via protocol helpers (`parseAgentAuthRevokedMetadata`, `createAgentAuthRevokedMetadata`) instead of duplicating object-shape checks across apps.
 - Keep protocol route constants scoped to active contracts only; remove deprecated endpoint exports immediately when a flow is retired.
 - Keep internal identity route constants in protocol exports (`INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH`) so service-to-service ownership checks stay synchronized.
 - Keep relay contract constants in protocol exports (`RELAY_CONNECT_PATH`, `RELAY_RECIPIENT_AGENT_DID_HEADER`) so connector and hook routing stay synchronized across apps.
 - Keep registration-proof canonicalization in protocol exports (`canonicalizeAgentRegistrationProof`) so CLI signing and registry verification use an identical message format.
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.
+- Keep pairing-acceptance queue contract in protocol exports (`pair.accepted`) so proxy producer and consumer share one payload parser/normalizer.
+- Parse and normalize pair-accepted payload values once in the protocol parser (DIDs, proxy origins, timestamp), require `responderProfile.proxyOrigin`, and pass normalized values downstream without duplicate re-validation in app layers.
+- Pair-accepted `eventTimestampUtc` parsing must enforce ISO-8601/RFC3339 shape and always normalize output to canonical UTC ISO (`toISOString`) so consumers never persist locale-dependent timestamp strings.
+- Keep trusted transport provenance constants for pair-accepted deliveries (`PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE`) in protocol exports so queue producers and consumers cannot drift.
+- Keep pair-accepted payload side-effect fields (`initiatorAgentDid`, `responderAgentDid`, `responderProfile`, `issuerProxyOrigin`, `eventTimestampUtc`) mandatory for trusted processing; do not replace them with UI-only text.
+- Keep pair-accepted user text optional (`message`) and non-empty when present; it is UX metadata only and must not drive trust or persistence decisions.
+- Keep static pair-accepted UX wording centralized in a single exported contract constant (`PAIR_ACCEPTED_NOTIFICATION_MESSAGE`) so proxy producers/tests stay in sync.
+- Treat blank pair-accepted `message` as absent metadata (not a parse failure) to prevent cosmetic text drift from blocking trusted pairing side effects.
 
 ## Testing
 - Add focused Vitest tests per helper module and one root export test in `src/index.test.ts`.

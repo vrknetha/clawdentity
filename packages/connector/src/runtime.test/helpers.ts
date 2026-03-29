@@ -50,7 +50,12 @@ export function createSandbox(): Sandbox {
   return {
     rootDir,
     cleanup: () => {
-      rmSync(rootDir, { force: true, recursive: true });
+      rmSync(rootDir, {
+        force: true,
+        recursive: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     },
   };
 }

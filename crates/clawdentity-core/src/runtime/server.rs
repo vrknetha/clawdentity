@@ -280,7 +280,7 @@ mod tests {
     use tower::ServiceExt;
 
     use crate::db::SqliteStore;
-    use crate::db_outbound::outbound_count;
+    use crate::db_outbound::{list_outbound, outbound_count};
 
     use super::{RuntimeServerState, create_runtime_router};
 
@@ -337,6 +337,38 @@ mod tests {
             .expect("response");
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         assert_eq!(outbound_count(&store).expect("count"), 1);
+    }
+
+    #[tokio::test]
+    async fn outbound_endpoint_persists_conversation_id_when_present() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+        let app = create_runtime_router(RuntimeServerState {
+            store: store.clone(),
+            relay_sender: None,
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/outbound")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"conversationId\":\"pair:conv-alpha-beta\",\"payload\":{\"hello\":\"world\"}}",
+                    ))
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+        let outbound = list_outbound(&store, 10).expect("outbound rows");
+        assert_eq!(outbound.len(), 1);
+        assert_eq!(
+            outbound[0].conversation_id.as_deref(),
+            Some("pair:conv-alpha-beta")
+        );
     }
 
     #[tokio::test]

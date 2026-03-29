@@ -8,10 +8,15 @@
 - Keep runtime config centralized in `src/config.ts`.
 - Keep Cloudflare Worker deployment config in `wrangler.jsonc` with explicit `local`, `dev`, and `production` environments.
 - Duplicate Durable Object `bindings` and `migrations` inside each Wrangler env block; env sections do not inherit top-level DO config.
+- Keep nonce replay protection globally consistent by binding `NONCE_REPLAY_GUARD` (class `NonceReplayGuard`) in top-level Wrangler config and in every env block (`local`, `dev`, `production`) with matching migration tags.
 - Keep deploy traceability explicit by passing `APP_VERSION` (or fallback `PROXY_VERSION`) via Worker bindings; `/health` must surface the resolved version.
 - Keep Wrangler observability logging enabled (`observability.enabled=true`, `logs.enabled=true`) so relay/auth failures are visible in Cloudflare logs.
 - Production must keep `invocation_logs=false` to reduce noisy request-volume logs while preserving structured warn/error events.
 - Keep `worker-configuration.d.ts` committed and regenerate with `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler types --env dev` (or `pnpm -F @clawdentity/proxy run types:dev`) after `wrangler.jsonc` or binding changes.
+- Keep proxy queue consumers scoped to queues this worker handles:
+  - `clawdentity-receipts*` for delivery receipt fan-in.
+  - `clawdentity-events*` for registry `agent.auth.revoked` and pairing `pair.accepted` propagation.
+- Keep revocation queue behavior strict: only `agent.auth.revoked` events with `data.reason=agent_revoked` and valid `data.metadata.agentDid` may mark trust-state revocation overlays.
 - Keep `src/worker.ts` in module-worker shape: export the fetch handler as the default export when this Worker owns Durable Objects, and keep any named `worker` export only as a test convenience.
 - Parse config with a schema and fail fast with `CONFIG_VALIDATION_FAILED` before startup proceeds.
 - Keep defaults explicit for non-secret settings (`listenPort`, `openclawBaseUrl`, `registryUrl`, CRL timings, stale behavior).
@@ -24,7 +29,11 @@
 - Keep trust-store backend policy environment-scoped:
   - `local`: allow in-memory trust-store fallback when `PROXY_TRUST_STATE` binding is unavailable.
   - `development` and `production`: require `PROXY_TRUST_STATE`; fail startup when missing.
-- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-on (`true`); disable only when operators need unchanged webhook `message` forwarding.
+- Keep nonce replay backend policy environment-scoped:
+  - `local`: allow in-memory nonce replay fallback when `NONCE_REPLAY_GUARD` binding is unavailable.
+  - `development` and `production`: require `NONCE_REPLAY_GUARD`; fail startup when missing.
+- Keep nonce replay runtime wiring explicit: pass `maxTimestampSkewSeconds` into nonce backend resolution and app auth config so fallback TTL behavior stays aligned if skew ever becomes configurable.
+- Keep `INJECT_IDENTITY_INTO_MESSAGE` explicit and default-off (`false`); enable it only for webhook consumers that require the prepended identity block in `payload.message`.
 - Keep OpenClaw base URL input (`OPENCLAW_BASE_URL`) optional for relay-mode startup.
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing proxy config fields (optional OpenClaw base URL, shared credentials, and policy/rate-limit vars).
 - Generate local `apps/proxy/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
@@ -59,6 +68,8 @@
   - `POST /pair/confirm` (verified Claw auth + one-time pairing ticket consume)
 - Pairing flow is single-proxy only: `POST /pair/confirm` must consume local tickets from trust state and never forward confirm requests.
 - Keep `/pair/confirm` as a single trust-store operation that establishes trust and consumes the ticket in one step (`confirmPairingTicket`), never two separate calls.
+- Keep callback-based pair completion removed: reject `callbackUrl` inputs and do not reintroduce callback POST behavior.
+- Keep pair completion queue-first: after `/pair/confirm` trust commit, publish `pair.accepted` to the events queue as best-effort and keep HTTP `201` success even if queue publish fails.
 - Confirming a valid pairing ticket must establish mutual trust for the initiator/responder agent pair.
 - Keep pairing tickets one-time and expiring; reject missing/expired/malformed tickets with explicit client errors.
 - Normalize pairing ticket expiry to whole seconds when persisting trust state (`exp` is second-granularity in ticket payload); do not reject valid tickets due millisecond offsets.
@@ -73,6 +84,8 @@
 - Reject malformed authorization values that contain extra segments beyond `Claw <AIT>`.
 - Reject malformed `X-Claw-Timestamp` values; accept only plain unix-seconds integer strings.
 - Verify request pipeline order as: AIT -> timestamp skew -> PoP signature -> nonce replay -> CRL revocation.
+- Keep nonce replay TTL aligned to timestamp skew (`maxTimestampSkewSeconds`) so replay dedup window matches accepted timestamp window.
+- Never fallback nonce replay TTL to `0`; when no request-scoped TTL is provided, use the default skew window (`DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS * 1000`).
 - Enforce known-agent access from durable trust state after auth verification (except pairing bootstrap paths).
 - When AIT verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning `401`.
 - When CRL verification fails with unknown `kid`, refresh registry keyset once and retry verification before returning dependency failure.

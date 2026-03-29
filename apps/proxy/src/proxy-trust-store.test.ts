@@ -1,10 +1,13 @@
 import { decodeBase64url, encodeBase64url } from "@clawdentity/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createPairingTicket,
   createPairingTicketSigningKey,
 } from "./pairing-ticket.js";
-import { createInMemoryProxyTrustStore } from "./proxy-trust-store.js";
+import {
+  createInMemoryProxyTrustStore,
+  REVOKED_AGENT_MARKER_TTL_MS,
+} from "./proxy-trust-store.js";
 
 const INITIATOR_PROFILE = {
   agentName: "alpha",
@@ -132,6 +135,35 @@ describe("in-memory proxy trust store", () => {
         "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT4TXP6AW5QNXA2Y9K43",
       ),
     ).toBe(false);
+  });
+
+  it("marks and checks revoked agents", async () => {
+    const store = createInMemoryProxyTrustStore();
+    const revokedAgentDid =
+      "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97";
+
+    expect(await store.isAgentRevoked(revokedAgentDid)).toBe(false);
+    await store.markAgentRevoked(revokedAgentDid);
+    expect(await store.isAgentRevoked(revokedAgentDid)).toBe(true);
+  });
+
+  it("expires revoked-agent overlays after TTL", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-01-01T00:00:00.000Z");
+      vi.setSystemTime(now);
+      const store = createInMemoryProxyTrustStore();
+      const revokedAgentDid =
+        "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT00EXEKCZ140TBBFB97";
+
+      await store.markAgentRevoked(revokedAgentDid);
+      expect(await store.isAgentRevoked(revokedAgentDid)).toBe(true);
+
+      vi.setSystemTime(now.getTime() + REVOKED_AGENT_MARKER_TTL_MS + 1);
+      expect(await store.isAgentRevoked(revokedAgentDid)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("confirms one-time pairing tickets and establishes trust", async () => {

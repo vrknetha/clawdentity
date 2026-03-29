@@ -9,3 +9,8 @@
 - Treat bracketed IPv6 loopback hosts (`[::1]`) as loopback everywhere URL helpers classify local origins.
 - Registry issuer normalization must stay side-effect free and must never guess public ports beyond what the forwarded/request origin already proves.
 - Shared forwarded-header and loopback-host helpers belong in `@clawdentity/common`; do not re-copy them into proxy-only files when the registry needs the same behavior.
+- Keep nonce replay checks async-safe in middleware (`await nonceCache.tryAcceptNonce(...)`) so Durable Object-backed nonce stores are fully enforced.
+- Keep nonce replay TTL tied to `maxTimestampSkewSeconds` (milliseconds) when calling nonce cache implementations.
+- Prefer `verifyHttpRequestWithReplayProtection` from `@clawdentity/sdk` for inbound proof auth so timestamp skew + signature + replay checks are enforced together in one call.
+- Keep proxy error mapping explicit when translating SDK proof errors into proxy auth error codes (`PROXY_AUTH_INVALID_TIMESTAMP`, `PROXY_AUTH_TIMESTAMP_SKEW`, `PROXY_AUTH_INVALID_NONCE`, `PROXY_AUTH_REPLAY`, `PROXY_AUTH_INVALID_PROOF`).
+- Keep revocation enforcement order explicit: trust-state revocation overlay check by agent DID before CRL/JTI polling checks.

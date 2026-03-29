@@ -4,11 +4,13 @@ use clap::Subcommand;
 
 pub mod connector;
 pub mod install;
+pub mod onboarding;
 pub mod pair;
 pub mod provider;
 pub mod verify;
 
 use crate::commands::connector::ConnectorCommand;
+use crate::commands::onboarding::OnboardingCommand;
 use crate::commands::pair::PairCommand;
 
 #[derive(Debug, Subcommand)]
@@ -49,6 +51,10 @@ pub enum Commands {
     Pair {
         #[command(subcommand)]
         command: PairCommand,
+    },
+    Onboarding {
+        #[command(subcommand)]
+        command: OnboardingCommand,
     },
     Provider {
         #[command(subcommand)]
@@ -184,6 +190,8 @@ pub enum ProviderCommand {
         platform: Option<String>,
         #[arg(long)]
         agent_name: Option<String>,
+        #[arg(long)]
+        openclaw_agent_id: Option<String>,
         #[arg(long)]
         platform_base_url: Option<String>,
         #[arg(long)]

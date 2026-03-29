@@ -13,7 +13,7 @@ import {
   createNonceCache,
   verifyAIT,
   verifyCRL,
-  verifyHttpRequest,
+  verifyHttpRequestWithReplayProtection,
 } from "@clawdentity/sdk";
 import { createMiddleware } from "hono/factory";
 import { assertKnownTrustedAgent } from "../trust-policy.js";
@@ -27,11 +27,8 @@ import {
   toVerificationKeys,
 } from "./registry-keys.js";
 import {
-  assertTimestampWithinSkew,
   parseAgentAccessHeader,
   parseClawAuthorizationHeader,
-  parseUnixTimestamp,
-  toProofVerificationInput,
 } from "./request-auth.js";
 import {
   DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS,
@@ -54,12 +51,78 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function mapProofVerificationError(options: {
+  error: unknown;
+  maxTimestampSkewSeconds: number;
+}): AppError {
+  const { error, maxTimestampSkewSeconds } = options;
+  if (error instanceof AppError) {
+    if (
+      error.code === "HTTP_SIGNATURE_INVALID_TIMESTAMP" ||
+      (error.code === "HTTP_SIGNATURE_INVALID_INPUT" &&
+        error.details?.field === "X-Claw-Timestamp")
+    ) {
+      return unauthorizedError({
+        code: "PROXY_AUTH_INVALID_TIMESTAMP",
+        message:
+          error.code === "HTTP_SIGNATURE_INVALID_TIMESTAMP"
+            ? error.message
+            : "X-Claw-Timestamp header is required",
+      });
+    }
+
+    if (error.code === "HTTP_SIGNATURE_TIMESTAMP_SKEW") {
+      return unauthorizedError({
+        code: "PROXY_AUTH_TIMESTAMP_SKEW",
+        message: error.message,
+        details: {
+          maxSkewSeconds: maxTimestampSkewSeconds,
+        },
+      });
+    }
+
+    if (error.code === "HTTP_SIGNATURE_REPLAY_DETECTED") {
+      return unauthorizedError({
+        code: "PROXY_AUTH_REPLAY",
+        message: "Replay detected",
+      });
+    }
+
+    if (
+      error.code === "HTTP_SIGNATURE_NONCE_CHECK_FAILED" ||
+      (error.code === "HTTP_SIGNATURE_INVALID_INPUT" &&
+        error.details?.field === "X-Claw-Nonce")
+    ) {
+      return unauthorizedError({
+        code: "PROXY_AUTH_INVALID_NONCE",
+        message: "Nonce validation failed",
+        details: {
+          reason: toErrorMessage(error),
+        },
+      });
+    }
+  }
+
+  return unauthorizedError({
+    code: "PROXY_AUTH_INVALID_PROOF",
+    message: "PoP verification failed",
+    details: {
+      reason: toErrorMessage(error),
+    },
+  });
+}
+
 export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const clock = options.clock ?? Date.now;
-  const nonceCache = options.nonceCache ?? createNonceCache();
   const maxTimestampSkewSeconds =
     options.maxTimestampSkewSeconds ?? DEFAULT_MAX_TIMESTAMP_SKEW_SECONDS;
+  const nonceCache =
+    options.nonceCache ??
+    createNonceCache({
+      clock,
+      ttlMs: maxTimestampSkewSeconds * 1000,
+    });
   const registryKeysCacheTtlMs =
     options.registryKeysCacheTtlMs ?? DEFAULT_REGISTRY_KEYS_CACHE_TTL_MS;
   const registryUrl = normalizeRegistryUrl(options.config.registryUrl);
@@ -252,20 +315,6 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       const token = parseClawAuthorizationHeader(authorizationHeader);
       const claims = await verifyAitClaims(token, c.req.raw);
 
-      const timestampHeader = c.req.header("x-claw-timestamp");
-      if (typeof timestampHeader !== "string") {
-        throw unauthorizedError({
-          code: "PROXY_AUTH_INVALID_TIMESTAMP",
-          message: "X-Claw-Timestamp header is required",
-        });
-      }
-
-      assertTimestampWithinSkew({
-        clock,
-        maxSkewSeconds: maxTimestampSkewSeconds,
-        timestampSeconds: parseUnixTimestamp(timestampHeader),
-      });
-
       const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
       const pathWithQuery = toPathWithQuery(c.req.url);
 
@@ -283,48 +332,47 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       }
 
       try {
-        await verifyHttpRequest(
-          toProofVerificationInput({
-            method: c.req.method,
-            pathWithQuery,
-            headers: c.req.raw.headers,
-            body: bodyBytes,
-            publicKey: cnfPublicKey,
-          }),
+        await verifyHttpRequestWithReplayProtection({
+          method: c.req.method,
+          pathWithQuery,
+          headers: Object.fromEntries(c.req.raw.headers.entries()),
+          body: bodyBytes,
+          publicKey: cnfPublicKey,
+          nowMs: clock(),
+          maxTimestampSkewSeconds,
+          agentDid: claims.sub,
+          nonceTtlMs: maxTimestampSkewSeconds * 1000,
+          nonceChecker: {
+            tryAcceptNonce(input) {
+              return nonceCache.tryAcceptNonce(input);
+            },
+          },
+        });
+      } catch (error) {
+        throw mapProofVerificationError({
+          error,
+          maxTimestampSkewSeconds,
+        });
+      }
+
+      let isRevokedByTrustState: boolean;
+      try {
+        isRevokedByTrustState = await options.trustStore.isAgentRevoked(
+          claims.sub,
         );
       } catch (error) {
-        throw unauthorizedError({
-          code: "PROXY_AUTH_INVALID_PROOF",
-          message: "PoP verification failed",
+        throw dependencyUnavailableError({
+          message: "Proxy trust state is unavailable",
           details: {
             reason: toErrorMessage(error),
           },
         });
       }
 
-      const nonceHeader = c.req.header("x-claw-nonce");
-      const nonce = typeof nonceHeader === "string" ? nonceHeader : "";
-      const nonceResult = (() => {
-        try {
-          return nonceCache.tryAcceptNonce({
-            agentDid: claims.sub,
-            nonce,
-          });
-        } catch (error) {
-          throw unauthorizedError({
-            code: "PROXY_AUTH_INVALID_NONCE",
-            message: "Nonce validation failed",
-            details: {
-              reason: toErrorMessage(error),
-            },
-          });
-        }
-      })();
-
-      if (!nonceResult.accepted) {
+      if (isRevokedByTrustState) {
         throw unauthorizedError({
-          code: "PROXY_AUTH_REPLAY",
-          message: "Replay detected",
+          code: "PROXY_AUTH_REVOKED",
+          message: "Agent has been revoked",
         });
       }
 

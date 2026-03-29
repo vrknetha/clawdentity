@@ -1,4 +1,10 @@
-import type { ConnectorFrame, DeliverFrame, EnqueueFrame } from "../frames.js";
+import type {
+  ConnectorFrame,
+  DeliverFrame,
+  EnqueueFrame,
+  ReceiptFrame,
+} from "../frames.js";
+import type { OpenclawSenderProfile } from "../openclaw-headers.js";
 
 export type ConnectorWebSocketEventType =
   | "open"
@@ -33,6 +39,7 @@ export type ConnectorClientHooks = {
   onFrame?: (frame: ConnectorFrame) => void;
   onDeliverSucceeded?: (frame: DeliverFrame) => void;
   onDeliverFailed?: (frame: DeliverFrame, error: unknown) => void;
+  onReceipt?: (frame: ReceiptFrame) => void | Promise<void>;
 };
 
 export type ConnectorOutboundQueuePersistence = {
@@ -101,6 +108,14 @@ export type ConnectorClientOptions = {
   outboundQueuePersistence?: ConnectorOutboundQueuePersistence;
   inboundDeliverHandler?:
     | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
+    | undefined;
+  resolveInboundSenderProfile?:
+    | ((
+        fromAgentDid: string,
+      ) =>
+        | OpenclawSenderProfile
+        | Promise<OpenclawSenderProfile | undefined>
+        | undefined)
     | undefined;
   now?: () => number;
   random?: () => number;

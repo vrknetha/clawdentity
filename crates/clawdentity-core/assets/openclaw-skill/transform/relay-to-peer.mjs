@@ -5,6 +5,7 @@ var __export = (target, all) => {
 };
 
 // src/transforms/relay-to-peer.ts
+import { createHash } from "crypto";
 import { readFile as readFile2 } from "fs/promises";
 import { dirname as dirname2, isAbsolute, join as join3 } from "path";
 import { fileURLToPath } from "url";
@@ -14,10 +15,147 @@ function isRecord(value) {
   return typeof value === "object" && value !== null;
 }
 
-// src/transforms/peers-config.ts
-import { chmod, mkdir, readFile, writeFile } from "fs/promises";
-import { homedir } from "os";
-import { dirname, join as join2 } from "path";
+// ../../packages/protocol/src/errors.ts
+var ProtocolParseError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(message);
+    this.name = "ProtocolParseError";
+    this.code = code;
+  }
+};
+
+// ../../node_modules/.pnpm/ulid@3.0.2/node_modules/ulid/dist/node/index.js
+import crypto from "crypto";
+var ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+var ENCODING_LEN = 32;
+var RANDOM_LEN = 16;
+var TIME_LEN = 10;
+var TIME_MAX = 281474976710655;
+var ULIDErrorCode;
+(function(ULIDErrorCode2) {
+  ULIDErrorCode2["Base32IncorrectEncoding"] = "B32_ENC_INVALID";
+  ULIDErrorCode2["DecodeTimeInvalidCharacter"] = "DEC_TIME_CHAR";
+  ULIDErrorCode2["DecodeTimeValueMalformed"] = "DEC_TIME_MALFORMED";
+  ULIDErrorCode2["EncodeTimeNegative"] = "ENC_TIME_NEG";
+  ULIDErrorCode2["EncodeTimeSizeExceeded"] = "ENC_TIME_SIZE_EXCEED";
+  ULIDErrorCode2["EncodeTimeValueMalformed"] = "ENC_TIME_MALFORMED";
+  ULIDErrorCode2["PRNGDetectFailure"] = "PRNG_DETECT";
+  ULIDErrorCode2["ULIDInvalid"] = "ULID_INVALID";
+  ULIDErrorCode2["Unexpected"] = "UNEXPECTED";
+  ULIDErrorCode2["UUIDInvalid"] = "UUID_INVALID";
+})(ULIDErrorCode || (ULIDErrorCode = {}));
+var ULIDError = class extends Error {
+  constructor(errorCode, message) {
+    super(`${message} (${errorCode})`);
+    this.name = "ULIDError";
+    this.code = errorCode;
+  }
+};
+function decodeTime(id) {
+  if (id.length !== TIME_LEN + RANDOM_LEN) {
+    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, "Malformed ULID");
+  }
+  const time3 = id.substr(0, TIME_LEN).toUpperCase().split("").reverse().reduce((carry, char, index) => {
+    const encodingIndex = ENCODING.indexOf(char);
+    if (encodingIndex === -1) {
+      throw new ULIDError(ULIDErrorCode.DecodeTimeInvalidCharacter, `Time decode error: Invalid character: ${char}`);
+    }
+    return carry += encodingIndex * Math.pow(ENCODING_LEN, index);
+  }, 0);
+  if (time3 > TIME_MAX) {
+    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, `Malformed ULID: timestamp too large: ${time3}`);
+  }
+  return time3;
+}
+function isValid(id) {
+  return typeof id === "string" && id.length === TIME_LEN + RANDOM_LEN && id.toUpperCase().split("").every((char) => ENCODING.indexOf(char) !== -1);
+}
+
+// ../../packages/protocol/src/ulid.ts
+var ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+function invalidUlid(value) {
+  return new ProtocolParseError("INVALID_ULID", `Invalid ULID: ${value}`);
+}
+function parseUlid(value) {
+  if (!ULID_PATTERN.test(value) || !isValid(value)) {
+    throw invalidUlid(value);
+  }
+  return {
+    value,
+    timestampMs: decodeTime(value)
+  };
+}
+
+// ../../packages/protocol/src/did.ts
+var DID_METHOD = "cdi";
+var MAX_AUTHORITY_LENGTH = 253;
+var DNS_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+function invalidDid(value) {
+  return new ProtocolParseError("INVALID_DID", `Invalid DID: ${value}`);
+}
+function ensureDidUlid(value, didValue) {
+  try {
+    parseUlid(value);
+  } catch {
+    throw invalidDid(didValue);
+  }
+}
+function ensureDidAuthority(authority, didValue) {
+  if (authority.length === 0 || authority.length > MAX_AUTHORITY_LENGTH) {
+    throw invalidDid(didValue);
+  }
+  const labels = authority.split(".");
+  if (labels.length < 2) {
+    throw invalidDid(didValue);
+  }
+  for (const label of labels) {
+    if (!DNS_LABEL_REGEX.test(label)) {
+      throw invalidDid(didValue);
+    }
+  }
+}
+function parseDid(value) {
+  const parts = value.split(":");
+  if (parts.length !== 5) {
+    throw invalidDid(value);
+  }
+  const [scheme, method, rawAuthority, rawEntity, rawUlid] = parts;
+  if (scheme !== "did" || method !== DID_METHOD) {
+    throw invalidDid(value);
+  }
+  ensureDidAuthority(rawAuthority, value);
+  if (rawEntity !== "human" && rawEntity !== "agent") {
+    throw invalidDid(value);
+  }
+  ensureDidUlid(rawUlid, value);
+  return {
+    method: DID_METHOD,
+    authority: rawAuthority,
+    entity: rawEntity,
+    ulid: rawUlid
+  };
+}
+function parseAgentDid(value) {
+  const parsed = parseDid(value);
+  if (parsed.entity !== "agent") {
+    throw invalidDid(value);
+  }
+  return {
+    ...parsed,
+    entity: "agent"
+  };
+}
+function parseHumanDid(value) {
+  const parsed = parseDid(value);
+  if (parsed.entity !== "human") {
+    throw invalidDid(value);
+  }
+  return {
+    ...parsed,
+    entity: "human"
+  };
+}
 
 // ../../packages/protocol/src/agent-registration-proof.ts
 var AGENT_REGISTRATION_PROOF_VERSION = "clawdentity.register.v1";
@@ -255,7 +393,7 @@ __export(external_exports, {
   tuple: () => tuple,
   uint32: () => uint32,
   uint64: () => uint64,
-  ulid: () => ulid2,
+  ulid: () => ulid3,
   undefined: () => _undefined3,
   union: () => union,
   unknown: () => unknown,
@@ -1579,7 +1717,7 @@ __export(regexes_exports, {
   sha512_hex: () => sha512_hex,
   string: () => string,
   time: () => time,
-  ulid: () => ulid,
+  ulid: () => ulid2,
   undefined: () => _undefined,
   unicodeEmail: () => unicodeEmail,
   uppercase: () => uppercase,
@@ -1591,7 +1729,7 @@ __export(regexes_exports, {
 });
 var cuid = /^[cC][^\s-]{8,}$/;
 var cuid2 = /^[0-9a-z]+$/;
-var ulid = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
+var ulid2 = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
 var xid = /^[0-9a-vA-V]{20}$/;
 var ksuid = /^[A-Za-z0-9]{27}$/;
 var nanoid = /^[a-zA-Z0-9_-]{21}$/;
@@ -2505,7 +2643,7 @@ var $ZodCUID2 = /* @__PURE__ */ $constructor("$ZodCUID2", (inst, def) => {
   $ZodStringFormat.init(inst, def);
 });
 var $ZodULID = /* @__PURE__ */ $constructor("$ZodULID", (inst, def) => {
-  def.pattern ?? (def.pattern = ulid);
+  def.pattern ?? (def.pattern = ulid2);
   $ZodStringFormat.init(inst, def);
 });
 var $ZodXID = /* @__PURE__ */ $constructor("$ZodXID", (inst, def) => {
@@ -12048,7 +12186,7 @@ __export(schemas_exports2, {
   tuple: () => tuple,
   uint32: () => uint32,
   uint64: () => uint64,
-  ulid: () => ulid2,
+  ulid: () => ulid3,
   undefined: () => _undefined3,
   union: () => union,
   unknown: () => unknown,
@@ -12413,7 +12551,7 @@ var ZodULID = /* @__PURE__ */ $constructor("ZodULID", (inst, def) => {
   $ZodULID.init(inst, def);
   ZodStringFormat.init(inst, def);
 });
-function ulid2(params) {
+function ulid3(params) {
   return _ulid(ZodULID, params);
 }
 var ZodXID = /* @__PURE__ */ $constructor("ZodXID", (inst, def) => {
@@ -13950,16 +14088,6 @@ function radix2(bits, revPadding = false) {
 }
 var base64urlnopad = /* @__PURE__ */ chain(/* @__PURE__ */ radix2(6), /* @__PURE__ */ alphabet("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"), /* @__PURE__ */ join(""));
 
-// ../../packages/protocol/src/errors.ts
-var ProtocolParseError = class extends Error {
-  code;
-  constructor(code, message) {
-    super(message);
-    this.name = "ProtocolParseError";
-    this.code = code;
-  }
-};
-
 // ../../packages/protocol/src/base64url.ts
 function invalidBase64url(input) {
   return new ProtocolParseError(
@@ -13976,138 +14104,6 @@ function decodeBase64url(input) {
   } catch {
     throw invalidBase64url(input);
   }
-}
-
-// ../../node_modules/.pnpm/ulid@3.0.2/node_modules/ulid/dist/node/index.js
-import crypto from "crypto";
-var ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
-var ENCODING_LEN = 32;
-var RANDOM_LEN = 16;
-var TIME_LEN = 10;
-var TIME_MAX = 281474976710655;
-var ULIDErrorCode;
-(function(ULIDErrorCode2) {
-  ULIDErrorCode2["Base32IncorrectEncoding"] = "B32_ENC_INVALID";
-  ULIDErrorCode2["DecodeTimeInvalidCharacter"] = "DEC_TIME_CHAR";
-  ULIDErrorCode2["DecodeTimeValueMalformed"] = "DEC_TIME_MALFORMED";
-  ULIDErrorCode2["EncodeTimeNegative"] = "ENC_TIME_NEG";
-  ULIDErrorCode2["EncodeTimeSizeExceeded"] = "ENC_TIME_SIZE_EXCEED";
-  ULIDErrorCode2["EncodeTimeValueMalformed"] = "ENC_TIME_MALFORMED";
-  ULIDErrorCode2["PRNGDetectFailure"] = "PRNG_DETECT";
-  ULIDErrorCode2["ULIDInvalid"] = "ULID_INVALID";
-  ULIDErrorCode2["Unexpected"] = "UNEXPECTED";
-  ULIDErrorCode2["UUIDInvalid"] = "UUID_INVALID";
-})(ULIDErrorCode || (ULIDErrorCode = {}));
-var ULIDError = class extends Error {
-  constructor(errorCode, message) {
-    super(`${message} (${errorCode})`);
-    this.name = "ULIDError";
-    this.code = errorCode;
-  }
-};
-function decodeTime(id) {
-  if (id.length !== TIME_LEN + RANDOM_LEN) {
-    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, "Malformed ULID");
-  }
-  const time3 = id.substr(0, TIME_LEN).toUpperCase().split("").reverse().reduce((carry, char, index) => {
-    const encodingIndex = ENCODING.indexOf(char);
-    if (encodingIndex === -1) {
-      throw new ULIDError(ULIDErrorCode.DecodeTimeInvalidCharacter, `Time decode error: Invalid character: ${char}`);
-    }
-    return carry += encodingIndex * Math.pow(ENCODING_LEN, index);
-  }, 0);
-  if (time3 > TIME_MAX) {
-    throw new ULIDError(ULIDErrorCode.DecodeTimeValueMalformed, `Malformed ULID: timestamp too large: ${time3}`);
-  }
-  return time3;
-}
-function isValid(id) {
-  return typeof id === "string" && id.length === TIME_LEN + RANDOM_LEN && id.toUpperCase().split("").every((char) => ENCODING.indexOf(char) !== -1);
-}
-
-// ../../packages/protocol/src/ulid.ts
-var ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
-function invalidUlid(value) {
-  return new ProtocolParseError("INVALID_ULID", `Invalid ULID: ${value}`);
-}
-function parseUlid(value) {
-  if (!ULID_PATTERN.test(value) || !isValid(value)) {
-    throw invalidUlid(value);
-  }
-  return {
-    value,
-    timestampMs: decodeTime(value)
-  };
-}
-
-// ../../packages/protocol/src/did.ts
-var DID_METHOD = "cdi";
-var MAX_AUTHORITY_LENGTH = 253;
-var DNS_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-function invalidDid(value) {
-  return new ProtocolParseError("INVALID_DID", `Invalid DID: ${value}`);
-}
-function ensureDidUlid(value, didValue) {
-  try {
-    parseUlid(value);
-  } catch {
-    throw invalidDid(didValue);
-  }
-}
-function ensureDidAuthority(authority, didValue) {
-  if (authority.length === 0 || authority.length > MAX_AUTHORITY_LENGTH) {
-    throw invalidDid(didValue);
-  }
-  const labels = authority.split(".");
-  if (labels.length < 2) {
-    throw invalidDid(didValue);
-  }
-  for (const label of labels) {
-    if (!DNS_LABEL_REGEX.test(label)) {
-      throw invalidDid(didValue);
-    }
-  }
-}
-function parseDid(value) {
-  const parts = value.split(":");
-  if (parts.length !== 5) {
-    throw invalidDid(value);
-  }
-  const [scheme, method, rawAuthority, rawEntity, rawUlid] = parts;
-  if (scheme !== "did" || method !== DID_METHOD) {
-    throw invalidDid(value);
-  }
-  ensureDidAuthority(rawAuthority, value);
-  if (rawEntity !== "human" && rawEntity !== "agent") {
-    throw invalidDid(value);
-  }
-  ensureDidUlid(rawUlid, value);
-  return {
-    method: DID_METHOD,
-    authority: rawAuthority,
-    entity: rawEntity,
-    ulid: rawUlid
-  };
-}
-function parseAgentDid(value) {
-  const parsed = parseDid(value);
-  if (parsed.entity !== "agent") {
-    throw invalidDid(value);
-  }
-  return {
-    ...parsed,
-    entity: "agent"
-  };
-}
-function parseHumanDid(value) {
-  const parsed = parseDid(value);
-  if (parsed.entity !== "human") {
-    throw invalidDid(value);
-  }
-  return {
-    ...parsed,
-    entity: "human"
-  };
 }
 
 // ../../packages/protocol/src/text.ts
@@ -14333,6 +14329,9 @@ var crlClaimsSchema = external_exports.object({
 });
 
 // src/transforms/peers-config.ts
+import { chmod, mkdir, readFile, writeFile } from "fs/promises";
+import { homedir } from "os";
+import { dirname, join as join2 } from "path";
 var CLAWDENTITY_DIR = ".clawdentity";
 var PEERS_FILENAME = "peers.json";
 var PEER_ALIAS_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -14480,6 +14479,13 @@ function parseRequiredString(value) {
   }
   return trimmed;
 }
+function parseOptionalString(value) {
+  if (typeof value !== "string") {
+    return void 0;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : void 0;
+}
 function removePeerField(payload) {
   const outbound = {};
   for (const [key, value] of Object.entries(payload)) {
@@ -14544,16 +14550,31 @@ function parseRelayRuntimeConfig(value) {
   const connectorBaseUrl = typeof value.connectorBaseUrl === "string" && value.connectorBaseUrl.trim().length > 0 ? parseConnectorBaseUrl(value.connectorBaseUrl.trim()) : void 0;
   const connectorPath = typeof value.connectorPath === "string" && value.connectorPath.trim().length > 0 ? normalizeConnectorPath(value.connectorPath) : void 0;
   const peersConfigPath = typeof value.peersConfigPath === "string" && value.peersConfigPath.trim().length > 0 ? value.peersConfigPath.trim() : void 0;
+  const localAgentDid = parseOptionalString(value.localAgentDid);
+  if (localAgentDid) {
+    try {
+      parseAgentDid(localAgentDid);
+    } catch {
+      throw new Error("Relay runtime config localAgentDid is invalid");
+    }
+  }
   const connectorBaseUrls = Array.isArray(value.connectorBaseUrls) ? value.connectorBaseUrls.filter((item) => typeof item === "string").map((item) => item.trim()).filter((item) => item.length > 0).map(parseConnectorBaseUrl) : void 0;
   return {
     connectorBaseUrl,
     connectorBaseUrls,
     connectorPath,
+    localAgentDid,
     peersConfigPath
   };
 }
-async function loadRelayRuntimeConfig() {
-  const runtimePath = join3(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+function resolveRuntimeConfigPath(options = {}) {
+  if (typeof options.runtimeConfigPath === "string" && options.runtimeConfigPath.trim().length > 0) {
+    return options.runtimeConfigPath.trim();
+  }
+  return join3(resolveTransformsDir(), RELAY_RUNTIME_FILE_NAME);
+}
+async function loadRelayRuntimeConfig(options = {}) {
+  const runtimePath = resolveRuntimeConfigPath(options);
   const parsed = await readJson(runtimePath);
   if (parsed === void 0) {
     return {};
@@ -14592,7 +14613,7 @@ async function resolveLinuxDockerGatewayHost() {
   return void 0;
 }
 async function resolveConnectorEndpoints(options) {
-  const runtimeConfig = await loadRelayRuntimeConfig();
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
   const pathInput = options.connectorPath ?? runtimeConfig.connectorPath ?? process.env.CLAWDENTITY_CONNECTOR_OUTBOUND_PATH ?? DEFAULT_CONNECTOR_OUTBOUND_PATH;
   const path = normalizeConnectorPath(pathInput.trim());
   const candidates = [];
@@ -14666,7 +14687,7 @@ async function resolvePeersConfigPathOptions(options) {
   if (options.configPath !== void 0 || options.configDir !== void 0 || options.homeDir !== void 0) {
     return options;
   }
-  const runtimeConfig = await loadRelayRuntimeConfig();
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
   if (runtimeConfig.peersConfigPath) {
     return {
       configPath: isAbsolute(runtimeConfig.peersConfigPath) ? runtimeConfig.peersConfigPath : join3(resolveTransformsDir(), runtimeConfig.peersConfigPath)
@@ -14675,6 +14696,30 @@ async function resolvePeersConfigPathOptions(options) {
   return {
     configPath: join3(resolveTransformsDir(), RELAY_PEERS_FILE_NAME)
   };
+}
+async function readLocalAgentDidFromRuntime(options) {
+  const runtimeConfig = await loadRelayRuntimeConfig(options);
+  return runtimeConfig.localAgentDid;
+}
+function buildDeterministicConversationId(localAgentDid, peerDid) {
+  const seed = [localAgentDid, peerDid].sort().join("\n");
+  const digest = createHash("sha256").update(seed, "utf8").digest("hex");
+  return `pair:${digest}`;
+}
+async function resolveRelayConversationId(input) {
+  const explicitConversationId = parseOptionalString(
+    input.payload.conversationId
+  );
+  if (explicitConversationId) {
+    return explicitConversationId;
+  }
+  const localAgentDid = await readLocalAgentDidFromRuntime(input.options);
+  if (!localAgentDid) {
+    throw new Error(
+      "OpenClaw relay runtime is missing localAgentDid. Re-run `clawdentity provider setup --for openclaw --agent-name <agent-name>`."
+    );
+  }
+  return buildDeterministicConversationId(localAgentDid, input.peerDid);
 }
 async function relayPayloadToPeer(payload, options = {}) {
   if (!isRecord(payload)) {
@@ -14694,7 +14739,13 @@ async function relayPayloadToPeer(payload, options = {}) {
   const connectorEndpoints = await resolveConnectorEndpoints(options);
   const fetchImpl = resolveRelayFetch(options.fetchImpl);
   const outboundPayload = removePeerField(payload);
+  const conversationId = await resolveRelayConversationId({
+    options,
+    payload,
+    peerDid: peerEntry.did
+  });
   const relayPayload = {
+    conversationId,
     peer: peerAlias,
     peerDid: peerEntry.did,
     peerProxyUrl: peerEntry.proxyUrl,

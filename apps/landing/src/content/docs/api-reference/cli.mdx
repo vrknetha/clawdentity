@@ -202,6 +202,7 @@ Configures provider runtime integration (paths, webhook settings, connector opti
 clawdentity provider setup \
   --for <platform> \
   [--agent-name <name>] \
+  [--openclaw-agent-id <id>] \
   [--platform-base-url <url>] \
   [--webhook-host <host>] \
   [--webhook-port <port>] \
@@ -211,6 +212,10 @@ clawdentity provider setup \
   [--relay-transform-peers-path <path>] \
   [--json]
 ```
+
+OpenClaw-specific setup options:
+- `--openclaw-agent-id <id>` — target OpenClaw agent ID used for connector delivery on default `/hooks/agent` routing; defaults to `main` and is validated against OpenClaw config during setup
+- If you explicitly switch connector delivery to `/hooks/wake`, `openclawAgentId` is ignored for that wake-only path
 
 ### `provider doctor`
 

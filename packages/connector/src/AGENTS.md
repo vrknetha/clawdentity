@@ -5,7 +5,7 @@
 - Keep `client.ts` as the stable public surface (`ConnectorClient` + exported client types) and route internal concerns through `client/` modules:
   - `client/types.ts` for externally consumed client types.
   - `client/helpers.ts` for shared pure helpers (event parsing, sanitization, normalization).
-  - `client/inbound.ts` for parsed frame dispatch orchestration (`heartbeat`, `heartbeat_ack`, `deliver`).
+  - `client/inbound.ts` for parsed frame dispatch orchestration (`heartbeat`, `heartbeat_ack`, `deliver`, `receipt`).
   - `client/metrics.ts` for websocket uptime/reconnect and inbound ack-latency tracking.
   - `client/retry.ts` for reusable backoff math.
   - `client/heartbeat.ts` for heartbeat scheduling, ack tracking, and RTT metrics.
@@ -67,7 +67,8 @@
   - `POST /v1/inbound/dead-letter/replay`
   - `POST /v1/inbound/dead-letter/purge`
 - For dead-letter replay/purge targeting, treat omitted `requestIds` as "all", but treat `requestIds: []` (or empty after sanitization) as a no-op.
-- For replay delivery callbacks, post signed receipts to peer proxies using `replyTo` with statuses `processed_by_openclaw` and `dead_lettered`, but only when `replyTo` points to trusted peer proxy origins and the relay receipt path.
+- For replay delivery callbacks, post signed receipts directly to the validated `replyTo` target (`/v1/relay/delivery-receipts`) and enforce trusted origin checks before sending.
+- Receipt frame status values remain `processed_by_openclaw` and `dead_lettered`; do not widen status enums without coordinated proxy/runtime changes.
 
 ## WebSocket Resilience Rules
 - Keep websocket reconnect behavior centralized in `client.ts` (single cleanup path for close/error/unexpected-response/timeout).
@@ -78,11 +79,14 @@
 - Keep outbound enqueue buffering durable when configured via `outboundQueuePersistence`; load once before replaying queued frames and persist on enqueue/dequeue transitions.
 - Keep websocket/client metrics in `ConnectorClient` (`getMetricsSnapshot`) so runtime health does not recompute transport stats ad hoc.
 - Keep local OpenClaw hook auth rejection (`401/403`) retryable in connector delivery paths so token rotation windows do not permanently fail deliveries.
-- Keep structured identity headers on connector hook delivery requests (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`) in both runtime replay and direct client-delivery modes.
+- Keep structured identity headers on connector hook delivery requests in both runtime replay and direct client-delivery modes:
+  - required: `x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`
+  - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-human-name` (omit when unknown)
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules
 - `inbound-inbox.test.ts` must cover SQLite persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, dead-letter purge, event pruning, corrupt-db recovery, and transaction rollback.
+- Runtime sandbox test helpers must clean temporary directories with retry-aware recursive removal (`maxRetries`/`retryDelay`) to avoid ENOTEMPTY flake while receipt-outbox files are settling.
 - `client.test/*.test.ts` must stay split by concern (for example delivery/heartbeat, reconnect lifecycle, outbound queue) to keep each test file focused and easy to maintain.
 - `client.test/*.test.ts` must cover both delivery modes:
   - direct local OpenClaw delivery fallback

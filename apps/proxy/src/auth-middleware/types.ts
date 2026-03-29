@@ -1,7 +1,8 @@
 import type {
   CrlCache,
   Logger,
-  NonceCache,
+  NonceCacheInput,
+  NonceCacheResult,
   RequestContextVariables,
 } from "@clawdentity/sdk";
 import type { ProxyConfig } from "../config.js";
@@ -39,13 +40,27 @@ export type ProxyRequestVariables = RequestContextVariables & {
   auth?: ProxyAuthContext;
 };
 
+export type ProxyNonceCacheInput = NonceCacheInput & {
+  ttlMs?: number;
+  nowMs?: number;
+};
+
+export type ProxyNonceCacheResult = NonceCacheResult;
+
+export interface ProxyNonceCache {
+  tryAcceptNonce(
+    input: ProxyNonceCacheInput,
+  ): ProxyNonceCacheResult | Promise<ProxyNonceCacheResult>;
+  purgeExpired?: () => void | Promise<void>;
+}
+
 export type ProxyAuthMiddlewareOptions = {
   config: ProxyConfig;
   logger: Logger;
   trustStore: ProxyTrustStore;
   fetchImpl?: typeof fetch;
   clock?: () => number;
-  nonceCache?: NonceCache;
+  nonceCache?: ProxyNonceCache;
   crlCache?: CrlCache;
   maxTimestampSkewSeconds?: number;
   registryKeysCacheTtlMs?: number;

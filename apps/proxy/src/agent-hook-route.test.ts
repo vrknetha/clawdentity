@@ -125,6 +125,8 @@ function createHookRouteApp(input: {
     createPairingTicket: vi.fn(),
     confirmPairingTicket: vi.fn(),
     getPairingTicketStatus: vi.fn(),
+    markAgentRevoked: vi.fn(async () => {}),
+    isAgentRevoked: vi.fn(async () => false),
     isAgentKnown: vi.fn(async () => true),
     isPairAllowed: vi.fn(
       async (pair) =>
@@ -244,6 +246,31 @@ describe("POST /hooks/agent", () => {
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
     expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
+  });
+
+  it("keeps message payload unchanged by default", async () => {
+    const relayHarness = createRelayHarness();
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({
+        message: "Summarize this payload",
+      }),
+    });
+
+    expect(response.status).toBe(202);
+    const [relayInput] = relayHarness.receivedInputs;
+    expect(relayInput.payload).toEqual({
+      message: "Summarize this payload",
+    });
   });
 
   it("prepends sanitized identity block when message injection is enabled", async () => {

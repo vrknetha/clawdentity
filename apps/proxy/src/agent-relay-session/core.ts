@@ -16,6 +16,7 @@ import {
 import { RelayDeliveryTransport } from "./delivery.js";
 import { RelayQueueFullError } from "./errors.js";
 import {
+  toReceiptFramePayload,
   toRelayDeliveryInputFromEnqueueFrame,
   toRelayDeliveryResult,
 } from "./frames.js";
@@ -269,6 +270,7 @@ export class AgentRelaySession {
       requestId: input.requestId,
       senderAgentDid: input.senderAgentDid,
       recipientAgentDid: input.recipientAgentDid,
+      deliverySource: input.deliverySource,
       conversationId: input.conversationId,
       replyTo: input.replyTo,
       payload: input.payload,
@@ -305,23 +307,45 @@ export class AgentRelaySession {
     const nowMs = nowUtcMs();
     const queueState = await this.queueManager.loadQueueState(nowMs);
     const existing = queueState.receipts[input.requestId];
-    if (existing === undefined) {
-      return;
-    }
-
     if (
-      existing.senderAgentDid !== input.senderAgentDid ||
-      existing.recipientAgentDid !== input.recipientAgentDid
+      existing !== undefined &&
+      (existing.senderAgentDid !== input.senderAgentDid ||
+        existing.recipientAgentDid !== input.recipientAgentDid)
     ) {
       return;
     }
 
-    existing.state = input.status;
-    existing.reason = input.reason;
-    existing.expiresAtMs = nowMs + this.deliveryPolicy.queueTtlMs;
-    existing.statusUpdatedAt = toIso(nowMs);
+    const previousState = existing?.state;
+    const previousReason = existing?.reason;
+
+    const receipt =
+      existing ??
+      ({
+        deliveryId: generateUlid(nowMs),
+        requestId: input.requestId,
+        senderAgentDid: input.senderAgentDid,
+        recipientAgentDid: input.recipientAgentDid,
+      } as const);
+
+    queueState.receipts[input.requestId] = {
+      ...receipt,
+      state: input.status,
+      reason: input.reason,
+      expiresAtMs: nowMs + this.deliveryPolicy.queueTtlMs,
+      statusUpdatedAt: toIso(nowMs),
+    };
     await this.queueManager.saveQueueState(queueState);
     await this.queueManager.scheduleNextAlarm(queueState, nowMs);
+
+    if (previousState !== input.status || previousReason !== input.reason) {
+      this.pushReceiptFrameToActiveSockets({
+        nowMs,
+        originalFrameId: input.requestId,
+        reason: input.reason,
+        status: input.status,
+        toAgentDid: input.recipientAgentDid,
+      });
+    }
   }
 
   async getDeliveryReceipt(
@@ -439,6 +463,7 @@ export class AgentRelaySession {
     this.rememberSocketAgentDid(server, connectorAgentDid);
     this.socketTracker.touchSocketAck(server, nowMs);
     void this.queueManager.drainQueueOnReconnect(nowMs);
+    void this.drainReceiptFramesOnReconnect(nowMs);
 
     return new Response(null, {
       status: 101,
@@ -556,6 +581,55 @@ export class AgentRelaySession {
 
   private closeSocket(socket: WebSocket, code: number, reason: string): void {
     this.socketTracker.closeSocket(socket, code, reason);
+  }
+
+  private pushReceiptFrameToActiveSockets(input: {
+    nowMs: number;
+    originalFrameId: string;
+    reason?: string;
+    status: "processed_by_openclaw" | "dead_lettered";
+    toAgentDid: string;
+  }): void {
+    const payload = toReceiptFramePayload({
+      nowMs: input.nowMs,
+      originalFrameId: input.originalFrameId,
+      reason: input.reason,
+      status: input.status,
+      toAgentDid: input.toAgentDid,
+    });
+    for (const socket of this.getActiveSockets(input.nowMs)) {
+      try {
+        socket.send(payload);
+      } catch {
+        // Best-effort notification; socket health is enforced by heartbeat sweeps.
+      }
+    }
+  }
+
+  private async drainReceiptFramesOnReconnect(nowMs: number): Promise<void> {
+    const sockets = this.getActiveSockets(nowMs);
+    if (sockets.length === 0) {
+      return;
+    }
+
+    const queueState = await this.queueManager.loadQueueState(nowMs);
+    for (const receipt of Object.values(queueState.receipts)) {
+      if (
+        receipt.expiresAtMs <= nowMs ||
+        (receipt.state !== "processed_by_openclaw" &&
+          receipt.state !== "dead_lettered")
+      ) {
+        continue;
+      }
+
+      this.pushReceiptFrameToActiveSockets({
+        nowMs,
+        originalFrameId: receipt.requestId,
+        reason: receipt.reason,
+        status: receipt.state,
+        toAgentDid: receipt.recipientAgentDid,
+      });
+    }
   }
 }
 

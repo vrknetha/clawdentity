@@ -20,6 +20,7 @@
   - preserve `status`, `version`, and `environment`
   - expose `ready` plus binding/config readiness booleans without breaking older clients
 - Keep Cloudflare Worker fetch startup in `worker.ts`.
+- Keep Cloudflare Queue consumer routing in `worker.ts` and delegate event-specific logic to `queue-consumer/` modules.
 - Keep Node runtime startup in `node-server.ts`; use `bin.ts` as Node process entrypoint.
 - Keep inbound auth verification in `auth-middleware.ts` with focused helpers for token parsing, registry material loading, CRL checks, and replay protection.
 - Keep per-agent DID throttling in `agent-rate-limit-middleware.ts`; do not blend rate-limit state or counters into `auth-middleware.ts`.
@@ -53,34 +54,45 @@
 - Keep `/hooks/agent` forwarding logic isolated in `agent-hook-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep relay websocket connect handling isolated in `relay-connect-route.ts`; `server.ts` should only compose middleware/routes.
 - Keep DO runtime behavior in `agent-relay-session.ts` (websocket accept, heartbeat alarm, connector delivery RPC).
-- Keep websocket relay behavior complete inside `agent-relay-session/`: sender-side `enqueue` frames from authenticated connector sockets must be authorized, routed to the recipient session, and answered with `enqueue_ack` rather than being dropped silently.
 - Keep relay delivery-receipt HTTP handlers isolated in `relay-delivery-receipt-route.ts`; `server.ts` should only compose `POST/GET /v1/relay/delivery-receipts`.
+- Keep receipt ingestion queue-first outside `local`: in `development`/`production`, `/v1/relay/delivery-receipts` must publish to `RECEIPT_QUEUE` and fail with `503` when the binding is unavailable.
+- In `local` mode only, direct DO fallback is allowed for receipt ingestion when `RECEIPT_QUEUE` is absent, and only when `ENVIRONMENT` is explicitly set to `local`.
+- Keep receipt queue event parsing/routing isolated in `queue-consumer/receipt-events.ts`; queue handlers should route events to sender relay sessions, not embed DO RPC JSON inline in `worker.ts`.
+- Keep receipt DO routing key consistent across ingestion and lookup paths: local fallback writes and `GET /v1/relay/delivery-receipts` lookups must resolve `AGENT_RELAY_SESSION` by `senderAgentDid` so local and queue-first behavior match.
+- Keep queue-first receipt tests asserting status parity: both `processed_by_openclaw` and `dead_lettered` must remain observable end-to-end without status rewriting.
+- Keep queue failure policy explicit in `worker.ts`: unsupported/invalid queue payloads are acknowledged (not retried), and retries are reserved for transient delivery failures.
+- Keep `worker.test.ts` queue assertions aligned with `worker.ts` failure classification (`action` + `reasonCode`) so retry/ack semantics stay stable as new queue event types are added.
 - Do not import Node-only startup helpers into `worker.ts`; Worker runtime must stay free of process/port startup concerns.
 - Keep worker runtime cache keys sensitive to deploy-time version bindings so `/health` reflects fresh `APP_VERSION` after deploy.
 - Keep production request logging policy in `server.ts` restrictive (`onlyErrors` with a slow-request threshold) and keep development/local verbose for debugging.
 - When production keeps `minLevel: "warn"`, request completion logs that survive the filter (slow requests and handled `4xx/5xx`) must be emitted at `warn`, not `info`.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
-- Keep proxy expected issuer derivation based on the configured registry origin for remote environments and the caller-facing request host when the configured registry URL is local loopback (`127.0.0.1`/`localhost`). Proxy fetches may stay on loopback, but connector AIT validation must match the public local registry origin seen by Docker clients (`host.docker.internal`).
+- Keep proxy expected issuer derivation based on `new URL(resolvedRegistryUrl).origin`; do not branch on hardcoded hostnames.
 - Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.
 - Keep `/pair/start` ownership validation against registry `/internal/v1/identity/agent-ownership` using internal service credentials (`x-claw-service-id` + `x-claw-service-secret`), and map dependency failures to `503`.
 - Keep `/pair/start` fail-closed: do not bypass registry ownership dependencies.
 - Keep pairing profile contract strict:
   - `/pair/start` requires `initiatorProfile.{agentName,humanName}`
-  - `/pair/confirm` requires `responderProfile.{agentName,humanName}`
-  - `/pair/start` and `/pair/confirm` may include optional `*.proxyOrigin` values; when present they must be valid `http(s)` URL origins and must be preserved in `/pair/status` responses.
+  - `/pair/confirm` requires `responderProfile.{agentName,humanName,proxyOrigin}`
+  - `/pair/start` may include optional `initiatorProfile.proxyOrigin`; `/pair/confirm` must provide `responderProfile.proxyOrigin` as a valid `http(s)` URL origin and preserve it in `/pair/status` responses.
   - `/pair/status` returns stored profile fields for initiator and responder
-- Keep `/pair/start` optional responder/callback contract strict:
+- Keep `/pair/start` optional responder contract strict:
   - `allowResponderAgentDid` is optional but when provided must be a non-empty string.
-  - `callbackUrl` is optional but when provided must be a valid `http(s)` URL.
-  - Persist `allowResponderAgentDid`, `callbackUrl`, and ticket signing `publicKeyX` with pending pairing ticket state.
+  - `callbackUrl` is removed and must be rejected with a client error.
+  - Persist only `allowResponderAgentDid` and ticket signing `publicKeyX` with pending pairing ticket state.
 - Keep pairing tickets issuer-authenticated via local signature in `/pair/start`; `/pair/confirm` must consume only locally stored tickets in single-proxy mode.
 - Keep `/pair/confirm` ticket checks strict and deterministic:
   - verify ticket signature using stored `publicKeyX` before confirming,
-  - preserve rollout compatibility for older pending tickets created before `publicKeyX` persistence (missing key must not make ticket unreadable),
   - reject replayed confirmed tickets with `409 PROXY_PAIR_TICKET_ALREADY_CONFIRMED`,
   - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
-- Keep `/pair/confirm` callbacks best-effort: if `callbackUrl` is present, POST completion payload and log a warning on callback failure without failing the confirm response.
-- Keep `/pair/confirm` callback delivery non-blocking: once trust state commit succeeds, return `201` without waiting on callback network latency.
+- Keep `/pair/confirm` queue-first for initiator sync:
+  - after trust commit, publish a `pair.accepted` event to `clawdentity-events*` as best-effort.
+  - include fixed UX text in `pair.accepted.message` using shared protocol constant `PAIR_ACCEPTED_NOTIFICATION_MESSAGE` for initiator-facing notification consistency.
+  - queue publish failures must log warnings and still return `201` success.
+  - `/pair/status` remains the fallback recovery path when queue delivery is delayed or unavailable.
+- Keep queue consumer routing explicit for `pair.accepted`: route event payloads to initiator relay sessions via DO RPC delivery, and keep malformed/unsupported events as `ack` + warn.
+- Pair-accepted queue routing must stamp trusted relay provenance (`deliverySource=proxy.events.queue.pair_accepted`) so connector runtimes can reject spoofed user payloads.
+- Pair-accepted structured fields remain the source of truth for trust side effects; `message` is UX-only metadata and must never replace structured pairing fields.
 - Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.
@@ -114,6 +126,7 @@
 - Keep relay delivery receipt persistence in `agent-relay-session.ts` with explicit RPC routes:
   - `/rpc/record-delivery-receipt`
   - `/rpc/get-delivery-receipt`
+- Keep receipt event fanout behavior in `agent-relay-session.ts`: `recordDeliveryReceipt` must update durable receipt state and push websocket `receipt` frames for connected sender connectors.
 - Receipt states must remain constrained to `processed_by_openclaw` and `dead_lettered`.
 - Reject blank/whitespace `requestId`, `senderAgentDid`, and `recipientAgentDid` in `relay-delivery-receipt-route.ts` so invalid receipt payloads fail as `400` client errors before DO RPC.
 - Receipt reads/writes must verify authenticated/trusted sender-recipient pairs and enforce recipient DID ownership at the route layer.

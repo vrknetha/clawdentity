@@ -1,5 +1,4 @@
 import { mkdirSync, rmSync } from "node:fs";
-import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { nowIso } from "@clawdentity/sdk";
 import {
@@ -51,12 +50,6 @@ export type InboundInboxWriteTransaction = {
   getDeadLetterRequestIds: () => string[];
   getPending: (requestId: string) => ConnectorInboundInboxItem | undefined;
   getPendingTotals: () => { pendingBytes: number; pendingCount: number };
-  getPruneCounts: () => {
-    afterDeadLetterCount: number;
-    afterPendingCount: number;
-    beforeDeadLetterCount: number;
-    beforePendingCount: number;
-  };
   hasRequest: (requestId: string) => boolean;
   insertDeadLetter: (item: ConnectorInboundDeadLetterItem) => void;
   insertPending: (item: ConnectorInboundInboxItem) => void;
@@ -88,8 +81,7 @@ function isRecoverableSqliteError(error: unknown): boolean {
   const message = error.message.toLowerCase();
   return (
     message.includes("file is not a database") ||
-    message.includes("database disk image is malformed") ||
-    message.includes("malformed")
+    message.includes("database disk image is malformed")
   );
 }
 
@@ -220,7 +212,6 @@ export class InboundInboxStorage {
 
   constructor(options: InboundInboxStorageOptions) {
     mkdirSync(options.inboxDir, { recursive: true });
-    mkdirSync(dirname(options.dbPath), { recursive: true });
 
     this.eventsMaxRows = Math.max(1, options.eventsMaxRows);
     this.database = openAndConfigureDatabase(
@@ -416,19 +407,6 @@ export class InboundInboxStorage {
           pendingBytes: toSafeCount(row.bytes),
         };
       },
-      getPruneCounts: () => {
-        const beforePendingCount = this.readTableCount("inbox_pending");
-        const beforeDeadLetterCount = this.readTableCount("inbox_dead_letter");
-        this.database.exec(
-          "DELETE FROM inbox_pending WHERE attempt_count < 0; DELETE FROM inbox_dead_letter WHERE attempt_count < 0;",
-        );
-        return {
-          beforePendingCount,
-          beforeDeadLetterCount,
-          afterPendingCount: this.readTableCount("inbox_pending"),
-          afterDeadLetterCount: this.readTableCount("inbox_dead_letter"),
-        };
-      },
       hasRequest: (requestId) => {
         const row = this.database
           .prepare(
@@ -553,14 +531,5 @@ export class InboundInboxStorage {
     this.database
       .prepare("DELETE FROM inbox_events WHERE id < ?")
       .run(thresholdId);
-  }
-
-  private readTableCount(
-    tableName: "inbox_dead_letter" | "inbox_pending",
-  ): number {
-    const row = this.database
-      .prepare(`SELECT COUNT(*) AS count FROM ${tableName}`)
-      .get() as { count?: number };
-    return toSafeCount(row.count);
   }
 }

@@ -1,3 +1,4 @@
+import { AGENT_AUTH_REVOKED_EVENT_TYPE } from "@clawdentity/protocol";
 import {
   createLogger,
   type EventBus,
@@ -169,6 +170,6 @@ export const AGENT_AUTH_EVENT_NAME_BY_TYPE: Record<
 > = {
   issued: "agent.auth.issued",
   refreshed: "agent.auth.refreshed",
-  revoked: "agent.auth.revoked",
+  revoked: AGENT_AUTH_REVOKED_EVENT_TYPE,
   refresh_rejected: "agent.auth.refresh_rejected",
 };

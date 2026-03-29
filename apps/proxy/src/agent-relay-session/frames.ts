@@ -4,10 +4,12 @@ import {
   type EnqueueAckFrame,
   type EnqueueFrame,
   type HeartbeatAckFrame,
+  type ReceiptFrame,
   serializeFrame,
 } from "@clawdentity/connector";
 import { generateUlid } from "@clawdentity/protocol";
 import { nowUtcMs, toIso } from "@clawdentity/sdk";
+import { RELAY_DELIVERY_SOURCE_AGENT_ENQUEUE } from "./constants.js";
 import type {
   RelayDeliveryInput,
   RelayDeliveryResult,
@@ -53,6 +55,7 @@ export function toDeliverFrame(input: RelayDeliveryInput): DeliverFrame {
     fromAgentDid: input.senderAgentDid,
     toAgentDid: input.recipientAgentDid,
     payload: input.payload,
+    deliverySource: input.deliverySource,
     conversationId: input.conversationId,
     replyTo: input.replyTo,
   };
@@ -77,6 +80,27 @@ export function toEnqueueAckFrame(input: {
   return serializeFrame(ackFrame);
 }
 
+export function toReceiptFramePayload(input: {
+  originalFrameId: string;
+  toAgentDid: string;
+  status: "processed_by_openclaw" | "dead_lettered";
+  reason?: string;
+  nowMs: number;
+}): string {
+  const receiptFrame: ReceiptFrame = {
+    v: CONNECTOR_FRAME_VERSION,
+    type: "receipt",
+    id: generateUlid(input.nowMs),
+    ts: toIso(input.nowMs),
+    originalFrameId: input.originalFrameId,
+    toAgentDid: input.toAgentDid,
+    status: input.status,
+    reason: input.reason,
+  };
+
+  return serializeFrame(receiptFrame);
+}
+
 export function toRelayDeliveryInputFromEnqueueFrame(input: {
   frame: EnqueueFrame;
   senderAgentDid: string;
@@ -86,6 +110,7 @@ export function toRelayDeliveryInputFromEnqueueFrame(input: {
     senderAgentDid: input.senderAgentDid,
     recipientAgentDid: input.frame.toAgentDid,
     payload: input.frame.payload,
+    deliverySource: RELAY_DELIVERY_SOURCE_AGENT_ENQUEUE,
     conversationId: input.frame.conversationId,
     replyTo: input.frame.replyTo,
   };

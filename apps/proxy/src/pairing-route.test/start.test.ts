@@ -84,7 +84,6 @@ async function _createSignedTicketFixture(input: {
 function createPairingApp(input?: {
   environment?: "local" | "development" | "production";
   startFetchImpl?: typeof fetch;
-  confirmFetchImpl?: typeof fetch;
   nowMs?: () => number;
 }) {
   const trustStore = createInMemoryProxyTrustStore();
@@ -102,7 +101,6 @@ function createPairingApp(input?: {
         nowMs: input?.nowMs,
       },
       confirm: {
-        fetchImpl: input?.confirmFetchImpl,
         nowMs: input?.nowMs,
       },
       status: {
@@ -275,7 +273,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     expect(body.error.code).toBe("PROXY_PAIR_OWNERSHIP_UNAVAILABLE");
   });
 
-  it("accepts optional allowResponderAgentDid and callbackUrl", async () => {
+  it("accepts optional allowResponderAgentDid", async () => {
     const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
       Response.json(
         {
@@ -298,14 +296,13 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       body: JSON.stringify({
         initiatorProfile: INITIATOR_PROFILE,
         allowResponderAgentDid: RESPONDER_AGENT_DID,
-        callbackUrl: "https://callbacks.example.com/pair/complete",
       }),
     });
 
     expect(response.status).toBe(200);
   });
 
-  it("rejects invalid callbackUrl", async () => {
+  it("rejects callbackUrl because callback flow was removed", async () => {
     const startFetchImpl = vi.fn(async (_requestInput: unknown) =>
       Response.json(
         {
@@ -324,7 +321,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
       },
       body: JSON.stringify({
         initiatorProfile: INITIATOR_PROFILE,
-        callbackUrl: "ftp://callbacks.example.com/pair/complete",
+        callbackUrl: "https://callbacks.example.com/pair/complete",
       }),
     });
 
@@ -334,7 +331,7 @@ describe(`POST ${PAIR_START_PATH}`, () => {
     ).toMatchObject({
       error: {
         code: "PROXY_PAIR_INVALID_BODY",
-        message: "callbackUrl must be a valid http(s) URL",
+        message: "callbackUrl is no longer supported",
       },
     });
   });

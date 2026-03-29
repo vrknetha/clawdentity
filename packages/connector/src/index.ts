@@ -52,6 +52,7 @@ export type {
   EnqueueFrame,
   HeartbeatAckFrame,
   HeartbeatFrame,
+  ReceiptFrame,
 } from "./frames.js";
 export {
   ConnectorFrameParseError,
@@ -64,6 +65,7 @@ export {
   heartbeatAckFrameSchema,
   heartbeatFrameSchema,
   parseFrame,
+  receiptFrameSchema,
   serializeFrame,
 } from "./frames.js";
 export type {

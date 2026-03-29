@@ -1,4 +1,4 @@
-import { parseDid } from "@clawdentity/protocol";
+import { parseAgentDid } from "@clawdentity/protocol";
 import { nowUtcMs } from "@clawdentity/sdk";
 import { verifyPairingTicketSignature } from "../pairing-ticket.js";
 import {
@@ -10,6 +10,7 @@ import type {
   PairingTicketInput,
   PairingTicketStatusInput,
 } from "../proxy-trust-store.js";
+import { REVOKED_AGENT_MARKER_TTL_MS } from "../proxy-trust-store.js";
 import type { ProxyTrustStateStorage } from "./storage.js";
 import {
   addPeer,
@@ -61,10 +62,7 @@ export class ProxyTrustStateHandlers {
         });
       }
       try {
-        const parsedResponderDid = parseDid(body.allowResponderAgentDid.trim());
-        if (parsedResponderDid.entity !== "agent") {
-          throw new Error("invalid kind");
-        }
+        parseAgentDid(body.allowResponderAgentDid.trim());
       } catch {
         return toErrorResponse({
           code: "PROXY_PAIR_START_INVALID_BODY",
@@ -75,36 +73,17 @@ export class ProxyTrustStateHandlers {
       allowResponderAgentDid = body.allowResponderAgentDid.trim();
     }
 
-    let callbackUrl: string | undefined;
-    if (body.callbackUrl !== undefined) {
-      if (!isNonEmptyString(body.callbackUrl)) {
-        return toErrorResponse({
-          code: "PROXY_PAIR_START_INVALID_BODY",
-          message: "callbackUrl must be a valid http(s) URL",
-          status: 400,
-        });
-      }
-      let parsedCallbackUrl: URL;
-      try {
-        parsedCallbackUrl = new URL(body.callbackUrl.trim());
-      } catch {
-        return toErrorResponse({
-          code: "PROXY_PAIR_START_INVALID_BODY",
-          message: "callbackUrl must be a valid http(s) URL",
-          status: 400,
-        });
-      }
-      if (
-        parsedCallbackUrl.protocol !== "https:" &&
-        parsedCallbackUrl.protocol !== "http:"
-      ) {
-        return toErrorResponse({
-          code: "PROXY_PAIR_START_INVALID_BODY",
-          message: "callbackUrl must be a valid http(s) URL",
-          status: 400,
-        });
-      }
-      callbackUrl = parsedCallbackUrl.toString();
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "callbackUrl" in body &&
+      (body as { callbackUrl?: unknown }).callbackUrl !== undefined
+    ) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_START_INVALID_BODY",
+        message: "callbackUrl is no longer supported",
+        status: 400,
+      });
     }
 
     const nowMs = typeof body.nowMs === "number" ? body.nowMs : nowUtcMs();
@@ -150,7 +129,6 @@ export class ProxyTrustStateHandlers {
       expiresAtMs: normalizedExpiresAtMs,
       publicKeyX,
       allowResponderAgentDid,
-      callbackUrl,
     };
     delete expirableState.confirmedPairingTickets[parsedTicket.kid];
 
@@ -212,23 +190,21 @@ export class ProxyTrustStateHandlers {
       });
     }
 
-    if (stored.publicKeyX !== undefined) {
-      let signatureVerified = false;
-      try {
-        signatureVerified = await verifyPairingTicketSignature({
-          payload: parsedTicket,
-          publicKeyX: stored.publicKeyX,
-        });
-      } catch {
-        signatureVerified = false;
-      }
-      if (!signatureVerified) {
-        return toErrorResponse({
-          code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
-          message: "Pairing ticket signature is invalid",
-          status: 400,
-        });
-      }
+    let signatureVerified = false;
+    try {
+      signatureVerified = await verifyPairingTicketSignature({
+        payload: parsedTicket,
+        publicKeyX: stored.publicKeyX,
+      });
+    } catch {
+      signatureVerified = false;
+    }
+    if (!signatureVerified) {
+      return toErrorResponse({
+        code: "PROXY_PAIR_TICKET_INVALID_SIGNATURE",
+        message: "Pairing ticket signature is invalid",
+        status: 400,
+      });
     }
 
     if (stored.expiresAtMs <= nowMs || parsedTicket.exp * 1000 <= nowMs) {
@@ -284,7 +260,6 @@ export class ProxyTrustStateHandlers {
       responderProfile,
       issuerProxyUrl: stored.issuerProxyUrl,
       confirmedAtMs: normalizeExpiryToWholeSecond(nowMs),
-      callbackUrl: stored.callbackUrl,
     };
     await this.storage.saveExpirableStateAndSchedule(expirableState, {
       pairingTickets: true,
@@ -297,7 +272,6 @@ export class ProxyTrustStateHandlers {
       responderAgentDid: body.responderAgentDid,
       responderProfile,
       issuerProxyUrl: stored.issuerProxyUrl,
-      callbackUrl: stored.callbackUrl,
     });
   }
 
@@ -441,6 +415,121 @@ export class ProxyTrustStateHandlers {
       allowed: pairs.has(
         toPairKey(body.initiatorAgentDid, body.responderAgentDid),
       ),
+    });
+  }
+
+  async handleMarkAgentRevoked(request: Request): Promise<Response> {
+    const body = (await parseBody(request)) as
+      | { agentDid?: unknown; nowMs?: unknown; ttlMs?: unknown }
+      | undefined;
+    if (!body || !isNonEmptyString(body.agentDid)) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const agentDid = body.agentDid.trim();
+    try {
+      parseAgentDid(agentDid);
+    } catch {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    if (
+      body.nowMs !== undefined &&
+      (typeof body.nowMs !== "number" ||
+        !Number.isInteger(body.nowMs) ||
+        body.nowMs <= 0)
+    ) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+    if (
+      body.ttlMs !== undefined &&
+      (typeof body.ttlMs !== "number" ||
+        !Number.isInteger(body.ttlMs) ||
+        body.ttlMs <= 0)
+    ) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const nowMs = body.nowMs ?? nowUtcMs();
+    const ttlMs = body.ttlMs ?? REVOKED_AGENT_MARKER_TTL_MS;
+    const expiresAtMs = nowMs + ttlMs;
+    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= nowMs) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKE_INVALID_BODY",
+        message: "Agent revoke input is invalid",
+        status: 400,
+      });
+    }
+
+    const revokedAgents = await this.storage.loadRevokedAgents();
+    this.storage.pruneExpiredRevokedAgents(revokedAgents, nowMs);
+    revokedAgents[agentDid] = { expiresAtMs };
+    await this.storage.saveRevokedAgentsAndSchedule(revokedAgents);
+
+    return Response.json({ ok: true });
+  }
+
+  async handleIsAgentRevoked(request: Request): Promise<Response> {
+    const body = (await parseBody(request)) as
+      | { agentDid?: unknown; nowMs?: unknown }
+      | undefined;
+    if (!body || !isNonEmptyString(body.agentDid)) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    const agentDid = body.agentDid.trim();
+    try {
+      parseAgentDid(agentDid);
+    } catch {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    if (
+      body.nowMs !== undefined &&
+      (typeof body.nowMs !== "number" ||
+        !Number.isInteger(body.nowMs) ||
+        body.nowMs <= 0)
+    ) {
+      return toErrorResponse({
+        code: "PROXY_AGENT_REVOKED_CHECK_INVALID_BODY",
+        message: "Agent revoked check input is invalid",
+        status: 400,
+      });
+    }
+
+    const nowMs = body.nowMs ?? nowUtcMs();
+    const revokedAgents = await this.storage.loadRevokedAgents();
+    const pruned = this.storage.pruneExpiredRevokedAgents(revokedAgents, nowMs);
+    if (pruned) {
+      await this.storage.saveRevokedAgentsAndSchedule(revokedAgents);
+    }
+
+    return Response.json({
+      revoked: (revokedAgents[agentDid]?.expiresAtMs ?? 0) > nowMs,
     });
   }
 

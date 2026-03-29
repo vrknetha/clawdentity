@@ -61,6 +61,7 @@ describe("proxy auth middleware", () => {
       responderProfile: {
         agentName: "beta",
         humanName: "Ira",
+        proxyOrigin: "https://beta.proxy.example",
       },
     });
     const headers = await harness.createSignedHeaders({

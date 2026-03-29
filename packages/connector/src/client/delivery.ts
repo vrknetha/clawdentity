@@ -1,5 +1,9 @@
 import type { Logger } from "@clawdentity/sdk";
 import type { DeliverFrame } from "../frames.js";
+import {
+  applyOpenclawSenderProfileHeaders,
+  type OpenclawSenderProfile,
+} from "../openclaw-headers.js";
 import { isAbortError, sanitizeErrorReason, wait } from "./helpers.js";
 import { computeNextBackoffDelayMs } from "./retry.js";
 
@@ -29,6 +33,14 @@ export class LocalOpenclawDeliveryClient {
   private readonly openclawDeliverRetryMaxDelayMs: number;
   private readonly openclawDeliverRetryBackoffFactor: number;
   private readonly openclawDeliverRetryBudgetMs: number;
+  private readonly resolveInboundSenderProfile:
+    | ((
+        fromAgentDid: string,
+      ) =>
+        | OpenclawSenderProfile
+        | Promise<OpenclawSenderProfile | undefined>
+        | undefined)
+    | undefined;
   private readonly now: () => number;
   private readonly logger: Logger;
 
@@ -42,6 +54,14 @@ export class LocalOpenclawDeliveryClient {
     openclawDeliverRetryMaxDelayMs: number;
     openclawDeliverRetryBackoffFactor: number;
     openclawDeliverRetryBudgetMs: number;
+    resolveInboundSenderProfile:
+      | ((
+          fromAgentDid: string,
+        ) =>
+          | OpenclawSenderProfile
+          | Promise<OpenclawSenderProfile | undefined>
+          | undefined)
+      | undefined;
     now: () => number;
     logger: Logger;
   }) {
@@ -56,6 +76,7 @@ export class LocalOpenclawDeliveryClient {
     this.openclawDeliverRetryBackoffFactor =
       input.openclawDeliverRetryBackoffFactor;
     this.openclawDeliverRetryBudgetMs = input.openclawDeliverRetryBudgetMs;
+    this.resolveInboundSenderProfile = input.resolveInboundSenderProfile;
     this.now = input.now;
     this.logger = input.logger;
   }
@@ -64,13 +85,27 @@ export class LocalOpenclawDeliveryClient {
     frame: DeliverFrame,
     shouldContinue: () => boolean,
   ): Promise<void> {
+    let senderProfile: OpenclawSenderProfile | undefined;
+    if (this.resolveInboundSenderProfile !== undefined) {
+      try {
+        senderProfile = await this.resolveInboundSenderProfile(
+          frame.fromAgentDid,
+        );
+      } catch (error) {
+        this.logger.warn("connector.openclaw.sender_profile_lookup_failed", {
+          fromAgentDid: frame.fromAgentDid,
+          reason: sanitizeErrorReason(error),
+        });
+      }
+    }
+
     const startedAt = this.now();
     let attempt = 1;
     let retryDelayMs = this.openclawDeliverRetryInitialDelayMs;
 
     while (true) {
       try {
-        await this.deliverOnce(frame);
+        await this.deliverOnce(frame, senderProfile);
         return;
       } catch (error) {
         const retryable = isRetryableOpenclawDeliveryError(error);
@@ -108,7 +143,10 @@ export class LocalOpenclawDeliveryClient {
     }
   }
 
-  private async deliverOnce(frame: DeliverFrame): Promise<void> {
+  private async deliverOnce(
+    frame: DeliverFrame,
+    senderProfile: OpenclawSenderProfile | undefined,
+  ): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
@@ -125,6 +163,10 @@ export class LocalOpenclawDeliveryClient {
     if (this.openclawHookToken !== undefined) {
       headers["x-openclaw-token"] = this.openclawHookToken;
     }
+    applyOpenclawSenderProfileHeaders({
+      headers,
+      senderProfile,
+    });
 
     try {
       const response = await this.fetchImpl(this.openclawHookUrl, {
