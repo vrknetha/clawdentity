@@ -143,11 +143,7 @@ fn save_outbox(path: &Path, entries: &[QueuedDeliveryReceipt]) -> Result<()> {
     }
     let body = serde_json::to_string_pretty(entries)
         .map_err(|error| anyhow!("failed to encode receipt outbox: {error}"))?;
-    let tmp_path = path.with_extension(format!(
-        "tmp-{}-{}",
-        std::process::id(),
-        now_utc_ms()
-    ));
+    let tmp_path = path.with_extension(format!("tmp-{}-{}", std::process::id(), now_utc_ms()));
     fs::write(&tmp_path, format!("{body}\n"))
         .map_err(|error| anyhow!("failed to write receipt outbox temp file: {error}"))?;
     fs::rename(&tmp_path, path)

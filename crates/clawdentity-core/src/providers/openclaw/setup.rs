@@ -167,7 +167,10 @@ fn parse_json_or_default(path: &Path) -> Result<serde_json::Value> {
         }
     };
     json5::from_str::<serde_json::Value>(&raw).map_err(|source| {
-        CoreError::InvalidInput(format!("failed to parse OpenClaw config {}: {source}", path.display()))
+        CoreError::InvalidInput(format!(
+            "failed to parse OpenClaw config {}: {source}",
+            path.display()
+        ))
     })
 }
 
@@ -663,13 +666,9 @@ mod tests {
     #[test]
     fn connector_suggestion_uses_next_available_port() {
         let temp = TempDir::new().expect("temp dir");
-        let _ = save_connector_assignment(
-            temp.path(),
-            "alpha",
-            "http://127.0.0.1:19400",
-            Some("main"),
-        )
-        .expect("save alpha");
+        let _ =
+            save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19400", Some("main"))
+                .expect("save alpha");
         let suggested = suggest_connector_base_url(temp.path(), "beta").expect("suggest");
         assert_eq!(suggested, "http://127.0.0.1:19401");
     }
@@ -677,13 +676,9 @@ mod tests {
     #[test]
     fn connector_assignment_backfills_openclaw_agent_id_from_existing_entry() {
         let temp = TempDir::new().expect("temp dir");
-        let _ = save_connector_assignment(
-            temp.path(),
-            "alpha",
-            "http://127.0.0.1:19400",
-            Some("ops"),
-        )
-        .expect("save alpha");
+        let _ =
+            save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19400", Some("ops"))
+                .expect("save alpha");
         let _ = save_connector_assignment(temp.path(), "alpha", "http://127.0.0.1:19401", None)
             .expect("update alpha");
 
