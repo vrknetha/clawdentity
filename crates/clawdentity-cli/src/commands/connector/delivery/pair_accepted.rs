@@ -61,9 +61,10 @@ fn normalize_event_timestamp_utc(value: &str) -> Result<String> {
 }
 
 fn normalize_optional_message(value: Option<&str>) -> Result<Option<String>> {
-    value
-        .map(|candidate| normalize_non_empty(candidate, "message"))
-        .transpose()
+    Ok(value
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .map(|candidate| candidate.to_string()))
 }
 
 fn normalize_pair_accepted_event(raw: PairAcceptedSystemEvent) -> Result<PairAcceptedSystemEvent> {
@@ -394,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn pair_accepted_rejects_blank_proxy_message() {
+    fn pair_accepted_ignores_blank_proxy_message_and_uses_fallback() {
         let temp = TempDir::new().expect("temp dir");
         let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
             .expect("open db");
@@ -404,8 +405,13 @@ mod tests {
         let mut deliver = fixture_deliver_frame();
         deliver.payload["system"]["message"] = json!("   ");
 
-        let error = apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver)
-            .expect_err("blank message should fail validation");
-        assert!(error.to_string().contains("message is required"));
+        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
+
+        let message = deliver
+            .payload
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        assert!(message.contains("Clawdentity pairing accepted"));
     }
 }

@@ -26,6 +26,7 @@
 - Pair-accepted system payload validation must include DID checks, responder proxy origin URL checks, and event timestamp parsing before mutating peer state.
 - Pair-accepted structured fields are mandatory for trusted side effects; optional `system.message` is UX-only and must never be used as a replacement for persistence/trust metadata.
 - For OpenClaw-facing notifications, prefer proxy-provided non-empty `system.message` when present and fall back to local generated message text when absent.
+- Treat blank/whitespace `system.message` as absent UX metadata so trusted peer persistence cannot fail on cosmetic message formatting drift.
 - Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
 - Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
 - Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.

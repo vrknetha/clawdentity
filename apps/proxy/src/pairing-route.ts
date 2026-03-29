@@ -1,5 +1,6 @@
 import {
   createPairAcceptedEvent,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   parseAgentDid as parseProtocolAgentDid,
 } from "@clawdentity/protocol";
 import {
@@ -73,9 +74,6 @@ type CreatePairStatusHandlerOptions = PairStatusRuntimeOptions & {
 };
 
 const MAX_PROFILE_NAME_LENGTH = 64;
-const PAIR_ACCEPTED_NOTIFICATION_MESSAGE =
-  "Clawdentity pairing complete. You can now message this peer.";
-
 function parseInternalServiceCredentials(input: {
   serviceId?: string;
   serviceSecret?: string;

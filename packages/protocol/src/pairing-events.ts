@@ -3,6 +3,8 @@ import { parseAgentDid } from "./did.js";
 export const PAIR_ACCEPTED_EVENT_TYPE = "pair.accepted";
 export const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE =
   "proxy.events.queue.pair_accepted";
+export const PAIR_ACCEPTED_NOTIFICATION_MESSAGE =
+  "Clawdentity pairing complete. You can now message this peer.";
 
 export type PairAcceptedResponderProfile = {
   agentName: string;
@@ -93,8 +95,14 @@ function parseOptionalMessage(value: unknown): string | undefined {
   if (value === undefined) {
     return undefined;
   }
-
-  return parseNonBlankString(value, "message");
+  if (typeof value !== "string") {
+    throw new Error("Pair accepted event field 'message' must be a string");
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return normalized;
 }
 
 function parseResponderProfile(value: unknown): PairAcceptedResponderProfile {

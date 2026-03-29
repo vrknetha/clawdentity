@@ -10,6 +10,7 @@
 - Route `agent.auth.revoked` events to proxy trust-state via typed trust-store methods (`markAgentRevoked`) rather than bespoke DO endpoint strings.
 - Route `pair.accepted` events to the initiator relay Durable Object using typed relay RPC helpers (`deliverToRelaySession`) with system payload wrapping.
 - Preserve optional `pair.accepted.message` during routing so initiator UX can show proxy-authored static notifications.
+- Treat blank optional `pair.accepted.message` as ignorable UX metadata; do not let cosmetic message issues block trusted relay routing.
 - Queue-routed `pair.accepted` relay deliveries must set trusted delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`) so connector runtimes can reject spoofed payload-only system events.
 - Pair-accepted structured fields remain mandatory for trusted side effects; queue consumers must not treat `message` as a replacement for those fields.
 - Treat queue events as at-least-once: handlers must be idempotent against duplicate messages.

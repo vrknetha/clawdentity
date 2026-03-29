@@ -37,6 +37,8 @@
 - Keep trusted transport provenance constants for pair-accepted deliveries (`PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE`) in protocol exports so queue producers and consumers cannot drift.
 - Keep pair-accepted payload side-effect fields (`initiatorAgentDid`, `responderAgentDid`, `responderProfile`, `issuerProxyOrigin`, `eventTimestampUtc`) mandatory for trusted processing; do not replace them with UI-only text.
 - Keep pair-accepted user text optional (`message`) and non-empty when present; it is UX metadata only and must not drive trust or persistence decisions.
+- Keep static pair-accepted UX wording centralized in a single exported contract constant (`PAIR_ACCEPTED_NOTIFICATION_MESSAGE`) so proxy producers/tests stay in sync.
+- Treat blank pair-accepted `message` as absent metadata (not a parse failure) to prevent cosmetic text drift from blocking trusted pairing side effects.
 
 ## Testing
 - Add focused Vitest tests per helper module and one root export test in `src/index.test.ts`.

@@ -1,5 +1,6 @@
 import {
   PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
   type PairAcceptedEvent,
   parsePairAcceptedEvent,
@@ -10,6 +11,7 @@ import {
 } from "../agent-relay-session.js";
 
 export { PAIR_ACCEPTED_EVENT_TYPE };
+export { PAIR_ACCEPTED_NOTIFICATION_MESSAGE };
 
 export type PairAcceptedQueueEvent = PairAcceptedEvent;
 

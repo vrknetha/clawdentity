@@ -87,7 +87,7 @@
   - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
 - Keep `/pair/confirm` queue-first for initiator sync:
   - after trust commit, publish a `pair.accepted` event to `clawdentity-events*` as best-effort.
-  - include fixed UX text in `pair.accepted.message` (`Clawdentity pairing complete. You can now message this peer.`) for initiator-facing notification consistency.
+  - include fixed UX text in `pair.accepted.message` using shared protocol constant `PAIR_ACCEPTED_NOTIFICATION_MESSAGE` for initiator-facing notification consistency.
   - queue publish failures must log warnings and still return `201` success.
   - `/pair/status` remains the fallback recovery path when queue delivery is delayed or unavailable.
 - Keep queue consumer routing explicit for `pair.accepted`: route event payloads to initiator relay sessions via DO RPC delivery, and keep malformed/unsupported events as `ack` + warn.
