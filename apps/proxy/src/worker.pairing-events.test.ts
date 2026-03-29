@@ -1,14 +1,7 @@
+import { PAIR_ACCEPTED_NOTIFICATION_MESSAGE } from "@clawdentity/protocol";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentRelaySessionStub } from "./agent-relay-session.js";
 import { type ProxyWorkerBindings, worker } from "./worker.js";
-
-function createExecutionContext(): ExecutionContext {
-  return {
-    waitUntil: vi.fn(),
-    passThroughOnException: vi.fn(),
-    props: {},
-  } as unknown as ExecutionContext;
-}
 
 function createRelaySessionNamespaceWithFetchSpy(
   fetchSpy: ReturnType<typeof vi.fn>,
@@ -70,6 +63,7 @@ describe("proxy worker pair.accepted queue routing", () => {
             },
             issuerProxyOrigin: "https://proxy.clawdentity.dev",
             eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+            message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
           }),
           ack,
           retry,
@@ -89,6 +83,7 @@ describe("proxy worker pair.accepted queue routing", () => {
       payload?: {
         system?: {
           type?: string;
+          message?: string;
         };
       };
     };
@@ -101,6 +96,7 @@ describe("proxy worker pair.accepted queue routing", () => {
       payload: {
         system: {
           type: "pair.accepted",
+          message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
         },
       },
     });

@@ -33,6 +33,7 @@ import {
   makeAgentDid,
   makeHumanDid,
   PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE,
   PROTOCOL_VERSION,
   ProtocolParseError,
@@ -100,6 +101,9 @@ describe("protocol", () => {
 
   it("exports pair accepted queue event constants and parser", () => {
     expect(PAIR_ACCEPTED_EVENT_TYPE).toBe("pair.accepted");
+    expect(PAIR_ACCEPTED_NOTIFICATION_MESSAGE).toBe(
+      "Clawdentity pairing complete. You can now message this peer.",
+    );
     expect(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE).toBe(
       "proxy.events.queue.pair_accepted",
     );

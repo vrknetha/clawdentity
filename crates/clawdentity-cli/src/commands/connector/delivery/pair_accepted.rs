@@ -30,6 +30,7 @@ struct PairAcceptedSystemEvent {
     responder_profile: PairAcceptedSystemProfile,
     issuer_proxy_origin: String,
     event_timestamp_utc: String,
+    message: Option<String>,
 }
 
 fn normalize_non_empty(value: &str, field: &str) -> Result<String> {
@@ -57,6 +58,13 @@ fn normalize_event_timestamp_utc(value: &str) -> Result<String> {
     Ok(parsed
         .with_timezone(&Utc)
         .to_rfc3339_opts(SecondsFormat::Millis, true))
+}
+
+fn normalize_optional_message(value: Option<&str>) -> Result<Option<String>> {
+    Ok(value
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .map(|candidate| candidate.to_string()))
 }
 
 fn normalize_pair_accepted_event(raw: PairAcceptedSystemEvent) -> Result<PairAcceptedSystemEvent> {
@@ -88,6 +96,7 @@ fn normalize_pair_accepted_event(raw: PairAcceptedSystemEvent) -> Result<PairAcc
     let issuer_proxy_origin =
         normalize_proxy_origin(&raw.issuer_proxy_origin, "issuerProxyOrigin")?;
     let event_timestamp_utc = normalize_event_timestamp_utc(&raw.event_timestamp_utc)?;
+    let message = normalize_optional_message(raw.message.as_deref())?;
 
     Ok(PairAcceptedSystemEvent {
         event_type: PAIR_ACCEPTED_SYSTEM_EVENT_TYPE.to_string(),
@@ -96,6 +105,7 @@ fn normalize_pair_accepted_event(raw: PairAcceptedSystemEvent) -> Result<PairAcc
         responder_profile,
         issuer_proxy_origin,
         event_timestamp_utc,
+        message,
     })
 }
 
@@ -121,10 +131,12 @@ fn parse_pair_accepted_system_event(payload: &Value) -> Result<Option<PairAccept
 }
 
 fn build_notification_payload(event: &PairAcceptedSystemEvent, peer_alias: &str) -> Value {
-    let message = format!(
-        "Clawdentity pairing accepted: {} ({}) is now saved as peer alias {}.",
-        event.responder_profile.agent_name, event.responder_profile.human_name, peer_alias
-    );
+    let message = event.message.clone().unwrap_or_else(|| {
+        format!(
+            "Clawdentity pairing accepted: {} ({}) is now saved as peer alias {}.",
+            event.responder_profile.agent_name, event.responder_profile.human_name, peer_alias
+        )
+    });
 
     json!({
         "type": "clawdentity:pair-accepted",
@@ -357,5 +369,49 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("2026-03-28T00:00:00.000Z")
         );
+    }
+
+    #[test]
+    fn pair_accepted_notification_prefers_proxy_message_when_present() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let snapshot_path = temp.path().join("relay-peers.json");
+        write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+        let mut deliver = fixture_deliver_frame();
+        deliver.payload["system"]["message"] =
+            json!("Clawdentity pairing complete. You can now message this peer.");
+
+        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
+
+        assert_eq!(
+            deliver
+                .payload
+                .get("message")
+                .and_then(serde_json::Value::as_str),
+            Some("Clawdentity pairing complete. You can now message this peer.")
+        );
+    }
+
+    #[test]
+    fn pair_accepted_ignores_blank_proxy_message_and_uses_fallback() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let snapshot_path = temp.path().join("relay-peers.json");
+        write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+        let mut deliver = fixture_deliver_frame();
+        deliver.payload["system"]["message"] = json!("   ");
+
+        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
+
+        let message = deliver
+            .payload
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        assert!(message.contains("Clawdentity pairing accepted"));
     }
 }

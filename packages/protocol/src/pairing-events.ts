@@ -3,6 +3,8 @@ import { parseAgentDid } from "./did.js";
 export const PAIR_ACCEPTED_EVENT_TYPE = "pair.accepted";
 export const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE =
   "proxy.events.queue.pair_accepted";
+export const PAIR_ACCEPTED_NOTIFICATION_MESSAGE =
+  "Clawdentity pairing complete. You can now message this peer.";
 
 export type PairAcceptedResponderProfile = {
   agentName: string;
@@ -17,6 +19,7 @@ export type PairAcceptedEvent = {
   responderProfile: PairAcceptedResponderProfile;
   issuerProxyOrigin: string;
   eventTimestampUtc: string;
+  message?: string;
 };
 
 function parseNonBlankString(value: unknown, field: string): string {
@@ -88,6 +91,20 @@ function parseTimestampUtc(value: unknown): string {
   return new Date(epochMs).toISOString();
 }
 
+function parseOptionalMessage(value: unknown): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error("Pair accepted event field 'message' must be a string");
+  }
+  const normalized = value.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+  return normalized;
+}
+
 function parseResponderProfile(value: unknown): PairAcceptedResponderProfile {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(
@@ -134,11 +151,14 @@ export function parsePairAcceptedEvent(payload: unknown): PairAcceptedEvent {
     responderProfile?: unknown;
     issuerProxyOrigin?: unknown;
     eventTimestampUtc?: unknown;
+    message?: unknown;
   };
 
   if (event.type !== PAIR_ACCEPTED_EVENT_TYPE) {
     throw new Error("Unsupported pair accepted event type");
   }
+
+  const message = parseOptionalMessage(event.message);
 
   return {
     type: PAIR_ACCEPTED_EVENT_TYPE,
@@ -156,6 +176,7 @@ export function parsePairAcceptedEvent(payload: unknown): PairAcceptedEvent {
       "issuerProxyOrigin",
     ),
     eventTimestampUtc: parseTimestampUtc(event.eventTimestampUtc),
+    ...(message === undefined ? {} : { message }),
   };
 }
 
@@ -165,6 +186,7 @@ export type CreatePairAcceptedEventInput = {
   responderProfile: PairAcceptedResponderProfile;
   issuerProxyOrigin: string;
   eventTimestampUtc: string;
+  message?: string;
 };
 
 export function createPairAcceptedEvent(

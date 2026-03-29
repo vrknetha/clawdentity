@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createPairAcceptedEvent,
   PAIR_ACCEPTED_EVENT_TYPE,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   parsePairAcceptedEvent,
 } from "./pairing-events.js";
 
@@ -20,6 +21,7 @@ describe("pair accepted event contract", () => {
       },
       issuerProxyOrigin: "https://proxy.clawdentity.dev/pair/confirm",
       eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      message: ` ${PAIR_ACCEPTED_NOTIFICATION_MESSAGE} `,
     });
 
     expect(parsed).toEqual({
@@ -35,6 +37,7 @@ describe("pair accepted event contract", () => {
       },
       issuerProxyOrigin: "https://proxy.clawdentity.dev",
       eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
     });
   });
 
@@ -71,9 +74,11 @@ describe("pair accepted event contract", () => {
       },
       issuerProxyOrigin: "https://proxy.clawdentity.dev",
       eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
     });
 
     expect(event.type).toBe(PAIR_ACCEPTED_EVENT_TYPE);
+    expect(event.message).toBe(PAIR_ACCEPTED_NOTIFICATION_MESSAGE);
   });
 
   it("rejects non-ISO event timestamps", () => {
@@ -114,5 +119,64 @@ describe("pair accepted event contract", () => {
     });
 
     expect(parsed.eventTimestampUtc).toBe("2026-03-28T00:00:00.000Z");
+  });
+
+  it("keeps message optional for backward compatibility", () => {
+    const parsed = parsePairAcceptedEvent({
+      type: PAIR_ACCEPTED_EVENT_TYPE,
+      initiatorAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      responderAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      responderProfile: {
+        agentName: "beta",
+        humanName: "Ira",
+        proxyOrigin: "https://beta.proxy.example",
+      },
+      issuerProxyOrigin: "https://proxy.clawdentity.dev",
+      eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+    });
+
+    expect(parsed.message).toBeUndefined();
+  });
+
+  it("ignores blank message when provided", () => {
+    const parsed = parsePairAcceptedEvent({
+      type: PAIR_ACCEPTED_EVENT_TYPE,
+      initiatorAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      responderAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      responderProfile: {
+        agentName: "beta",
+        humanName: "Ira",
+        proxyOrigin: "https://beta.proxy.example",
+      },
+      issuerProxyOrigin: "https://proxy.clawdentity.dev",
+      eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+      message: "   ",
+    });
+
+    expect(parsed.message).toBeUndefined();
+  });
+
+  it("rejects non-string message values", () => {
+    expect(() =>
+      parsePairAcceptedEvent({
+        type: PAIR_ACCEPTED_EVENT_TYPE,
+        initiatorAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        responderAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        responderProfile: {
+          agentName: "beta",
+          humanName: "Ira",
+          proxyOrigin: "https://beta.proxy.example",
+        },
+        issuerProxyOrigin: "https://proxy.clawdentity.dev",
+        eventTimestampUtc: "2026-03-28T00:00:00.000Z",
+        message: 42,
+      }),
+    ).toThrow("Pair accepted event field 'message' must be a string");
   });
 });

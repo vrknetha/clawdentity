@@ -1,5 +1,6 @@
 import {
   createPairAcceptedEvent,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   parseAgentDid as parseProtocolAgentDid,
 } from "@clawdentity/protocol";
 import {
@@ -73,7 +74,6 @@ type CreatePairStatusHandlerOptions = PairStatusRuntimeOptions & {
 };
 
 const MAX_PROFILE_NAME_LENGTH = 64;
-
 function parseInternalServiceCredentials(input: {
   serviceId?: string;
   serviceSecret?: string;
@@ -405,6 +405,7 @@ async function publishPairAcceptedEvent(input: {
     },
     issuerProxyOrigin: input.confirmedPairingTicket.issuerProxyUrl,
     eventTimestampUtc: input.eventTimestampUtc,
+    message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   });
 
   if (input.eventsQueue === undefined) {

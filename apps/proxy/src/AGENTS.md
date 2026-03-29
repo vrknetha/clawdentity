@@ -87,10 +87,12 @@
   - enforce `allowResponderAgentDid` when present and reject mismatches with `403 PROXY_PAIR_RESPONDER_FORBIDDEN`.
 - Keep `/pair/confirm` queue-first for initiator sync:
   - after trust commit, publish a `pair.accepted` event to `clawdentity-events*` as best-effort.
+  - include fixed UX text in `pair.accepted.message` using shared protocol constant `PAIR_ACCEPTED_NOTIFICATION_MESSAGE` for initiator-facing notification consistency.
   - queue publish failures must log warnings and still return `201` success.
   - `/pair/status` remains the fallback recovery path when queue delivery is delayed or unavailable.
 - Keep queue consumer routing explicit for `pair.accepted`: route event payloads to initiator relay sessions via DO RPC delivery, and keep malformed/unsupported events as `ack` + warn.
 - Pair-accepted queue routing must stamp trusted relay provenance (`deliverySource=proxy.events.queue.pair_accepted`) so connector runtimes can reject spoofed user payloads.
+- Pair-accepted structured fields remain the source of truth for trust side effects; `message` is UX-only metadata and must never replace structured pairing fields.
 - Keep ticket parsing tolerant for operator copy/paste paths: normalize surrounding markdown/backticks and whitespace before parse + trust-store lookup in both in-memory and Durable Object backends.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` recipient routing explicit: require `x-claw-recipient-agent-did` and resolve DO IDs from that recipient DID, never from owner DID env.

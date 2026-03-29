@@ -1,5 +1,6 @@
 import {
   generateUlid,
+  PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
   makeAgentDid as protocolMakeAgentDid,
   makeHumanDid as protocolMakeHumanDid,
 } from "@clawdentity/protocol";
@@ -63,6 +64,7 @@ import { parseProxyConfig } from "../config.js";
 import { PAIR_CONFIRM_PATH } from "../pairing-constants.js";
 import { createInMemoryProxyTrustStore } from "../proxy-trust-store.js";
 import { createProxyApp } from "../server.js";
+import { type ProxyWorkerBindings, worker } from "../worker.js";
 
 async function createSignedTicketFixture(input: {
   issuerProxyUrl: string;
@@ -332,6 +334,7 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
       String(queueSendSpy.mock.calls[0]?.[0] ?? "{}"),
     ) as {
       type?: string;
+      message?: string;
       initiatorAgentDid?: string;
       responderAgentDid?: string;
       responderProfile?: {
@@ -341,12 +344,120 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
     };
     expect(queuedBody).toMatchObject({
       type: "pair.accepted",
+      message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
       initiatorAgentDid: INITIATOR_AGENT_DID,
       responderAgentDid: RESPONDER_AGENT_DID,
       responderProfile: {
         agentName: RESPONDER_PROFILE_WITH_PROXY_ORIGIN.agentName,
       },
       issuerProxyOrigin: "http://localhost",
+    });
+  });
+
+  it("routes confirm-published pair.accepted event through worker queue to connector delivery", async () => {
+    const queueSendSpy = vi.fn(async (_message: string) => {});
+    const { app, trustStore } = createPairingApp({
+      nowMs: () => 1_700_000_000_000,
+    });
+    const createdTicket = await createSignedTicketFixture({
+      issuerProxyUrl: "http://localhost",
+      nowMs: 1_700_000_000_000,
+      expiresAtMs: 1_700_000_900_000,
+    });
+    const ticket = await trustStore.createPairingTicket({
+      initiatorAgentDid: INITIATOR_AGENT_DID,
+      initiatorProfile: INITIATOR_PROFILE,
+      issuerProxyUrl: "http://localhost",
+      ticket: createdTicket.ticket,
+      publicKeyX: createdTicket.publicKeyX,
+      expiresAtMs: 1_700_000_900_000,
+      nowMs: 1_700_000_000_000,
+    });
+
+    const confirmResponse = await app.fetch(
+      new Request(`https://proxy.example.test${PAIR_CONFIRM_PATH}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-test-agent-did": RESPONDER_AGENT_DID,
+        },
+        body: JSON.stringify({
+          ticket: ticket.ticket,
+          responderProfile: RESPONDER_PROFILE_WITH_PROXY_ORIGIN,
+        }),
+      }),
+      {
+        EVENTS_QUEUE: {
+          send: queueSendSpy,
+        } as unknown as Queue<string>,
+      },
+    );
+
+    expect(confirmResponse.status).toBe(201);
+    const queuedBody = String(queueSendSpy.mock.calls[0]?.[0] ?? "");
+    expect(queuedBody.length).toBeGreaterThan(0);
+
+    const relayDeliveryFetchSpy = vi.fn(async (_request: Request) =>
+      Response.json({ accepted: true }, { status: 202 }),
+    );
+    const relaySessionNamespace: NonNullable<
+      ProxyWorkerBindings["AGENT_RELAY_SESSION"]
+    > = {
+      idFromName: vi.fn(
+        (name: string) =>
+          ({ toString: () => name }) as unknown as DurableObjectId,
+      ),
+      get: vi.fn(() => ({
+        fetch: async (request: Request) => relayDeliveryFetchSpy(request),
+      })),
+    };
+
+    const ack = vi.fn();
+    const retry = vi.fn();
+    await worker.queue(
+      {
+        messages: [
+          {
+            body: queuedBody,
+            ack,
+            retry,
+          },
+        ],
+      } as unknown as MessageBatch<string>,
+      {
+        ENVIRONMENT: "local",
+        REGISTRY_URL: "https://registry.example.test",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "svc-proxy-registry",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "secret-proxy-registry",
+        AGENT_RELAY_SESSION: relaySessionNamespace,
+      },
+    );
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+    expect(relayDeliveryFetchSpy).toHaveBeenCalledTimes(1);
+
+    const request = relayDeliveryFetchSpy.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe("/rpc/deliver-to-connector");
+    const relayPayload = (await request.json()) as {
+      senderAgentDid?: string;
+      recipientAgentDid?: string;
+      payload?: {
+        system?: {
+          type?: string;
+          message?: string;
+        };
+      };
+    };
+    expect(relayPayload).toMatchObject({
+      senderAgentDid: RESPONDER_AGENT_DID,
+      recipientAgentDid: INITIATOR_AGENT_DID,
+      payload: {
+        system: {
+          type: "pair.accepted",
+          message: PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
+        },
+      },
     });
   });
 
