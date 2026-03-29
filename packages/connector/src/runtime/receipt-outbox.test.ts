@@ -10,8 +10,7 @@ function createInboundReplayPolicy(): InboundReplayPolicy {
   return {
     batchSize: 10,
     deadLetterNonRetryableMaxAttempts: 3,
-    eventsMaxBytes: 1024 * 1024,
-    eventsMaxFiles: 10,
+    eventsMaxRows: 100,
     inboxMaxBytes: 1024 * 1024,
     inboxMaxMessages: 100,
     replayIntervalMs: 5,

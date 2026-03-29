@@ -122,9 +122,7 @@ The connector persists inbound messages to a durable inbox on disk before proces
 
 ```
 ~/.clawdentity/agents/<name>/inbound-inbox/
-├── index.json      # Atomic index (version 2) with pending + dead-letter items
-├── events.jsonl    # Append-only event log
-└── index.lock      # File lock for concurrent writer safety
+└── inbox.sqlite3   # SQLite inbox database (pending, dead-letter, events) in WAL mode
 ```
 
 ### Capacity limits
@@ -145,12 +143,11 @@ The connector persists inbound messages to a durable inbox on disk before proces
 | `dead_letter_replayed` | Dead-letter item replayed |
 | `dead_letter_purged` | Dead-letter item purged |
 
-### Event log rotation
+### Event retention
 
 | Parameter | Value |
 |-----------|-------|
-| Max file size | 10 MB |
-| Max files | 5 |
+| Max rows | 10,000 |
 
 ## Dead-letter queue
 

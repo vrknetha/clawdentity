@@ -9,8 +9,8 @@
 - Reuse shared protocol validators (`parseDid`, `parseUlid`) instead of duplicating DID/ULID logic.
 - Keep reconnect and heartbeat behavior deterministic and testable via dependency injection (`webSocketFactory`, `fetchImpl`, clock/random).
 - Keep local OpenClaw delivery concerns in `src/client.ts`; do not spread HTTP delivery logic across modules.
-- Keep inbound connector delivery durable: acknowledge proxy delivery only after payload persistence to local inbox (`agents/<agent>/inbound-inbox/index.json`), then replay asynchronously to OpenClaw hook.
-- Keep local inbox storage portable and inspectable (`index.json` + `events.jsonl`) with atomic index writes (`.tmp` + rename); do not introduce runtime-specific persistence dependencies for connector inbox state.
+- Keep inbound connector delivery durable: acknowledge proxy delivery only after payload persistence to local inbox SQLite (`agents/<agent>/inbound-inbox/inbox.sqlite3`), then replay asynchronously to the OpenClaw hook.
+- Keep local inbox storage simple and restart-safe: one SQLite database in WAL mode, one transaction per write path, and no JSON fallback or file-lock side channel.
 - Keep replay behavior restart-safe: on runtime boot, replay pending inbox entries in background before relying on new WebSocket traffic.
 - Keep local OpenClaw replay backoff bounded and deterministic (`CONNECTOR_INBOUND_RETRY_*` / `CONNECTOR_INBOUND_REPLAY_*`) with structured logging for replay success/failure.
 - Keep local OpenClaw replay delivery liveness-aware: probe `OPENCLAW_BASE_URL` on a fixed interval (`CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS` / `CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS`) and skip replay delivery attempts while the gateway is known down.
@@ -26,7 +26,7 @@
 ## Testing Rules
 - `src/frames.test.ts` must cover roundtrip serialization and explicit invalid-frame failures.
 - Client tests must mock WebSocket/fetch and verify heartbeat ack, delivery forwarding, reconnect, and outbound queue flush behavior.
-- Inbox tests must cover persistence, dedupe by request id, cap enforcement, and replay state transitions (`markReplayFailure`/`markDelivered`).
+- Inbox tests must cover SQLite persistence, dedupe by request id, cap enforcement, replay state transitions (`markReplayFailure`/`markDelivered`), event retention, corrupt-db recovery, and transaction rollback on event-write failure.
 - Keep tests fully offline and deterministic (fake timers where timing matters).
 
 ## Modularization Notes

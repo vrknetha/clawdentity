@@ -92,8 +92,7 @@ export async function startConnectorRuntime(
   const inboundInbox = createConnectorInboundInbox({
     configDir: input.configDir,
     agentName: input.agentName,
-    eventsMaxBytes: inboundReplayPolicy.eventsMaxBytes,
-    eventsMaxFiles: inboundReplayPolicy.eventsMaxFiles,
+    eventsMaxRows: inboundReplayPolicy.eventsMaxRows,
     maxPendingMessages: inboundReplayPolicy.inboxMaxMessages,
     maxPendingBytes: inboundReplayPolicy.inboxMaxBytes,
   });
@@ -318,16 +317,20 @@ export async function startConnectorRuntime(
       receiptOutboxIntervalHandle = undefined;
     }
     connectorClient.disconnect();
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
       });
-    });
-    stoppedResolve?.();
+    } finally {
+      await inboundInbox.close();
+      stoppedResolve?.();
+    }
   };
 
   await new Promise<void>((resolve, reject) => {

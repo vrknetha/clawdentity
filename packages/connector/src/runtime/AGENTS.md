@@ -18,6 +18,7 @@
 - Treat `receipt-outbox.ts` as a single-writer command actor: every `enqueue`/`flushDue` mutation must flow through one serialized lock so concurrent callers cannot interleave file reads/writes.
 - Keep receipt-outbox tests deterministic: use fake timers for retry backoff assertions and avoid wall-clock `setTimeout` dependency.
 - Runtime startup/shutdown must include receipt-outbox lifecycle hooks (`flushDue` on start and periodic retry loop teardown on stop) so queued receipts survive transient proxy outages.
+- Runtime stop must deterministically dispose inbound inbox resources (`inboundInbox.close()`) after server shutdown so SQLite handles do not leak across restart cycles.
 - Keep HTTP route handling in `server.ts` and avoid embedding route logic in helpers.
 - Keep URL/header/parse helpers focused in `url.ts`, `ws.ts`, and `parse.ts`.
 - Keep OpenClaw receipt payload shaping in `openclaw.ts` so `/hooks/agent` (`message`) and `/hooks/wake` (`text`) compatibility stays centralized.

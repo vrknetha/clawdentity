@@ -54,8 +54,7 @@ export type TrustedReceiptTargets = {
 export type InboundReplayPolicy = {
   batchSize: number;
   deadLetterNonRetryableMaxAttempts: number;
-  eventsMaxBytes: number;
-  eventsMaxFiles: number;
+  eventsMaxRows: number;
   inboxMaxBytes: number;
   inboxMaxMessages: number;
   replayIntervalMs: number;
