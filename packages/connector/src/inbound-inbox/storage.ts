@@ -207,6 +207,7 @@ function openAndConfigureDatabase(
 export class InboundInboxStorage {
   private readonly database: DatabaseSync;
   private readonly eventsMaxRows: number;
+  private closed = false;
 
   private writeChain: Promise<void> = Promise.resolve();
 
@@ -233,6 +234,17 @@ export class InboundInboxStorage {
     } finally {
       release?.();
     }
+  }
+
+  async close(): Promise<void> {
+    await this.withWriteLock(async () => {
+      if (this.closed) {
+        return;
+      }
+
+      this.database.close();
+      this.closed = true;
+    });
   }
 
   async listDuePending(input: {

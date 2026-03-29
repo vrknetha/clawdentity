@@ -312,6 +312,10 @@ export class ConnectorInboundInbox {
   async getSnapshot(): Promise<ConnectorInboundInboxSnapshot> {
     return await this.storage.getSnapshot();
   }
+
+  async close(): Promise<void> {
+    await this.storage.close();
+  }
 }
 
 export function createConnectorInboundInbox(

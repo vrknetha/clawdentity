@@ -14,3 +14,4 @@
 - Configure SQLite busy timeouts before connection probes and write transactions so contended writers do not fail fast with `database is locked`.
 - Ignore stale JSON inbox artifacts on disk; this module is SQLite-only.
 - In SQLite mode, `pruneDelivered()` is an intentional no-op because delivered rows are removed at delivery time; do not reintroduce unreachable prune predicates like `attempt_count < 0`.
+- Keep explicit lifecycle disposal: `InboundInboxStorage.close()` must remain idempotent and be called by runtime shutdown to release `DatabaseSync` handles deterministically.

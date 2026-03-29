@@ -317,16 +317,20 @@ export async function startConnectorRuntime(
       receiptOutboxIntervalHandle = undefined;
     }
     connectorClient.disconnect();
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
       });
-    });
-    stoppedResolve?.();
+    } finally {
+      await inboundInbox.close();
+      stoppedResolve?.();
+    }
   };
 
   await new Promise<void>((resolve, reject) => {
