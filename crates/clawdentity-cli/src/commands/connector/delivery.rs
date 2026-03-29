@@ -25,30 +25,22 @@ use super::headers::{
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
 use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
+use receipt_forward_queue::{
+    PendingReceiptNotification, PendingReceiptQueue, enqueue_pending_receipt_notification,
+    flush_pending_receipt_notifications,
+};
 
 mod openclaw_payload;
 mod pair_accepted;
+mod receipt_forward_queue;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
-const RECEIPT_FORWARD_RETRY_INITIAL_DELAY_MS: i64 = 1_000;
-const RECEIPT_FORWARD_RETRY_MAX_DELAY_MS: i64 = 60_000;
-const RECEIPT_FORWARD_RETRY_BACKOFF_FACTOR: i64 = 2;
-const RECEIPT_FORWARD_MAX_ATTEMPTS: i64 = 30;
-const RECEIPT_FORWARD_MAX_AGE_MS: i64 = 24 * 60 * 60 * 1_000;
-const RECEIPT_FORWARD_MAX_PENDING: usize = 10_000;
 
 pub(super) type OutboundInflightMap = Arc<Mutex<HashMap<String, String>>>;
-
-#[derive(Clone, Debug)]
-pub(super) struct PendingReceiptNotification {
-    pub attempt_count: i64,
-    pub created_at_ms: i64,
-    pub next_attempt_at_ms: i64,
-    pub receipt: ReceiptFrame,
-}
+pub(super) type PendingReceiptQueueHandle = PendingReceiptQueue;
 
 pub(super) struct InboundLoopRuntime {
     pub receipt_outbox: ReceiptOutboxHandle,
@@ -57,7 +49,7 @@ pub(super) struct InboundLoopRuntime {
     pub config_dir: PathBuf,
     pub openclaw_runtime: OpenclawRuntimeConfig,
     pub outbound_inflight: OutboundInflightMap,
-    pub pending_receipt_notifications: Arc<Mutex<Vec<PendingReceiptNotification>>>,
+    pub pending_receipt_notifications: PendingReceiptQueueHandle,
 }
 
 struct InboundRuntimeContext<'a> {
@@ -69,7 +61,7 @@ struct InboundRuntimeContext<'a> {
     openclaw_runtime: &'a OpenclawRuntimeConfig,
     receipt_outbox: &'a ReceiptOutboxHandle,
     outbound_inflight: &'a OutboundInflightMap,
-    pending_receipt_notifications: &'a Arc<Mutex<Vec<PendingReceiptNotification>>>,
+    pending_receipt_notifications: &'a PendingReceiptQueueHandle,
 }
 
 pub(super) async fn run_inbound_loop(
@@ -116,12 +108,7 @@ async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeC
         ConnectorFrame::Receipt(receipt) => {
             enqueue_pending_receipt_notification(
                 context.pending_receipt_notifications,
-                PendingReceiptNotification {
-                    attempt_count: 0,
-                    created_at_ms: now_utc_ms(),
-                    next_attempt_at_ms: now_utc_ms(),
-                    receipt,
-                },
+                PendingReceiptNotification::new(receipt),
             );
             flush_pending_receipt_notifications(
                 context.http_client,
@@ -140,19 +127,13 @@ async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeC
 
 async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAckFrame) {
     if ack.accepted {
-        if let Ok(mut inflight) = context.outbound_inflight.lock() {
-            inflight.remove(&ack.ack_id);
-        }
+        let _ = take_inflight_to_agent_did(context.outbound_inflight, &ack.ack_id);
         tracing::debug!(ack_id = %ack.ack_id, "relay accepted outbound enqueue frame");
         return;
     }
 
     let reason = ack.reason.as_deref().unwrap_or("unknown");
-    let Some(to_agent_did) = context
-        .outbound_inflight
-        .lock()
-        .ok()
-        .and_then(|mut inflight| inflight.remove(&ack.ack_id))
+    let Some(to_agent_did) = take_inflight_to_agent_did(context.outbound_inflight, &ack.ack_id)
     else {
         tracing::warn!(
             ack_id = %ack.ack_id,
@@ -168,23 +149,10 @@ async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAck
         "relay rejected outbound enqueue frame"
     );
 
-    let receipt = ReceiptFrame {
-        v: CONNECTOR_FRAME_VERSION,
-        id: new_frame_id(),
-        ts: now_iso(),
-        original_frame_id: ack.ack_id,
-        to_agent_did,
-        status: ReceiptStatus::DeadLettered,
-        reason: Some(format!("relay rejected outbound enqueue frame: {reason}")),
-    };
+    let receipt = build_enqueue_rejected_receipt(ack.ack_id, to_agent_did, reason);
     enqueue_pending_receipt_notification(
         context.pending_receipt_notifications,
-        PendingReceiptNotification {
-            attempt_count: 0,
-            created_at_ms: now_utc_ms(),
-            next_attempt_at_ms: now_utc_ms(),
-            receipt,
-        },
+        PendingReceiptNotification::new(receipt),
     );
     flush_pending_receipt_notifications(
         context.http_client,
@@ -195,12 +163,38 @@ async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAck
     .await;
 }
 
+fn take_inflight_to_agent_did(
+    outbound_inflight: &OutboundInflightMap,
+    ack_id: &str,
+) -> Option<String> {
+    outbound_inflight
+        .lock()
+        .ok()
+        .and_then(|mut inflight| inflight.remove(ack_id))
+}
+
+fn build_enqueue_rejected_receipt(
+    ack_id: String,
+    to_agent_did: String,
+    reason: &str,
+) -> ReceiptFrame {
+    ReceiptFrame {
+        v: CONNECTOR_FRAME_VERSION,
+        id: new_frame_id(),
+        ts: now_iso(),
+        original_frame_id: ack_id,
+        to_agent_did,
+        status: ReceiptStatus::DeadLettered,
+        reason: Some(format!("relay rejected outbound enqueue frame: {reason}")),
+    }
+}
+
 pub(super) async fn run_inbound_retry_loop(
     receipt_outbox: ReceiptOutboxHandle,
     store: SqliteStore,
     config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
-    pending_receipt_notifications: Arc<Mutex<Vec<PendingReceiptNotification>>>,
+    pending_receipt_notifications: PendingReceiptQueueHandle,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let hook_url = openclaw_runtime.hook_url()?;
@@ -234,125 +228,6 @@ pub(super) async fn run_inbound_retry_loop(
                 )
                 .await;
             }
-        }
-    }
-}
-
-fn enqueue_pending_receipt_notification(
-    queue: &Arc<Mutex<Vec<PendingReceiptNotification>>>,
-    notification: PendingReceiptNotification,
-) {
-    if let Ok(mut pending) = queue.lock() {
-        let now_ms = now_utc_ms();
-        pending.retain(|item| {
-            item.attempt_count < RECEIPT_FORWARD_MAX_ATTEMPTS
-                && now_ms.saturating_sub(item.created_at_ms) <= RECEIPT_FORWARD_MAX_AGE_MS
-        });
-        if pending.len() >= RECEIPT_FORWARD_MAX_PENDING {
-            tracing::warn!(
-                max_pending = RECEIPT_FORWARD_MAX_PENDING,
-                "dropping pending receipt notification because queue is full"
-            );
-            return;
-        }
-        pending.push(notification);
-    } else {
-        tracing::warn!("failed to queue pending receipt notification: lock poisoned");
-    }
-}
-
-fn compute_receipt_retry_delay_ms(attempt_count: i64) -> i64 {
-    let exponent = attempt_count.saturating_sub(1) as u32;
-    let factor = RECEIPT_FORWARD_RETRY_BACKOFF_FACTOR.saturating_pow(exponent);
-    (RECEIPT_FORWARD_RETRY_INITIAL_DELAY_MS.saturating_mul(factor))
-        .clamp(1, RECEIPT_FORWARD_RETRY_MAX_DELAY_MS)
-}
-
-async fn flush_pending_receipt_notifications(
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    queue: &Arc<Mutex<Vec<PendingReceiptNotification>>>,
-) {
-    let now_ms = now_utc_ms();
-    let due_notifications: Vec<PendingReceiptNotification> = {
-        let Ok(mut pending) = queue.lock() else {
-            tracing::warn!("failed to flush pending receipt notifications: lock poisoned");
-            return;
-        };
-        let mut due = Vec::new();
-        let mut future = Vec::new();
-        for notification in pending.drain(..) {
-            if notification.next_attempt_at_ms <= now_ms {
-                due.push(notification);
-            } else {
-                future.push(notification);
-            }
-        }
-        *pending = future;
-        due
-    };
-
-    if due_notifications.is_empty() {
-        return;
-    }
-
-    let mut retry_notifications: Vec<PendingReceiptNotification> = Vec::new();
-    for mut notification in due_notifications {
-        if notification.attempt_count >= RECEIPT_FORWARD_MAX_ATTEMPTS {
-            tracing::warn!(
-                request_id = %notification.receipt.original_frame_id,
-                status = ?notification.receipt.status,
-                attempt_count = notification.attempt_count,
-                "dropping pending receipt notification after max retry attempts"
-            );
-            continue;
-        }
-        if now_ms.saturating_sub(notification.created_at_ms) > RECEIPT_FORWARD_MAX_AGE_MS {
-            tracing::warn!(
-                request_id = %notification.receipt.original_frame_id,
-                status = ?notification.receipt.status,
-                age_ms = now_ms.saturating_sub(notification.created_at_ms),
-                "dropping pending receipt notification after max age"
-            );
-            continue;
-        }
-        if let Err(error) = forward_receipt_to_openclaw(
-            http_client,
-            hook_url,
-            openclaw_runtime,
-            &notification.receipt,
-        )
-        .await
-        {
-            notification.attempt_count += 1;
-            let delay_ms = compute_receipt_retry_delay_ms(notification.attempt_count);
-            notification.next_attempt_at_ms = now_utc_ms() + delay_ms;
-            tracing::warn!(
-                error = %error,
-                request_id = %notification.receipt.original_frame_id,
-                status = ?notification.receipt.status,
-                next_attempt_at_ms = notification.next_attempt_at_ms,
-                "failed to forward receipt payload to OpenClaw hook; queued for retry"
-            );
-            retry_notifications.push(notification);
-        }
-    }
-
-    if !retry_notifications.is_empty() {
-        if let Ok(mut pending) = queue.lock() {
-            let capacity = RECEIPT_FORWARD_MAX_PENDING.saturating_sub(pending.len());
-            if retry_notifications.len() > capacity {
-                tracing::warn!(
-                    dropped = retry_notifications.len() - capacity,
-                    max_pending = RECEIPT_FORWARD_MAX_PENDING,
-                    "dropping pending receipt retries because queue is full"
-                );
-                retry_notifications.truncate(capacity);
-            }
-            pending.extend(retry_notifications);
-        } else {
-            tracing::warn!("failed to requeue pending receipt notifications: lock poisoned");
         }
     }
 }
@@ -691,50 +566,6 @@ pub(super) async fn forward_deliver_to_openclaw(
         .map_err(|error| anyhow!("openclaw hook request failed: {error}"))?;
     if !response.status().is_success() {
         return Err(anyhow!("openclaw hook returned HTTP {}", response.status()));
-    }
-    Ok(())
-}
-
-async fn forward_receipt_to_openclaw(
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt: &ReceiptFrame,
-) -> Result<()> {
-    let mut request = http_client
-        .post(hook_url)
-        .header("content-type", "application/json")
-        .header(
-            "x-clawdentity-content-type",
-            "application/vnd.clawdentity.receipt+json",
-        )
-        .header("x-clawdentity-to-agent-did", &receipt.to_agent_did)
-        .header("x-clawdentity-verified", "true")
-        .header("x-request-id", &receipt.original_frame_id)
-        .json(&build_openclaw_receipt_payload(
-            &openclaw_runtime.hook_path,
-            receipt,
-            openclaw_runtime.target_agent_id.as_deref(),
-        ));
-
-    if let Some(token) = openclaw_runtime
-        .hook_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request = request.header("x-openclaw-token", token);
-    }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|error| anyhow!("openclaw receipt hook request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "openclaw receipt hook returned HTTP {}",
-            response.status()
-        ));
     }
     Ok(())
 }

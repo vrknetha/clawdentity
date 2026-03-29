@@ -30,7 +30,9 @@ mod headers;
 mod receipts;
 mod runtime_config;
 
-use delivery::{InboundLoopRuntime, run_inbound_loop, run_inbound_retry_loop};
+use delivery::{
+    InboundLoopRuntime, PendingReceiptQueueHandle, run_inbound_loop, run_inbound_retry_loop,
+};
 use receipts::{ReceiptDispatchRuntime, ReceiptOutboxHandle, start_receipt_outbox_worker};
 
 #[cfg(test)]
@@ -262,7 +264,7 @@ async fn start_connector_runtime(
         create_http_client()?,
     );
     let outbound_inflight: OutboundInflightMap = Arc::new(Mutex::new(HashMap::new()));
-    let pending_receipt_notifications = Arc::new(Mutex::new(Vec::new()));
+    let pending_receipt_notifications: PendingReceiptQueueHandle = Arc::new(Mutex::new(Vec::new()));
 
     let inbound_runtime = InboundLoopRuntime {
         receipt_outbox: receipt_outbox.clone(),
@@ -379,7 +381,7 @@ fn spawn_inbound_retry_task(
     store: SqliteStore,
     config_dir: PathBuf,
     openclaw_runtime: OpenclawRuntimeConfig,
-    pending_receipt_notifications: Arc<Mutex<Vec<delivery::PendingReceiptNotification>>>,
+    pending_receipt_notifications: PendingReceiptQueueHandle,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {

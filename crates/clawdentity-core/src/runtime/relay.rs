@@ -49,6 +49,8 @@ impl Default for OutboundRetryPolicy {
 }
 
 impl OutboundRetryPolicy {
+    /// Loads outbound retry policy from connector runtime environment variables,
+    /// falling back to `Default` values when variables are missing or invalid.
     pub fn from_env() -> Self {
         let default = Self::default();
         Self {
