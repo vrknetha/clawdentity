@@ -19,7 +19,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const DEFAULT_CONNECTOR_PORT: u16 = 19400;
-const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/wake";
+const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
 

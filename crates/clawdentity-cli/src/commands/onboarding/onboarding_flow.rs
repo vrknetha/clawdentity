@@ -145,53 +145,61 @@ pub(super) async fn ensure_identity_ready(
 }
 
 #[allow(clippy::too_many_lines)]
-pub(super) fn ensure_provider_ready(
+pub(super) async fn ensure_provider_ready(
     options: &ConfigPathOptions,
     input: &OnboardingRunInput,
     session: &mut OnboardingSession,
     agent_name: &str,
 ) -> Result<()> {
-    let provider = get_provider(&input.platform)
-        .ok_or_else(|| anyhow!("unknown provider `{}`", input.platform))?;
     let home_dir = options.home_dir.clone();
+    let platform = input.platform.clone();
+    let agent_name = agent_name.to_string();
+    let repair = input.repair;
 
-    let setup_result = provider.setup(&ProviderSetupOptions {
-        home_dir: home_dir.clone(),
-        agent_name: Some(agent_name.to_string()),
-        ..ProviderSetupOptions::default()
-    })?;
+    let (setup_status, doctor_result) = run_blocking(move || {
+        let provider =
+            get_provider(&platform).ok_or_else(|| anyhow!("unknown provider `{platform}`"))?;
+        let setup_result = provider.setup(&ProviderSetupOptions {
+            home_dir: home_dir.clone(),
+            agent_name: Some(agent_name.clone()),
+            ..ProviderSetupOptions::default()
+        })?;
 
-    if setup_result.status == ProviderSetupStatus::ActionRequired && !input.repair {
+        let mut doctor_result = provider.doctor(&ProviderDoctorOptions {
+            home_dir: home_dir.clone(),
+            selected_agent: Some(agent_name.clone()),
+            include_connector_runtime_check: true,
+            ..ProviderDoctorOptions::default()
+        })?;
+
+        if doctor_result.status == ProviderDoctorStatus::Unhealthy
+            && repair
+            && doctor_has_connector_failure(&doctor_result.checks)
+        {
+            let _ = provider.setup(&ProviderSetupOptions {
+                home_dir: home_dir.clone(),
+                agent_name: Some(agent_name.clone()),
+                ..ProviderSetupOptions::default()
+            })?;
+            doctor_result = provider.doctor(&ProviderDoctorOptions {
+                home_dir,
+                selected_agent: Some(agent_name),
+                include_connector_runtime_check: true,
+                ..ProviderDoctorOptions::default()
+            })?;
+        }
+
+        Ok((setup_result.status, doctor_result))
+    })
+    .await?;
+
+    if setup_status == ProviderSetupStatus::ActionRequired && !input.repair {
         set_last_error(
             session,
             FAILURE_CODE_CONNECTOR_DOWN,
             "provider setup requires additional action".to_string(),
             "Re-run with --repair to auto-recover connector runtime.".to_string(),
         );
-    }
-
-    let mut doctor_result = provider.doctor(&ProviderDoctorOptions {
-        home_dir: home_dir.clone(),
-        selected_agent: Some(agent_name.to_string()),
-        include_connector_runtime_check: true,
-        ..ProviderDoctorOptions::default()
-    })?;
-
-    if doctor_result.status == ProviderDoctorStatus::Unhealthy
-        && input.repair
-        && doctor_has_connector_failure(&doctor_result.checks)
-    {
-        let _ = provider.setup(&ProviderSetupOptions {
-            home_dir: home_dir.clone(),
-            agent_name: Some(agent_name.to_string()),
-            ..ProviderSetupOptions::default()
-        })?;
-        doctor_result = provider.doctor(&ProviderDoctorOptions {
-            home_dir,
-            selected_agent: Some(agent_name.to_string()),
-            include_connector_runtime_check: true,
-            ..ProviderDoctorOptions::default()
-        })?;
     }
 
     if doctor_result.status == ProviderDoctorStatus::Unhealthy {
@@ -394,42 +402,82 @@ pub(super) async fn ensure_pairing_ready(
 }
 
 #[allow(clippy::too_many_lines)]
-pub(super) fn ensure_messaging_ready(
+pub(super) async fn ensure_messaging_ready(
     options: &ConfigPathOptions,
     input: &OnboardingRunInput,
     session: &mut OnboardingSession,
     agent_name: &str,
     peer_alias: &str,
 ) -> Result<()> {
-    let provider = get_provider(&input.platform)
-        .ok_or_else(|| anyhow!("unknown provider `{}`", input.platform))?;
     let home_dir = options.home_dir.clone();
+    let platform = input.platform.clone();
+    let agent_name = agent_name.to_string();
+    let peer_alias = peer_alias.to_string();
+    let repair = input.repair;
 
-    let mut doctor_result = provider.doctor(&ProviderDoctorOptions {
-        home_dir: home_dir.clone(),
-        selected_agent: Some(agent_name.to_string()),
-        peer_alias: Some(peer_alias.to_string()),
-        include_connector_runtime_check: true,
-        ..ProviderDoctorOptions::default()
-    })?;
+    let (doctor_result, relay_result) = run_blocking(move || {
+        let provider =
+            get_provider(&platform).ok_or_else(|| anyhow!("unknown provider `{platform}`"))?;
 
-    if doctor_result.status == ProviderDoctorStatus::Unhealthy
-        && input.repair
-        && doctor_has_connector_failure(&doctor_result.checks)
-    {
-        let _ = provider.setup(&ProviderSetupOptions {
+        let mut doctor_result = provider.doctor(&ProviderDoctorOptions {
             home_dir: home_dir.clone(),
-            agent_name: Some(agent_name.to_string()),
-            ..ProviderSetupOptions::default()
-        })?;
-        doctor_result = provider.doctor(&ProviderDoctorOptions {
-            home_dir: home_dir.clone(),
-            selected_agent: Some(agent_name.to_string()),
-            peer_alias: Some(peer_alias.to_string()),
+            selected_agent: Some(agent_name.clone()),
+            peer_alias: Some(peer_alias.clone()),
             include_connector_runtime_check: true,
             ..ProviderDoctorOptions::default()
         })?;
-    }
+
+        if doctor_result.status == ProviderDoctorStatus::Unhealthy
+            && repair
+            && doctor_has_connector_failure(&doctor_result.checks)
+        {
+            let _ = provider.setup(&ProviderSetupOptions {
+                home_dir: home_dir.clone(),
+                agent_name: Some(agent_name.clone()),
+                ..ProviderSetupOptions::default()
+            })?;
+            doctor_result = provider.doctor(&ProviderDoctorOptions {
+                home_dir: home_dir.clone(),
+                selected_agent: Some(agent_name.clone()),
+                peer_alias: Some(peer_alias.clone()),
+                include_connector_runtime_check: true,
+                ..ProviderDoctorOptions::default()
+            })?;
+        }
+
+        if doctor_result.status == ProviderDoctorStatus::Unhealthy {
+            return Ok((doctor_result, None));
+        }
+
+        let mut relay_result = provider.relay_test(&ProviderRelayTestOptions {
+            home_dir: home_dir.clone(),
+            peer_alias: Some(peer_alias.clone()),
+            message: Some("hello from Clawdentity onboarding".to_string()),
+            skip_preflight: false,
+            ..ProviderRelayTestOptions::default()
+        })?;
+
+        if relay_result.status == ProviderRelayTestStatus::Failure && repair {
+            let is_hook_400 = relay_result.http_status == Some(400);
+            if is_hook_400 {
+                let _ = provider.setup(&ProviderSetupOptions {
+                    home_dir: home_dir.clone(),
+                    agent_name: Some(agent_name.clone()),
+                    ..ProviderSetupOptions::default()
+                })?;
+                relay_result = provider.relay_test(&ProviderRelayTestOptions {
+                    home_dir,
+                    peer_alias: Some(peer_alias),
+                    message: Some("hello from Clawdentity onboarding".to_string()),
+                    skip_preflight: false,
+                    ..ProviderRelayTestOptions::default()
+                })?;
+            }
+        }
+
+        Ok((doctor_result, Some(relay_result)))
+    })
+    .await?;
 
     if doctor_result.status == ProviderDoctorStatus::Unhealthy {
         let (code, remediation) = classify_doctor_failures(&doctor_result.checks);
@@ -442,31 +490,8 @@ pub(super) fn ensure_messaging_ready(
         return Err(anyhow!("provider doctor is unhealthy"));
     }
 
-    let mut relay_result = provider.relay_test(&ProviderRelayTestOptions {
-        home_dir: home_dir.clone(),
-        peer_alias: Some(peer_alias.to_string()),
-        message: Some("hello from Clawdentity onboarding".to_string()),
-        skip_preflight: false,
-        ..ProviderRelayTestOptions::default()
-    })?;
-
-    if relay_result.status == ProviderRelayTestStatus::Failure && input.repair {
-        let is_hook_400 = relay_result.http_status == Some(400);
-        if is_hook_400 {
-            let _ = provider.setup(&ProviderSetupOptions {
-                home_dir,
-                agent_name: Some(agent_name.to_string()),
-                ..ProviderSetupOptions::default()
-            })?;
-            relay_result = provider.relay_test(&ProviderRelayTestOptions {
-                home_dir: options.home_dir.clone(),
-                peer_alias: Some(peer_alias.to_string()),
-                message: Some("hello from Clawdentity onboarding".to_string()),
-                skip_preflight: false,
-                ..ProviderRelayTestOptions::default()
-            })?;
-        }
-    }
+    let relay_result =
+        relay_result.ok_or_else(|| anyhow!("provider relay test result was not produced"))?;
 
     if relay_result.status == ProviderRelayTestStatus::Failure {
         if relay_result.http_status == Some(400) {
@@ -509,7 +534,7 @@ pub(super) async fn emit_pairing_saved_notification(
     let Ok(mut endpoint) = reqwest::Url::parse(&openclaw_base_url) else {
         return;
     };
-    endpoint.set_path("/hooks/wake");
+    endpoint.set_path("/hooks/agent");
 
     let message = format!(
         "Clawdentity pairing accepted: {peer_agent_name} ({peer_human_name}) is saved as {peer_alias}."
@@ -523,7 +548,7 @@ pub(super) async fn emit_pairing_saved_notification(
     };
     let mut request = client
         .post(endpoint)
-        .json(&json!({ "message": message, "text": message }));
+        .json(&json!({ "message": message, "content": message }));
     if let Some(token) = hook_token {
         request = request.header("x-openclaw-token", token);
     }

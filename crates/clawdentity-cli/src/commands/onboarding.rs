@@ -395,7 +395,7 @@ async fn run_onboarding_flow(
         .clone()
         .ok_or_else(|| anyhow!("agent name is required"))?;
 
-    ensure_provider_ready(options, input, session, &agent_name)?;
+    ensure_provider_ready(options, input, session, &agent_name).await?;
     session.state = OnboardingState::ProviderReady;
 
     let pairing_result =
@@ -410,7 +410,7 @@ async fn run_onboarding_flow(
         .as_ref()
         .and_then(|pairing| pairing.peer_alias.clone())
         .ok_or_else(|| anyhow!("paired peer alias is missing"))?;
-    ensure_messaging_ready(options, input, session, &agent_name, &peer_alias)?;
+    ensure_messaging_ready(options, input, session, &agent_name, &peer_alias).await?;
     session.state = OnboardingState::MessagingReady;
 
     clear_last_error(session);

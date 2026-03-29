@@ -7,10 +7,10 @@
 - Put inbound relay delivery, retry persistence, and OpenClaw hook payload shaping in focused helper modules instead of growing `connector.rs`.
 - If inbound delivery is persisted for local retry, ACK the relay as accepted so the retry path stays single-source.
 - Wake payloads must only include `sessionId` when the inbound payload explicitly carries one.
-- `/hooks/wake` remains the visible default for peer delivery; `/hooks/agent` is only for explicit isolated-hook routing.
+- `/hooks/agent` is the default path for visible peer delivery in current OpenClaw runtimes; use `/hooks/wake` only for explicit wake-only workflows.
 - Inject `agentId` into OpenClaw payloads only when delivering to `/hooks/agent` and a non-empty mapped `openclawAgentId` exists for the active Clawdentity agent.
 - Keep `/hooks/agent` routing symmetric for deliveries and receipts: when a mapped `openclawAgentId` exists, both payload types must include `agentId`.
-- Never inject `agentId` for `/hooks/wake`; wake-mode payload shape must stay stable for backward compatibility and visible chat delivery.
+- Never inject `agentId` for `/hooks/wake`; wake-mode payload shape must stay stable for backward compatibility.
 - Runtime config resolution for OpenClaw routing must read per-agent `openclawAgentId` from connector assignment state and gracefully return `None` when mapping data is absent.
 - Connector startup must enforce `CLAWDENTITY_EXPECTED_AGENT_NAME` when present and fail fast on mismatched agent selection; this prevents cross-container identity inversion in local dual-agent harnesses.
 - Connector runtime tests must cover expected-agent-name bypass behavior (`None`/blank expected value) in addition to match/mismatch failures so env-unset paths remain intentional and stable.
@@ -27,6 +27,7 @@
 - Pair-accepted structured fields are mandatory for trusted side effects; optional `system.message` is UX-only and must never be used as a replacement for persistence/trust metadata.
 - For OpenClaw-facing notifications, prefer proxy-provided non-empty `system.message` when present and fall back to local generated message text when absent.
 - Treat blank/whitespace `system.message` as absent UX metadata so trusted peer persistence cannot fail on cosmetic message formatting drift.
+- After trusted `pair.accepted` peer persistence succeeds, reconcile local `onboarding-session.json` to `messaging_ready` + `pairing.phase=peer_saved` as a best-effort UX sync; stale onboarding session state must not block relay send when peer state is already persisted.
 - Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
 - Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
 - Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.

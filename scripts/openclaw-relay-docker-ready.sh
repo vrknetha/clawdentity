@@ -41,15 +41,22 @@ ALPHA_UI_PORT="${ALPHA_UI_PORT:-18789}"
 BETA_UI_PORT="${BETA_UI_PORT:-19001}"
 ALPHA_EXPECTED_AGENT_NAME="${ALPHA_EXPECTED_AGENT_NAME:-alpha-local}"
 BETA_EXPECTED_AGENT_NAME="${BETA_EXPECTED_AGENT_NAME:-beta-local}"
-DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://host.docker.internal:8788}}"
-DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://host.docker.internal:8787}}"
 CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
 DOCKER_SITE_BASE_URL="${DOCKER_SITE_BASE_URL:-http://host.docker.internal:4321}"
-HOST_REGISTRY_URL="${HOST_REGISTRY_URL:-http://127.0.0.1:8788}"
-HOST_PROXY_URL="${HOST_PROXY_URL:-http://127.0.0.1:8787}"
 HOST_SITE_BASE_URL="${HOST_SITE_BASE_URL:-$CLAWDENTITY_SITE_BASE_URL}"
+DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-http://host.docker.internal:8788}"
+DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-http://host.docker.internal:8787}"
+HOST_REGISTRY_URL="${HOST_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://127.0.0.1:8788}}"
+HOST_PROXY_URL="${HOST_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://127.0.0.1:8787}}"
 VERIFY_STACK_DEPENDENCIES="${VERIFY_STACK_DEPENDENCIES:-1}"
-CLAWDENTITY_RELEASE_MANIFEST_URL="${CLAWDENTITY_RELEASE_MANIFEST_URL:-https://downloads.clawdentity.com/rust/latest.json}"
+SYNC_LOCAL_RELEASE_MANIFEST="${SYNC_LOCAL_RELEASE_MANIFEST:-1}"
+AUTO_BUILD_LOCAL_RELEASE="${AUTO_BUILD_LOCAL_RELEASE:-1}"
+LOCAL_RELEASE_PROFILE="${LOCAL_RELEASE_PROFILE:-dev}"
+LOCAL_RELEASE_DOCKER_IMAGE="${LOCAL_RELEASE_DOCKER_IMAGE:-rust:1.90-bookworm}"
+LOCAL_RELEASE_CARGO_CACHE_ROOT="${LOCAL_RELEASE_CARGO_CACHE_ROOT:-$HOME/.cache/clawdentity-rust-docker}"
+CLAWDENTITY_RELEASE_MANIFEST_URL_INPUT="${CLAWDENTITY_RELEASE_MANIFEST_URL:-}"
+CLAWDENTITY_RELEASE_MANIFEST_URL="${CLAWDENTITY_RELEASE_MANIFEST_URL_INPUT:-${DOCKER_SITE_BASE_URL%/}/rust/latest-local.json}"
+HOST_RELEASE_MANIFEST_URL="${HOST_RELEASE_MANIFEST_URL:-${CLAWDENTITY_RELEASE_MANIFEST_URL_INPUT:-${HOST_SITE_BASE_URL%/}/rust/latest-local.json}}"
 CLAWDENTITY_INSTALL_DIR_IN_CONTAINER="${CLAWDENTITY_INSTALL_DIR_IN_CONTAINER:-/home/node/.local/bin}"
 CLAWDENTITY_CLI_PATH_IN_CONTAINER="${CLAWDENTITY_CLI_PATH_IN_CONTAINER:-/home/node/.local/bin/clawdentity}"
 BUILD_CLI_BEFORE_TEST="${BUILD_CLI_BEFORE_TEST:-1}"
@@ -212,7 +219,7 @@ resolve_latest_clawdentity_version() {
   else
     local fetched_version=""
     if fetched_version="$(
-      curl -fsSL "$CLAWDENTITY_RELEASE_MANIFEST_URL" 2>/dev/null |
+      curl -fsSL "$HOST_RELEASE_MANIFEST_URL" 2>/dev/null |
         node -e '
           let raw = "";
           process.stdin.on("data", (chunk) => {
@@ -231,7 +238,7 @@ resolve_latest_clawdentity_version() {
     )"; then
       CLAWDENTITY_LATEST_VERSION="$(normalize_clawdentity_version "$fetched_version")"
     else
-      log "Warning: failed to resolve latest CLI version from $CLAWDENTITY_RELEASE_MANIFEST_URL"
+      log "Warning: failed to resolve latest CLI version from $HOST_RELEASE_MANIFEST_URL"
       if CLAWDENTITY_LATEST_VERSION="$(resolve_version_from_preserved_env)"; then
         source="preserved-profile-env"
       else
@@ -263,14 +270,201 @@ build_local_clawdentity_cli() {
   log "Local CLI build ready: $("$cli_bin" --version)"
 }
 
+sync_local_release_manifest() {
+  [[ "$SYNC_LOCAL_RELEASE_MANIFEST" == "1" ]] || return 0
+
+  local version
+  version="$(resolve_version_from_local_cargo || true)"
+  version="$(normalize_clawdentity_version "$version")"
+  [[ -n "$version" ]] || fail "Could not resolve CLI version from crates/clawdentity-cli/Cargo.toml"
+
+  local rust_root="$REPO_ROOT/apps/landing/public/rust"
+  local release_dir="$rust_root/v${version}"
+  local checksums_path="$release_dir/clawdentity-${version}-checksums.txt"
+  local manifest_path="$rust_root/latest-local.json"
+
+  ensure_local_release_artifacts "$version" "$release_dir" "$checksums_path"
+
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+
+    const [releaseDir, checksumsPath, manifestPath, version, dockerSiteBaseUrl] = process.argv.slice(1);
+    const entries = fs.readdirSync(releaseDir);
+    const assets = {};
+
+    for (const fileName of entries) {
+      const match = fileName.match(/^clawdentity-([0-9]+\.[0-9]+\.[0-9]+)-(.+)\.(tar\.gz|zip)$/);
+      if (!match) {
+        continue;
+      }
+      if (match[1] !== version) {
+        continue;
+      }
+      const platform = match[2];
+      assets[platform] = {
+        fileName,
+        url: `${dockerSiteBaseUrl}/rust/v${version}/${fileName}`,
+      };
+    }
+
+    if (Object.keys(assets).length === 0) {
+      throw new Error(`No release assets found in ${releaseDir} for version ${version}`);
+    }
+    if (!fs.existsSync(checksumsPath)) {
+      throw new Error(`Missing checksums file: ${checksumsPath}`);
+    }
+
+    const manifest = {
+      version,
+      tag: `rust/v${version}`,
+      publishedAt: new Date().toISOString(),
+      assetBaseUrl: `${dockerSiteBaseUrl}/rust/v${version}`,
+      checksumsUrl: `${dockerSiteBaseUrl}/rust/v${version}/clawdentity-${version}-checksums.txt`,
+      assets,
+    };
+
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  ' \
+    "$release_dir" \
+    "$checksums_path" \
+    "$manifest_path" \
+    "$version" \
+    "${DOCKER_SITE_BASE_URL%/}"
+
+  log "Synced local release manifest: $manifest_path (version ${version})"
+}
+
+ensure_local_release_artifacts() {
+  local version="$1"
+  local release_dir="$2"
+  local checksums_path="$3"
+  local docker_workdir="/workspace/clawdentity"
+  local release_rel="${release_dir#"$REPO_ROOT/"}"
+  [[ "$release_rel" != "$release_dir" ]] || fail "Release directory must be under repo root: $release_dir"
+  local docker_release_dir="$docker_workdir/$release_rel"
+  local -a platform_matrix=(
+    "linux-aarch64|linux/arm64"
+    "linux-x86_64|linux/amd64"
+  )
+
+  local assets_complete=1
+  for entry in "${platform_matrix[@]}"; do
+    local platform_label="${entry%%|*}"
+    local asset_file="clawdentity-${version}-${platform_label}.tar.gz"
+    [[ -f "$release_dir/$asset_file" ]] || assets_complete=0
+  done
+  if [[ "$assets_complete" == "1" && -f "$checksums_path" ]]; then
+    return 0
+  fi
+
+  [[ "$AUTO_BUILD_LOCAL_RELEASE" == "1" ]] || fail "Missing local release assets for v${version} and AUTO_BUILD_LOCAL_RELEASE=0"
+  require_command docker
+  mkdir -p "$release_dir"
+
+  local cargo_build_args="-p clawdentity-cli"
+  local built_binary_relpath="debug/clawdentity-cli"
+
+  case "$LOCAL_RELEASE_PROFILE" in
+    dev) ;;
+    release)
+      cargo_build_args="$cargo_build_args --release"
+      built_binary_relpath="release/clawdentity-cli"
+      ;;
+    *)
+      fail "Unsupported LOCAL_RELEASE_PROFILE=${LOCAL_RELEASE_PROFILE} (expected dev or release)"
+      ;;
+  esac
+
+  for entry in "${platform_matrix[@]}"; do
+    local platform_label="${entry%%|*}"
+    local docker_platform="${entry##*|}"
+    local asset_file="clawdentity-${version}-${platform_label}.tar.gz"
+    local asset_path="$release_dir/$asset_file"
+    local platform_cache_root="$LOCAL_RELEASE_CARGO_CACHE_ROOT/${platform_label}"
+    local host_registry_cache_dir="$platform_cache_root/registry"
+    local host_git_cache_dir="$platform_cache_root/git"
+    local host_target_cache_dir="$platform_cache_root/target"
+    local docker_target_dir="/cache/target-${platform_label}"
+    mkdir -p "$host_registry_cache_dir" "$host_git_cache_dir" "$host_target_cache_dir"
+
+    if [[ -f "$asset_path" ]]; then
+      continue
+    fi
+
+    log "Building ${platform_label} local release asset for v${version} via Docker (profile: ${LOCAL_RELEASE_PROFILE})"
+    local build_succeeded=0
+    for attempt in 1 2; do
+      if docker run --rm --platform "$docker_platform" \
+        -v "$REPO_ROOT:$docker_workdir" \
+        -v "$host_registry_cache_dir:/usr/local/cargo/registry" \
+        -v "$host_git_cache_dir:/usr/local/cargo/git" \
+        -v "$host_target_cache_dir:$docker_target_dir" \
+        -w "$docker_workdir/crates" \
+        "$LOCAL_RELEASE_DOCKER_IMAGE" \
+        bash -lc "
+          set -euo pipefail
+          /usr/local/cargo/bin/cargo build $cargo_build_args --target-dir '$docker_target_dir'
+          rm -rf /tmp/clawdentity-release && mkdir -p /tmp/clawdentity-release
+          cp '$docker_target_dir/$built_binary_relpath' /tmp/clawdentity-release/clawdentity
+          mkdir -p '$docker_release_dir'
+          tar -czf '$docker_release_dir/$asset_file' -C /tmp/clawdentity-release clawdentity
+        "; then
+        build_succeeded=1
+        break
+      fi
+
+      if [[ "$attempt" == "1" ]]; then
+        log "Build failed for ${platform_label}; clearing target cache and retrying once"
+        rm -rf "$host_target_cache_dir"
+        mkdir -p "$host_target_cache_dir"
+      fi
+    done
+
+    [[ "$build_succeeded" == "1" ]] || fail "Failed to build ${platform_label} local release asset for v${version}"
+
+    [[ -f "$asset_path" ]] || fail "Failed to produce local release asset: $asset_path"
+  done
+
+  node -e '
+    const crypto = require("crypto");
+    const fs = require("fs");
+    const path = require("path");
+    const releaseDir = process.argv[1];
+    const checksumsPath = process.argv[2];
+    const version = process.argv[3];
+    const files = fs
+      .readdirSync(releaseDir)
+      .filter((file) => new RegExp(`^clawdentity-${version}-.+\\.(tar\\.gz|zip)$`).test(file))
+      .sort();
+    if (files.length === 0) {
+      throw new Error(`No release assets found in ${releaseDir} for ${version}`);
+    }
+    const lines = files.map((file) => {
+      const data = fs.readFileSync(path.join(releaseDir, file));
+      const hash = crypto.createHash("sha256").update(data).digest("hex");
+      return `${hash}  ${file}`;
+    });
+    fs.writeFileSync(checksumsPath, `${lines.join("\n")}\n`);
+  ' \
+    "$release_dir" \
+    "$checksums_path" \
+    "$version"
+
+  [[ -f "$checksums_path" ]] || fail "Failed to produce checksums file: $checksums_path"
+  log "Generated local release assets for v${version} (linux-aarch64 + linux-x86_64)"
+}
+
 sync_clawdentity_install_env() {
   node -e '
     const fs = require("fs");
     const envPaths = [process.argv[1], process.argv[2]];
     const version = process.argv[3];
     const manifestUrl = process.argv[4];
-    const installDir = process.argv[5];
-    const cliPath = process.argv[6];
+    const downloadsBaseUrl = process.argv[5];
+    const installDir = process.argv[6];
+    const cliPath = process.argv[7];
     const defaultPath = "/home/node/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games";
 
     const upsertEnvValue = (raw, key, value) => {
@@ -291,6 +485,7 @@ sync_clawdentity_install_env() {
       let next = raw;
       next = upsertEnvValue(next, "CLAWDENTITY_VERSION", version);
       next = upsertEnvValue(next, "CLAWDENTITY_RELEASE_MANIFEST_URL", manifestUrl);
+      next = upsertEnvValue(next, "CLAWDENTITY_DOWNLOADS_BASE_URL", downloadsBaseUrl);
       next = upsertEnvValue(next, "CLAWDENTITY_INSTALL_DIR", installDir);
       next = upsertEnvValue(next, "CLAWDENTITY_CLI_PATH", cliPath);
       next = upsertEnvValue(next, "PATH", defaultPath);
@@ -301,6 +496,7 @@ sync_clawdentity_install_env() {
     "$OPENCLAW_BETA_HOME/.env" \
     "$CLAWDENTITY_LATEST_VERSION" \
     "$CLAWDENTITY_RELEASE_MANIFEST_URL" \
+    "$DOCKER_SITE_BASE_URL" \
     "$CLAWDENTITY_INSTALL_DIR_IN_CONTAINER" \
     "$CLAWDENTITY_CLI_PATH_IN_CONTAINER"
 }
@@ -574,6 +770,7 @@ assert_profile_env_contract() {
   assert_env_value "$env_file" "CLAWDENTITY_SITE_BASE_URL" "$DOCKER_SITE_BASE_URL"
   assert_env_value "$env_file" "CLAWDENTITY_VERSION" "$CLAWDENTITY_LATEST_VERSION"
   assert_env_value "$env_file" "CLAWDENTITY_RELEASE_MANIFEST_URL" "$CLAWDENTITY_RELEASE_MANIFEST_URL"
+  assert_env_value "$env_file" "CLAWDENTITY_DOWNLOADS_BASE_URL" "$DOCKER_SITE_BASE_URL"
   assert_env_value "$env_file" "CLAWDENTITY_INSTALL_DIR" "$CLAWDENTITY_INSTALL_DIR_IN_CONTAINER"
   assert_env_value "$env_file" "CLAWDENTITY_CLI_PATH" "$CLAWDENTITY_CLI_PATH_IN_CONTAINER"
   assert_env_value "$env_file" "CLAWDENTITY_EXPECTED_AGENT_NAME" "$expected_agent_name"
@@ -589,6 +786,7 @@ verify_host_stack_dependencies() {
   require_http_ok "${HOST_REGISTRY_URL%/}/health" "registry health"
   require_http_ok "${HOST_PROXY_URL%/}/health" "proxy health"
   require_http_ok "$host_skill_url" "landing skill"
+  require_http_ok "$HOST_RELEASE_MANIFEST_URL" "landing release manifest"
 }
 
 verify_container_stack_dependencies() {
@@ -656,8 +854,9 @@ run() {
   require_file "$LOCAL_EXEC_APPROVALS_FILE"
   require_file "$HOST_CODEX_AUTH_FILE"
 
-  resolve_latest_clawdentity_version
   build_local_clawdentity_cli
+  sync_local_release_manifest
+  resolve_latest_clawdentity_version
   verify_host_stack_dependencies
 
   tmp_dir="$(mktemp -d)"
