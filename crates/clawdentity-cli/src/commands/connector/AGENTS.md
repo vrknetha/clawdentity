@@ -28,6 +28,7 @@
 - For OpenClaw-facing notifications, prefer proxy-provided non-empty `system.message` when present and fall back to local generated message text when absent.
 - Treat blank/whitespace `system.message` as absent UX metadata so trusted peer persistence cannot fail on cosmetic message formatting drift.
 - After trusted `pair.accepted` peer persistence succeeds, reconcile local `onboarding-session.json` to `messaging_ready` + `pairing.phase=peer_saved` as a best-effort UX sync; stale onboarding session state must not block relay send when peer state is already persisted.
+- Keep `pair.accepted` onboarding-session reconciliation split into small helpers (`read`/`reconcile`/`write`) so non-test function line-budget checks stay green while preserving best-effort semantics.
 - Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
 - Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
 - Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.

@@ -100,6 +100,11 @@ fn render_skill_markdown(site_base_url: &str) -> String {
             "https://clawdentity.com/install.ps1",
             format!("{site_base_url}/install.ps1"),
         ),
+        ("<skill-origin>/install.sh", format!("{site_base_url}/install.sh")),
+        (
+            "<skill-origin>/install.ps1",
+            format!("{site_base_url}/install.ps1"),
+        ),
     ]
     .into_iter()
     .fold(SKILL_MD.to_string(), |rendered, (from, to)| {

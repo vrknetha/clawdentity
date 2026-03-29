@@ -9,7 +9,7 @@ use clawdentity_core::{
     persist_confirmed_peer_from_profile_and_proxy_origin,
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tracing::warn;
 
 const PAIR_ACCEPTED_SYSTEM_EVENT_TYPE: &str = "pair.accepted";
@@ -21,11 +21,10 @@ const ONBOARDING_STATE_PAIRED: &str = "paired";
 const ONBOARDING_STATE_MESSAGING_READY: &str = "messaging_ready";
 const ONBOARDING_PAIRING_PHASE_PEER_SAVED: &str = "peer_saved";
 
-fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &str) -> Result<()> {
-    let path = config_dir.join(ONBOARDING_SESSION_FILE_NAME);
-    let raw = match fs::read_to_string(&path) {
+fn read_onboarding_session(path: &Path) -> Result<Option<Value>> {
+    let raw = match fs::read_to_string(path) {
         Ok(raw) => raw,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(anyhow!(
                 "failed to read onboarding session {}: {error}",
@@ -35,25 +34,27 @@ fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &st
     };
 
     if raw.trim().is_empty() {
-        return Ok(());
+        return Ok(None);
     }
 
-    let mut session = serde_json::from_str::<Value>(&raw).map_err(|error| {
+    let session = serde_json::from_str::<Value>(&raw).map_err(|error| {
         anyhow!(
             "failed to parse onboarding session {}: {error}",
             path.display()
         )
     })?;
-    let session_object = session
-        .as_object_mut()
-        .ok_or_else(|| anyhow!("onboarding session {} is not an object", path.display()))?;
+    Ok(Some(session))
+}
 
-    let current_state = session_object.get("state").and_then(Value::as_str);
-    let should_promote_state = matches!(
+fn should_promote_onboarding_state(current_state: Option<&str>) -> bool {
+    matches!(
         current_state,
         None | Some(ONBOARDING_STATE_PAIRING_PENDING) | Some(ONBOARDING_STATE_PAIRED)
-    );
-    if should_promote_state {
+    )
+}
+
+fn reconcile_onboarding_session_object(session_object: &mut Map<String, Value>, peer_alias: &str) {
+    if should_promote_onboarding_state(session_object.get("state").and_then(Value::as_str)) {
         session_object.insert("state".to_string(), json!(ONBOARDING_STATE_MESSAGING_READY));
     }
     session_object.insert("updatedAt".to_string(), json!(clawdentity_core::now_iso()));
@@ -72,9 +73,11 @@ fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &st
             json!(ONBOARDING_PAIRING_PHASE_PEER_SAVED),
         );
     }
+}
 
-    let payload = format!("{}\n", serde_json::to_string_pretty(&session)?);
-    fs::write(&path, payload).map_err(|error| {
+fn write_onboarding_session(path: &Path, session: &Value) -> Result<()> {
+    let payload = format!("{}\n", serde_json::to_string_pretty(session)?);
+    fs::write(path, payload).map_err(|error| {
         anyhow!(
             "failed to write onboarding session {}: {error}",
             path.display()
@@ -85,7 +88,7 @@ fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &st
     {
         use std::os::unix::fs::PermissionsExt;
         let permissions = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&path, permissions).map_err(|error| {
+        fs::set_permissions(path, permissions).map_err(|error| {
             anyhow!(
                 "failed to set onboarding session permissions {}: {error}",
                 path.display()
@@ -94,6 +97,18 @@ fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &st
     }
 
     Ok(())
+}
+
+fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &str) -> Result<()> {
+    let path = config_dir.join(ONBOARDING_SESSION_FILE_NAME);
+    let Some(mut session) = read_onboarding_session(&path)? else {
+        return Ok(());
+    };
+    let session_object = session
+        .as_object_mut()
+        .ok_or_else(|| anyhow!("onboarding session {} is not an object", path.display()))?;
+    reconcile_onboarding_session_object(session_object, peer_alias);
+    write_onboarding_session(&path, &session)
 }
 
 #[derive(Debug, Clone, Deserialize)]
