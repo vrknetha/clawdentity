@@ -24,7 +24,7 @@ load_dotenv() {
 
 load_dotenv "$CLAWDENTITY_ENV_FILE"
 
-DOCKER_COMPOSE_FILE="${DOCKER_COMPOSE_FILE:-/Users/dev/Workdir/openclaw/docker-compose.dual.yml}"
+DOCKER_COMPOSE_FILE="${DOCKER_COMPOSE_FILE:-$REPO_ROOT/../openclaw/docker-compose.dual.yml}"
 
 OPENCLAW_ALPHA_HOME="${OPENCLAW_ALPHA_HOME:-$HOME/.openclaw-alpha}"
 OPENCLAW_BETA_HOME="${OPENCLAW_BETA_HOME:-$HOME/.openclaw-beta}"

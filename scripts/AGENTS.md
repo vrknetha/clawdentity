@@ -11,6 +11,7 @@
 - The file-size guard enforces an 800-line limit for tracked source files under `apps/**` and `packages/**`, excluding `dist`, `.wrangler`, `worker-configuration.d.ts`, `drizzle/meta`, and `node_modules`.
 
 - `openclaw-relay-docker-ready.sh` is the canonical clean-room reset harness for the dual OpenClaw Docker E2E flow.
+- `openclaw-relay-docker-ready.sh` must default `DOCKER_COMPOSE_FILE` to a repo-relative sibling path (`$REPO_ROOT/../openclaw/docker-compose.dual.yml`), not a developer-local absolute machine path.
 - `openclaw-onboarding-e2e-check.sh` is the canonical post-reset smoke check for prompt-first onboarding (`onboarding run` on both sides, pairing, and first bidirectional relay messages).
 - Keep `openclaw-relay-docker-ready.sh` free of npm/package-manager assumptions; it must work with Rust-owned skill installation only.
 - `openclaw-relay-docker-ready.sh` must treat `DOCKER_REGISTRY_URL` / `DOCKER_PROXY_URL` as Docker-runtime source of truth; default them directly to `host.docker.internal` values and never derive container defaults from host `.env` values like `127.0.0.1`.
