@@ -13,9 +13,17 @@ export type ParsedDid = {
 const DID_METHOD = "cdi" as const;
 const MAX_AUTHORITY_LENGTH = 253;
 const DNS_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const GROUP_ID_PREFIX = "grp_";
 
 function invalidDid(value: string): ProtocolParseError {
   return new ProtocolParseError("INVALID_DID", `Invalid DID: ${value}`);
+}
+
+function invalidGroupId(value: string): ProtocolParseError {
+  return new ProtocolParseError(
+    "INVALID_GROUP_ID",
+    `Invalid group ID: ${value}`,
+  );
 }
 
 function ensureDidUlid(value: string, didValue: string): void {
@@ -107,4 +115,20 @@ export function parseHumanDid(value: string): ParsedDid & { entity: "human" } {
     ...parsed,
     entity: "human",
   };
+}
+
+export function parseGroupId(value: string): string {
+  const normalized = value.trim();
+  if (!normalized.startsWith(GROUP_ID_PREFIX)) {
+    throw invalidGroupId(value);
+  }
+
+  const ulid = normalized.slice(GROUP_ID_PREFIX.length);
+  try {
+    parseUlid(ulid);
+  } catch {
+    throw invalidGroupId(value);
+  }
+
+  return normalized;
 }

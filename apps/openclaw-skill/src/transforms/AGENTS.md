@@ -19,6 +19,7 @@
 - Keep outbound connector envelope canonical (`toAgentDid`, `payload`, optional `conversationId`); do not reintroduce legacy relay fields (`peerDid`, `peerProxyUrl`).
 - Keep connector health cache bounded and self-pruning (TTL + max entries); never allow unbounded per-endpoint growth in long-running transform hosts.
 - Do not mark endpoint health as down for request-level rejections (`4xx` payload/contract errors); reserve unhealthy marks for timeout/connectivity failures.
+- Route-field validation must fail fast: when routing keys (`peer`, `group`, `groupId`) are present but malformed, throw a deterministic input error instead of silently skipping relay handoff.
 
 ## Testing
 - Cover both default runtime metadata and explicit override behavior in transform tests.

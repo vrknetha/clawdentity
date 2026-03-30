@@ -56,6 +56,7 @@ export function toDeliverFrame(input: RelayDeliveryInput): DeliverFrame {
     toAgentDid: input.recipientAgentDid,
     payload: input.payload,
     deliverySource: input.deliverySource,
+    groupId: input.groupId,
     conversationId: input.conversationId,
     replyTo: input.replyTo,
   };
@@ -111,6 +112,7 @@ export function toRelayDeliveryInputFromEnqueueFrame(input: {
     recipientAgentDid: input.frame.toAgentDid,
     payload: input.frame.payload,
     deliverySource: RELAY_DELIVERY_SOURCE_AGENT_ENQUEUE,
+    groupId: input.frame.groupId,
     conversationId: input.frame.conversationId,
     replyTo: input.frame.replyTo,
   };

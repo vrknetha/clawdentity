@@ -166,6 +166,7 @@ export class RelayQueueManager {
           senderAgentDid: delivery.senderAgentDid,
           recipientAgentDid: delivery.recipientAgentDid,
           deliverySource: delivery.deliverySource,
+          groupId: delivery.groupId,
           conversationId: delivery.conversationId,
           replyTo: delivery.replyTo,
           payload: delivery.payload,

@@ -36,6 +36,7 @@ import type {
   RelayDeliveryResult,
 } from "./agent-relay-session.js";
 import { parseProxyConfig } from "./config.js";
+import type { GroupTrustAuthorizer } from "./group-trust.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
 import { createProxyApp } from "./server.js";
 
@@ -117,6 +118,7 @@ function createRelayHarness(input?: {
 }
 
 function createHookRouteApp(input: {
+  groupTrustAuthorizer?: GroupTrustAuthorizer;
   relayNamespace?: AgentRelaySessionNamespace;
   injectIdentityIntoMessage?: boolean;
   now?: () => string;
@@ -143,6 +145,7 @@ function createHookRouteApp(input: {
     trustStore,
     hooks: {
       now: input.now,
+      groupTrustAuthorizer: input.groupTrustAuthorizer,
       resolveSessionNamespace: () => input.relayNamespace,
     },
   });
@@ -245,6 +248,75 @@ describe("POST /hooks/agent", () => {
     expect(response.status).toBe(403);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe("PROXY_AUTH_FORBIDDEN");
+    expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
+  });
+
+  it("uses group membership trust when X-Claw-Group-Id is present", async () => {
+    const relayHarness = createRelayHarness();
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+      groupTrustAuthorizer: vi.fn(async () => {}),
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-claw-group-id": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(202);
+    expect(relayHarness.fetchRpc).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 503 when group trust verifier is unavailable for group sends", async () => {
+    const relayHarness = createRelayHarness();
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-claw-group-id": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB8",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_GROUP_MEMBERSHIP_UNAVAILABLE");
+    expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when group header is malformed", async () => {
+    const relayHarness = createRelayHarness();
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+      groupTrustAuthorizer: vi.fn(async () => {}),
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-claw-group-id": "bad-group-id",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PROXY_HOOK_GROUP_INVALID");
     expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
   });
 

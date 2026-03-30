@@ -1,5 +1,7 @@
 use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -12,26 +14,36 @@ use crate::connector_client::ConnectorClientSender;
 use crate::db::{SqliteStore, now_utc_ms};
 use crate::db_inbound::{dead_letter_count, list_dead_letter, pending_count};
 use crate::db_outbound::{
-    EnqueueOutboundInput, enqueue_outbound, outbound_dead_letter_count, outbound_queue_stats,
+    EnqueueOutboundInput, delete_outbound, enqueue_outbound, outbound_dead_letter_count,
+    outbound_queue_stats,
 };
-use crate::did::parse_agent_did;
+use crate::did::{parse_agent_did, parse_group_id};
 use crate::error::{CoreError, Result};
 use crate::runtime_relay::flush_outbound_queue_to_relay;
 use crate::runtime_replay::{purge_dead_letter_messages, replay_dead_letter_messages};
 
 const DEFAULT_OUTBOUND_MAX_PENDING: i64 = 10_000;
+type GroupMembersFuture =
+    Pin<Box<dyn Future<Output = std::result::Result<Vec<String>, String>> + Send>>;
+
+pub type ResolveGroupMembers = Arc<dyn Fn(String) -> GroupMembersFuture + Send + Sync>;
 
 #[derive(Clone)]
 pub struct RuntimeServerState {
     pub store: SqliteStore,
     pub relay_sender: Option<ConnectorClientSender>,
     pub outbound_max_pending_override: Option<i64>,
+    pub group_members_resolver: Option<ResolveGroupMembers>,
+    pub local_agent_did: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OutboundRequest {
-    to_agent_did: String,
+    #[serde(default)]
+    to_agent_did: Option<String>,
+    #[serde(default)]
+    group_id: Option<String>,
     payload: serde_json::Value,
     #[serde(default)]
     conversation_id: Option<String>,
@@ -121,41 +133,93 @@ async fn status_handler(State(state): State<RuntimeServerState>) -> impl IntoRes
     )
 }
 
-#[allow(clippy::too_many_lines)]
-async fn outbound_handler(
-    State(state): State<RuntimeServerState>,
-    Json(request): Json<OutboundRequest>,
-) -> impl IntoResponse {
-    let normalized_to_agent_did = request.to_agent_did.trim().to_string();
-    if normalized_to_agent_did.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": {
-                    "code": "INVALID_TO_AGENT_DID",
-                    "message": "toAgentDid must be a valid agent DID",
-                }
-            })),
-        );
-    }
-    if parse_agent_did(&normalized_to_agent_did).is_err() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": {
-                    "code": "INVALID_TO_AGENT_DID",
-                    "message": "toAgentDid must be a valid agent DID",
-                }
-            })),
-        );
-    }
+enum OutboundRouting {
+    Direct { to_agent_did: String },
+    Group { group_id: String },
+}
 
-    let max_pending = resolve_outbound_max_pending(&state);
+fn parse_optional_non_empty(value: Option<String>) -> Option<String> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn resolve_outbound_routing(
+    request: &OutboundRequest,
+) -> std::result::Result<OutboundRouting, AppErrorResponse> {
+    let to_agent_did = parse_optional_non_empty(request.to_agent_did.clone());
+    let group_id = parse_optional_non_empty(request.group_id.clone());
+
+    match (to_agent_did, group_id) {
+        (Some(_), Some(_)) => Err(AppErrorResponse {
+            status: StatusCode::BAD_REQUEST,
+            code: "INVALID_OUTBOUND_ROUTE",
+            message: "Provide exactly one of toAgentDid or groupId",
+        }),
+        (None, None) => Err(AppErrorResponse {
+            status: StatusCode::BAD_REQUEST,
+            code: "INVALID_OUTBOUND_ROUTE",
+            message: "Provide exactly one of toAgentDid or groupId",
+        }),
+        (Some(to_agent_did), None) => {
+            if parse_agent_did(&to_agent_did).is_err() {
+                return Err(AppErrorResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    code: "INVALID_TO_AGENT_DID",
+                    message: "toAgentDid must be a valid agent DID",
+                });
+            }
+
+            Ok(OutboundRouting::Direct { to_agent_did })
+        }
+        (None, Some(group_id)) => {
+            if parse_group_id(&group_id).is_err() {
+                return Err(AppErrorResponse {
+                    status: StatusCode::BAD_REQUEST,
+                    code: "INVALID_GROUP_ID",
+                    message: "groupId must be a valid group ID",
+                });
+            }
+
+            Ok(OutboundRouting::Group { group_id })
+        }
+    }
+}
+
+struct AppErrorResponse {
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+}
+
+fn to_error_response(error: AppErrorResponse) -> (StatusCode, Json<serde_json::Value>) {
+    (
+        error.status,
+        Json(json!({
+            "error": {
+                "code": error.code,
+                "message": error.message,
+            }
+        })),
+    )
+}
+
+fn ensure_outbound_capacity(
+    state: &RuntimeServerState,
+    required_slots: i64,
+) -> std::result::Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let max_pending = resolve_outbound_max_pending(state);
     let current_pending = outbound_queue_stats(&state.store, now_utc_ms())
         .map(|stats| stats.pending_count)
         .unwrap_or(0);
-    if current_pending >= max_pending {
-        return (
+    let remaining_capacity = max_pending.saturating_sub(current_pending);
+    if remaining_capacity < required_slots {
+        return Err((
             StatusCode::INSUFFICIENT_STORAGE,
             Json(json!({
                 "error": {
@@ -163,9 +227,20 @@ async fn outbound_handler(
                     "message": "Connector outbound queue is full",
                 }
             })),
-        );
+        ));
     }
 
+    Ok(())
+}
+
+fn enqueue_outbound_frame(
+    state: &RuntimeServerState,
+    to_agent_did: String,
+    group_id: Option<String>,
+    payload: &serde_json::Value,
+    conversation_id: Option<String>,
+    reply_to: Option<String>,
+) -> std::result::Result<String, (StatusCode, Json<serde_json::Value>)> {
     let frame_id = ulid::Ulid::new().to_string();
     let enqueue_result = enqueue_outbound(
         &state.store,
@@ -173,14 +248,15 @@ async fn outbound_handler(
             frame_id: frame_id.clone(),
             frame_version: 1,
             frame_type: "enqueue".to_string(),
-            to_agent_did: normalized_to_agent_did,
-            payload_json: request.payload.to_string(),
-            conversation_id: request.conversation_id,
-            reply_to: request.reply_to,
+            to_agent_did,
+            group_id,
+            payload_json: payload.to_string(),
+            conversation_id,
+            reply_to,
         },
     );
     if let Err(error) = enqueue_result {
-        return (
+        return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "error": {
@@ -188,20 +264,190 @@ async fn outbound_handler(
                     "message": error.to_string(),
                 }
             })),
-        );
+        ));
     }
 
-    if let Some(relay_sender) = &state.relay_sender {
-        let _ = flush_outbound_queue_to_relay(&state.store, relay_sender, 1, None).await;
-    }
+    Ok(frame_id)
+}
 
-    (
-        StatusCode::ACCEPTED,
-        Json(json!({
-            "accepted": true,
-            "frameId": frame_id,
-        })),
-    )
+#[allow(clippy::too_many_lines)]
+async fn outbound_handler(
+    State(state): State<RuntimeServerState>,
+    Json(request): Json<OutboundRequest>,
+) -> impl IntoResponse {
+    let routing = match resolve_outbound_routing(&request) {
+        Ok(routing) => routing,
+        Err(error) => return to_error_response(error),
+    };
+
+    match routing {
+        OutboundRouting::Direct { to_agent_did } => {
+            if let Err(error) = ensure_outbound_capacity(&state, 1) {
+                return error;
+            }
+
+            let frame_id = match enqueue_outbound_frame(
+                &state,
+                to_agent_did,
+                None,
+                &request.payload,
+                request.conversation_id.clone(),
+                request.reply_to.clone(),
+            ) {
+                Ok(frame_id) => frame_id,
+                Err(error) => return error,
+            };
+
+            if let Some(relay_sender) = &state.relay_sender {
+                let _ = flush_outbound_queue_to_relay(&state.store, relay_sender, 1, None).await;
+            }
+
+            (
+                StatusCode::ACCEPTED,
+                Json(json!({
+                    "accepted": true,
+                    "frameId": frame_id,
+                })),
+            )
+        }
+        OutboundRouting::Group { group_id } => {
+            let local_agent_did = match parse_optional_non_empty(state.local_agent_did.clone()) {
+                Some(value) => value,
+                None => {
+                    return to_error_response(AppErrorResponse {
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        code: "GROUP_MEMBERSHIP_UNAVAILABLE",
+                        message: "Group membership verification is unavailable",
+                    });
+                }
+            };
+            if parse_agent_did(&local_agent_did).is_err() {
+                return to_error_response(AppErrorResponse {
+                    status: StatusCode::SERVICE_UNAVAILABLE,
+                    code: "GROUP_MEMBERSHIP_UNAVAILABLE",
+                    message: "Group membership verification is unavailable",
+                });
+            }
+
+            let resolver = match state.group_members_resolver.clone() {
+                Some(resolver) => resolver,
+                None => {
+                    return to_error_response(AppErrorResponse {
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        code: "GROUP_MEMBERSHIP_UNAVAILABLE",
+                        message: "Group membership verification is unavailable",
+                    });
+                }
+            };
+
+            let raw_members = match resolver(group_id.clone()).await {
+                Ok(members) => members,
+                Err(_) => {
+                    return to_error_response(AppErrorResponse {
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        code: "GROUP_MEMBERSHIP_LOOKUP_FAILED",
+                        message: "Group membership verification is unavailable",
+                    });
+                }
+            };
+
+            let mut recipients: Vec<String> = Vec::new();
+            for member in raw_members {
+                let trimmed = member.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if parse_agent_did(trimmed).is_err() {
+                    return (
+                        StatusCode::BAD_GATEWAY,
+                        Json(json!({
+                            "error": {
+                                "code": "GROUP_MEMBERSHIP_INVALID_RESPONSE",
+                                "message": "Group membership response is invalid",
+                            }
+                        })),
+                    );
+                }
+                if trimmed == local_agent_did {
+                    continue;
+                }
+                if !recipients.iter().any(|value| value == trimmed) {
+                    recipients.push(trimmed.to_string());
+                }
+            }
+
+            if recipients.is_empty() {
+                return (
+                    StatusCode::ACCEPTED,
+                    Json(json!({
+                        "accepted": true,
+                        "groupId": group_id,
+                        "frameIds": [],
+                        "enqueuedRecipients": 0,
+                    })),
+                );
+            }
+
+            let required_slots = match i64::try_from(recipients.len()) {
+                Ok(value) => value,
+                Err(_) => {
+                    return (
+                        StatusCode::INSUFFICIENT_STORAGE,
+                        Json(json!({
+                            "error": {
+                                "code": "CONNECTOR_OUTBOUND_QUEUE_FULL",
+                                "message": "Connector outbound queue is full",
+                            }
+                        })),
+                    );
+                }
+            };
+            if let Err(error) = ensure_outbound_capacity(&state, required_slots) {
+                return error;
+            }
+
+            let mut frame_ids: Vec<String> = Vec::with_capacity(recipients.len());
+            for recipient in recipients {
+                match enqueue_outbound_frame(
+                    &state,
+                    recipient,
+                    Some(group_id.clone()),
+                    &request.payload,
+                    request.conversation_id.clone(),
+                    request.reply_to.clone(),
+                ) {
+                    Ok(frame_id) => frame_ids.push(frame_id),
+                    Err(error) => {
+                        for frame_id in &frame_ids {
+                            let _ = delete_outbound(&state.store, frame_id);
+                        }
+                        return error;
+                    }
+                }
+            }
+
+            if let Some(relay_sender) = &state.relay_sender {
+                let _ = flush_outbound_queue_to_relay(
+                    &state.store,
+                    relay_sender,
+                    frame_ids.len(),
+                    None,
+                )
+                .await;
+            }
+            let enqueued_recipients = frame_ids.len();
+
+            (
+                StatusCode::ACCEPTED,
+                Json(json!({
+                    "accepted": true,
+                    "groupId": group_id,
+                    "frameIds": frame_ids,
+                    "enqueuedRecipients": enqueued_recipients,
+                })),
+            )
+        }
+    }
 }
 
 fn resolve_outbound_max_pending(state: &RuntimeServerState) -> i64 {
@@ -307,174 +553,4 @@ fn normalize_request_ids(request_ids: Vec<String>) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use axum::body::{Body, to_bytes};
-    use axum::http::{Request, StatusCode};
-    use serde_json::Value;
-    use tempfile::TempDir;
-    use tower::ServiceExt;
-
-    use crate::db::SqliteStore;
-    use crate::db_outbound::{list_outbound, outbound_count};
-
-    use super::{RuntimeServerState, create_runtime_router};
-
-    #[tokio::test]
-    async fn status_endpoint_returns_ok_payload() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-        let app = create_runtime_router(RuntimeServerState {
-            store,
-            relay_sender: None,
-            outbound_max_pending_override: None,
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .uri("/v1/status")
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("bytes");
-        let payload: Value = serde_json::from_slice(&body).expect("json");
-        assert_eq!(
-            payload.get("status").and_then(|value| value.as_str()),
-            Some("ok")
-        );
-    }
-
-    #[tokio::test]
-    async fn outbound_endpoint_enqueues_message() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-        let app = create_runtime_router(RuntimeServerState {
-            store: store.clone(),
-            relay_sender: None,
-            outbound_max_pending_override: None,
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/outbound")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"world\"}}",
-                    ))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
-        assert_eq!(outbound_count(&store).expect("count"), 1);
-    }
-
-    #[tokio::test]
-    async fn outbound_endpoint_persists_conversation_id_when_present() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-        let app = create_runtime_router(RuntimeServerState {
-            store: store.clone(),
-            relay_sender: None,
-            outbound_max_pending_override: None,
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/outbound")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"conversationId\":\"pair:conv-alpha-beta\",\"payload\":{\"hello\":\"world\"}}",
-                    ))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(response.status(), StatusCode::ACCEPTED);
-
-        let outbound = list_outbound(&store, 10).expect("outbound rows");
-        assert_eq!(outbound.len(), 1);
-        assert_eq!(
-            outbound[0].conversation_id.as_deref(),
-            Some("pair:conv-alpha-beta")
-        );
-    }
-
-    #[tokio::test]
-    async fn outbound_endpoint_rejects_legacy_peer_did_payload() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-        let app = create_runtime_router(RuntimeServerState {
-            store: store.clone(),
-            relay_sender: None,
-            outbound_max_pending_override: None,
-        });
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/outbound")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        "{\"peer\":\"beta\",\"peerDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"peerProxyUrl\":\"https://example.test/hooks/agent\",\"payload\":{\"hello\":\"world\"}}",
-                    ))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(outbound_count(&store).expect("count"), 0);
-    }
-
-    #[tokio::test]
-    async fn outbound_endpoint_returns_507_when_queue_limit_reached() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-        let app = create_runtime_router(RuntimeServerState {
-            store: store.clone(),
-            relay_sender: None,
-            outbound_max_pending_override: Some(1),
-        });
-
-        let first = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/outbound")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"world\"}}",
-                    ))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(first.status(), StatusCode::ACCEPTED);
-
-        let second = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/outbound")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        "{\"toAgentDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"payload\":{\"hello\":\"again\"}}",
-                    ))
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-        assert_eq!(second.status(), StatusCode::INSUFFICIENT_STORAGE);
-    }
-}
+mod tests;

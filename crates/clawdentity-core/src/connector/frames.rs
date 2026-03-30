@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use crate::did::parse_agent_did;
+use crate::did::{parse_agent_did, parse_group_id};
 use crate::error::{CoreError, Result};
 
 pub const CONNECTOR_FRAME_VERSION: i64 = 1;
@@ -48,6 +48,8 @@ pub struct DeliverFrame {
     pub delivery_source: Option<String>,
     #[serde(rename = "contentType", skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
+    #[serde(rename = "groupId", skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
     #[serde(rename = "conversationId", skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
     #[serde(rename = "replyTo", skip_serializing_if = "Option::is_none")]
@@ -73,6 +75,8 @@ pub struct EnqueueFrame {
     pub ts: String,
     #[serde(rename = "toAgentDid")]
     pub to_agent_did: String,
+    #[serde(rename = "groupId", skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
     pub payload: serde_json::Value,
     #[serde(rename = "conversationId", skip_serializing_if = "Option::is_none")]
     pub conversation_id: Option<String>,
@@ -157,6 +161,10 @@ fn validate_deliver_frame(frame: &DeliverFrame) -> Result<()> {
             "deliverySource must not be blank".to_string(),
         ));
     }
+    if let Some(group_id) = &frame.group_id {
+        parse_group_id(group_id)
+            .map_err(|_| CoreError::InvalidInput("groupId must be a group ID".to_string()))?;
+    }
     Ok(())
 }
 
@@ -167,7 +175,12 @@ fn validate_deliver_ack_frame(frame: &DeliverAckFrame) -> Result<()> {
 
 fn validate_enqueue_frame(frame: &EnqueueFrame) -> Result<()> {
     validate_frame_base(frame.v, &frame.id, &frame.ts)?;
-    validate_agent_did(&frame.to_agent_did, "toAgentDid")
+    validate_agent_did(&frame.to_agent_did, "toAgentDid")?;
+    if let Some(group_id) = &frame.group_id {
+        parse_group_id(group_id)
+            .map_err(|_| CoreError::InvalidInput("groupId must be a group ID".to_string()))?;
+    }
+    Ok(())
 }
 
 fn validate_enqueue_ack_frame(frame: &EnqueueAckFrame) -> Result<()> {
@@ -245,6 +258,7 @@ mod tests {
             ts: now_iso(),
             to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
                 .to_string(),
+            group_id: Some("grp_01HF7YAT31JZHSMW1CG6Q6MHB7".to_string()),
             payload: serde_json::json!({"text":"hello"}),
             conversation_id: Some("conv-1".to_string()),
             reply_to: None,

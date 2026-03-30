@@ -190,6 +190,72 @@ describe("relay-to-peer transform", () => {
     }
   });
 
+  it("forwards groupId payload to local connector without peer resolution", async () => {
+    const sandbox = createRelaySandbox();
+    const fetchMock = createHealthyConnectorFetch();
+
+    try {
+      const result = await relayPayloadToPeer(
+        {
+          groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+          message: "hello group",
+        },
+        {
+          fetchImpl: fetchMock,
+          runtimeConfigPath: sandbox.runtimeConfigPath,
+          connectorHealthCacheTtlMs: 1,
+        },
+      );
+
+      expect(result).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [, requestInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(requestInit.body).toBe(
+        JSON.stringify({
+          groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+          payload: {
+            message: "hello group",
+          },
+        }),
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
+  it("accepts group field as alias for groupId", async () => {
+    const sandbox = createRelaySandbox();
+    const fetchMock = createHealthyConnectorFetch();
+
+    try {
+      const result = await relayPayloadToPeer(
+        {
+          group: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+          message: "hello group",
+        },
+        {
+          fetchImpl: fetchMock,
+          runtimeConfigPath: sandbox.runtimeConfigPath,
+          connectorHealthCacheTtlMs: 1,
+        },
+      );
+
+      expect(result).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [, requestInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+      expect(requestInit.body).toBe(
+        JSON.stringify({
+          groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+          payload: {
+            message: "hello group",
+          },
+        }),
+      );
+    } finally {
+      sandbox.cleanup();
+    }
+  });
+
   it("returns payload unchanged when peer is not set", async () => {
     const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
 
@@ -203,6 +269,81 @@ describe("relay-to-peer transform", () => {
 
     expect(result).toBe(payload);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("throws when peer is present but invalid", async () => {
+    await expect(
+      relayPayloadToPeer(
+        {
+          peer: "   ",
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("peer must be a non-empty string");
+
+    await expect(
+      relayPayloadToPeer(
+        {
+          peer: { alias: "beta" },
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("peer must be a non-empty string");
+  });
+
+  it("throws when group route fields are present but invalid", async () => {
+    await expect(
+      relayPayloadToPeer(
+        {
+          groupId: "   ",
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("groupId must be a non-empty string");
+
+    await expect(
+      relayPayloadToPeer(
+        {
+          group: 123,
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("group must be a non-empty string");
+  });
+
+  it("rejects mixed direct and group routing fields", async () => {
+    const sandbox = createRelaySandbox();
+
+    try {
+      await expect(
+        relayPayloadToPeer(
+          {
+            peer: "beta",
+            groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+            message: "hello",
+          },
+          {
+            configPath: sandbox.peersConfigPath,
+            fetchImpl: createHealthyConnectorFetch(),
+            runtimeConfigPath: sandbox.runtimeConfigPath,
+          },
+        ),
+      ).rejects.toThrow("Provide either peer or groupId/group, not both");
+    } finally {
+      sandbox.cleanup();
+    }
   });
 
   it("throws when the peer alias is unknown", async () => {

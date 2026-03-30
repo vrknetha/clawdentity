@@ -24,7 +24,6 @@ use wiremock::matchers::{body_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod expected_agent_name;
-
 #[test]
 fn normalizes_hook_path_with_leading_slash() {
     assert_eq!(normalize_hook_path("hooks/agent"), "/hooks/agent");
@@ -32,38 +31,32 @@ fn normalizes_hook_path_with_leading_slash() {
     assert_eq!(normalize_hook_path("hooks/wake"), "/hooks/wake");
     assert_eq!(normalize_hook_path("/hooks/wake"), "/hooks/wake");
 }
-
 #[test]
 fn default_openclaw_hook_path_targets_agent_hook() {
     assert_eq!(super::DEFAULT_OPENCLAW_HOOK_PATH, "/hooks/agent");
 }
-
 #[test]
 fn normalizes_proxy_http_url_to_ws_connect_route() {
     let resolved = normalize_proxy_ws_url("http://127.0.0.1:13371").expect("proxy ws url");
     assert_eq!(resolved, "ws://127.0.0.1:13371/v1/relay/connect");
 }
-
 #[test]
 fn preserves_ws_url_when_already_websocket() {
     let resolved =
         normalize_proxy_ws_url("wss://proxy.example/v1/relay/connect").expect("proxy ws url");
     assert_eq!(resolved, "wss://proxy.example/v1/relay/connect");
 }
-
 #[test]
 fn deliver_ack_reason_is_none_when_delivery_and_persistence_succeed() {
     let reason = build_deliver_ack_reason(None, None);
     assert!(reason.is_none());
 }
-
 #[test]
 fn deliver_ack_reason_is_none_when_delivery_succeeds_but_persistence_fails() {
     let persistence_error = anyhow!("sqlite unavailable");
     let reason = build_deliver_ack_reason(None, Some(&persistence_error));
     assert!(reason.is_none());
 }
-
 #[test]
 fn deliver_ack_reason_combines_delivery_and_persistence_failures() {
     let delivery_error = anyhow!("openclaw hook returned HTTP 500");
@@ -76,14 +69,12 @@ fn deliver_ack_reason_combines_delivery_and_persistence_failures() {
         )
     );
 }
-
 #[test]
 fn deliver_ack_reason_is_none_when_delivery_failed_but_retry_was_persisted() {
     let delivery_error = anyhow!("openclaw hook returned HTTP 500");
     let reason = build_deliver_ack_reason(Some(&delivery_error), None);
     assert!(reason.is_none());
 }
-
 #[test]
 fn openclaw_delivery_headers_include_profile_headers_when_available() {
     let deliver = DeliverFrame {
@@ -92,6 +83,7 @@ fn openclaw_delivery_headers_include_profile_headers_when_available() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({ "message": "hello" }),
         delivery_source: None,
         content_type: Some("application/json".to_string()),
@@ -144,7 +136,6 @@ fn openclaw_delivery_headers_include_profile_headers_when_available() {
         Some("token-1")
     );
 }
-
 #[test]
 fn openclaw_delivery_headers_omit_profile_headers_when_missing() {
     let deliver = DeliverFrame {
@@ -153,6 +144,7 @@ fn openclaw_delivery_headers_omit_profile_headers_when_missing() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({ "message": "hello" }),
         delivery_source: None,
         content_type: Some("application/json".to_string()),
@@ -170,7 +162,6 @@ fn openclaw_delivery_headers_omit_profile_headers_when_missing() {
     assert!(!header_map.contains_key("x-clawdentity-human-name"));
     assert!(!header_map.contains_key("x-openclaw-token"));
 }
-
 #[test]
 fn openclaw_hook_payload_uses_message_field() {
     let deliver = DeliverFrame {
@@ -179,6 +170,7 @@ fn openclaw_hook_payload_uses_message_field() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "content": "hello from alpha",
             "kind": "relay-test",
@@ -205,7 +197,6 @@ fn openclaw_hook_payload_uses_message_field() {
         Some(&deliver.payload)
     );
 }
-
 #[test]
 fn openclaw_hook_payload_stringifies_non_string_payloads() {
     let deliver = DeliverFrame {
@@ -214,6 +205,7 @@ fn openclaw_hook_payload_stringifies_non_string_payloads() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "structured": true,
             "count": 2,
@@ -231,7 +223,6 @@ fn openclaw_hook_payload_stringifies_non_string_payloads() {
     );
     assert!(payload.get("agentId").is_none());
 }
-
 #[test]
 fn openclaw_agent_hook_payload_includes_agent_id_when_mapping_exists() {
     let deliver = DeliverFrame {
@@ -240,6 +231,7 @@ fn openclaw_agent_hook_payload_includes_agent_id_when_mapping_exists() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "message": "hello",
         }),
@@ -255,7 +247,6 @@ fn openclaw_agent_hook_payload_includes_agent_id_when_mapping_exists() {
         Some("alpha")
     );
 }
-
 #[test]
 fn openclaw_agent_hook_payload_omits_agent_id_when_mapping_missing() {
     let deliver = DeliverFrame {
@@ -264,6 +255,7 @@ fn openclaw_agent_hook_payload_omits_agent_id_when_mapping_missing() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "message": "hello",
         }),
@@ -276,7 +268,6 @@ fn openclaw_agent_hook_payload_omits_agent_id_when_mapping_missing() {
     let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None);
     assert!(payload.get("agentId").is_none());
 }
-
 #[test]
 fn openclaw_wake_payload_preserves_explicit_session_id() {
     let deliver = DeliverFrame {
@@ -285,6 +276,7 @@ fn openclaw_wake_payload_preserves_explicit_session_id() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "content": "hello from alpha",
             "sessionId": "main",
@@ -318,7 +310,6 @@ fn openclaw_wake_payload_preserves_explicit_session_id() {
     assert!(text.contains("Conversation ID: conv-1"));
     assert!(text.contains("Reply To: reply-1"));
 }
-
 #[test]
 fn openclaw_wake_payload_omits_default_session_override() {
     let deliver = DeliverFrame {
@@ -327,6 +318,7 @@ fn openclaw_wake_payload_omits_default_session_override() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "message": "plain peer text",
         }),
@@ -349,7 +341,6 @@ fn openclaw_wake_payload_omits_default_session_override() {
         )
     );
 }
-
 #[test]
 fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
     let deliver = DeliverFrame {
@@ -358,6 +349,7 @@ fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "message": "plain peer text",
         }),
@@ -380,7 +372,6 @@ fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
         )
     );
 }
-
 #[test]
 fn openclaw_wake_payload_ignores_agent_mapping() {
     let deliver = DeliverFrame {
@@ -389,6 +380,7 @@ fn openclaw_wake_payload_ignores_agent_mapping() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({
             "message": "wake test",
         }),
@@ -401,7 +393,6 @@ fn openclaw_wake_payload_ignores_agent_mapping() {
     let payload = build_openclaw_hook_payload("/hooks/wake", &deliver, Some("alpha"));
     assert!(payload.get("agentId").is_none());
 }
-
 #[test]
 fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
     let receipt = ReceiptFrame {
@@ -440,7 +431,6 @@ fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
         Some("coder")
     );
 }
-
 #[test]
 fn openclaw_receipt_payload_omits_agent_id_when_mapping_missing() {
     let receipt = ReceiptFrame {
@@ -456,7 +446,6 @@ fn openclaw_receipt_payload_omits_agent_id_when_mapping_missing() {
     let payload = build_openclaw_receipt_payload("/hooks/agent", &receipt, None);
     assert!(payload.get("agentId").is_none());
 }
-
 #[test]
 fn openclaw_receipt_payload_uses_text_for_wake_hooks() {
     let receipt = ReceiptFrame {
@@ -530,6 +519,7 @@ async fn forward_delivery_posts_agent_id_for_agent_hook_path() {
         ts: "2026-03-20T05:55:00Z".to_string(),
         from_agent_did: "did:cdi:test:agent:sender".to_string(),
         to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
         payload: json!({ "message": "hello over relay" }),
         delivery_source: None,
         content_type: Some("application/json".to_string()),
@@ -543,7 +533,6 @@ async fn forward_delivery_posts_agent_id_for_agent_hook_path() {
         .await
         .expect("forward delivery should succeed");
 }
-
 #[test]
 fn pending_retry_dead_letters_at_max_attempt_threshold() {
     assert!(!should_dead_letter_after_failure(0));
@@ -678,7 +667,6 @@ fn receipt_fixture_registry_auth_json() -> &'static str {
 }
 "#
 }
-
 #[test]
 fn receipt_post_headers_nonce_uses_random_url_safe_shape() {
     let (options, agent_name) = setup_receipt_header_fixture();
@@ -703,7 +691,6 @@ fn receipt_post_headers_nonce_uses_random_url_safe_shape() {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
     );
 }
-
 #[test]
 fn receipt_post_headers_nonce_changes_between_calls() {
     let (options, agent_name) = setup_receipt_header_fixture();
@@ -734,7 +721,6 @@ fn receipt_post_headers_nonce_changes_between_calls() {
 
     assert_ne!(nonce_one, nonce_two);
 }
-
 #[test]
 fn runtime_config_resolves_mapped_openclaw_target_agent_id() {
     let options = receipt_fixture_options();
@@ -752,7 +738,6 @@ fn runtime_config_resolves_mapped_openclaw_target_agent_id() {
         resolve_openclaw_target_agent_id(&config_dir, "alpha").expect("resolve target agent id");
     assert_eq!(target_agent_id.as_deref(), Some("beta"));
 }
-
 #[test]
 fn runtime_config_omits_openclaw_target_agent_id_when_assignment_missing() {
     let options = receipt_fixture_options();
@@ -773,21 +758,18 @@ fn sample_auth_record(access_token: &str, expires_at: chrono::DateTime<Utc>) -> 
         refresh_expires_at: (expires_at + ChronoDuration::days(7)).to_rfc3339(),
     }
 }
-
 #[test]
 fn agent_access_refreshes_when_token_missing() {
     let now = Utc::now();
     let record = sample_auth_record("", now + ChronoDuration::minutes(10));
     assert!(agent_access_requires_refresh(&record, now));
 }
-
 #[test]
 fn agent_access_refreshes_when_token_is_near_expiry() {
     let now = Utc::now();
     let record = sample_auth_record("clw_agt_access", now + ChronoDuration::seconds(30));
     assert!(agent_access_requires_refresh(&record, now));
 }
-
 #[test]
 fn agent_access_is_reused_when_token_is_still_fresh() {
     let now = Utc::now();

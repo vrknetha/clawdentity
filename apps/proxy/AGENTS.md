@@ -76,6 +76,8 @@
 - Keep pairing fail-closed: do not bypass registry ownership dependency.
 - Keep strict dependency enforcement as the default for `development` and `production`; do not infer bypass from hostnames.
 - Reject deprecated `ALLOW_ALL_VERIFIED` at startup; never provide a global allow-all bypass for verified callers.
+- Keep trusted delivery contract explicit: when `groupId` is present, authorize by group membership for sender and recipient; when absent, use direct pair trust checks.
+- Keep direct and group trust contracts distinct in codepaths and error codes; do not add hidden fallback from group routing into pair-only trust.
 
 ## Auth Verification
 - Protect all non-health routes with Clawdentity auth verification middleware.
@@ -96,6 +98,7 @@
 - Return `503` when registry keyset dependency is unavailable, and when CRL dependency is unavailable under `fail-closed` stale policy.
 - Keep `/hooks/agent` runtime auth contract strict: require `x-claw-agent-access` and map missing/invalid access credentials to `401`.
 - Keep `/hooks/agent` authorization strict: after auth succeeds, require trusted initiator/responder pair before relay delivery.
+- Keep `/hooks/agent` group routing strict: validate `x-claw-group-id` as `grp_<ULID>` and require registry-backed membership checks before accepting group-routed delivery.
 - Keep `/hooks/agent` delivery contract async-first: accepted deliveries return `202` with delivery state (`delivered` or `queued`), not `502` for transient recipient offline cases.
 - Keep queue overflow behavior explicit and stable: return `507 PROXY_RELAY_QUEUE_FULL` and preserve existing queued deliveries.
 - Keep `/v1/relay/connect` auth strict with verified Claw auth + PoP headers, but do not require `x-claw-agent-access`.

@@ -33,6 +33,7 @@ import {
 import { registerAdminRoutes } from "./routes/admin.js";
 import { registerAgentAuthRoutes } from "./routes/agent-auth.js";
 import { registerAgentRoutes } from "./routes/agents.js";
+import { registerGroupRoutes } from "./routes/groups.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerInternalServiceRoutes } from "./routes/internal-services.js";
 import { registerInviteRoutes } from "./routes/invites.js";
@@ -171,6 +172,11 @@ export function createRegistryApp(options: CreateRegistryAppOptions = {}) {
     getEventBus,
     agentAuthRefreshRateLimit,
     agentAuthValidateRateLimit,
+  });
+  registerGroupRoutes({
+    app,
+    getConfig,
+    getEventBus,
   });
 
   return app;

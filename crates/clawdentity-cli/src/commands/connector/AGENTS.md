@@ -36,6 +36,7 @@
 - Treat relay `enqueue_ack.accepted=false` as a first-class outbound failure signal: remove inflight tracking for that frame and emit an OpenClaw-visible dead-letter style notification instead of log-only handling.
 - Keep outbound inflight frame tracking synchronized between flush loop and inbound frame handling so enqueue acks can be correlated to `toAgentDid`, and record inflight correlation at queue/send time (not post-flush) to avoid ack races.
 - Never synthesize a production-looking fallback DID when enqueue-ack correlation is missing; drop and log unknown-ack failures to avoid misrouting receipts to real agents.
+- Group-membership lookup HTTP calls should reuse a shared `reqwest::Client` (with fixed timeout) instead of building a new client per lookup, so connector fan-out avoids repeated connection-pool churn.
 - Keep receipt-forward retry buffering in `delivery.rs` for OpenClaw hook outages: queue failed receipt forwards with bounded exponential backoff and retry from the inbound retry loop.
 - Keep in-memory receipt-forward retry queues bounded by max pending, max attempts, and max age so connector processes cannot leak memory during prolonged hook outages.
 - Receipt callback routing authority is always the runtime-owned local proxy receipt URL; do not trust inbound `reply_to` for callback destination selection.

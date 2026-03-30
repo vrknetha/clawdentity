@@ -12,6 +12,7 @@
 - Use constant-time comparison for hash matching.
 - Use Drizzle through `src/db/client.ts` for lookup/update queries so auth code stays schema-driven.
 - Only allow `api_keys.status = "active"` and `humans.status = "active"`.
+- Keep PAT lookup + human projection in a shared resolver (`api-key-auth.ts`) reused by middleware and any dual-auth routes, so auth status/error behavior cannot drift across call sites.
 - On success, inject `ctx.human` for downstream handlers, including additive onboarding metadata such as `onboardingSource` and `agentLimit`.
 - Return auth failures through `AppError` with 401 status and stable codes.
 

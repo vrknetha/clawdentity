@@ -23,6 +23,9 @@ import {
   encodeBase64url,
   GITHUB_ONBOARDING_CALLBACK_PATH,
   GITHUB_ONBOARDING_START_PATH,
+  GROUP_JOIN_PATH,
+  GROUP_MEMBERSHIP_CHECK_PATH,
+  GROUPS_PATH,
   generateUlid,
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   INVITES_PATH,
@@ -42,11 +45,13 @@ import {
   parseAitClaims,
   parseCrlClaims,
   parseDid,
+  parseGroupId,
   parseHumanDid,
   parsePairAcceptedEvent,
   parseUlid,
   REGISTRY_METADATA_PATH,
   RELAY_CONNECT_PATH,
+  RELAY_GROUP_ID_HEADER,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
   STARTER_PASSES_REDEEM_PATH,
   validateAgentName,
@@ -71,12 +76,18 @@ describe("protocol", () => {
       "/v1/onboarding/github/callback",
     );
     expect(ME_API_KEYS_PATH).toBe("/v1/me/api-keys");
+    expect(GROUPS_PATH).toBe("/v1/groups");
+    expect(GROUP_JOIN_PATH).toBe("/v1/groups/join");
+    expect(GROUP_MEMBERSHIP_CHECK_PATH).toBe(
+      "/internal/v1/groups/membership/check",
+    );
     expect(REGISTRY_METADATA_PATH).toBe("/v1/metadata");
     expect(INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH).toBe(
       "/internal/v1/identity/agent-ownership",
     );
     expect(RELAY_CONNECT_PATH).toBe("/v1/relay/connect");
     expect(RELAY_RECIPIENT_AGENT_DID_HEADER).toBe("x-claw-recipient-agent-did");
+    expect(RELAY_GROUP_ID_HEADER).toBe("x-claw-group-id");
   });
 
   it("exports shared agent-auth revocation constants and parser", () => {
@@ -155,6 +166,7 @@ describe("protocol", () => {
     });
     expect(parseHumanDid(humanDid).entity).toBe("human");
     expect(parseAgentDid(agentDid).entity).toBe("agent");
+    expect(parseGroupId(`grp_${ulid}`)).toBe(`grp_${ulid}`);
     expect(ProtocolParseError).toBeTypeOf("function");
   });
 

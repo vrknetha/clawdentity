@@ -1,4 +1,4 @@
-import { parseAgentDid, parseUlid } from "@clawdentity/protocol";
+import { parseAgentDid, parseGroupId, parseUlid } from "@clawdentity/protocol";
 import { z } from "zod";
 import { CONNECTOR_FRAME_VERSION } from "./constants.js";
 
@@ -35,6 +35,17 @@ const agentDidSchema = z.string().superRefine((value, ctx) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "must be a valid agent DID",
+    });
+  }
+});
+
+const groupIdSchema = z.string().superRefine((value, ctx) => {
+  try {
+    parseGroupId(value);
+  } catch {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "must be a valid group ID",
     });
   }
 });
@@ -82,6 +93,7 @@ export const deliverFrameSchema = frameBaseSchema
     payload: z.unknown(),
     deliverySource: nonEmptyStringSchema.optional(),
     contentType: nonEmptyStringSchema.optional(),
+    groupId: groupIdSchema.optional(),
     conversationId: nonEmptyStringSchema.optional(),
     replyTo: z.string().url().optional(),
   })
@@ -100,6 +112,7 @@ export const enqueueFrameSchema = frameBaseSchema
   .extend({
     type: z.literal("enqueue"),
     toAgentDid: agentDidSchema,
+    groupId: groupIdSchema.optional(),
     payload: z.unknown(),
     conversationId: nonEmptyStringSchema.optional(),
     replyTo: z.string().url().optional(),

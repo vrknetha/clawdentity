@@ -15,6 +15,7 @@
 - Keep request payload validation in `parsers.ts` and RPC error envelopes in `rpc.ts`.
 - Keep shared relay constants in `constants.ts`; avoid repeating close codes and route paths inline.
 - Keep relay trust-store resolution fail-fast outside local mode: only `local` may fall back to missing durable trust state, while `development` and `production` must throw startup/config errors immediately.
+- Resolve optional registry-backed group trust authorizers through the shared `group-trust.ts` helper so Durable Object runtime credential gating stays aligned with top-level proxy app composition.
 - Preserve relay delivery provenance (`deliverySource`) end-to-end across immediate and queued delivery paths so recipients can safely gate trusted-only system side effects.
 
 ## Refactor Guidance

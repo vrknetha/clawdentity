@@ -97,7 +97,7 @@ pub use db_verify_cache::{
 pub use did::{
     DidEntity, ParsedDid, did_authority_from_url, make_agent_did, make_did, make_human_did,
     new_agent_did, new_human_did, normalize_did_authority, parse_agent_did, parse_did,
-    parse_human_did,
+    parse_group_id, parse_human_did,
 };
 pub use error::{CoreError, Result};
 pub use identity::{

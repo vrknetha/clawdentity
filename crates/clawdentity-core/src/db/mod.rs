@@ -143,6 +143,14 @@ UPDATE outbound_queue
 SET next_attempt_at_ms = created_at_ms
 WHERE next_attempt_at_ms = 0;
 "#;
+const MIGRATION_NAME_PHASE7: &str = "0005_outbound_group_id";
+const MIGRATION_SQL_PHASE7: &str = r#"
+ALTER TABLE outbound_queue
+    ADD COLUMN group_id TEXT;
+
+ALTER TABLE outbound_dead_letter
+    ADD COLUMN group_id TEXT;
+"#;
 
 #[derive(Clone)]
 pub struct SqliteStore {
@@ -218,6 +226,7 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE4, MIGRATION_SQL_PHASE4)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE5, MIGRATION_SQL_PHASE5)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE6, MIGRATION_SQL_PHASE6)?;
+    apply_migration_if_needed(connection, MIGRATION_NAME_PHASE7, MIGRATION_SQL_PHASE7)?;
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 use rusqlite::params;
 
 use crate::db::{SqliteStore, now_utc_ms};
+use crate::did::parse_group_id;
 use crate::error::{CoreError, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,6 +10,7 @@ pub struct OutboundQueueItem {
     pub frame_version: i64,
     pub frame_type: String,
     pub to_agent_did: String,
+    pub group_id: Option<String>,
     pub payload_json: String,
     pub conversation_id: Option<String>,
     pub reply_to: Option<String>,
@@ -33,6 +35,7 @@ pub struct OutboundDeadLetterItem {
     pub frame_version: i64,
     pub frame_type: String,
     pub to_agent_did: String,
+    pub group_id: Option<String>,
     pub payload_json: String,
     pub conversation_id: Option<String>,
     pub reply_to: Option<String>,
@@ -47,6 +50,7 @@ pub struct EnqueueOutboundInput {
     pub frame_version: i64,
     pub frame_type: String,
     pub to_agent_did: String,
+    pub group_id: Option<String>,
     pub payload_json: String,
     pub conversation_id: Option<String>,
     pub reply_to: Option<String>,
@@ -69,14 +73,15 @@ fn map_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OutboundQueueItem> {
         frame_version: row.get(1)?,
         frame_type: row.get(2)?,
         to_agent_did: row.get(3)?,
-        payload_json: row.get(4)?,
-        conversation_id: row.get(5)?,
-        reply_to: row.get(6)?,
-        created_at_ms: row.get(7)?,
-        attempt_count: row.get(8)?,
-        next_attempt_at_ms: row.get(9)?,
-        last_attempt_at_ms: row.get(10)?,
-        last_error: row.get(11)?,
+        group_id: row.get(4)?,
+        payload_json: row.get(5)?,
+        conversation_id: row.get(6)?,
+        reply_to: row.get(7)?,
+        created_at_ms: row.get(8)?,
+        attempt_count: row.get(9)?,
+        next_attempt_at_ms: row.get(10)?,
+        last_attempt_at_ms: row.get(11)?,
+        last_error: row.get(12)?,
     })
 }
 
@@ -86,16 +91,18 @@ fn map_dead_letter_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OutboundDead
         frame_version: row.get(1)?,
         frame_type: row.get(2)?,
         to_agent_did: row.get(3)?,
-        payload_json: row.get(4)?,
-        conversation_id: row.get(5)?,
-        reply_to: row.get(6)?,
-        created_at_ms: row.get(7)?,
-        dead_lettered_at_ms: row.get(8)?,
-        dead_letter_reason: row.get(9)?,
+        group_id: row.get(4)?,
+        payload_json: row.get(5)?,
+        conversation_id: row.get(6)?,
+        reply_to: row.get(7)?,
+        created_at_ms: row.get(8)?,
+        dead_lettered_at_ms: row.get(9)?,
+        dead_letter_reason: row.get(10)?,
     })
 }
 
 /// TODO(clawdentity): document `enqueue_outbound`.
+#[allow(clippy::too_many_lines)]
 pub fn enqueue_outbound(store: &SqliteStore, input: EnqueueOutboundInput) -> Result<()> {
     let frame_id = input.frame_id.trim().to_string();
     let frame_type = input.frame_type.trim().to_string();
@@ -122,19 +129,25 @@ pub fn enqueue_outbound(store: &SqliteStore, input: EnqueueOutboundInput) -> Res
     }
 
     let conversation_id = parse_optional_non_empty(input.conversation_id);
+    let group_id = parse_optional_non_empty(input.group_id);
+    if let Some(candidate_group_id) = &group_id {
+        parse_group_id(candidate_group_id)
+            .map_err(|_| CoreError::InvalidInput("group_id is invalid".to_string()))?;
+    }
     let reply_to = parse_optional_non_empty(input.reply_to);
     let created_at_ms = now_utc_ms();
     store.with_connection(|connection| {
         connection.execute(
             "INSERT INTO outbound_queue (
-                frame_id, frame_version, frame_type, to_agent_did, payload_json, conversation_id,
+                frame_id, frame_version, frame_type, to_agent_did, group_id, payload_json, conversation_id,
                 reply_to, created_at_ms, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?8, NULL, NULL)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?9, NULL, NULL)",
             params![
                 frame_id,
                 input.frame_version,
                 frame_type,
                 to_agent_did,
+                group_id,
                 payload_json,
                 conversation_id,
                 reply_to,
@@ -150,7 +163,7 @@ pub fn list_outbound(store: &SqliteStore, limit: usize) -> Result<Vec<OutboundQu
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT frame_id, frame_version, frame_type, to_agent_did, payload_json, conversation_id,
+            "SELECT frame_id, frame_version, frame_type, to_agent_did, group_id, payload_json, conversation_id,
                     reply_to, created_at_ms, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_error
              FROM outbound_queue
              ORDER BY next_attempt_at_ms ASC, created_at_ms ASC, frame_id ASC
@@ -166,7 +179,7 @@ pub fn list_outbound(store: &SqliteStore, limit: usize) -> Result<Vec<OutboundQu
 pub fn take_due_outbound(store: &SqliteStore, now_ms: i64) -> Result<Option<OutboundQueueItem>> {
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT frame_id, frame_version, frame_type, to_agent_did, payload_json, conversation_id,
+            "SELECT frame_id, frame_version, frame_type, to_agent_did, group_id, payload_json, conversation_id,
                     reply_to, created_at_ms, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_error
              FROM outbound_queue
              WHERE next_attempt_at_ms <= ?1
@@ -200,14 +213,15 @@ pub fn requeue_outbound_retry(
     store.with_connection(|connection| {
         connection.execute(
             "INSERT INTO outbound_queue (
-                frame_id, frame_version, frame_type, to_agent_did, payload_json, conversation_id,
+                frame_id, frame_version, frame_type, to_agent_did, group_id, payload_json, conversation_id,
                 reply_to, created_at_ms, attempt_count, next_attempt_at_ms, last_attempt_at_ms, last_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &item.frame_id,
                 item.frame_version,
                 &item.frame_type,
                 &item.to_agent_did,
+                &item.group_id,
                 &item.payload_json,
                 &item.conversation_id,
                 &item.reply_to,
@@ -252,13 +266,14 @@ pub fn move_outbound_to_dead_letter(
     store.with_connection(|connection| {
         connection.execute(
             "INSERT INTO outbound_dead_letter (
-                frame_id, frame_version, frame_type, to_agent_did, payload_json, conversation_id, reply_to,
+                frame_id, frame_version, frame_type, to_agent_did, group_id, payload_json, conversation_id, reply_to,
                 created_at_ms, dead_lettered_at_ms, dead_letter_reason
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(frame_id) DO UPDATE SET
                 frame_version = excluded.frame_version,
                 frame_type = excluded.frame_type,
                 to_agent_did = excluded.to_agent_did,
+                group_id = excluded.group_id,
                 payload_json = excluded.payload_json,
                 conversation_id = excluded.conversation_id,
                 reply_to = excluded.reply_to,
@@ -270,6 +285,7 @@ pub fn move_outbound_to_dead_letter(
                 item.frame_version,
                 &item.frame_type,
                 &item.to_agent_did,
+                &item.group_id,
                 &item.payload_json,
                 &item.conversation_id,
                 &item.reply_to,
@@ -334,7 +350,7 @@ pub fn list_outbound_dead_letter(
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT frame_id, frame_version, frame_type, to_agent_did, payload_json, conversation_id, reply_to,
+            "SELECT frame_id, frame_version, frame_type, to_agent_did, group_id, payload_json, conversation_id, reply_to,
                     created_at_ms, dead_lettered_at_ms, dead_letter_reason
              FROM outbound_dead_letter
              ORDER BY dead_lettered_at_ms DESC, frame_id DESC
@@ -382,6 +398,7 @@ mod tests {
                 frame_type: "relay.frame".to_string(),
                 to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
                     .to_string(),
+                group_id: None,
                 payload_json: "{\"hello\":\"world\"}".to_string(),
                 conversation_id: Some("conv-1".to_string()),
                 reply_to: None,
@@ -396,6 +413,7 @@ mod tests {
                 frame_type: "relay.frame".to_string(),
                 to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT5"
                     .to_string(),
+                group_id: None,
                 payload_json: "{\"hi\":\"there\"}".to_string(),
                 conversation_id: None,
                 reply_to: None,
@@ -430,6 +448,7 @@ mod tests {
                 frame_type: "relay.frame".to_string(),
                 to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
                     .to_string(),
+                group_id: None,
                 payload_json: "{\"broken\":\"json\"}".to_string(),
                 conversation_id: None,
                 reply_to: None,

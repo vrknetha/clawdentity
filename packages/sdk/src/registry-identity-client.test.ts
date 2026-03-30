@@ -93,6 +93,32 @@ describe("registry identity client", () => {
     } satisfies Partial<AppError>);
   });
 
+  it("checks group membership with internal service headers", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      Response.json({ isMember: true }, { status: 200 }),
+    );
+    const client = createRegistryIdentityClient({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      registryUrl: "https://registry.clawdentity.com",
+      serviceId: "01JTESTSERVICE1234567890AB",
+      serviceSecret: "clw_srv_secret",
+    });
+
+    const result = await client.checkGroupMembership({
+      groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+      memberAgentDid: AGENT_DID,
+    });
+
+    expect(result).toEqual({ isMember: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [, init] = fetchImpl.mock.calls[0] ?? [];
+    const headers = new Headers((init as RequestInit | undefined)?.headers);
+    expect(headers.get(INTERNAL_SERVICE_ID_HEADER)).toBe(
+      "01JTESTSERVICE1234567890AB",
+    );
+    expect(headers.get(INTERNAL_SERVICE_SECRET_HEADER)).toBe("clw_srv_secret");
+  });
+
   it("rejects invalid ownership response payloads", async () => {
     const client = createRegistryIdentityClient({
       fetchImpl: (async () =>

@@ -460,7 +460,7 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(internalServiceInserts[0]?.id).toBe("proxy-pairing");
     expect(internalServiceInserts[0]?.name).toBe("proxy-pairing");
     expect(internalServiceInserts[0]?.scopes_json).toBe(
-      JSON.stringify(["identity.read"]),
+      JSON.stringify(["identity.read", "groups.read"]),
     );
   });
 

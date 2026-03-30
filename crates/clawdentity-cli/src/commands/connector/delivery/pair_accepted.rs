@@ -325,6 +325,7 @@ mod tests {
                 .to_string(),
             to_agent_did: "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7"
                 .to_string(),
+            group_id: None,
             payload: json!({
                 "system": {
                     "type": "pair.accepted",

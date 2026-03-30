@@ -5,6 +5,7 @@
 
 ## Design Rules
 - Keep frame contracts in `src/frames.ts` as the single schema authority.
+- Keep outbound relay frames group-aware: `enqueue` / `deliver` may include optional `groupId` and must preserve it end-to-end when provided.
 - Validate all inbound and outbound frames through zod schemas; do not bypass parser helpers.
 - Reuse shared protocol validators (`parseDid`, `parseUlid`) instead of duplicating DID/ULID logic.
 - Keep reconnect and heartbeat behavior deterministic and testable via dependency injection (`webSocketFactory`, `fetchImpl`, clock/random).

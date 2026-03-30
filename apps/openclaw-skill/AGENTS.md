@@ -23,17 +23,19 @@
 - Validate all peers config reads/writes with schema parsing before use.
 - `src/transforms/relay-to-peer.ts` must:
   - expose default export accepting OpenClaw transform context (`ctx.payload`)
-  - read `payload.peer`
+  - read routing inputs from `payload.peer` (direct) or `payload.group` / `payload.groupId` (group)
   - resolve peer metadata from peers config to preserve alias semantics
   - derive a deterministic default relay `conversationId` only from stable DIDs (`localAgentDid` + peer DID)
   - allow explicit top-level `payload.conversationId` to override that default relay lane
   - send outbound payload to local connector endpoint as JSON
-  - send top-level `conversationId` in the connector relay envelope
-  - remove `peer` from forwarded application payload and wrap the rest in the connector relay envelope
+  - send top-level `conversationId` and optional `groupId` in the connector relay envelope
+  - remove routing-only fields (`peer`, `group`, `groupId`) from forwarded application payload and wrap the rest in the connector relay envelope
   - return `null` after successful relay so local handling is skipped
 - The transform must treat projected `hooks/transforms/clawdentity-relay.json` as the source of truth for `localAgentDid`; do not default back to host `HOME` probing in containerized/runtime code.
 - Missing projected `localAgentDid` is a setup/runtime error; do not invent fallback relay lanes from alias names or other mutable local labels.
 - If `payload.peer` is absent, return payload unchanged.
+- If both direct and group routing inputs are present in one payload, fail fast with a validation error.
+- Keep transform thin: route resolution + local connector forward only; do not add registry reads or fan-out logic in transform code.
 - Keep setup flow CLI-driven via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw`; do not add `configure-hooks.sh`.
 - Keep setup flow OpenClaw-first: OpenClaw owns OpenClaw auth and base config, while Clawdentity only installs relay assets, hook mapping, and local runtime metadata.
 - If OpenClaw is missing or broken, recovery must point to `openclaw onboard`, `openclaw doctor --fix`, or `openclaw dashboard` before suggesting Clawdentity setup again.

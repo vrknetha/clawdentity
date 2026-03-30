@@ -68,6 +68,7 @@
 - When production keeps `minLevel: "warn"`, request completion logs that survive the filter (slow requests and handled `4xx/5xx`) must be emitted at `warn`, not `info`.
 - Keep auth failure semantics stable: auth-invalid requests map to `401`; verified-but-not-trusted requests map to `403`; registry keyset outages map to `503`; CRL outages map to `503` when stale behavior is `fail-closed`.
 - Keep proxy expected issuer derivation based on `new URL(resolvedRegistryUrl).origin`; do not branch on hardcoded hostnames.
+- Construct registry-backed `groupTrustAuthorizer` through one shared resolver helper so startup route composition and Durable Object runtime cannot drift on service-credential gating logic.
 - Keep onboarding bootstrap explicit: `/pair/start`, `/pair/confirm`, `/pair/status`, and `/v1/relay/connect` must bypass known-agent gate in auth middleware so freshly onboarded agents can bring connectors online before trust pairing.
 - Keep `/pair/start` ownership validation against registry `/internal/v1/identity/agent-ownership` using internal service credentials (`x-claw-service-id` + `x-claw-service-secret`), and map dependency failures to `503`.
 - Keep `/pair/start` fail-closed: do not bypass registry ownership dependencies.

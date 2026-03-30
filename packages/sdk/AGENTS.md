@@ -17,6 +17,7 @@
 - `http/sign` + `http/verify`: PoP request signing and verification that binds method, path+query, timestamp, nonce, and body hash, with timestamp freshness enforced by default.
 - `security/nonce-cache`: in-memory TTL nonce replay protection keyed by `agentDid + nonce`.
 - `agent-auth-client`: shared agent auth refresh client + retry orchestration (`executeWithAgentAuthRefreshRetry`) for CLI/runtime integrations.
+- `registry-identity-client`: shared internal-service client for ownership and group-membership checks used by proxy/runtime trust paths.
 - `event-bus`: shared event envelope + transport abstractions (`createInMemoryEventBus`, `createQueueEventBus`) for environment-based async delivery.
 - `testing/*`: shared deterministic test fixtures (e.g. AIT claims) for app/package tests.
 - Tests should prove tamper cases (payload change, header kid swap, signature corruption).
@@ -51,6 +52,7 @@
 - Keep `agent-auth-client` runtime-portable (no Node-only filesystem APIs); delegate persistence/locking to callers.
 - Keep refresh retry policy strict: a single refresh attempt and a single request retry on retryable auth failures.
 - Keep per-agent refresh single-flight keyed by explicit caller-provided key to avoid duplicate refresh races.
+- Keep registry identity client input validation strict (`ownerDid`/`agentDid`/`groupId`) and map internal-service auth failures to stable unavailable/unauthorized SDK errors.
 - Keep event envelopes versioned and explicit (`id`, `version`, `timestampUtc`, `initiatedByAccountId`, `data`) with past-tense event names.
 - Keep shared test fixtures in `src/testing/*` and consume via `@clawdentity/sdk/testing` to avoid copy/paste helpers across apps.
 

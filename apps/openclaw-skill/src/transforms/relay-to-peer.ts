@@ -12,6 +12,7 @@ import {
   readEndpointHealthCache,
   writeEndpointHealthCache,
 } from "./relay-health-cache.js";
+import { resolveRelayRoute } from "./relay-route.js";
 
 const DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 const DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
@@ -51,8 +52,9 @@ export type RelayTransformContext = {
 
 type ConnectorRelayRequest = {
   conversationId?: string;
+  groupId?: string;
   payload: Record<string, unknown>;
-  toAgentDid: string;
+  toAgentDid?: string;
 };
 
 type ConnectorEndpoint = {
@@ -94,19 +96,6 @@ function getErrorCode(error: unknown): string | undefined {
   return typeof error.code === "string" ? error.code : undefined;
 }
 
-function parseRequiredString(value: unknown): string {
-  if (typeof value !== "string") {
-    throw new Error("Input value must be a string");
-  }
-
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new Error("Input value must not be empty");
-  }
-
-  return trimmed;
-}
-
 function parseOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -140,13 +129,13 @@ function parseOptionalPositiveInteger(value: unknown): number | undefined {
   return parsed;
 }
 
-function removePeerField(
+function removeRoutingFields(
   payload: Record<string, unknown>,
 ): Record<string, unknown> {
   const outbound: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(payload)) {
-    if (key !== "peer") {
+    if (key !== "peer" && key !== "group" && key !== "groupId") {
       outbound[key] = value;
     }
   }
@@ -689,33 +678,41 @@ export async function relayPayloadToPeer(
     return payload;
   }
 
-  const peerAliasValue = payload.peer;
-  if (peerAliasValue === undefined) {
+  const route = resolveRelayRoute(payload);
+  if (!route) {
     return payload;
-  }
-
-  const peerAlias = parseRequiredString(peerAliasValue);
-  const peersConfigPathOptions = await resolvePeersConfigPathOptions(options);
-  const peersConfig = await loadPeersConfig(peersConfigPathOptions);
-  const peerEntry = peersConfig.peers[peerAlias];
-
-  if (!peerEntry) {
-    throw new Error("Peer alias is not configured");
   }
 
   const connectorEndpoints = await resolveConnectorEndpoints(options);
   const fetchImpl = resolveRelayFetch(options.fetchImpl);
-  const outboundPayload = removePeerField(payload);
-  const conversationId = await resolveRelayConversationId({
-    options,
-    payload,
-    peerDid: peerEntry.did,
-  });
-  const relayPayload: ConnectorRelayRequest = {
-    conversationId,
-    toAgentDid: peerEntry.did,
-    payload: outboundPayload,
-  };
+  const outboundPayload = removeRoutingFields(payload);
+  let relayPayload: ConnectorRelayRequest;
+  if (route.mode === "group") {
+    relayPayload = {
+      groupId: route.groupId,
+      conversationId: parseOptionalString(payload.conversationId),
+      payload: outboundPayload,
+    };
+  } else {
+    const peersConfigPathOptions = await resolvePeersConfigPathOptions(options);
+    const peersConfig = await loadPeersConfig(peersConfigPathOptions);
+    const peerEntry = peersConfig.peers[route.peerAlias];
+
+    if (!peerEntry) {
+      throw new Error("Peer alias is not configured");
+    }
+
+    const conversationId = await resolveRelayConversationId({
+      options,
+      payload,
+      peerDid: peerEntry.did,
+    });
+    relayPayload = {
+      conversationId,
+      toAgentDid: peerEntry.did,
+      payload: outboundPayload,
+    };
+  }
 
   const runtimeConfig = await loadRelayRuntimeConfig(options);
   const healthCacheTtlMs = computeHealthCacheTtlMs(options, runtimeConfig);

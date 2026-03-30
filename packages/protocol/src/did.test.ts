@@ -4,6 +4,7 @@ import {
   makeHumanDid,
   parseAgentDid,
   parseDid,
+  parseGroupId,
   parseHumanDid,
 } from "./did.js";
 import { ProtocolParseError } from "./errors.js";
@@ -94,5 +95,24 @@ describe("did helpers", () => {
       makeHumanDid("registry..clawdentity.dev", generateUlid(1)),
     );
     expectInvalidDid(() => makeHumanDid(AUTHORITY, "invalid-ulid"));
+  });
+
+  it("parses group IDs", () => {
+    const groupId = `grp_${generateUlid(1700000000000)}`;
+    expect(parseGroupId(groupId)).toBe(groupId);
+  });
+
+  it("rejects malformed group IDs", () => {
+    const invalidSamples = [
+      "",
+      "grp_",
+      "grp_not-a-ulid",
+      "group_01HF7YAT31JZHSMW1CG6Q6MHB7",
+      "01HF7YAT31JZHSMW1CG6Q6MHB7",
+    ];
+
+    for (const sample of invalidSamples) {
+      expect(() => parseGroupId(sample)).toThrow(ProtocolParseError);
+    }
   });
 });

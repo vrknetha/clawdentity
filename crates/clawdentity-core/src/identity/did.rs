@@ -6,6 +6,7 @@ use crate::error::{CoreError, Result};
 
 const DID_SCHEME: &str = "did";
 const DID_METHOD: &str = "cdi";
+const GROUP_ID_PREFIX: &str = "grp_";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DidEntity {
@@ -167,11 +168,24 @@ pub fn parse_human_did(value: &str) -> Result<ParsedDid> {
     Ok(did)
 }
 
+/// TODO(clawdentity): document `parse_group_id`.
+pub fn parse_group_id(value: &str) -> Result<String> {
+    let normalized = value.trim();
+    let Some(raw_ulid) = normalized.strip_prefix(GROUP_ID_PREFIX) else {
+        return Err(CoreError::InvalidInput(format!(
+            "Invalid group ID: {value}"
+        )));
+    };
+    validate_ulid(raw_ulid, "group ID ulid")
+        .map_err(|_| CoreError::InvalidInput(format!("Invalid group ID: {value}")))?;
+    Ok(normalized.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         DidEntity, did_authority_from_url, make_agent_did, make_human_did, parse_agent_did,
-        parse_did, parse_human_did,
+        parse_did, parse_group_id, parse_human_did,
     };
 
     const AUTHORITY: &str = "registry.clawdentity.com";
@@ -231,5 +245,20 @@ mod tests {
         let authority = did_authority_from_url("https://registry.clawdentity.com/v1/keys", "iss")
             .expect("authority");
         assert_eq!(authority, AUTHORITY);
+    }
+
+    #[test]
+    fn parse_group_id_accepts_expected_format() {
+        let value = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+        assert_eq!(
+            parse_group_id(value).expect("group id"),
+            "grp_01HF7YAT31JZHSMW1CG6Q6MHB7"
+        );
+    }
+
+    #[test]
+    fn parse_group_id_rejects_invalid_format() {
+        assert!(parse_group_id("grp_not-a-ulid").is_err());
+        assert!(parse_group_id("group_01HF7YAT31JZHSMW1CG6Q6MHB7").is_err());
     }
 }

@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -9,8 +10,8 @@ use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{
     SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata,
-    load_connector_assignments, new_frame_id, refresh_agent_auth, resolve_openclaw_base_url,
-    resolve_openclaw_hook_token, sign_http_request,
+    load_connector_assignments, new_frame_id, parse_agent_did, parse_group_id, refresh_agent_auth,
+    resolve_openclaw_base_url, resolve_openclaw_hook_token, sign_http_request,
 };
 
 use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
@@ -19,6 +20,7 @@ const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
 const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
 const RELAY_DELIVERY_RECEIPTS_PATH: &str = "/v1/relay/delivery-receipts";
+static GROUP_MEMBERSHIP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 struct ConnectorRuntimeInputs {
     config: clawdentity_core::config::CliConfig,
@@ -326,6 +328,116 @@ fn to_path_with_query(url: &reqwest::Url) -> String {
         Some(query) if !query.is_empty() => format!("{}?{query}", url.path()),
         _ => url.path().to_string(),
     }
+}
+
+fn build_signed_registry_request_headers(
+    runtime_inputs: &ConnectorRuntimeInputs,
+    method: &str,
+    request_url: &reqwest::Url,
+    body: &[u8],
+) -> Result<Vec<(String, String)>> {
+    let signing_key = clawdentity_core::decode_secret_key(&runtime_inputs.secret_key)?;
+    let timestamp = Utc::now().timestamp().to_string();
+    let nonce = new_frame_id();
+    let signed = sign_http_request(&SignHttpRequestInput {
+        method,
+        path_with_query: &to_path_with_query(request_url),
+        timestamp: &timestamp,
+        nonce: &nonce,
+        body,
+        secret_key: &signing_key,
+    })?;
+
+    let mut headers = Vec::with_capacity(signed.headers.len() + 2);
+    headers.push((
+        "authorization".to_string(),
+        format!("Claw {}", runtime_inputs.ait.trim()),
+    ));
+    headers.push((
+        "x-claw-agent-access".to_string(),
+        runtime_inputs.agent_auth.access_token.clone(),
+    ));
+    headers.extend(signed.headers);
+    Ok(headers)
+}
+
+fn group_membership_http_client() -> Result<&'static reqwest::Client> {
+    if let Some(client) = GROUP_MEMBERSHIP_CLIENT.get() {
+        return Ok(client);
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| anyhow!("failed to create group membership client: {error}"))?;
+
+    let _ = GROUP_MEMBERSHIP_CLIENT.set(client);
+    GROUP_MEMBERSHIP_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("failed to initialize group membership client"))
+}
+
+#[allow(clippy::too_many_lines)]
+pub(super) async fn fetch_group_member_dids(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    group_id: &str,
+) -> Result<Vec<String>> {
+    let normalized_group_id =
+        parse_group_id(group_id).map_err(|error| anyhow!("groupId is invalid: {error}"))?;
+    let runtime_inputs = load_runtime_inputs(options, agent_name).await?;
+
+    let base_registry_url = reqwest::Url::parse(runtime_inputs.config.registry_url.trim())
+        .map_err(|error| anyhow!("registry URL is invalid: {error}"))?;
+    let request_url = base_registry_url
+        .join(&format!("/v1/groups/{normalized_group_id}/members"))
+        .map_err(|error| anyhow!("group members URL is invalid: {error}"))?;
+
+    let headers = build_signed_registry_request_headers(&runtime_inputs, "GET", &request_url, &[])?;
+
+    let mut request = group_membership_http_client()?.get(request_url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| anyhow!("group membership lookup failed: {error}"))?;
+
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        || response.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        return Err(anyhow!("group membership lookup is unauthorized"));
+    }
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "group membership lookup failed with status {}",
+            response.status()
+        ));
+    }
+
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| anyhow!("group membership response is invalid: {error}"))?;
+    let members = payload
+        .get("members")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| anyhow!("group membership response is invalid"))?;
+
+    let mut member_dids: Vec<String> = Vec::new();
+    for member in members {
+        let did = member
+            .get("agentDid")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| anyhow!("group membership response is invalid"))?;
+        parse_agent_did(did)
+            .map_err(|error| anyhow!("group membership response is invalid: {error}"))?;
+        member_dids.push(did.to_string());
+    }
+
+    Ok(member_dids)
 }
 
 pub(super) fn load_receipt_post_headers(

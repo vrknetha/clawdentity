@@ -86,6 +86,12 @@
   - `GET` returns metadata only,
   - `DELETE /:id` revokes owner-scoped keys with idempotent `204` for already-revoked owned rows.
 
+## Group Trust Model
+- Group membership is a separate lifecycle from onboarding: onboarding codes create humans/PATs, while group membership uses group-scoped join credentials only.
+- Use `group join token` as the canonical term in routes, payloads, errors, docs, and tests; do not reintroduce `group invite` naming.
+- Group join flow must be actor-authenticated and agent-scoped (`agentDid` membership); it must not mint PATs, create humans, or trigger onboarding side effects.
+- Enforce group-management authorization explicitly: only creator/admin roles can issue group join tokens, group size cap defaults to 25, and internal membership-check routes require internal service scopes including `groups.read`.
+
 ## Public Key Discovery
 - `GET /.well-known/claw-keys.json` is the canonical public key discovery endpoint for offline AIT verification.
 - Source key material from validated runtime config (`REGISTRY_SIGNING_KEYS` JSON) and return entries with `kid`, `alg`, `crv`, `x`, and `status`.
