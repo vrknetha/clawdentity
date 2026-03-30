@@ -271,6 +271,58 @@ describe("relay-to-peer transform", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("throws when peer is present but invalid", async () => {
+    await expect(
+      relayPayloadToPeer(
+        {
+          peer: "   ",
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("peer must be a non-empty string");
+
+    await expect(
+      relayPayloadToPeer(
+        {
+          peer: { alias: "beta" },
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("peer must be a non-empty string");
+  });
+
+  it("throws when group route fields are present but invalid", async () => {
+    await expect(
+      relayPayloadToPeer(
+        {
+          groupId: "   ",
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("groupId must be a non-empty string");
+
+    await expect(
+      relayPayloadToPeer(
+        {
+          group: 123,
+          message: "hello",
+        },
+        {
+          fetchImpl: createHealthyConnectorFetch(),
+        },
+      ),
+    ).rejects.toThrow("group must be a non-empty string");
+  });
+
   it("rejects mixed direct and group routing fields", async () => {
     const sandbox = createRelaySandbox();
 

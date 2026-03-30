@@ -6,7 +6,7 @@ import {
   parseAgentDid,
 } from "@clawdentity/protocol";
 import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { verifyAgentClawRequest } from "../../auth/agent-claw-auth.js";
 import { createApiKeyAuth } from "../../auth/api-key-auth.js";
 import {
@@ -41,69 +41,18 @@ import {
   getMutationRowCount,
   isUnsupportedLocalTransactionError,
 } from "../helpers/db-queries.js";
-
-function groupNotFoundError(): AppError {
-  return new AppError({
-    code: "GROUP_NOT_FOUND",
-    message: "Group was not found",
-    status: 404,
-    expose: true,
-  });
-}
-
-function groupManageForbiddenError(): AppError {
-  return new AppError({
-    code: "GROUP_MANAGE_FORBIDDEN",
-    message: "Group management access is forbidden",
-    status: 403,
-    expose: true,
-  });
-}
-
-function groupJoinTokenInvalidError(): AppError {
-  return new AppError({
-    code: "GROUP_JOIN_TOKEN_INVALID",
-    message: "Group join token is invalid",
-    status: 400,
-    expose: true,
-  });
-}
-
-function groupJoinTokenExpiredError(): AppError {
-  return new AppError({
-    code: "GROUP_JOIN_TOKEN_EXPIRED",
-    message: "Group join token has expired",
-    status: 400,
-    expose: true,
-  });
-}
-
-function groupJoinTokenExhaustedError(): AppError {
-  return new AppError({
-    code: "GROUP_JOIN_TOKEN_EXHAUSTED",
-    message: "Group join token has already been used",
-    status: 409,
-    expose: true,
-  });
-}
-
-function groupMemberLimitReachedError(): AppError {
-  return new AppError({
-    code: "GROUP_MEMBER_LIMIT_REACHED",
-    message: `Group cannot have more than ${MAX_GROUP_MEMBERS} members`,
-    status: 409,
-    expose: true,
-  });
-}
-
-function groupJoinForbiddenError(): AppError {
-  return new AppError({
-    code: "GROUP_JOIN_FORBIDDEN",
-    message: "Agent is not allowed to join this group",
-    status: 403,
-    expose: true,
-  });
-}
+import {
+  groupCreateInvalidError,
+  groupJoinForbiddenError,
+  groupJoinTokenExhaustedError,
+  groupJoinTokenExpiredError,
+  groupJoinTokenInvalidError,
+  groupJoinTokenIssueInvalidError,
+  groupManageForbiddenError,
+  groupMemberLimitReachedError,
+  groupMemberNotFoundError,
+  groupNotFoundError,
+} from "./group-route-errors.js";
 
 async function resolvePatHuman(input: {
   db: ReturnType<typeof createDb>;
@@ -235,7 +184,12 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
 
   app.post(GROUPS_PATH, createApiKeyAuth(), async (c) => {
     const config = getConfig(c.env);
-    const payload = await c.req.json();
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      throw groupCreateInvalidError();
+    }
     const parsedPayload = parseGroupCreatePayload({
       payload,
       environment: config.ENVIRONMENT,
@@ -274,7 +228,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     try {
       payload = await c.req.json();
     } catch {
-      payload = {};
+      throw groupJoinTokenIssueInvalidError();
     }
 
     const groupId = parseGroupIdPath({
@@ -437,41 +391,74 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       });
     }
 
-    const [{ memberCount }] = await db
-      .select({
-        memberCount: sql<number>`count(*)`,
-      })
-      .from(group_members)
-      .where(eq(group_members.group_id, token.groupId));
-
-    if (memberCount >= MAX_GROUP_MEMBERS) {
-      throw groupMemberLimitReachedError();
-    }
-
     const joinedAt = nowIso();
     const applyJoinMutation = async (
       executor: typeof db,
       options: { rollbackOnFailure: boolean },
-    ): Promise<void> => {
-      await executor.insert(group_members).values({
-        group_id: token.groupId,
-        agent_id: joiningAgent.id,
-        role: token.role,
-        joined_at: joinedAt,
-        updated_at: joinedAt,
+    ): Promise<{
+      joined: boolean;
+      role: "member" | "admin";
+      joinedAt: string;
+    }> => {
+      const memberInsertResult = await executor.run(sql`
+        insert into group_members (group_id, agent_id, role, joined_at, updated_at)
+        select ${token.groupId}, ${joiningAgent.id}, ${token.role}, ${joinedAt}, ${joinedAt}
+        where (
+          select count(*)
+          from group_members
+          where group_id = ${token.groupId}
+        ) < ${MAX_GROUP_MEMBERS}
+        and not exists (
+          select 1
+          from group_members
+          where group_id = ${token.groupId}
+            and agent_id = ${joiningAgent.id}
+        )
+      `);
+      const insertedRows = getMutationRowCount({
+        result: memberInsertResult,
+        operation: DB_MUTATION_OPERATION.GROUP_MEMBER_JOIN_INSERT,
       });
+
+      if (insertedRows === 0) {
+        const concurrentExistingRows = await executor
+          .select({
+            role: group_members.role,
+            joinedAt: group_members.joined_at,
+          })
+          .from(group_members)
+          .where(
+            and(
+              eq(group_members.group_id, token.groupId),
+              eq(group_members.agent_id, joiningAgent.id),
+            ),
+          )
+          .limit(1);
+
+        const concurrentExistingMember = concurrentExistingRows[0];
+        if (concurrentExistingMember) {
+          return {
+            joined: false,
+            role: concurrentExistingMember.role,
+            joinedAt: concurrentExistingMember.joinedAt,
+          };
+        }
+
+        throw groupMemberLimitReachedError();
+      }
 
       try {
         const tokenUpdateResult = await executor
           .update(group_join_tokens)
           .set({
-            used_count: token.usedCount + 1,
+            used_count: sql`${group_join_tokens.used_count} + 1`,
             updated_at: joinedAt,
           })
           .where(
             and(
               eq(group_join_tokens.id, token.id),
-              eq(group_join_tokens.used_count, token.usedCount),
+              lt(group_join_tokens.used_count, group_join_tokens.max_uses),
+              isNull(group_join_tokens.revoked_at),
             ),
           );
 
@@ -495,11 +482,22 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         }
         throw error;
       }
+
+      return {
+        joined: true,
+        role: token.role,
+        joinedAt,
+      };
     };
 
+    let joinResult: {
+      joined: boolean;
+      role: "member" | "admin";
+      joinedAt: string;
+    };
     try {
-      await db.transaction(async (tx) => {
-        await applyJoinMutation(tx as unknown as typeof db, {
+      joinResult = await db.transaction(async (tx) => {
+        return applyJoinMutation(tx as unknown as typeof db, {
           rollbackOnFailure: false,
         });
       });
@@ -508,8 +506,18 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         throw error;
       }
 
-      await applyJoinMutation(db, {
+      joinResult = await applyJoinMutation(db, {
         rollbackOnFailure: true,
+      });
+    }
+
+    if (!joinResult.joined) {
+      return c.json({
+        joined: false,
+        groupId: token.groupId,
+        agentDid: claims.sub,
+        role: joinResult.role,
+        joinedAt: joinResult.joinedAt,
       });
     }
 
@@ -518,8 +526,8 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         joined: true,
         groupId: token.groupId,
         agentDid: claims.sub,
-        role: token.role,
-        joinedAt,
+        role: joinResult.role,
+        joinedAt: joinResult.joinedAt,
       },
       201,
     );
@@ -637,7 +645,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         .limit(1);
       const targetAgent = targetAgentRows[0];
       if (!targetAgent) {
-        throw groupNotFoundError();
+        throw groupMemberNotFoundError();
       }
 
       await db
@@ -668,11 +676,26 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       humanId: human.id,
     });
 
-    await db
-      .delete(group_join_tokens)
-      .where(eq(group_join_tokens.group_id, groupId));
-    await db.delete(group_members).where(eq(group_members.group_id, groupId));
-    await db.delete(groups).where(eq(groups.id, groupId));
+    const applyGroupDeleteMutation = async (executor: typeof db) => {
+      await executor
+        .delete(group_join_tokens)
+        .where(eq(group_join_tokens.group_id, groupId));
+      await executor
+        .delete(group_members)
+        .where(eq(group_members.group_id, groupId));
+      await executor.delete(groups).where(eq(groups.id, groupId));
+    };
+
+    try {
+      await db.transaction(async (tx) => {
+        await applyGroupDeleteMutation(tx as unknown as typeof db);
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+      await applyGroupDeleteMutation(db);
+    }
 
     return c.body(null, 204);
   });

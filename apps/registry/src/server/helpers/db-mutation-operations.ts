@@ -6,6 +6,7 @@ export const DB_MUTATION_OPERATION = {
   AGENT_AUTH_VALIDATE_SESSION_TOUCH: "agentAuth.validate.session.touch",
   ADMIN_BOOTSTRAP_HUMAN_INSERT: "admin.bootstrap.human.insert",
   ONBOARDING_STARTER_PASS_REDEEM_UPDATE: "onboarding.starterPass.redeem.update",
+  GROUP_MEMBER_JOIN_INSERT: "groups.member.join.insert",
   GROUP_JOIN_TOKEN_USAGE_UPDATE: "groups.join.token.usage.update",
 } as const;
 

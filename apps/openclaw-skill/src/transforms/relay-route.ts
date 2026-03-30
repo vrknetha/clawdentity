@@ -10,21 +10,45 @@ type RelayRoute =
       groupId: string;
     };
 
-function parseOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
+function parseRoutingString(input: {
+  payload: Record<string, unknown>;
+  field: string;
+  label: string;
+}): string | undefined {
+  const value = input.payload[input.field];
+  if (value === undefined) {
     return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${input.label} must be a non-empty string`);
   }
 
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  if (trimmed.length === 0) {
+    throw new Error(`${input.label} must be a non-empty string`);
+  }
+
+  return trimmed;
 }
 
 export function resolveRelayRoute(
   payload: Record<string, unknown>,
 ): RelayRoute | undefined {
-  const peerAlias = parseOptionalString(payload.peer);
-  const explicitGroupId = parseOptionalString(payload.groupId);
-  const fallbackGroupId = parseOptionalString(payload.group);
+  const peerAlias = parseRoutingString({
+    payload,
+    field: "peer",
+    label: "peer",
+  });
+  const explicitGroupId = parseRoutingString({
+    payload,
+    field: "groupId",
+    label: "groupId",
+  });
+  const fallbackGroupId = parseRoutingString({
+    payload,
+    field: "group",
+    label: "group",
+  });
   const rawGroupId = explicitGroupId ?? fallbackGroupId;
 
   if (peerAlias && rawGroupId) {

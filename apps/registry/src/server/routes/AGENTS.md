@@ -19,3 +19,6 @@
 - Agent auth revoke events that proxy consumes must use shared protocol constants/helpers for event name/reason/metadata shape (`agent.auth.revoked`, `agent_revoked`, `metadata.agentDid`) rather than ad-hoc inline literals.
 - Any mutation guarded by row-count checks must call `getMutationRowCount` with an explicit operation identifier and rely on strict D1 `meta.changes` handling; do not add route-local fallback parsing for legacy mutation shapes.
 - Route modules must reference shared mutation-operation constants rather than inline operation strings when calling mutation row-count helpers.
+- Group-join token consumption must stay atomic (`used_count = used_count + 1` with a `used_count < max_uses` guard in the mutation `WHERE` clause); never rely on stale pre-read counters for token usage updates.
+- Group member-cap enforcement must run inside the same join mutation unit as the member insert (transaction path or guarded insert), not as a pre-check outside the write path.
+- Route handlers that expect JSON request bodies must treat malformed JSON as client input errors (4xx) and must not silently coerce parse failures into default payloads that trigger mutations.
