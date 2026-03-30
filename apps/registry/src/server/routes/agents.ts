@@ -42,6 +42,7 @@ import {
 } from "../../db/schema.js";
 import { resolveRegistrySigner } from "../../registry-signer.js";
 import { logger, type RegistryRouteDependencies } from "../constants.js";
+import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   countAgentsByOwner,
   findAgentAuthSessionByAgentId,
@@ -261,7 +262,10 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
             ),
           );
 
-        const updatedRows = getMutationRowCount(challengeUpdateResult);
+        const updatedRows = getMutationRowCount({
+          result: challengeUpdateResult,
+          operation: DB_MUTATION_OPERATION.AGENT_REGISTRATION_CHALLENGE_UPDATE,
+        });
         if (updatedRows === 0) {
           throw new AppError({
             code: "AGENT_REGISTRATION_CHALLENGE_REPLAYED",
@@ -588,7 +592,10 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
           ),
         );
 
-      const updatedRows = getMutationRowCount(updateResult);
+      const updatedRows = getMutationRowCount({
+        result: updateResult,
+        operation: DB_MUTATION_OPERATION.AGENT_REISSUE_UPDATE,
+      });
       if (updatedRows === 0) {
         throw invalidAgentReissueStateError({
           environment: config.ENVIRONMENT,

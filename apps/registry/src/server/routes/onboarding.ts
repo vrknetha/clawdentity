@@ -43,6 +43,7 @@ import {
   starterPassExpiredError,
 } from "../../starter-pass-lifecycle.js";
 import type { RegistryRouteDependencies } from "../constants.js";
+import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   findStarterPassByCode,
   findStarterPassByProviderSubject,
@@ -375,7 +376,11 @@ export function registerOnboardingRoutes(
             ),
           );
 
-        const updatedRows = getMutationRowCount(starterPassUpdateResult);
+        const updatedRows = getMutationRowCount({
+          result: starterPassUpdateResult,
+          operation:
+            DB_MUTATION_OPERATION.ONBOARDING_STARTER_PASS_REDEEM_UPDATE,
+        });
         if (updatedRows === 0) {
           throw await resolveStarterPassRedeemStateError({
             db: executor,

@@ -17,6 +17,16 @@ export function handleRunQuery(input: {
     throw new Error("Failed query: begin");
   }
 
+  const invalidMutationQueryIncludes =
+    state.options.invalidMutationResultQueryIncludes ?? [];
+  if (
+    invalidMutationQueryIncludes.some((needle) =>
+      normalizedQuery.includes(needle.toLowerCase()),
+    )
+  ) {
+    return { success: true } as D1Result;
+  }
+
   let changes = 0;
 
   changes = applyRunHandlersPhaseOne({

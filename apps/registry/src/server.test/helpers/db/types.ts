@@ -177,6 +177,7 @@ export type FakeDbOptions = {
   failApiKeyInsertCount?: number;
   failInternalServiceInsertCount?: number;
   failBeginTransaction?: boolean;
+  invalidMutationResultQueryIncludes?: string[];
   internalServiceRows?: FakeInternalServiceRow[];
   inviteRows?: FakeInviteRow[];
   starterPassRows?: FakeStarterPassRow[];

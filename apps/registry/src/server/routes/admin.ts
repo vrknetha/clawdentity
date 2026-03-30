@@ -23,6 +23,7 @@ import {
   logger,
   type RegistryRouteDependencies,
 } from "../constants.js";
+import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   getMutationRowCount,
   isUnsupportedLocalTransactionError,
@@ -204,7 +205,10 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
           target: humans.id,
         });
 
-      const insertedRows = getMutationRowCount(insertAdminResult);
+      const insertedRows = getMutationRowCount({
+        result: insertAdminResult,
+        operation: DB_MUTATION_OPERATION.ADMIN_BOOTSTRAP_HUMAN_INSERT,
+      });
       if (insertedRows === 0) {
         throw adminBootstrapAlreadyCompletedError();
       }
