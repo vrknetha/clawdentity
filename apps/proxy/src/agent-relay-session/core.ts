@@ -1,6 +1,10 @@
 import { generateUlid, RELAY_CONNECT_PATH } from "@clawdentity/protocol";
 import { nowUtcMs, toIso } from "@clawdentity/sdk";
 import { parseProxyConfig } from "../config.js";
+import {
+  createRegistryGroupTrustAuthorizer,
+  type GroupTrustAuthorizer,
+} from "../group-trust.js";
 import type { ProxyTrustStore } from "../proxy-trust-store.js";
 import { assertTrustedPair } from "../trust-policy.js";
 import { resolveWorkerTrustStore } from "../trust-store-backend.js";
@@ -57,6 +61,7 @@ export class AgentRelaySession {
   private readonly queueManager: RelayQueueManager;
   private readonly state: DurableObjectStateLike;
   private readonly trustStore: ProxyTrustStore | undefined;
+  private readonly groupTrustAuthorizer: GroupTrustAuthorizer | undefined;
   private readonly socketAgentDidBySocket = new WeakMap<WebSocket, string>();
 
   constructor(
@@ -64,6 +69,7 @@ export class AgentRelaySession {
     env?: unknown,
     dependencies?: {
       relaySessionNamespace?: AgentRelaySessionNamespace;
+      groupTrustAuthorizer?: GroupTrustAuthorizer;
       trustStore?: ProxyTrustStore;
     },
   ) {
@@ -88,6 +94,18 @@ export class AgentRelaySession {
         environment: config.environment,
         trustStateNamespace: relayEnv.PROXY_TRUST_STATE,
       });
+    this.groupTrustAuthorizer =
+      dependencies?.groupTrustAuthorizer ??
+      (typeof config.registryInternalServiceId === "string" &&
+      config.registryInternalServiceId.trim().length > 0 &&
+      typeof config.registryInternalServiceSecret === "string" &&
+      config.registryInternalServiceSecret.trim().length > 0
+        ? createRegistryGroupTrustAuthorizer({
+            registryUrl: config.registryUrl,
+            serviceId: config.registryInternalServiceId,
+            serviceSecret: config.registryInternalServiceSecret,
+          })
+        : undefined);
     this.socketTracker = new RelaySocketTracker({
       heartbeatAckTimeoutMs: RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
       staleCloseCode: RELAY_SOCKET_STALE_CLOSE_CODE,
@@ -508,18 +526,45 @@ export class AgentRelaySession {
       };
     }
 
-    try {
-      await assertTrustedPair({
-        trustStore: this.trustStore,
-        initiatorAgentDid: senderAgentDid,
-        responderAgentDid: frame.toAgentDid,
-      });
-    } catch (error) {
-      return {
-        accepted: false,
-        reason:
-          error instanceof Error ? error.message : "Relay pair is not trusted",
-      };
+    if (typeof frame.groupId === "string" && frame.groupId.trim().length > 0) {
+      if (this.groupTrustAuthorizer === undefined) {
+        return {
+          accepted: false,
+          reason: "Group membership verification is unavailable",
+        };
+      }
+
+      try {
+        await this.groupTrustAuthorizer({
+          groupId: frame.groupId,
+          senderAgentDid,
+          recipientAgentDid: frame.toAgentDid,
+        });
+      } catch (error) {
+        return {
+          accepted: false,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Group membership verification failed",
+        };
+      }
+    } else {
+      try {
+        await assertTrustedPair({
+          trustStore: this.trustStore,
+          initiatorAgentDid: senderAgentDid,
+          responderAgentDid: frame.toAgentDid,
+        });
+      } catch (error) {
+        return {
+          accepted: false,
+          reason:
+            error instanceof Error
+              ? error.message
+              : "Relay pair is not trusted",
+        };
+      }
     }
 
     try {

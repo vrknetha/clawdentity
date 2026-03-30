@@ -37,6 +37,36 @@ describe("connector frame parsing", () => {
     expect(parsed).toEqual(frame);
   });
 
+  it("roundtrips enqueue and deliver frames with groupId", () => {
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const enqueueFrame = {
+      v: 1 as const,
+      type: "enqueue" as const,
+      id: generateUlid(1700000000000),
+      ts: "2026-01-01T00:00:00.000Z",
+      toAgentDid: createAgentDid(1700000000100),
+      groupId,
+      payload: {
+        message: "hello-group",
+      },
+    };
+
+    expect(parseFrame(serializeFrame(enqueueFrame))).toEqual(enqueueFrame);
+
+    const deliverFrame = {
+      v: 1 as const,
+      type: "deliver" as const,
+      id: generateUlid(1700000000200),
+      ts: "2026-01-01T00:00:00.000Z",
+      fromAgentDid: createAgentDid(1700000000300),
+      toAgentDid: createAgentDid(1700000000400),
+      groupId,
+      payload: { message: "fanout" },
+    };
+
+    expect(parseFrame(serializeFrame(deliverFrame))).toEqual(deliverFrame);
+  });
+
   it("roundtrips a deliver frame with delivery source metadata", () => {
     const frame = {
       v: 1 as const,

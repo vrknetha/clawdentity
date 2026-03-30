@@ -15,6 +15,11 @@ Run from repository root:
 - Keep all DID construction/parsing inside `packages/protocol/src/did.ts` so the switch to `did:cdi` stays centralized and tests update automatically.
 - Trust slices (AIT, CRL, registry ownership, proxy pairings, connectors) should call shared helpers (e.g., `parseDid`, `validateAgentDid`) instead of copying brittle string-prefix checks; this keeps role expectations tied to context when DID semantics depend on parsed entity and authority fields.
 - When new DID authorities appear (registry-owned vs self-hosted), track their identifiers in configuration and rely on parsed `authority` metadata for routing/trust checks rather than scattering hardcoded strings.
+- Keep group identifier parsing centralized in `packages/protocol/src/did.ts` via `parseGroupId` (`grp_<ULID>`); do not duplicate group-id parsing logic in services.
+
+## Group Naming Guidance
+- Use `group join token` as the canonical product/code/doc term.
+- Do not use `group invite` naming for membership-scoped tokens.
 
 ## Execution Governance
 - GitHub issues are the source of truth for sequencing, blockers, and rollout updates.

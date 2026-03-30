@@ -5,6 +5,7 @@
 
 ## Rules
 - New user-facing commands belong here, not in a parallel JS CLI.
+- Do not add standalone Rust CLI `group` commands in the group-trust milestone; keep group routing support inside connector runtime outbound APIs and registry-backed membership lookup.
 - Keep command JSON output stable and machine-readable.
 - Any command that mixes blocking filesystem or blocking HTTP with async runtime must isolate the blocking work with `spawn_blocking` or an equivalent boundary.
 - Connector startup must refresh websocket auth headers on reconnect instead of caching one signed timestamp for the life of the process.

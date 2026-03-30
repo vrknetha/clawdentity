@@ -86,7 +86,10 @@ export type {
 export { CrlJwtError, signCRL, verifyCRL } from "./jwt/crl-jwt.js";
 export type { Logger } from "./logging.js";
 export { createLogger, createRequestLoggingMiddleware } from "./logging.js";
-export type { AgentOwnershipResult } from "./registry-identity-client.js";
+export type {
+  AgentOwnershipResult,
+  GroupMembershipResult,
+} from "./registry-identity-client.js";
 export {
   createRegistryIdentityClient,
   INTERNAL_SERVICE_ID_HEADER,

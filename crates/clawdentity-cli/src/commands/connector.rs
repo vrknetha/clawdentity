@@ -243,6 +243,21 @@ async fn start_connector_runtime(
 
     let bind_addr = SocketAddr::new(runtime.bind, runtime.port);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let group_members_options = options.clone();
+    let group_members_agent_name = runtime.agent_name.clone();
+    let group_members_resolver = Arc::new(
+        move |group_id: String| -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = std::result::Result<Vec<String>, String>> + Send>,
+        > {
+            let options = group_members_options.clone();
+            let agent_name = group_members_agent_name.clone();
+            Box::pin(async move {
+                runtime_config::fetch_group_member_dids(&options, &agent_name, &group_id)
+                    .await
+                    .map_err(|error| error.to_string())
+            })
+        },
+    );
 
     let mut runtime_server_task = spawn_runtime_server_task(
         bind_addr,
@@ -250,6 +265,8 @@ async fn start_connector_runtime(
             store: store.clone(),
             relay_sender: Some(relay_sender.clone()),
             outbound_max_pending_override: None,
+            group_members_resolver: Some(group_members_resolver),
+            local_agent_did: Some(runtime.agent_did.clone()),
         },
         shutdown_rx.clone(),
     );

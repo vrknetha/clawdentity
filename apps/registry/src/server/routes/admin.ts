@@ -37,7 +37,10 @@ import {
 } from "../helpers/parsers.js";
 
 const BOOTSTRAP_INTERNAL_SERVICE_NAME = "proxy-pairing";
-const BOOTSTRAP_INTERNAL_SERVICE_SCOPES = ["identity.read"] as const;
+const BOOTSTRAP_INTERNAL_SERVICE_SCOPES = [
+  "identity.read",
+  "groups.read",
+] as const;
 
 export function registerAdminRoutes(input: RegistryRouteDependencies): void {
   const { app, getConfig } = input;

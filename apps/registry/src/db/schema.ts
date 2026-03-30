@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -232,5 +233,71 @@ export const internal_services = sqliteTable(
   (table) => [
     index("idx_internal_services_secret_prefix").on(table.secret_prefix),
     index("idx_internal_services_status").on(table.status),
+  ],
+);
+
+export const groups = sqliteTable(
+  "groups",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    created_by: text("created_by")
+      .notNull()
+      .references(() => humans.id),
+    created_at: text("created_at").notNull(),
+    updated_at: text("updated_at").notNull(),
+  },
+  (table) => [index("idx_groups_created_by").on(table.created_by)],
+);
+
+export const group_members = sqliteTable(
+  "group_members",
+  {
+    group_id: text("group_id")
+      .notNull()
+      .references(() => groups.id),
+    agent_id: text("agent_id")
+      .notNull()
+      .references(() => agents.id),
+    role: text("role", { enum: ["member", "admin"] })
+      .notNull()
+      .default("member"),
+    joined_at: text("joined_at").notNull(),
+    updated_at: text("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.group_id, table.agent_id] }),
+    index("idx_group_members_group").on(table.group_id),
+    index("idx_group_members_agent").on(table.agent_id),
+  ],
+);
+
+export const group_join_tokens = sqliteTable(
+  "group_join_tokens",
+  {
+    id: text("id").primaryKey(),
+    group_id: text("group_id")
+      .notNull()
+      .references(() => groups.id),
+    token_hash: text("token_hash").notNull(),
+    token_prefix: text("token_prefix").notNull(),
+    role: text("role", { enum: ["member", "admin"] })
+      .notNull()
+      .default("member"),
+    max_uses: integer("max_uses").notNull().default(1),
+    used_count: integer("used_count").notNull().default(0),
+    expires_at: text("expires_at").notNull(),
+    revoked_at: text("revoked_at"),
+    issued_by: text("issued_by")
+      .notNull()
+      .references(() => humans.id),
+    created_at: text("created_at").notNull(),
+    updated_at: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("group_join_tokens_token_hash_unique").on(table.token_hash),
+    index("idx_group_join_tokens_prefix").on(table.token_prefix),
+    index("idx_group_join_tokens_group").on(table.group_id),
+    index("idx_group_join_tokens_expires").on(table.expires_at),
   ],
 );

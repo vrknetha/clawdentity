@@ -3,6 +3,7 @@ export type ProtocolParseErrorCode =
   | "INVALID_BASE64URL"
   | "INVALID_ULID"
   | "INVALID_DID"
+  | "INVALID_GROUP_ID"
   | "INVALID_CRL_CLAIMS";
 
 export class ProtocolParseError extends Error {

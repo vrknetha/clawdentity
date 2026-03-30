@@ -1,3 +1,4 @@
+import { parseGroupId } from "@clawdentity/protocol";
 import type {
   RelayDeliveryInput,
   RelayReceiptLookupInput,
@@ -31,6 +32,15 @@ export function parseDeliveryInput(value: unknown): RelayDeliveryInput {
       throw new TypeError("Relay delivery input is invalid");
     }
   }
+  if (typeof input.groupId === "string" && input.groupId.trim().length > 0) {
+    try {
+      parseGroupId(input.groupId.trim());
+    } catch {
+      throw new TypeError("Relay delivery input is invalid");
+    }
+  } else if (input.groupId !== undefined) {
+    throw new TypeError("Relay delivery input is invalid");
+  }
 
   return {
     requestId: input.requestId,
@@ -41,6 +51,10 @@ export function parseDeliveryInput(value: unknown): RelayDeliveryInput {
       typeof input.deliverySource === "string" &&
       input.deliverySource.trim().length > 0
         ? input.deliverySource.trim()
+        : undefined,
+    groupId:
+      typeof input.groupId === "string" && input.groupId.trim().length > 0
+        ? input.groupId.trim()
         : undefined,
     conversationId:
       typeof input.conversationId === "string" &&

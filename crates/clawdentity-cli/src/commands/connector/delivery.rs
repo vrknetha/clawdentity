@@ -318,6 +318,7 @@ fn build_deliver_from_pending(item: &InboundPendingItem) -> Result<DeliverFrame>
         ts: now_iso(),
         from_agent_did: item.from_agent_did.clone(),
         to_agent_did: item.to_agent_did.clone(),
+        group_id: None,
         payload,
         delivery_source: item.delivery_source.clone(),
         content_type: Some("application/json".to_string()),

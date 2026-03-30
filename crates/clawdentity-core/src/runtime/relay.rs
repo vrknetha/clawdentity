@@ -169,6 +169,7 @@ where
             id: item.frame_id.clone(),
             ts: now_iso(),
             to_agent_did: item.to_agent_did.clone(),
+            group_id: item.group_id.clone(),
             payload,
             conversation_id: item.conversation_id.clone(),
             reply_to: item.reply_to.clone(),
@@ -295,6 +296,7 @@ mod tests {
                 frame_type: "enqueue".to_string(),
                 to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
                     .to_string(),
+                group_id: None,
                 payload_json: "{\"x\":1}".to_string(),
                 conversation_id: None,
                 reply_to: None,
@@ -330,6 +332,7 @@ mod tests {
                 frame_type: "enqueue".to_string(),
                 to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
                     .to_string(),
+                group_id: None,
                 payload_json: "{\"unterminated\"".to_string(),
                 conversation_id: None,
                 reply_to: None,

@@ -1,7 +1,9 @@
 import { parseJsonResponseSafe as parseJsonResponse } from "@clawdentity/common";
 import {
+  GROUP_MEMBERSHIP_CHECK_PATH,
   INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH,
   parseAgentDid,
+  parseGroupId,
   parseHumanDid,
 } from "@clawdentity/protocol";
 import { AppError } from "./exceptions.js";
@@ -14,6 +16,10 @@ export type AgentOwnershipStatus = "active" | "revoked" | null;
 export type AgentOwnershipResult = {
   ownsAgent: boolean;
   agentStatus: AgentOwnershipStatus;
+};
+
+export type GroupMembershipResult = {
+  isMember: boolean;
 };
 
 type RegistryErrorEnvelope = {
@@ -101,6 +107,29 @@ function parseOwnershipResponse(payload: unknown): AgentOwnershipResult {
   };
 }
 
+function parseGroupMembershipResponse(payload: unknown): GroupMembershipResult {
+  if (typeof payload !== "object" || payload === null) {
+    throw new AppError({
+      code: "IDENTITY_SERVICE_INVALID_RESPONSE",
+      message: "Registry identity response is invalid",
+      status: 503,
+      expose: true,
+    });
+  }
+
+  const isMember = (payload as { isMember?: unknown }).isMember;
+  if (typeof isMember !== "boolean") {
+    throw new AppError({
+      code: "IDENTITY_SERVICE_INVALID_RESPONSE",
+      message: "Registry identity response is invalid",
+      status: 503,
+      expose: true,
+    });
+  }
+
+  return { isMember };
+}
+
 function validateServiceIdentity(input: RegistryIdentityClientInput): void {
   const serviceId = input.serviceId.trim();
   const serviceSecret = input.serviceSecret.trim();
@@ -126,6 +155,23 @@ function validateOwnershipInput(input: {
     throw new AppError({
       code: "IDENTITY_SERVICE_INVALID_INPUT",
       message: "Ownership input is invalid",
+      status: 400,
+      expose: true,
+    });
+  }
+}
+
+function validateGroupMembershipInput(input: {
+  groupId: string;
+  memberAgentDid: string;
+}): void {
+  try {
+    parseGroupId(input.groupId);
+    parseAgentDid(input.memberAgentDid);
+  } catch {
+    throw new AppError({
+      code: "IDENTITY_SERVICE_INVALID_INPUT",
+      message: "Group membership input is invalid",
       status: 400,
       expose: true,
     });
@@ -218,6 +264,76 @@ export function createRegistryIdentityClient(
       }
 
       return parseOwnershipResponse(responseBody);
+    },
+    async checkGroupMembership(payload: {
+      groupId: string;
+      memberAgentDid: string;
+    }): Promise<GroupMembershipResult> {
+      validateGroupMembershipInput(payload);
+
+      const requestUrl = new URL(
+        GROUP_MEMBERSHIP_CHECK_PATH.slice(1),
+        registryUrl,
+      ).toString();
+      const requestBody = JSON.stringify({
+        groupId: payload.groupId,
+        memberAgentDid: payload.memberAgentDid,
+      });
+
+      let response: Response;
+      try {
+        response = await fetchImpl(requestUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            [INTERNAL_SERVICE_ID_HEADER]: input.serviceId.trim(),
+            [INTERNAL_SERVICE_SECRET_HEADER]: input.serviceSecret.trim(),
+          },
+          body: requestBody,
+        });
+      } catch {
+        throw new AppError({
+          code: "IDENTITY_SERVICE_UNAVAILABLE",
+          message: "Registry identity service is unavailable",
+          status: 503,
+          expose: true,
+        });
+      }
+
+      const responseBody = await parseJsonResponse(response);
+      if (response.status === 401 || response.status === 403) {
+        const parsedError = parseRegistryErrorEnvelope(responseBody);
+        throw new AppError({
+          code: "IDENTITY_SERVICE_UNAUTHORIZED",
+          message:
+            parsedError.error?.message ??
+            "Registry internal service authorization failed",
+          status: 503,
+          expose: true,
+          details: {
+            registryCode: parsedError.error?.code,
+          },
+        });
+      }
+
+      if (!response.ok) {
+        const parsedError = parseRegistryErrorEnvelope(responseBody);
+        throw new AppError({
+          code: "IDENTITY_SERVICE_UNAVAILABLE",
+          message:
+            parsedError.error?.message ??
+            "Registry identity service is unavailable",
+          status: 503,
+          expose: true,
+          details: {
+            status: response.status,
+            registryCode: parsedError.error?.code,
+            pathWithQuery: toIdentityPathWithQuery(requestUrl),
+          },
+        });
+      }
+
+      return parseGroupMembershipResponse(responseBody);
     },
   };
 }

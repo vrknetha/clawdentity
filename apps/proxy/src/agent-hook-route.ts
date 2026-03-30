@@ -1,7 +1,9 @@
 import {
   parseAgentDid as parseProtocolAgentDid,
+  parseGroupId as parseProtocolGroupId,
   RELAY_CONVERSATION_ID_HEADER,
   RELAY_DELIVERY_RECEIPT_URL_HEADER,
+  RELAY_GROUP_ID_HEADER,
   RELAY_RECIPIENT_AGENT_DID_HEADER,
 } from "@clawdentity/protocol";
 import { AppError, type Logger, nowIso } from "@clawdentity/sdk";
@@ -13,6 +15,7 @@ import {
   RelaySessionDeliveryError,
 } from "./agent-relay-session.js";
 import type { ProxyRequestVariables } from "./auth-middleware.js";
+import type { GroupTrustAuthorizer } from "./group-trust.js";
 import type { ProxyTrustStore } from "./proxy-trust-store.js";
 import { assertTrustedPair } from "./trust-policy.js";
 
@@ -24,6 +27,7 @@ const MAX_AIT_JTI_LENGTH = 64;
 export { RELAY_RECIPIENT_AGENT_DID_HEADER } from "@clawdentity/protocol";
 
 export type AgentHookRuntimeOptions = {
+  groupTrustAuthorizer?: GroupTrustAuthorizer;
   injectIdentityIntoMessage?: boolean;
   now?: () => string;
   resolveSessionNamespace?: (
@@ -152,6 +156,24 @@ function parseOptionalHeaderValue(
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function parseOptionalGroupId(c: ProxyContext): string | undefined {
+  const groupId = parseOptionalHeaderValue(c, RELAY_GROUP_ID_HEADER);
+  if (groupId === undefined) {
+    return undefined;
+  }
+
+  try {
+    return parseProtocolGroupId(groupId);
+  } catch {
+    throw new AppError({
+      code: "PROXY_HOOK_GROUP_INVALID",
+      message: "X-Claw-Group-Id must be a valid group ID",
+      status: 400,
+      expose: true,
+    });
+  }
+}
+
 function resolveDefaultSessionNamespace(
   c: ProxyContext,
 ): AgentRelaySessionNamespace | undefined {
@@ -165,6 +187,7 @@ export function createAgentHookHandler(
   const now = options.now ?? nowIso;
   const resolveSessionNamespace =
     options.resolveSessionNamespace ?? resolveDefaultSessionNamespace;
+  const groupTrustAuthorizer = options.groupTrustAuthorizer;
 
   return async (c) => {
     if (!isJsonContentType(c.req.header("content-type"))) {
@@ -202,11 +225,30 @@ export function createAgentHookHandler(
     }
 
     const recipientAgentDid = parseRecipientAgentDid(c);
-    await assertTrustedPair({
-      trustStore: options.trustStore,
-      initiatorAgentDid: auth.agentDid,
-      responderAgentDid: recipientAgentDid,
-    });
+    const groupId = parseOptionalGroupId(c);
+
+    if (groupId !== undefined) {
+      if (groupTrustAuthorizer === undefined) {
+        throw new AppError({
+          code: "PROXY_GROUP_MEMBERSHIP_UNAVAILABLE",
+          message: "Group membership verification is unavailable",
+          status: 503,
+          expose: true,
+        });
+      }
+
+      await groupTrustAuthorizer({
+        groupId,
+        senderAgentDid: auth.agentDid,
+        recipientAgentDid,
+      });
+    } else {
+      await assertTrustedPair({
+        trustStore: options.trustStore,
+        initiatorAgentDid: auth.agentDid,
+        responderAgentDid: recipientAgentDid,
+      });
+    }
 
     const sessionNamespace = resolveSessionNamespace(c);
     if (sessionNamespace === undefined) {
@@ -231,6 +273,7 @@ export function createAgentHookHandler(
       senderAgentDid: auth.agentDid,
       recipientAgentDid,
       payload,
+      groupId,
       conversationId,
       replyTo: deliveryReceiptUrl,
     };

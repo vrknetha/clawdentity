@@ -11,6 +11,7 @@
 - DID v2 is mandatory: only accept/build `did:cdi:<authority>:<agent|human>:<ulid>`; do not add compatibility paths for older DID methods.
 - DID authorities must be DNS hostnames (lowercase dot-separated labels, hyphen allowed inside labels, no empty labels, no leading/trailing hyphen per label).
 - Use `parseAgentDid` / `parseHumanDid` for entity-specific checks instead of ad-hoc string checks or generic `parseDid` branching.
+- Keep group ID parsing centralized via `parseGroupId` (`grp_<ULID>`); do not duplicate group-id regex checks in app layers.
 - All DID construction must pass explicit authority (`makeAgentDid(authority, ulid)`, `makeHumanDid(authority, ulid)`); never infer or hardcode from unrelated context.
 - Keep AIT schema parsing strict (`.strict()` objects) so unknown claims are rejected by default.
 - Validate risky identity fields (`name`, `description`) with explicit allowlists/length caps; never pass through raw control characters.
@@ -29,6 +30,7 @@
 - Keep protocol route constants scoped to active contracts only; remove deprecated endpoint exports immediately when a flow is retired.
 - Keep internal identity route constants in protocol exports (`INTERNAL_IDENTITY_AGENT_OWNERSHIP_PATH`) so service-to-service ownership checks stay synchronized.
 - Keep relay contract constants in protocol exports (`RELAY_CONNECT_PATH`, `RELAY_RECIPIENT_AGENT_DID_HEADER`) so connector and hook routing stay synchronized across apps.
+- Keep group relay contract constants in protocol exports (`GROUPS_PATH`, `GROUP_JOIN_PATH`, `GROUP_MEMBERSHIP_CHECK_PATH`, `RELAY_GROUP_ID_HEADER`) so registry/proxy/connector contracts stay synchronized.
 - Keep registration-proof canonicalization in protocol exports (`canonicalizeAgentRegistrationProof`) so CLI signing and registry verification use an identical message format.
 - Keep optional proof fields deterministic in canonical strings (empty-string placeholders) to avoid default-value mismatches between clients and server.
 - Keep pairing-acceptance queue contract in protocol exports (`pair.accepted`) so proxy producer and consumer share one payload parser/normalizer.
