@@ -187,7 +187,10 @@ export function registerInviteRoutes(input: RegistryRouteDependencies): void {
           })
           .where(and(eq(invites.id, invite.id), isNull(invites.redeemed_by)));
 
-        const updatedRows = getMutationRowCount(inviteUpdateResult);
+        const updatedRows = getMutationRowCount({
+          result: inviteUpdateResult,
+          operation: "invites.redeem.update",
+        });
         if (updatedRows === 0) {
           throw await resolveInviteRedeemStateError({
             db: executor,

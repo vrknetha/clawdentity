@@ -1,3 +1,4 @@
+import { AppError } from "@clawdentity/sdk";
 import { and, eq } from "drizzle-orm";
 import type { createDb } from "../../db/client.js";
 import {
@@ -330,19 +331,35 @@ export function isUnsupportedLocalTransactionError(error: unknown): boolean {
   );
 }
 
-export function getMutationRowCount(result: unknown): number | undefined {
+function invalidMutationResultShapeError(input: {
+  operation: string;
+  result: unknown;
+}): AppError {
+  const keys =
+    input.result && typeof input.result === "object"
+      ? Object.keys(input.result as Record<string, unknown>)
+      : [];
+
+  return new AppError({
+    code: "DB_MUTATION_RESULT_INVALID",
+    message: `Database mutation result must include meta.changes (${input.operation})`,
+    status: 500,
+    expose: false,
+    details: {
+      operation: input.operation,
+      resultType: input.result === null ? "null" : typeof input.result,
+      keys,
+    },
+  });
+}
+
+export function getMutationRowCount(input: {
+  result: unknown;
+  operation: string;
+}): number {
+  const { result, operation } = input;
   if (!result || typeof result !== "object") {
-    return undefined;
-  }
-
-  const directChanges = (result as { changes?: unknown }).changes;
-  if (typeof directChanges === "number") {
-    return directChanges;
-  }
-
-  const rowsAffected = (result as { rowsAffected?: unknown }).rowsAffected;
-  if (typeof rowsAffected === "number") {
-    return rowsAffected;
+    throw invalidMutationResultShapeError({ operation, result });
   }
 
   const metaChanges = (result as { meta?: { changes?: unknown } }).meta
@@ -351,5 +368,5 @@ export function getMutationRowCount(result: unknown): number | undefined {
     return metaChanges;
   }
 
-  return undefined;
+  throw invalidMutationResultShapeError({ operation, result });
 }

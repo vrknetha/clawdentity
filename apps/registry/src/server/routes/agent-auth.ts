@@ -209,7 +209,10 @@ export function registerAgentAuthRoutes(
           ),
         );
 
-      const updatedRows = getMutationRowCount(updateResult);
+      const updatedRows = getMutationRowCount({
+        result: updateResult,
+        operation: "agentAuth.refresh.session.update",
+      });
       if (updatedRows === 0) {
         throw agentAuthRefreshConflictError();
       }
@@ -335,7 +338,10 @@ export function registerAgentAuthRoutes(
         ),
       );
 
-    const updatedRows = getMutationRowCount(updateResult);
+    const updatedRows = getMutationRowCount({
+      result: updateResult,
+      operation: "agentAuth.validate.session.touch",
+    });
     if (updatedRows === 0) {
       throw new AppError({
         code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",

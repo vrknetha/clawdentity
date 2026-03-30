@@ -375,7 +375,10 @@ export function registerOnboardingRoutes(
             ),
           );
 
-        const updatedRows = getMutationRowCount(starterPassUpdateResult);
+        const updatedRows = getMutationRowCount({
+          result: starterPassUpdateResult,
+          operation: "onboarding.starterPass.redeem.update",
+        });
         if (updatedRows === 0) {
           throw await resolveStarterPassRedeemStateError({
             db: executor,

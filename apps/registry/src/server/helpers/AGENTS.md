@@ -12,3 +12,4 @@
 - Registry-facing loopback URLs may adopt the forwarded origin's port semantics, but sibling service URLs such as the proxy must keep their own configured service port when only the hostname/protocol are being remapped.
 - Treat bracketed IPv6 loopback hosts (`[::1]`) the same as bare `::1` so local IPv6 setups follow the same caller-facing origin remap path.
 - When proxy and registry share loopback/origin helpers, keep the implementation in `@clawdentity/common` instead of maintaining app-local copies.
+- Mutation row-count helpers must use strict D1 semantics (`result.meta.changes`) and fail closed with an explicit internal error when the shape is unsupported; do not reintroduce legacy `.changes`/`.rowsAffected` fallbacks.

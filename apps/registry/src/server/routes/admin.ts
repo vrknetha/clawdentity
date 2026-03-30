@@ -204,7 +204,10 @@ export function registerAdminRoutes(input: RegistryRouteDependencies): void {
           target: humans.id,
         });
 
-      const insertedRows = getMutationRowCount(insertAdminResult);
+      const insertedRows = getMutationRowCount({
+        result: insertAdminResult,
+        operation: "admin.bootstrap.human.insert",
+      });
       if (insertedRows === 0) {
         throw adminBootstrapAlreadyCompletedError();
       }

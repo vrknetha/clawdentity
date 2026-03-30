@@ -261,7 +261,10 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
             ),
           );
 
-        const updatedRows = getMutationRowCount(challengeUpdateResult);
+        const updatedRows = getMutationRowCount({
+          result: challengeUpdateResult,
+          operation: "agents.register.challenge.update",
+        });
         if (updatedRows === 0) {
           throw new AppError({
             code: "AGENT_REGISTRATION_CHALLENGE_REPLAYED",
@@ -588,7 +591,10 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
           ),
         );
 
-      const updatedRows = getMutationRowCount(updateResult);
+      const updatedRows = getMutationRowCount({
+        result: updateResult,
+        operation: "agents.reissue.update",
+      });
       if (updatedRows === 0) {
         throw invalidAgentReissueStateError({
           environment: config.ENVIRONMENT,
