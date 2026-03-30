@@ -42,6 +42,7 @@ import {
 } from "../../db/schema.js";
 import { resolveRegistrySigner } from "../../registry-signer.js";
 import { logger, type RegistryRouteDependencies } from "../constants.js";
+import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   countAgentsByOwner,
   findAgentAuthSessionByAgentId,
@@ -263,7 +264,7 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
 
         const updatedRows = getMutationRowCount({
           result: challengeUpdateResult,
-          operation: "agents.register.challenge.update",
+          operation: DB_MUTATION_OPERATION.AGENT_REGISTRATION_CHALLENGE_UPDATE,
         });
         if (updatedRows === 0) {
           throw new AppError({
@@ -593,7 +594,7 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
 
       const updatedRows = getMutationRowCount({
         result: updateResult,
-        operation: "agents.reissue.update",
+        operation: DB_MUTATION_OPERATION.AGENT_REISSUE_UPDATE,
       });
       if (updatedRows === 0) {
         throw invalidAgentReissueStateError({

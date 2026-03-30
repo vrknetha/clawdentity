@@ -350,6 +350,44 @@ describe(`POST ${ADMIN_BOOTSTRAP_PATH}`, () => {
     expect(body.error.code).toBe("ADMIN_BOOTSTRAP_ALREADY_COMPLETED");
   });
 
+  it("returns controlled 500 when mutation result shape is invalid", async () => {
+    const { database } = createFakeDb([], [], {
+      invalidMutationResultQueryIncludes: ['insert into "humans"'],
+    });
+    const response = await createRegistryApp().request(
+      ADMIN_BOOTSTRAP_PATH,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-bootstrap-secret": "bootstrap-secret",
+        },
+        body: JSON.stringify({
+          displayName: "Primary Admin",
+          apiKeyName: "prod-admin-key",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET:
+          TEST_BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+        BOOTSTRAP_SECRET: "bootstrap-secret",
+      },
+    );
+
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as {
+      error: {
+        code: string;
+        details?: unknown;
+      };
+    };
+    expect(body.error.code).toBe("DB_MUTATION_RESULT_INVALID");
+    expect(body.error.details).toBeUndefined();
+  });
+
   it("creates admin human and PAT token once", async () => {
     const { database, humanInserts, apiKeyInserts, internalServiceInserts } =
       createFakeDb([]);

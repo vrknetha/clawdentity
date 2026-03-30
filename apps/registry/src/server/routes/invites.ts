@@ -30,6 +30,7 @@ import {
   parseInviteRedeemPayload,
 } from "../../invite-lifecycle.js";
 import { logger, type RegistryRouteDependencies } from "../constants.js";
+import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   findInviteByCode,
   getMutationRowCount,
@@ -189,7 +190,7 @@ export function registerInviteRoutes(input: RegistryRouteDependencies): void {
 
         const updatedRows = getMutationRowCount({
           result: inviteUpdateResult,
-          operation: "invites.redeem.update",
+          operation: DB_MUTATION_OPERATION.INVITE_REDEEM_UPDATE,
         });
         if (updatedRows === 0) {
           throw await resolveInviteRedeemStateError({

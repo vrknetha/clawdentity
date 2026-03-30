@@ -13,3 +13,5 @@
 - Treat bracketed IPv6 loopback hosts (`[::1]`) the same as bare `::1` so local IPv6 setups follow the same caller-facing origin remap path.
 - When proxy and registry share loopback/origin helpers, keep the implementation in `@clawdentity/common` instead of maintaining app-local copies.
 - Mutation row-count helpers must use strict D1 semantics (`result.meta.changes`) and fail closed with an explicit internal error when the shape is unsupported; do not reintroduce legacy `.changes`/`.rowsAffected` fallbacks.
+- Mutation operation names must come from shared constants (`db-mutation-operations.ts`) so route/helper operation IDs cannot drift by typo.
+- When mutation shape validation fails, emit a structured log payload (including operation + shape metadata) so production diagnosis is fast.

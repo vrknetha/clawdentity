@@ -25,6 +25,8 @@ import type {
   OwnedAgentRegistrationChallenge,
   StarterPassRow,
 } from "../constants.js";
+import { logger } from "../constants.js";
+import type { DbMutationOperation } from "./db-mutation-operations.js";
 
 export async function findOwnedAgent(input: {
   db: ReturnType<typeof createDb>;
@@ -332,13 +334,28 @@ export function isUnsupportedLocalTransactionError(error: unknown): boolean {
 }
 
 function invalidMutationResultShapeError(input: {
-  operation: string;
+  operation: DbMutationOperation;
   result: unknown;
 }): AppError {
   const keys =
     input.result && typeof input.result === "object"
       ? Object.keys(input.result as Record<string, unknown>)
       : [];
+  const resultType = input.result === null ? "null" : typeof input.result;
+  const hasMetaObject =
+    Boolean(input.result) &&
+    typeof input.result === "object" &&
+    (input.result as { meta?: unknown }).meta !== undefined;
+
+  logger.error("registry.db_mutation_result_invalid", {
+    code: "DB_MUTATION_RESULT_INVALID",
+    metric: "registry.db_mutation_result_invalid.count",
+    value: 1,
+    operation: input.operation,
+    resultType,
+    hasMetaObject,
+    keys,
+  });
 
   return new AppError({
     code: "DB_MUTATION_RESULT_INVALID",
@@ -347,7 +364,7 @@ function invalidMutationResultShapeError(input: {
     expose: false,
     details: {
       operation: input.operation,
-      resultType: input.result === null ? "null" : typeof input.result,
+      resultType,
       keys,
     },
   });
@@ -355,7 +372,7 @@ function invalidMutationResultShapeError(input: {
 
 export function getMutationRowCount(input: {
   result: unknown;
-  operation: string;
+  operation: DbMutationOperation;
 }): number {
   const { result, operation } = input;
   if (!result || typeof result !== "object") {

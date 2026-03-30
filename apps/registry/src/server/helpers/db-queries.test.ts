@@ -1,5 +1,6 @@
 import { AppError } from "@clawdentity/sdk";
 import { describe, expect, it } from "vitest";
+import { DB_MUTATION_OPERATION } from "./db-mutation-operations.js";
 import { getMutationRowCount } from "./db-queries.js";
 
 describe("getMutationRowCount", () => {
@@ -11,7 +12,7 @@ describe("getMutationRowCount", () => {
             changes: 1,
           },
         },
-        operation: "test.mutation",
+        operation: DB_MUTATION_OPERATION.ADMIN_BOOTSTRAP_HUMAN_INSERT,
       }),
     ).toBe(1);
   });
@@ -24,7 +25,7 @@ describe("getMutationRowCount", () => {
             changes: 0,
           },
         },
-        operation: "test.noop",
+        operation: DB_MUTATION_OPERATION.INVITE_REDEEM_UPDATE,
       }),
     ).toBe(0);
   });
@@ -58,7 +59,7 @@ describe("getMutationRowCount", () => {
     try {
       getMutationRowCount({
         result,
-        operation: "test.invalid",
+        operation: DB_MUTATION_OPERATION.AGENT_REISSUE_UPDATE,
       });
       throw new Error("Expected getMutationRowCount to throw");
     } catch (error) {

@@ -32,6 +32,7 @@ import { constantTimeEqual } from "../../auth/api-key-token.js";
 import { createDb } from "../../db/client.js";
 import { agent_auth_sessions } from "../../db/schema.js";
 import type { RegistryRouteDependencies } from "../constants.js";
+import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   findAgentAuthSessionByAgentId,
   findOwnedAgent,
@@ -211,7 +212,7 @@ export function registerAgentAuthRoutes(
 
       const updatedRows = getMutationRowCount({
         result: updateResult,
-        operation: "agentAuth.refresh.session.update",
+        operation: DB_MUTATION_OPERATION.AGENT_AUTH_REFRESH_SESSION_UPDATE,
       });
       if (updatedRows === 0) {
         throw agentAuthRefreshConflictError();
@@ -340,7 +341,7 @@ export function registerAgentAuthRoutes(
 
     const updatedRows = getMutationRowCount({
       result: updateResult,
-      operation: "agentAuth.validate.session.touch",
+      operation: DB_MUTATION_OPERATION.AGENT_AUTH_VALIDATE_SESSION_TOUCH,
     });
     if (updatedRows === 0) {
       throw new AppError({
