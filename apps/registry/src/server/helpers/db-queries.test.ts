@@ -48,6 +48,20 @@ describe("getMutationRowCount", () => {
       result: {},
     },
     {
+      label: "meta present, changes absent",
+      result: {
+        meta: {},
+      },
+    },
+    {
+      label: "meta.changes is a string",
+      result: {
+        meta: {
+          changes: "1",
+        },
+      },
+    },
+    {
       label: "null result",
       result: null,
     },
