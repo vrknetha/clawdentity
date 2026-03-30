@@ -8,22 +8,15 @@ import {
 import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { verifyAgentClawRequest } from "../../auth/agent-claw-auth.js";
-import { createApiKeyAuth } from "../../auth/api-key-auth.js";
-import {
-  constantTimeEqual,
-  deriveApiKeyLookupPrefix,
-  hashApiKeyToken,
-  parseBearerPat,
-} from "../../auth/api-key-token.js";
+import { createApiKeyAuth, resolvePatHuman } from "../../auth/api-key-auth.js";
+import { constantTimeEqual } from "../../auth/api-key-token.js";
 import { createServiceAuth } from "../../auth/service-auth.js";
 import { createDb } from "../../db/client.js";
 import {
   agents,
-  api_keys,
   group_join_tokens,
   group_members,
   groups,
-  humans,
 } from "../../db/schema.js";
 import {
   deriveGroupJoinTokenLookupPrefix,
@@ -53,59 +46,6 @@ import {
   groupMemberNotFoundError,
   groupNotFoundError,
 } from "./group-route-errors.js";
-
-async function resolvePatHuman(input: {
-  db: ReturnType<typeof createDb>;
-  authorizationHeader: string | undefined;
-}) {
-  const token = parseBearerPat(input.authorizationHeader);
-  const tokenHash = await hashApiKeyToken(token);
-  const tokenPrefix = deriveApiKeyLookupPrefix(token);
-
-  const lookupResult = await input.db
-    .select({
-      apiKeyId: api_keys.id,
-      keyHash: api_keys.key_hash,
-      apiKeyStatus: api_keys.status,
-      apiKeyName: api_keys.name,
-      humanId: humans.id,
-      humanDid: humans.did,
-      humanDisplayName: humans.display_name,
-      humanRole: humans.role,
-      humanStatus: humans.status,
-    })
-    .from(api_keys)
-    .innerJoin(humans, eq(humans.id, api_keys.human_id))
-    .where(eq(api_keys.key_prefix, tokenPrefix));
-
-  const matched =
-    lookupResult.find((row) => constantTimeEqual(row.keyHash, tokenHash)) ??
-    undefined;
-
-  if (
-    !matched ||
-    matched.apiKeyStatus !== "active" ||
-    matched.humanStatus !== "active"
-  ) {
-    throw new AppError({
-      code: "API_KEY_INVALID",
-      message: "API key is invalid",
-      status: 401,
-      expose: true,
-    });
-  }
-
-  return {
-    id: matched.humanId,
-    did: matched.humanDid,
-    displayName: matched.humanDisplayName,
-    role: matched.humanRole,
-    apiKey: {
-      id: matched.apiKeyId,
-      name: matched.apiKeyName,
-    },
-  };
-}
 
 async function assertHumanCanManageGroup(input: {
   db: ReturnType<typeof createDb>;
@@ -548,6 +488,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       const human = await resolvePatHuman({
         db,
         authorizationHeader: authorization,
+        touchLastUsed: true,
       });
       await assertHumanCanManageGroup({
         db,

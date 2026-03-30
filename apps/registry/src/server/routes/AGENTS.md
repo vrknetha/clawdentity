@@ -22,3 +22,4 @@
 - Group-join token consumption must stay atomic (`used_count = used_count + 1` with a `used_count < max_uses` guard in the mutation `WHERE` clause); never rely on stale pre-read counters for token usage updates.
 - Group member-cap enforcement must run inside the same join mutation unit as the member insert (transaction path or guarded insert), not as a pre-check outside the write path.
 - Route handlers that expect JSON request bodies must treat malformed JSON as client input errors (4xx) and must not silently coerce parse failures into default payloads that trigger mutations.
+- When a route supports both PAT and non-PAT auth (for example PAT-or-agent flows), reuse the shared auth resolver from `src/auth/` instead of re-implementing PAT hash/lookup logic in route modules.

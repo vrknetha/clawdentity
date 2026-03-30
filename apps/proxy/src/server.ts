@@ -20,7 +20,7 @@ import {
   type ProxyRequestVariables,
 } from "./auth-middleware.js";
 import type { ProxyConfig } from "./config.js";
-import { createRegistryGroupTrustAuthorizer } from "./group-trust.js";
+import { resolveRegistryGroupTrustAuthorizer } from "./group-trust.js";
 import { PROXY_VERSION, type ProxyVersionSource } from "./index.js";
 import type { NonceReplayGuardNamespace } from "./nonce-replay-store.js";
 import {
@@ -164,18 +164,12 @@ function buildHealthPayload(input: {
 export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
   const logger = resolveLogger(options.config, options.logger);
   const trustStore = options.trustStore ?? createInMemoryProxyTrustStore();
-  const groupTrustAuthorizer =
-    typeof options.config.registryInternalServiceId === "string" &&
-    options.config.registryInternalServiceId.trim().length > 0 &&
-    typeof options.config.registryInternalServiceSecret === "string" &&
-    options.config.registryInternalServiceSecret.trim().length > 0
-      ? createRegistryGroupTrustAuthorizer({
-          registryUrl: options.config.registryUrl,
-          serviceId: options.config.registryInternalServiceId,
-          serviceSecret: options.config.registryInternalServiceSecret,
-          fetchImpl: options.auth?.fetchImpl,
-        })
-      : undefined;
+  const groupTrustAuthorizer = resolveRegistryGroupTrustAuthorizer({
+    fetchImpl: options.auth?.fetchImpl,
+    registryUrl: options.config.registryUrl,
+    registryInternalServiceId: options.config.registryInternalServiceId,
+    registryInternalServiceSecret: options.config.registryInternalServiceSecret,
+  });
   const app = new Hono<{
     Bindings: {
       AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;

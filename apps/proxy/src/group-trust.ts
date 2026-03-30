@@ -105,3 +105,36 @@ export function createRegistryGroupTrustAuthorizer(input: {
     }
   };
 }
+
+function normalizeOptionalNonEmpty(
+  value: string | undefined,
+): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+export function resolveRegistryGroupTrustAuthorizer(input: {
+  fetchImpl?: typeof fetch;
+  registryUrl: string;
+  registryInternalServiceId?: string;
+  registryInternalServiceSecret?: string;
+}): GroupTrustAuthorizer | undefined {
+  const serviceId = normalizeOptionalNonEmpty(input.registryInternalServiceId);
+  const serviceSecret = normalizeOptionalNonEmpty(
+    input.registryInternalServiceSecret,
+  );
+  if (!serviceId || !serviceSecret) {
+    return undefined;
+  }
+
+  return createRegistryGroupTrustAuthorizer({
+    fetchImpl: input.fetchImpl,
+    registryUrl: input.registryUrl,
+    serviceId,
+    serviceSecret,
+  });
+}

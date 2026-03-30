@@ -2,8 +2,8 @@ import { generateUlid, RELAY_CONNECT_PATH } from "@clawdentity/protocol";
 import { nowUtcMs, toIso } from "@clawdentity/sdk";
 import { parseProxyConfig } from "../config.js";
 import {
-  createRegistryGroupTrustAuthorizer,
   type GroupTrustAuthorizer,
+  resolveRegistryGroupTrustAuthorizer,
 } from "../group-trust.js";
 import type { ProxyTrustStore } from "../proxy-trust-store.js";
 import { assertTrustedPair } from "../trust-policy.js";
@@ -96,16 +96,11 @@ export class AgentRelaySession {
       });
     this.groupTrustAuthorizer =
       dependencies?.groupTrustAuthorizer ??
-      (typeof config.registryInternalServiceId === "string" &&
-      config.registryInternalServiceId.trim().length > 0 &&
-      typeof config.registryInternalServiceSecret === "string" &&
-      config.registryInternalServiceSecret.trim().length > 0
-        ? createRegistryGroupTrustAuthorizer({
-            registryUrl: config.registryUrl,
-            serviceId: config.registryInternalServiceId,
-            serviceSecret: config.registryInternalServiceSecret,
-          })
-        : undefined);
+      resolveRegistryGroupTrustAuthorizer({
+        registryUrl: config.registryUrl,
+        registryInternalServiceId: config.registryInternalServiceId,
+        registryInternalServiceSecret: config.registryInternalServiceSecret,
+      });
     this.socketTracker = new RelaySocketTracker({
       heartbeatAckTimeoutMs: RELAY_HEARTBEAT_ACK_TIMEOUT_MS,
       staleCloseCode: RELAY_SOCKET_STALE_CLOSE_CODE,
