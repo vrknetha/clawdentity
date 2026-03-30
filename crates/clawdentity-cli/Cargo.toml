@@ -4,7 +4,7 @@ version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Clawdentity Rust CLI for identity onboarding, provider setup, and connector operations."
+description = "CLI for cross-platform agent messaging — pair, message, and group-chat between any AI agents."
 readme = "../../README.md"
 
 [dependencies]

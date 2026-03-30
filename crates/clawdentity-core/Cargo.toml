@@ -4,7 +4,7 @@ version = "0.1.9"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Core Rust library for Clawdentity identity, registry auth, relay, connector, and provider flows."
+description = "Core library for cross-platform agent messaging — identity, relay, connector, and provider integrations."
 readme = "../../README.md"
 
 [dependencies]
