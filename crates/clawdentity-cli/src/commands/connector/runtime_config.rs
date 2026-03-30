@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -19,6 +20,7 @@ const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
 const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
 const RELAY_DELIVERY_RECEIPTS_PATH: &str = "/v1/relay/delivery-receipts";
+static GROUP_MEMBERSHIP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 struct ConnectorRuntimeInputs {
     config: clawdentity_core::config::CliConfig,
@@ -359,6 +361,22 @@ fn build_signed_registry_request_headers(
     Ok(headers)
 }
 
+fn group_membership_http_client() -> Result<&'static reqwest::Client> {
+    if let Some(client) = GROUP_MEMBERSHIP_CLIENT.get() {
+        return Ok(client);
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| anyhow!("failed to create group membership client: {error}"))?;
+
+    let _ = GROUP_MEMBERSHIP_CLIENT.set(client);
+    GROUP_MEMBERSHIP_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("failed to initialize group membership client"))
+}
+
 #[allow(clippy::too_many_lines)]
 pub(super) async fn fetch_group_member_dids(
     options: &ConfigPathOptions,
@@ -377,11 +395,7 @@ pub(super) async fn fetch_group_member_dids(
 
     let headers = build_signed_registry_request_headers(&runtime_inputs, "GET", &request_url, &[])?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|error| anyhow!("failed to create group membership client: {error}"))?;
-    let mut request = client.get(request_url);
+    let mut request = group_membership_http_client()?.get(request_url);
     for (name, value) in headers {
         request = request.header(name, value);
     }
