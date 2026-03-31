@@ -8,7 +8,7 @@ import {
 import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
 import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { verifyAgentClawRequest } from "../../auth/agent-claw-auth.js";
-import { createApiKeyAuth, resolvePatHuman } from "../../auth/api-key-auth.js";
+import { createApiKeyAuth } from "../../auth/api-key-auth.js";
 import { constantTimeEqual } from "../../auth/api-key-token.js";
 import { createServiceAuth } from "../../auth/service-auth.js";
 import { createDb } from "../../db/client.js";
@@ -35,12 +35,17 @@ import {
   isUnsupportedLocalTransactionError,
 } from "../helpers/db-queries.js";
 import {
+  resolveManageableGroupForAgent,
   resolveReadableGroupForAgent,
   resolveReadableGroupForHuman,
 } from "../helpers/group-access.js";
+import { publishGroupMemberJoinedNotifications } from "../helpers/group-notifications.js";
+import {
+  assertAgentIsActiveCurrent,
+  resolveGroupRouteAuthActor,
+} from "../helpers/group-route-auth.js";
 import {
   groupCreateInvalidError,
-  groupJoinForbiddenError,
   groupJoinTokenExhaustedError,
   groupJoinTokenExpiredError,
   groupJoinTokenInvalidError,
@@ -95,42 +100,16 @@ async function assertHumanCanManageGroup(input: {
   }
 }
 
-async function assertAgentIsActiveCurrent(input: {
-  db: ReturnType<typeof createDb>;
-  agentDid: string;
-  aitJti: string;
-}) {
-  const rows = await input.db
-    .select({
-      id: agents.id,
-      status: agents.status,
-      currentJti: agents.current_jti,
-    })
-    .from(agents)
-    .where(eq(agents.did, input.agentDid))
-    .limit(1);
-
-  const row = rows[0];
-  if (!row || row.status !== "active" || row.currentJti !== input.aitJti) {
-    throw new AppError({
-      code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
-      message: "Agent access token is invalid",
-      status: 401,
-      expose: true,
-    });
-  }
-
-  return row;
-}
-
 export function registerGroupRoutes(input: RegistryRouteDependencies): void {
-  const { app, getConfig } = input;
+  const { app, getConfig, getEventBus } = input;
 
-  app.post(GROUPS_PATH, createApiKeyAuth(), async (c) => {
+  app.post(GROUPS_PATH, async (c) => {
     const config = getConfig(c.env);
+    const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
     let payload: unknown;
     try {
-      payload = await c.req.json();
+      const rawBody = new TextDecoder().decode(bodyBytes);
+      payload = rawBody.trim().length === 0 ? {} : JSON.parse(rawBody);
     } catch {
       throw groupCreateInvalidError();
     }
@@ -139,16 +118,21 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       environment: config.ENVIRONMENT,
     });
 
-    const human = c.get("human");
+    const db = createDb(c.env.DB);
+    const actor = await resolveGroupRouteAuthActor({
+      db,
+      config,
+      request: c.req.raw,
+      bodyBytes,
+    });
     const nowMs = nowUtcMs();
     const createdAt = nowIso();
     const groupId = `grp_${generateUlid(nowMs)}`;
-    const db = createDb(c.env.DB);
 
     await db.insert(groups).values({
       id: groupId,
       name: parsedPayload.name,
-      created_by: human.id,
+      created_by: actor.humanId,
       created_at: createdAt,
       updated_at: createdAt,
     });
@@ -158,7 +142,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         group: {
           id: groupId,
           name: parsedPayload.name,
-          createdByHumanId: human.id,
+          createdByHumanId: actor.humanId,
           createdAt,
         },
       },
@@ -166,11 +150,13 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     );
   });
 
-  app.post(`${GROUPS_PATH}/:id/join-tokens`, createApiKeyAuth(), async (c) => {
+  app.post(`${GROUPS_PATH}/:id/join-tokens`, async (c) => {
     const config = getConfig(c.env);
+    const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
     let payload: unknown;
     try {
-      payload = await c.req.json();
+      const rawBody = new TextDecoder().decode(bodyBytes);
+      payload = rawBody.trim().length === 0 ? {} : JSON.parse(rawBody);
     } catch {
       throw groupJoinTokenIssueInvalidError();
     }
@@ -179,14 +165,27 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       id: c.req.param("id"),
       environment: config.ENVIRONMENT,
     });
-    const human = c.get("human");
     const db = createDb(c.env.DB);
-
-    await assertHumanCanManageGroup({
+    const actor = await resolveGroupRouteAuthActor({
       db,
-      groupId,
-      humanId: human.id,
+      config,
+      request: c.req.raw,
+      bodyBytes,
     });
+    if (actor.kind === "human") {
+      await assertHumanCanManageGroup({
+        db,
+        groupId,
+        humanId: actor.humanId,
+      });
+    } else {
+      await resolveManageableGroupForAgent({
+        db,
+        groupId,
+        humanId: actor.humanId,
+        agentId: actor.agentId,
+      });
+    }
 
     const nowMs = nowUtcMs();
     const parsedPayload = parseGroupJoinTokenIssuePayload({
@@ -211,7 +210,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       used_count: 0,
       expires_at: parsedPayload.expiresAt,
       revoked_at: null,
-      issued_by: human.id,
+      issued_by: actor.humanId,
       created_at: createdAt,
       updated_at: createdAt,
     });
@@ -302,11 +301,16 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     }
 
     const groupRows = await db
-      .select({ id: groups.id })
+      .select({
+        id: groups.id,
+        name: groups.name,
+        createdBy: groups.created_by,
+      })
       .from(groups)
       .where(eq(groups.id, token.groupId))
       .limit(1);
-    if (!groupRows[0]) {
+    const group = groupRows[0];
+    if (!group) {
       throw groupJoinTokenInvalidError();
     }
 
@@ -465,6 +469,19 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       });
     }
 
+    await publishGroupMemberJoinedNotifications({
+      db,
+      eventBus: getEventBus(c.env),
+      creatorHumanId: group.createdBy,
+      joinedAgentDid: claims.sub,
+      joinedAgentName: joiningAgent.name,
+      groupId: token.groupId,
+      groupName: group.name,
+      role: joinResult.role,
+      joinedAt: joinResult.joinedAt,
+      initiatedByAccountId: joiningAgent.ownerId,
+    });
+
     return c.json(
       {
         joined: true,
@@ -484,51 +501,27 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       environment: config.ENVIRONMENT,
     });
     const db = createDb(c.env.DB);
-    const authorization = c.req.header("authorization");
+    const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
+    const actor = await resolveGroupRouteAuthActor({
+      db,
+      config,
+      request: c.req.raw,
+      bodyBytes,
+    });
 
-    const isBearer =
-      typeof authorization === "string" && authorization.startsWith("Bearer ");
-    if (isBearer) {
-      const human = await resolvePatHuman({
-        db,
-        authorizationHeader: authorization,
-        touchLastUsed: true,
-      });
+    if (actor.kind === "human") {
       await assertHumanCanManageGroup({
         db,
         groupId,
-        humanId: human.id,
+        humanId: actor.humanId,
       });
     } else {
-      const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
-      const claims = await verifyAgentClawRequest({
-        config,
-        request: c.req.raw,
-        bodyBytes,
-      });
-
-      const activeAgent = await assertAgentIsActiveCurrent({
+      await resolveReadableGroupForAgent({
         db,
-        agentDid: claims.sub,
-        aitJti: claims.jti,
+        groupId,
+        agentId: actor.agentId,
+        humanId: actor.humanId,
       });
-
-      const membershipRows = await db
-        .select({
-          agentId: group_members.agent_id,
-        })
-        .from(group_members)
-        .where(
-          and(
-            eq(group_members.group_id, groupId),
-            eq(group_members.agent_id, activeAgent.id),
-          ),
-        )
-        .limit(1);
-
-      if (!membershipRows[0]) {
-        throw groupJoinForbiddenError();
-      }
     }
 
     const memberRows = await db
@@ -732,60 +725,32 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       environment: config.ENVIRONMENT,
     });
     const db = createDb(c.env.DB);
-    const authorization = c.req.header("authorization");
-    const isBearer =
-      typeof authorization === "string" && authorization.startsWith("Bearer ");
+    const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
+    const actor = await resolveGroupRouteAuthActor({
+      db,
+      config,
+      request: c.req.raw,
+      bodyBytes,
+    });
 
-    let resolvedGroup: { id: string; name: string } | null = null;
-    if (isBearer) {
-      const human = await resolvePatHuman({
-        db,
-        authorizationHeader: authorization,
-        touchLastUsed: true,
-      });
-      resolvedGroup = await resolveReadableGroupForHuman({
-        db,
-        groupId,
-        humanId: human.id,
-      });
-    } else {
-      const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
-      const claims = await verifyAgentClawRequest({
-        config,
-        request: c.req.raw,
-        bodyBytes,
-      });
-      const activeAgent = await assertAgentIsActiveCurrent({
-        db,
-        agentDid: claims.sub,
-        aitJti: claims.jti,
-      });
-      resolvedGroup = await resolveReadableGroupForAgent({
-        db,
-        groupId,
-        agentId: activeAgent.id,
-      });
-    }
-
-    const group =
-      resolvedGroup ??
-      (await db
-        .select({
-          id: groups.id,
-          name: groups.name,
-        })
-        .from(groups)
-        .where(eq(groups.id, groupId))
-        .limit(1)
-        .then((rows) => rows[0]));
-    if (!group) {
-      throw groupNotFoundError();
-    }
+    const resolvedGroup =
+      actor.kind === "human"
+        ? await resolveReadableGroupForHuman({
+            db,
+            groupId,
+            humanId: actor.humanId,
+          })
+        : await resolveReadableGroupForAgent({
+            db,
+            groupId,
+            agentId: actor.agentId,
+            humanId: actor.humanId,
+          });
 
     return c.json({
       group: {
-        id: group.id,
-        name: group.name,
+        id: resolvedGroup.id,
+        name: resolvedGroup.name,
       },
     });
   });

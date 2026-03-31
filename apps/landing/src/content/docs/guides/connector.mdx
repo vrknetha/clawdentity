@@ -197,6 +197,11 @@ The contract below is for the Rust connector runtime started by:
 clawdentity connector start <agent-name>
 ```
 
+Group lifecycle note:
+
+- Operator group setup/management should use Rust CLI `clawdentity group ...` commands.
+- Successful `clawdentity group join` operations emit trusted `group.member.joined` notifications to creator-owned active agents.
+
 When OpenClaw triggers an outbound message to that runtime:
 
 1. OpenClaw hook transform POSTs to the connector at `http://127.0.0.1:19400/v1/outbound`

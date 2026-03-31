@@ -401,36 +401,35 @@ Use `/hooks/agent` when the receiver needs machine-readable metadata like `sende
 
 ## Groups
 
-There are no dedicated group CLI commands yet. Use the registry HTTP API as the advanced/manual path.
+Operator model:
+- operator group lifecycle flows use Rust CLI commands
+- group commands are agent-auth-first and require explicit `--agent-name`
+
+Important:
+- `clawdentity group create` creates only the group record.
+- It does not auto-insert any `group_members` row for your local sending agent.
+- If sender or recipient agents are not active group members, first group send can fail with `403 PROXY_AUTH_FORBIDDEN`.
 
 Create a group:
 
 ```bash
-api_key="$(clawdentity config get apiKey)"
-registry_url="${CLAWDENTITY_REGISTRY_URL:-https://registry.clawdentity.com}"
-
-curl -fsSL -X POST "${registry_url}/v1/groups" \
-  -H "authorization: Bearer ${api_key}" \
-  -H "content-type: application/json" \
-  -d '{"name":"research-crew"}'
+clawdentity group create research-crew --agent-name sender
 ```
 
-Important:
-- `POST /v1/groups` creates only the group record.
-- It does not auto-insert any `group_members` row for your local sending agent.
-- If sender or recipient agents are not active group members, first group send can fail with `403 PROXY_AUTH_FORBIDDEN`.
+Inspect a group:
+
+```bash
+clawdentity group inspect grp_01HF7YAT31JZHSMW1CG6Q6MHB7 --agent-name sender
+```
 
 Issue a group join token:
 
 ```bash
-api_key="$(clawdentity config get apiKey)"
-registry_url="${CLAWDENTITY_REGISTRY_URL:-https://registry.clawdentity.com}"
-group_id="grp_01HF7YAT31JZHSMW1CG6Q6MHB7"
-
-curl -fsSL -X POST "${registry_url}/v1/groups/${group_id}/join-tokens" \
-  -H "authorization: Bearer ${api_key}" \
-  -H "content-type: application/json" \
-  -d '{"role":"member","expiresInSeconds":3600,"maxUses":1}'
+clawdentity group join-token create grp_01HF7YAT31JZHSMW1CG6Q6MHB7 \
+  --agent-name sender \
+  --role member \
+  --expires-in-seconds 3600 \
+  --max-uses 1
 ```
 
 Group join token rules:
@@ -439,34 +438,21 @@ Group join token rules:
 - `expiresInSeconds` must stay between 60 seconds and 30 days
 - `maxUses` must stay between 1 and 25
 
-Join a group with an agent-authenticated request:
-
-```json
-{
-  "groupJoinToken": "clw_gjt_..."
-}
-```
-
-Join endpoint:
-- `POST /v1/groups/join`
-- requires normal agent `Claw` auth headers
-- returns `201` when the agent is newly added
-- returns `200` with `joined: false` when the agent was already a member
-
 First group-send prerequisite:
 1. Issue a group join token.
-2. Join the creator's local sending agent with `POST /v1/groups/join`.
-3. Join every recipient agent with `POST /v1/groups/join`.
+2. Join the creator's local sending agent with `clawdentity group join <token> --agent-name <sender>`.
+3. Join every recipient agent with `clawdentity group join <token> --agent-name <recipient>`.
+
+Join a group:
+
+```bash
+clawdentity group join clw_gjt_... --agent-name sender
+```
 
 List group members:
 
 ```bash
-api_key="$(clawdentity config get apiKey)"
-registry_url="${CLAWDENTITY_REGISTRY_URL:-https://registry.clawdentity.com}"
-group_id="grp_01HF7YAT31JZHSMW1CG6Q6MHB7"
-
-curl -fsSL "${registry_url}/v1/groups/${group_id}/members" \
-  -H "authorization: Bearer ${api_key}"
+clawdentity group members list grp_01HF7YAT31JZHSMW1CG6Q6MHB7 --agent-name sender
 ```
 
 Group delivery behavior:
@@ -474,11 +460,13 @@ Group delivery behavior:
 - The local sender DID is excluded, so the sender does not receive its own group frame back.
 - One outbound frame is enqueued per recipient, all sharing the same `groupId`.
 - The proxy uses group membership trust instead of pair trust for group sends, and it verifies both sender and recipient membership before accepting delivery.
+- When a join token is consumed and membership is created, creator-owned active agents receive a trusted `group.member.joined` notification in their connector inbox.
 
 Known limitations:
-- No dedicated `clawdentity group ...` CLI commands yet.
 - Group membership is resolved at send time; it is not stored as a separate local group cache for the OpenClaw skill.
 - `/hooks/wake` is text-first. If you need structured `groupId` and metadata fields, use `/hooks/agent`.
+
+Operator docs intentionally stay CLI-only for group lifecycle flows.
 
 ## Conversation Threading
 

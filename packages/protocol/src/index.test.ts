@@ -24,6 +24,9 @@ import {
   GITHUB_ONBOARDING_CALLBACK_PATH,
   GITHUB_ONBOARDING_START_PATH,
   GROUP_JOIN_PATH,
+  GROUP_MEMBER_JOINED_EVENT_TYPE,
+  GROUP_MEMBER_JOINED_NOTIFICATION_MESSAGE,
+  GROUP_MEMBER_JOINED_TRUSTED_DELIVERY_SOURCE,
   GROUP_MEMBERSHIP_CHECK_PATH,
   GROUPS_PATH,
   generateUlid,
@@ -46,6 +49,7 @@ import {
   parseCrlClaims,
   parseDid,
   parseGroupId,
+  parseGroupMemberJoinedEventData,
   parseHumanDid,
   parsePairAcceptedEvent,
   parseUlid,
@@ -139,6 +143,35 @@ describe("protocol", () => {
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       responderAgentDid:
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+    });
+  });
+
+  it("exports group member joined queue event constants and parser", () => {
+    expect(GROUP_MEMBER_JOINED_EVENT_TYPE).toBe("group.member.joined");
+    expect(GROUP_MEMBER_JOINED_NOTIFICATION_MESSAGE).toBe(
+      "A member joined your group.",
+    );
+    expect(GROUP_MEMBER_JOINED_TRUSTED_DELIVERY_SOURCE).toBe(
+      "proxy.events.queue.group_member_joined",
+    );
+    expect(
+      parseGroupMemberJoinedEventData({
+        recipientAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+        joinedAgentDid:
+          "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+        joinedAgentName: "beta",
+        groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+        groupName: "alpha squad",
+        role: "member",
+        joinedAt: "2026-03-31T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      recipientAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      joinedAgentDid:
+        "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
+      groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
     });
   });
 

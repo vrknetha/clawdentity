@@ -17,15 +17,19 @@ const DID_AUTHORITY = "dev.registry.clawdentity.com";
 const AGENT_AUTHORITY = "127.0.0.1";
 
 async function buildSignedAgentGroupReadRequest(options: {
+  method?: "GET" | "POST";
   path: string;
   agentDid: string;
   aitJti: string;
+  body?: Record<string, unknown>;
 }) {
   const signer = await generateEd25519Keypair();
   const agentKeypair = await generateEd25519Keypair();
   const nowSeconds = Math.floor(Date.now() / 1000);
   const timestamp = String(nowSeconds);
-  const nonce = "nonce-group-read";
+  const nonce = `nonce-${options.method ?? "GET"}-${Date.now()}`;
+  const bodyJson = options.body ? JSON.stringify(options.body) : "";
+  const bodyBytes = new TextEncoder().encode(bodyJson);
   const ait = await signAIT({
     claims: {
       iss: "http://127.0.0.1:8788",
@@ -49,17 +53,19 @@ async function buildSignedAgentGroupReadRequest(options: {
     signerKeypair: signer,
   });
   const signed = await signHttpRequest({
-    method: "GET",
+    method: options.method ?? "GET",
     pathWithQuery: options.path,
     timestamp,
     nonce,
-    body: new Uint8Array(),
+    body: bodyBytes,
     secretKey: agentKeypair.secretKey,
   });
 
   return {
+    body: bodyJson,
     headers: {
       authorization: `Claw ${ait}`,
+      ...(bodyJson.length > 0 ? { "content-type": "application/json" } : {}),
       ...signed.headers,
     },
     registrySigningKey: encodeBase64url(signer.secretKey),
@@ -322,5 +328,394 @@ describe("GET /v1/groups/:id", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("GROUP_NOT_FOUND");
+  });
+
+  it("allows agent-auth group read for creator-owner without explicit membership row", async () => {
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHC2";
+    const agentId = generateUlid(Date.now());
+    const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
+    const aitJti = generateUlid(Date.now() + 1);
+    const request = await buildSignedAgentGroupReadRequest({
+      path: `/v1/groups/${groupId}`,
+      agentDid,
+      aitJti,
+    });
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "group-reader",
+          framework: "openclaw",
+          publicKey: "unused-in-this-test",
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+      {
+        groupRows: [
+          {
+            id: groupId,
+            name: "owner-readable",
+            createdBy: "human-1",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}`,
+      {
+        method: "GET",
+        headers: request.headers,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        REGISTRY_SIGNING_KEY: request.registrySigningKey,
+        REGISTRY_SIGNING_KEYS: request.registrySigningKeys,
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { group: { id: string; name: string } };
+    expect(body.group).toEqual({
+      id: groupId,
+      name: "owner-readable",
+    });
+  });
+});
+
+describe("POST /v1/groups", () => {
+  it("keeps PAT create behavior", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const { database } = createFakeDb([authRow], []);
+    const res = await createRegistryApp().request(
+      "/v1/groups",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          name: "research-crew",
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      group: { id: string; name: string; createdByHumanId: string };
+    };
+    expect(body.group.name).toBe("research-crew");
+    expect(body.group.createdByHumanId).toBe(authRow.humanId);
+  });
+
+  it("supports agent-auth create and stamps creator to agent owner human", async () => {
+    const agentId = generateUlid(Date.now());
+    const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
+    const aitJti = generateUlid(Date.now() + 1);
+    const request = await buildSignedAgentGroupReadRequest({
+      method: "POST",
+      path: "/v1/groups",
+      agentDid,
+      aitJti,
+      body: {
+        name: "research-crew",
+      },
+    });
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "group-creator",
+          framework: "openclaw",
+          publicKey: "unused-in-this-test",
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+    );
+
+    const res = await createRegistryApp().request(
+      "/v1/groups",
+      {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        REGISTRY_SIGNING_KEY: request.registrySigningKey,
+        REGISTRY_SIGNING_KEYS: request.registrySigningKeys,
+      },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      group: { id: string; name: string; createdByHumanId: string };
+    };
+    expect(body.group.name).toBe("research-crew");
+    expect(body.group.createdByHumanId).toBe("human-1");
+  });
+});
+
+describe("POST /v1/groups/:id/join-tokens", () => {
+  it("keeps PAT join-token issue behavior", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const { database } = createFakeDb([authRow], [], {
+      groupRows: [
+        {
+          id: groupId,
+          name: "alpha squad",
+          createdBy: authRow.humanId,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/join-tokens`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          role: "member",
+          expiresInSeconds: 3600,
+          maxUses: 1,
+        }),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      groupJoinToken: { groupId: string; token: string };
+    };
+    expect(body.groupJoinToken.groupId).toBe(groupId);
+    expect(body.groupJoinToken.token.startsWith("clw_gjt_")).toBe(true);
+  });
+
+  it("supports agent-auth join-token issue for creator-owner", async () => {
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const agentId = generateUlid(Date.now());
+    const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
+    const aitJti = generateUlid(Date.now() + 1);
+    const request = await buildSignedAgentGroupReadRequest({
+      method: "POST",
+      path: `/v1/groups/${groupId}/join-tokens`,
+      agentDid,
+      aitJti,
+      body: {
+        role: "member",
+        expiresInSeconds: 3600,
+        maxUses: 1,
+      },
+    });
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "group-admin",
+          framework: "openclaw",
+          publicKey: "unused-in-this-test",
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+      {
+        groupRows: [
+          {
+            id: groupId,
+            name: "alpha squad",
+            createdBy: "human-1",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/join-tokens`,
+      {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        REGISTRY_SIGNING_KEY: request.registrySigningKey,
+        REGISTRY_SIGNING_KEYS: request.registrySigningKeys,
+      },
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {
+      groupJoinToken: { groupId: string };
+    };
+    expect(body.groupJoinToken.groupId).toBe(groupId);
+  });
+
+  it("rejects agent-auth join-token issue when actor cannot manage group", async () => {
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const agentId = generateUlid(Date.now());
+    const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
+    const aitJti = generateUlid(Date.now() + 1);
+    const request = await buildSignedAgentGroupReadRequest({
+      method: "POST",
+      path: `/v1/groups/${groupId}/join-tokens`,
+      agentDid,
+      aitJti,
+      body: {
+        role: "member",
+        expiresInSeconds: 3600,
+        maxUses: 1,
+      },
+    });
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-2",
+          name: "group-admin",
+          framework: "openclaw",
+          publicKey: "unused-in-this-test",
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+      {
+        groupRows: [
+          {
+            id: groupId,
+            name: "alpha squad",
+            createdBy: "human-1",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/join-tokens`,
+      {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        REGISTRY_SIGNING_KEY: request.registrySigningKey,
+        REGISTRY_SIGNING_KEYS: request.registrySigningKeys,
+      },
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("GROUP_MANAGE_FORBIDDEN");
+  });
+});
+
+describe("GET /v1/groups/:id/members", () => {
+  it("supports agent-auth members list for creator-owner without member row", async () => {
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const agentId = generateUlid(Date.now());
+    const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
+    const aitJti = generateUlid(Date.now() + 1);
+    const request = await buildSignedAgentGroupReadRequest({
+      path: `/v1/groups/${groupId}/members`,
+      agentDid,
+      aitJti,
+    });
+    const { database } = createFakeDb(
+      [],
+      [
+        {
+          id: agentId,
+          did: agentDid,
+          ownerId: "human-1",
+          name: "group-reader",
+          framework: "openclaw",
+          publicKey: "unused-in-this-test",
+          status: "active",
+          expiresAt: null,
+          currentJti: aitJti,
+        },
+      ],
+      {
+        groupRows: [
+          {
+            id: groupId,
+            name: "alpha squad",
+            createdBy: "human-1",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        ],
+      },
+    );
+
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/members`,
+      {
+        method: "GET",
+        headers: request.headers,
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+        REGISTRY_SIGNING_KEY: request.registrySigningKey,
+        REGISTRY_SIGNING_KEYS: request.registrySigningKeys,
+      },
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      group: { id: string };
+      members: Array<{ agentDid: string }>;
+    };
+    expect(body.group.id).toBe(groupId);
+    expect(Array.isArray(body.members)).toBe(true);
   });
 });

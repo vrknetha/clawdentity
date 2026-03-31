@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::Subcommand;
 
 pub mod connector;
+pub mod group;
 pub mod install;
 pub mod onboarding;
 pub mod pair;
@@ -11,6 +12,7 @@ pub mod provider;
 pub mod verify;
 
 use crate::commands::connector::ConnectorCommand;
+use crate::commands::group::GroupCommand;
 use crate::commands::onboarding::OnboardingCommand;
 use crate::commands::pair::PairCommand;
 use crate::commands::peer::PeerCommand;
@@ -57,6 +59,10 @@ pub enum Commands {
     Peer {
         #[command(subcommand)]
         command: PeerCommand,
+    },
+    Group {
+        #[command(subcommand)]
+        command: GroupCommand,
     },
     Onboarding {
         #[command(subcommand)]

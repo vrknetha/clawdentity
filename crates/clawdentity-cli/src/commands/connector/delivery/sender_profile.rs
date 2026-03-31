@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use clawdentity_core::{
-    ConfigPathOptions, SqliteStore, UpsertPeerInput, get_peer_by_did, now_utc_ms, upsert_peer,
+    ConfigPathOptions, RegistryAgentProfile, SqliteStore, UpsertPeerInput, get_peer_by_did,
+    now_utc_ms, upsert_peer,
 };
 
 use super::super::headers::{SenderProfileHeaders, build_sender_profile_headers};
-use super::super::runtime_config::{RegistryAgentProfile, fetch_registry_agent_profile};
+use super::super::runtime_config::fetch_registry_agent_profile;
 
 const SENDER_PROFILE_CACHE_TTL_MS: i64 = 60_000;
 

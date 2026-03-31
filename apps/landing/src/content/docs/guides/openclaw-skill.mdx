@@ -183,6 +183,34 @@ Rules:
 - Direct messages auto-derive a deterministic `conversationId` when the caller does not provide one.
 - Group messages do not auto-derive `conversationId`; pass one explicitly if you need a stable group thread.
 
+### Group lifecycle commands
+
+Operator model:
+
+- Use Rust CLI `clawdentity group ...` commands as the normal path.
+- Group commands are agent-auth-first and always require `--agent-name`.
+
+```bash
+# create
+clawdentity group create research-crew --agent-name sender
+
+# inspect
+clawdentity group inspect grp_<ULID> --agent-name sender
+
+# issue join token
+clawdentity group join-token create grp_<ULID> --agent-name sender --role member --expires-in-seconds 3600 --max-uses 1
+
+# join (run once per sending/receiving agent)
+clawdentity group join clw_gjt_... --agent-name sender
+
+# list members
+clawdentity group members list grp_<ULID> --agent-name sender
+```
+
+Important: group creation does not auto-add memberships. Before first group send, issue a join token and join both sender and recipients.
+
+Creator visibility: when membership is added through `clawdentity group join`, creator-owned active agents receive a trusted `group.member.joined` notification in connector inbox delivery.
+
 ### Inbound delivery shapes
 
 Inbound delivery uses two different OpenClaw hook shapes:
@@ -240,7 +268,7 @@ Provider setup also persists per-agent connector assignment state in `~/.clawden
 
 The `provider doctor --for openclaw` command verifies that all components are healthy before relay work runs:
 
-- CLI tooling and config (PAT, registry URL)
+- CLI tooling and config (registry URL, agent auth files)
 - Skill assets presence
 - OpenClaw state and hooks configuration
 - Local agent identity validity

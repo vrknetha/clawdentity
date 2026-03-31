@@ -63,6 +63,17 @@ export {
 } from "./endpoints.js";
 export type { ProtocolParseErrorCode } from "./errors.js";
 export { ProtocolParseError } from "./errors.js";
+export type {
+  GroupMemberJoinedEventData,
+  GroupMemberJoinedRole,
+} from "./group-member-joined-events.js";
+export {
+  createGroupMemberJoinedNotificationMessage,
+  GROUP_MEMBER_JOINED_EVENT_TYPE,
+  GROUP_MEMBER_JOINED_NOTIFICATION_MESSAGE,
+  GROUP_MEMBER_JOINED_TRUSTED_DELIVERY_SOURCE,
+  parseGroupMemberJoinedEventData,
+} from "./group-member-joined-events.js";
 export type { CanonicalRequestInput } from "./http-signing.js";
 export {
   CLAW_PROOF_CANONICAL_VERSION,

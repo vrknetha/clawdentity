@@ -14,6 +14,11 @@ import { ProxyTrustState } from "./proxy-trust-state.js";
 import type { ProxyTrustStateNamespace } from "./proxy-trust-store.js";
 import { ProxyTrustStoreError } from "./proxy-trust-store.js";
 import {
+  GROUP_MEMBER_JOINED_EVENT_TYPE,
+  handleGroupMemberJoinedQueueEvent,
+  parseGroupMemberJoinedQueueEvent,
+} from "./queue-consumer/group-member-joined-events.js";
+import {
   handlePairAcceptedQueueEvent,
   PAIR_ACCEPTED_EVENT_TYPE,
   parsePairAcceptedQueueEvent,
@@ -255,6 +260,18 @@ function parsePairAcceptedEvent(payload: unknown) {
   }
 }
 
+function parseGroupMemberJoinedEvent(payload: unknown) {
+  try {
+    return parseGroupMemberJoinedQueueEvent(payload);
+  } catch (error) {
+    throw new NonRetryableQueueError(
+      error instanceof Error
+        ? error.message
+        : "Invalid group member joined queue event payload",
+    );
+  }
+}
+
 type QueueFailureAction = "ack" | "retry";
 
 function resolveQueueFailureAction(error: unknown): {
@@ -345,6 +362,27 @@ const worker = {
           const parsedPairAcceptedEvent = parsePairAcceptedEvent(event.payload);
           await handlePairAcceptedQueueEvent({
             event: parsedPairAcceptedEvent,
+            relaySessionNamespace,
+          });
+
+          message.ack();
+          continue;
+        }
+
+        if (event.type === GROUP_MEMBER_JOINED_EVENT_TYPE) {
+          const relaySessionNamespace = env.AGENT_RELAY_SESSION;
+          if (relaySessionNamespace === undefined) {
+            throw new MissingQueueBindingError(
+              "AGENT_RELAY_SESSION",
+              event.type,
+            );
+          }
+
+          const parsedGroupMemberJoinedEvent = parseGroupMemberJoinedEvent(
+            event.payload,
+          );
+          await handleGroupMemberJoinedQueueEvent({
+            event: parsedGroupMemberJoinedEvent,
             relaySessionNamespace,
           });
 
