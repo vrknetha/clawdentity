@@ -16,8 +16,10 @@
 - Mutation operation names must come from shared constants (`db-mutation-operations.ts`) so route/helper operation IDs cannot drift by typo.
 - When mutation shape validation fails, emit a structured log payload (including operation + shape metadata) so production diagnosis is fast.
 - Group-read authorization helpers must validate PAT access against the specific group (owner or active-member ownership), not just PAT validity.
+- Group-read authorization failures must use `GROUP_READ_FORBIDDEN`; reserve join-token-specific error codes for join-token workflows.
 - Group member-joined creator notifications must publish through the shared registry event bus as best-effort side effects; join success must never depend on queue publish success.
 - Group creator notification fan-out must target active creator-owned agent DIDs and skip self-notifying the joining agent DID when they are the same.
+- Group creator notification fan-out queries should use a defensive cap (`limit(100)`) to avoid unbounded per-join work if upstream constraints drift.
 - Group route auth helpers must stay centralized for PAT-or-agent flows:
   - share actor resolution (`human` vs `agent`) in helper modules;
   - share raw-body JSON parsing from verified bytes so auth + PoP verification can run before payload validation on protected mutation routes.

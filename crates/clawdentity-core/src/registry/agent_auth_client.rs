@@ -253,7 +253,7 @@ fn parse_agent_profile(payload: serde_json::Value) -> Result<RegistryAgentProfil
     })
 }
 
-/// TODO(clawdentity): document `fetch_registry_agent_profile`.
+/// Fetches a registry profile for the target agent DID using agent-auth.
 pub async fn fetch_registry_agent_profile(
     options: &ConfigPathOptions,
     agent_name: &str,

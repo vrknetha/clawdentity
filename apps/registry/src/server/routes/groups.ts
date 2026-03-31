@@ -54,7 +54,6 @@ import {
   groupJoinTokenIssueInvalidError,
   groupMemberLimitReachedError,
   groupMemberNotFoundError,
-  groupNotFoundError,
 } from "./group-route-errors.js";
 
 export function registerGroupRoutes(input: RegistryRouteDependencies): void {

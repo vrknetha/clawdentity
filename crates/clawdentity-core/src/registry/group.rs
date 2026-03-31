@@ -214,7 +214,7 @@ fn parse_group_name(name: &str) -> Result<String> {
             "group name is required".to_string(),
         ));
     }
-    if normalized.len() > GROUP_NAME_MAX_LENGTH {
+    if normalized.chars().count() > GROUP_NAME_MAX_LENGTH {
         return Err(CoreError::InvalidInput(format!(
             "group name must be at most {GROUP_NAME_MAX_LENGTH} characters"
         )));
@@ -343,7 +343,7 @@ async fn ensure_success(response: reqwest::Response, context: &str) -> Result<re
     })
 }
 
-/// TODO(clawdentity): document `create_group`.
+/// Creates a group owned by the authenticated agent owner.
 pub async fn create_group(
     options: &ConfigPathOptions,
     input: GroupCreateInput,
@@ -366,7 +366,7 @@ pub async fn create_group(
     })
 }
 
-/// TODO(clawdentity): document `inspect_group`.
+/// Fetches a group by ID using agent-auth.
 pub async fn inspect_group(
     options: &ConfigPathOptions,
     input: GroupInspectInput,
@@ -387,7 +387,7 @@ pub async fn inspect_group(
     })
 }
 
-/// TODO(clawdentity): document `create_group_join_token`.
+/// Creates a group join token for an existing group.
 pub async fn create_group_join_token(
     options: &ConfigPathOptions,
     input: GroupJoinTokenCreateInput,
@@ -432,7 +432,7 @@ pub async fn create_group_join_token(
     })
 }
 
-/// TODO(clawdentity): document `join_group`.
+/// Joins a group using a group join token.
 pub async fn join_group(
     options: &ConfigPathOptions,
     input: GroupJoinInput,
@@ -455,7 +455,10 @@ pub async fn join_group(
     parse_group_join_result(payload)
 }
 
-/// TODO(clawdentity): document `list_group_members`.
+/// Lists all members for a group.
+///
+/// The registry currently enforces a hard member ceiling (`MAX_GROUP_MEMBERS = 25`),
+/// so this endpoint returns a bounded list without client-side pagination today.
 pub async fn list_group_members(
     options: &ConfigPathOptions,
     input: GroupMembersListInput,
@@ -475,7 +478,7 @@ pub async fn list_group_members(
     parse_group_members_result(payload)
 }
 
-/// TODO(clawdentity): document `fetch_group_name_with_agent_auth`.
+/// Resolves only the group name for a group ID via agent-auth.
 pub async fn fetch_group_name_with_agent_auth(
     options: &ConfigPathOptions,
     agent_name: &str,
@@ -496,7 +499,7 @@ pub async fn fetch_group_name_with_agent_auth(
     parse_group_name_from_payload(payload)
 }
 
-/// TODO(clawdentity): document `fetch_group_member_dids_with_agent_auth`.
+/// Resolves member agent DIDs for a group via agent-auth.
 pub async fn fetch_group_member_dids_with_agent_auth(
     options: &ConfigPathOptions,
     agent_name: &str,
@@ -534,7 +537,7 @@ mod tests {
     use super::{
         GroupCreateInput, GroupJoinInput, GroupJoinTokenCreateInput, GroupRole, create_group,
         create_group_join_token, fetch_group_member_dids_with_agent_auth,
-        fetch_group_name_with_agent_auth, join_group, parse_group_join_token,
+        fetch_group_name_with_agent_auth, join_group, parse_group_join_token, parse_group_name,
     };
 
     fn fake_ait(agent_did: &str, owner_did: &str, public_key: &str) -> String {
@@ -585,6 +588,15 @@ mod tests {
     fn parse_group_join_token_rejects_invalid_token() {
         assert!(parse_group_join_token("bad_token").is_err());
         assert!(parse_group_join_token("clw_gjt_").is_err());
+    }
+
+    #[test]
+    fn parse_group_name_counts_characters_not_bytes() {
+        let eighty_cjk_chars = "你".repeat(80);
+        let eighty_one_cjk_chars = "你".repeat(81);
+
+        assert!(parse_group_name(&eighty_cjk_chars).is_ok());
+        assert!(parse_group_name(&eighty_one_cjk_chars).is_err());
     }
 
     #[tokio::test]

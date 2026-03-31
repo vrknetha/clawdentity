@@ -2,9 +2,9 @@ import { and, eq } from "drizzle-orm";
 import type { createDb } from "../../db/client.js";
 import { agents, group_members, groups } from "../../db/schema.js";
 import {
-  groupJoinForbiddenError,
   groupManageForbiddenError,
   groupNotFoundError,
+  groupReadForbiddenError,
 } from "../routes/group-route-errors.js";
 import type { GroupRouteAuthActor } from "./group-route-auth.js";
 
@@ -47,7 +47,7 @@ export async function resolveReadableGroupForHuman(input: {
     .limit(1);
 
   if (!membershipRows[0]) {
-    throw groupJoinForbiddenError();
+    throw groupReadForbiddenError();
   }
 
   return { id: group.id, name: group.name };
@@ -137,7 +137,7 @@ export async function resolveReadableGroupForAgent(input: {
     .limit(1);
 
   if (!membershipRows[0]) {
-    throw groupJoinForbiddenError();
+    throw groupReadForbiddenError();
   }
 
   return { id: group.id, name: group.name };

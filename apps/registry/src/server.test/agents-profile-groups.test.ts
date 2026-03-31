@@ -16,7 +16,7 @@ import { createFakeDb, makeValidPatContext } from "./helpers.js";
 const DID_AUTHORITY = "dev.registry.clawdentity.com";
 const AGENT_AUTHORITY = "127.0.0.1";
 
-async function buildSignedAgentGroupReadRequest(options: {
+async function buildSignedAgentGroupRequest(options: {
   method?: "GET" | "POST";
   path: string;
   agentDid: string;
@@ -253,7 +253,7 @@ describe("GET /v1/groups/:id", () => {
     );
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("GROUP_JOIN_FORBIDDEN");
+    expect(body.error.code).toBe("GROUP_READ_FORBIDDEN");
   });
 
   it("returns 404 for missing group", async () => {
@@ -284,7 +284,7 @@ describe("GET /v1/groups/:id", () => {
     const agentId = generateUlid(Date.now());
     const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupReadRequest({
+    const request = await buildSignedAgentGroupRequest({
       path: `/v1/groups/${groupId}`,
       agentDid,
       aitJti,
@@ -335,7 +335,7 @@ describe("GET /v1/groups/:id", () => {
     const agentId = generateUlid(Date.now());
     const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupReadRequest({
+    const request = await buildSignedAgentGroupRequest({
       path: `/v1/groups/${groupId}`,
       agentDid,
       aitJti,
@@ -450,7 +450,7 @@ describe("POST /v1/groups", () => {
     const agentId = generateUlid(Date.now());
     const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupReadRequest({
+    const request = await buildSignedAgentGroupRequest({
       method: "POST",
       path: "/v1/groups",
       agentDid,
@@ -573,7 +573,7 @@ describe("POST /v1/groups/:id/join-tokens", () => {
     const agentId = generateUlid(Date.now());
     const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupReadRequest({
+    const request = await buildSignedAgentGroupRequest({
       method: "POST",
       path: `/v1/groups/${groupId}/join-tokens`,
       agentDid,
@@ -640,7 +640,7 @@ describe("POST /v1/groups/:id/join-tokens", () => {
     const agentId = generateUlid(Date.now());
     const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupReadRequest({
+    const request = await buildSignedAgentGroupRequest({
       method: "POST",
       path: `/v1/groups/${groupId}/join-tokens`,
       agentDid,
@@ -707,7 +707,7 @@ describe("GET /v1/groups/:id/members", () => {
     const agentId = generateUlid(Date.now());
     const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
     const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupReadRequest({
+    const request = await buildSignedAgentGroupRequest({
       path: `/v1/groups/${groupId}/members`,
       agentDid,
       aitJti,

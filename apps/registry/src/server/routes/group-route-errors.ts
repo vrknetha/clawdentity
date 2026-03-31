@@ -19,6 +19,15 @@ export function groupManageForbiddenError(): AppError {
   });
 }
 
+export function groupReadForbiddenError(): AppError {
+  return new AppError({
+    code: "GROUP_READ_FORBIDDEN",
+    message: "Group read access is forbidden",
+    status: 403,
+    expose: true,
+  });
+}
+
 export function groupJoinTokenInvalidError(): AppError {
   return new AppError({
     code: "GROUP_JOIN_TOKEN_INVALID",

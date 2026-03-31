@@ -27,7 +27,7 @@
 - `GET /v1/agents/profile` is currently an authenticated directory-style lookup, not a per-resource-scoped ownership check. Do not silently narrow it without replacing the peer refresh and `pair.accepted` enrichment flows that rely on cross-DID reads.
 - `GET /v1/groups/:id` must remain lightweight and return only `group.id` + `group.name`; keep membership/authorization checks in route-layer helpers and avoid embedding rendering logic.
 - `GET /v1/groups/:id` PAT access must be authorized against that specific group (owner or active-member ownership), not just token validity.
-- For `GET /v1/groups/:id`, resolve group existence before access checks across both PAT and agent-auth branches so missing groups return `GROUP_NOT_FOUND` (404) and permission failures return `GROUP_JOIN_FORBIDDEN` (403).
+- For `GET /v1/groups/:id`, resolve group existence before access checks across both PAT and agent-auth branches so missing groups return `GROUP_NOT_FOUND` (404) and permission failures return `GROUP_READ_FORBIDDEN` (403).
 - Group management parity rules are mandatory for operator CLI compatibility:
   - `POST /v1/groups` and `POST /v1/groups/:id/join-tokens` must accept valid active agent-auth in addition to PAT.
   - Keep PAT behavior for these routes additive in this phase; do not remove PAT support.

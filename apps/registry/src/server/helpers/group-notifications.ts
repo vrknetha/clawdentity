@@ -35,7 +35,8 @@ export async function publishGroupMemberJoinedNotifications(input: {
           eq(agents.owner_id, input.creatorHumanId),
           eq(agents.status, "active"),
         ),
-      );
+      )
+      .limit(100);
 
     const notificationMessage = createGroupMemberJoinedNotificationMessage({
       joinedAgentName: input.joinedAgentName,

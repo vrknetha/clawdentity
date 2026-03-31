@@ -11,7 +11,7 @@ export type ActiveGroupRouteAgent = {
   did: string;
   name: string;
   ownerId: string;
-  status: "active" | "revoked";
+  status: "active";
   currentJti: string | null;
 };
 
@@ -81,7 +81,10 @@ export async function assertAgentIsActiveCurrent(input: {
     });
   }
 
-  return row;
+  return {
+    ...row,
+    status: "active",
+  };
 }
 
 export async function resolveGroupRouteAuthActor(input: {
