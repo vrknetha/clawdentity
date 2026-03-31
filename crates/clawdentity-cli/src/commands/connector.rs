@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -33,9 +33,10 @@ mod receipts;
 pub(crate) mod runtime_config;
 
 use delivery::{
-    InboundLoopRuntime, PendingReceiptQueueHandle, run_inbound_loop, run_inbound_retry_loop,
+    InboundLoopRuntime, InboundRetryRuntime, PendingReceiptQueueHandle, run_inbound_loop,
+    run_inbound_retry_loop,
 };
-use receipts::{ReceiptDispatchRuntime, ReceiptOutboxHandle, start_receipt_outbox_worker};
+use receipts::{ReceiptDispatchRuntime, start_receipt_outbox_worker};
 
 #[cfg(test)]
 use delivery::{
@@ -299,16 +300,16 @@ async fn start_connector_runtime(
     let mut inbound_loop_task =
         spawn_inbound_loop_task(client, inbound_runtime, shutdown_rx.clone());
 
-    let mut inbound_retry_task = spawn_inbound_retry_task(
-        options.clone(),
-        runtime.agent_name.clone(),
+    let mut inbound_retry_task = spawn_inbound_retry_task(InboundRetryRuntime {
+        options: options.clone(),
+        agent_name: runtime.agent_name.clone(),
         receipt_outbox,
-        store.clone(),
-        runtime.config_dir.clone(),
-        runtime.openclaw_runtime.clone(),
+        store: store.clone(),
+        config_dir: runtime.config_dir.clone(),
+        openclaw_runtime: runtime.openclaw_runtime.clone(),
         pending_receipt_notifications,
-        shutdown_rx.clone(),
-    );
+        shutdown_rx: shutdown_rx.clone(),
+    });
 
     let mut outbound_flush_task = spawn_outbound_flush_task(
         store.clone(),
@@ -414,29 +415,8 @@ fn spawn_outbound_flush_task(
     })
 }
 
-fn spawn_inbound_retry_task(
-    options: ConfigPathOptions,
-    agent_name: String,
-    receipt_outbox: ReceiptOutboxHandle,
-    store: SqliteStore,
-    config_dir: PathBuf,
-    openclaw_runtime: OpenclawRuntimeConfig,
-    pending_receipt_notifications: PendingReceiptQueueHandle,
-    shutdown_rx: watch::Receiver<bool>,
-) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move {
-        run_inbound_retry_loop(
-            options,
-            agent_name,
-            receipt_outbox,
-            store,
-            config_dir,
-            openclaw_runtime,
-            pending_receipt_notifications,
-            shutdown_rx,
-        )
-        .await
-    })
+fn spawn_inbound_retry_task(runtime: InboundRetryRuntime) -> JoinHandle<Result<()>> {
+    tokio::spawn(async move { run_inbound_retry_loop(runtime).await })
 }
 
 fn spawn_peer_refresh_task(
@@ -509,7 +489,7 @@ async fn run_peer_refresh_loop(
     store: SqliteStore,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    refresh_peer_profiles_once(&options, agent_name, &config_dir, &store).await;
+    refresh_peer_profiles_once(&options, agent_name, config_dir.as_path(), &store).await;
     let mut interval = tokio::time::interval(PEER_REFRESH_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -521,7 +501,8 @@ async fn run_peer_refresh_loop(
                 }
             }
             _ = interval.tick() => {
-                refresh_peer_profiles_once(&options, agent_name, &config_dir, &store).await;
+                refresh_peer_profiles_once(&options, agent_name, config_dir.as_path(), &store)
+                    .await;
             }
         }
     }
@@ -531,7 +512,7 @@ async fn run_peer_refresh_loop(
 async fn refresh_peer_profiles_once(
     options: &ConfigPathOptions,
     agent_name: &str,
-    config_dir: &PathBuf,
+    config_dir: &Path,
     store: &SqliteStore,
 ) {
     let peers = match list_peers(store) {

@@ -90,6 +90,7 @@
 - `inbound-inbox.test.ts` must cover SQLite persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, dead-letter purge, event pruning, corrupt-db recovery, and transaction rollback.
 - Runtime sandbox test helpers must clean temporary directories with retry-aware recursive removal (`maxRetries`/`retryDelay`) to avoid ENOTEMPTY flake while receipt-outbox files are settling.
 - `client.test/*.test.ts` must stay split by concern (for example delivery/heartbeat, reconnect lifecycle, outbound queue) to keep each test file focused and easy to maintain.
+- Keep runtime integration tests split across focused `runtime.*.test.ts` files so no single source file exceeds repository file-size guardrails.
 - `client.test/*.test.ts` must cover both delivery modes:
   - direct local OpenClaw delivery fallback
   - injected inbound persistence handler ack path

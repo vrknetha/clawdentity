@@ -55,6 +55,17 @@ pub(super) struct InboundLoopRuntime {
     pub pending_receipt_notifications: PendingReceiptQueueHandle,
 }
 
+pub(super) struct InboundRetryRuntime {
+    pub options: ConfigPathOptions,
+    pub agent_name: String,
+    pub receipt_outbox: ReceiptOutboxHandle,
+    pub store: SqliteStore,
+    pub config_dir: PathBuf,
+    pub openclaw_runtime: OpenclawRuntimeConfig,
+    pub pending_receipt_notifications: PendingReceiptQueueHandle,
+    pub shutdown_rx: watch::Receiver<bool>,
+}
+
 struct InboundRuntimeContext<'a> {
     options: &'a ConfigPathOptions,
     agent_name: &'a str,
@@ -67,6 +78,17 @@ struct InboundRuntimeContext<'a> {
     receipt_outbox: &'a ReceiptOutboxHandle,
     outbound_inflight: &'a OutboundInflightMap,
     pending_receipt_notifications: &'a PendingReceiptQueueHandle,
+}
+
+struct InboundRetryContext<'a> {
+    options: &'a ConfigPathOptions,
+    agent_name: &'a str,
+    store: &'a SqliteStore,
+    config_dir: &'a Path,
+    http_client: &'a reqwest::Client,
+    hook_url: &'a str,
+    openclaw_runtime: &'a OpenclawRuntimeConfig,
+    receipt_outbox: &'a ReceiptOutboxHandle,
 }
 
 pub(super) async fn run_inbound_loop(
@@ -196,18 +218,20 @@ fn build_enqueue_rejected_receipt(
     }
 }
 
-pub(super) async fn run_inbound_retry_loop(
-    options: ConfigPathOptions,
-    agent_name: String,
-    receipt_outbox: ReceiptOutboxHandle,
-    store: SqliteStore,
-    config_dir: PathBuf,
-    openclaw_runtime: OpenclawRuntimeConfig,
-    pending_receipt_notifications: PendingReceiptQueueHandle,
-    mut shutdown_rx: watch::Receiver<bool>,
-) -> Result<()> {
-    let hook_url = openclaw_runtime.hook_url()?;
+pub(super) async fn run_inbound_retry_loop(runtime: InboundRetryRuntime) -> Result<()> {
+    let hook_url = runtime.openclaw_runtime.hook_url()?;
     let http_client = create_http_client()?;
+    let context = InboundRetryContext {
+        options: &runtime.options,
+        agent_name: &runtime.agent_name,
+        store: &runtime.store,
+        config_dir: runtime.config_dir.as_path(),
+        http_client: &http_client,
+        hook_url: &hook_url,
+        openclaw_runtime: &runtime.openclaw_runtime,
+        receipt_outbox: &runtime.receipt_outbox,
+    };
+    let mut shutdown_rx = runtime.shutdown_rx;
     let mut interval = tokio::time::interval(INBOUND_RETRY_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -219,23 +243,13 @@ pub(super) async fn run_inbound_retry_loop(
                 }
             }
             _ = interval.tick() => {
-                let _ = receipt_outbox.flush_due().await;
-                retry_due_inbound_deliveries(
-                    &options,
-                    &agent_name,
-                    &store,
-                    config_dir.as_path(),
-                    &http_client,
-                    &hook_url,
-                    &openclaw_runtime,
-                    &receipt_outbox,
-                )
-                .await;
+                let _ = runtime.receipt_outbox.flush_due().await;
+                retry_due_inbound_deliveries(&context).await;
                 flush_pending_receipt_notifications(
                     &http_client,
                     &hook_url,
-                    &openclaw_runtime,
-                    &pending_receipt_notifications,
+                    &runtime.openclaw_runtime,
+                    &runtime.pending_receipt_notifications,
                 )
                 .await;
             }
@@ -243,17 +257,8 @@ pub(super) async fn run_inbound_retry_loop(
     }
 }
 
-async fn retry_due_inbound_deliveries(
-    options: &ConfigPathOptions,
-    agent_name: &str,
-    store: &SqliteStore,
-    config_dir: &Path,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt_outbox: &ReceiptOutboxHandle,
-) {
-    let due_items = match list_pending_due(store, now_utc_ms(), INBOUND_RETRY_BATCH_SIZE) {
+async fn retry_due_inbound_deliveries(context: &InboundRetryContext<'_>) {
+    let due_items = match list_pending_due(context.store, now_utc_ms(), INBOUND_RETRY_BATCH_SIZE) {
         Ok(items) => items,
         Err(error) => {
             tracing::warn!(error = %error, "failed to list pending inbound deliveries");
@@ -262,58 +267,37 @@ async fn retry_due_inbound_deliveries(
     };
 
     for item in due_items {
-        retry_pending_inbound_delivery(
-            options,
-            agent_name,
-            store,
-            config_dir,
-            http_client,
-            hook_url,
-            openclaw_runtime,
-            receipt_outbox,
-            item,
-        )
-        .await;
+        retry_pending_inbound_delivery(context, item).await;
     }
 }
 
 #[allow(clippy::too_many_lines)]
-async fn retry_pending_inbound_delivery(
-    options: &ConfigPathOptions,
-    agent_name: &str,
-    store: &SqliteStore,
-    config_dir: &Path,
-    http_client: &reqwest::Client,
-    hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
-    receipt_outbox: &ReceiptOutboxHandle,
-    item: InboundPendingItem,
-) {
+async fn retry_pending_inbound_delivery(context: &InboundRetryContext<'_>, item: InboundPendingItem) {
     let Ok(mut deliver) = build_deliver_from_pending(&item) else {
-        dead_letter_invalid_pending_payload(store, receipt_outbox, &item).await;
+        dead_letter_invalid_pending_payload(context.store, context.receipt_outbox, &item).await;
         return;
     };
     if is_trusted_pair_accepted_delivery(&deliver)
         && let Err(error) = apply_pair_accepted_system_delivery(
-            options,
-            agent_name,
-            store,
-            config_dir,
+            context.options,
+            context.agent_name,
+            context.store,
+            context.config_dir,
             &mut deliver,
         )
         .await
     {
-        handle_pending_retry_failure(store, receipt_outbox, &item, &error).await;
+        handle_pending_retry_failure(context.store, context.receipt_outbox, &item, &error).await;
         return;
     }
 
-    let sender_profile = lookup_sender_profile_headers(store, &item.from_agent_did);
+    let sender_profile = lookup_sender_profile_headers(context.store, &item.from_agent_did);
     let group_name =
-        resolve_group_name_for_delivery(options, agent_name, deliver.group_id.as_deref()).await;
+        resolve_group_name_for_delivery(context.options, context.agent_name, deliver.group_id.as_deref()).await;
     match forward_deliver_to_openclaw(
-        http_client,
-        hook_url,
-        openclaw_runtime,
+        context.http_client,
+        context.hook_url,
+        context.openclaw_runtime,
         &deliver,
         sender_profile.as_ref(),
         group_name.as_deref(),
@@ -321,8 +305,9 @@ async fn retry_pending_inbound_delivery(
     .await
     {
         Ok(()) => {
-            record_retry_delivery_success(store, &item);
-            let _ = receipt_outbox
+            record_retry_delivery_success(context.store, &item);
+            let _ = context
+                .receipt_outbox
                 .enqueue_and_try_flush(DeliveryReceiptPayload {
                     request_id: item.request_id.clone(),
                     sender_agent_did: item.from_agent_did.clone(),
@@ -332,7 +317,10 @@ async fn retry_pending_inbound_delivery(
                 })
                 .await;
         }
-        Err(error) => handle_pending_retry_failure(store, receipt_outbox, &item, &error).await,
+        Err(error) => {
+            handle_pending_retry_failure(context.store, context.receipt_outbox, &item, &error)
+                .await
+        }
     }
 }
 
