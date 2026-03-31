@@ -31,6 +31,7 @@
 - Group management parity rules are mandatory for operator CLI compatibility:
   - `POST /v1/groups` and `POST /v1/groups/:id/join-tokens` must accept valid active agent-auth in addition to PAT.
   - Keep PAT behavior for these routes additive in this phase; do not remove PAT support.
+  - For these PAT-or-agent mutation routes, resolve auth actor before JSON payload parsing so malformed bodies from unauthenticated callers still return auth failures (401/403) instead of payload-shape errors.
   - For agent-auth create, persist `groups.created_by` as the authenticated agent owner's human ID.
   - For agent-auth manage actions, allow only creator-owner agents or active `admin` group members.
   - For agent-auth reads, allow creator-owner agents or active group members.

@@ -394,6 +394,28 @@ describe("GET /v1/groups/:id", () => {
 });
 
 describe("POST /v1/groups", () => {
+  it("returns 401 before payload validation when auth is missing", async () => {
+    const res = await createRegistryApp().request(
+      "/v1/groups",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: "{",
+      },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_REFRESH_UNAUTHORIZED");
+  });
+
   it("keeps PAT create behavior", async () => {
     const { token, authRow } = await makeValidPatContext();
     const { database } = createFakeDb([authRow], []);
@@ -480,6 +502,29 @@ describe("POST /v1/groups", () => {
 });
 
 describe("POST /v1/groups/:id/join-tokens", () => {
+  it("returns 401 before payload validation when auth is missing", async () => {
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/join-tokens`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: "{",
+      },
+      {
+        DB: {} as D1Database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_REFRESH_UNAUTHORIZED");
+  });
+
   it("keeps PAT join-token issue behavior", async () => {
     const { token, authRow } = await makeValidPatContext();
     const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";

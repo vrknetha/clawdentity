@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod agent;
+mod agent_name;
 mod agent_auth_client;
 pub mod api_key;
 pub mod crl;

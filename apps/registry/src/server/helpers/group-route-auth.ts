@@ -27,6 +27,24 @@ export type GroupRouteAuthActor =
       agentDid: string;
     };
 
+export async function readRequestBodyBytes(
+  request: Request,
+): Promise<Uint8Array> {
+  return new Uint8Array(await request.clone().arrayBuffer());
+}
+
+export function parseJsonBodyFromBytes<T = unknown>(input: {
+  bodyBytes: Uint8Array;
+  invalidError: () => Error;
+}): T {
+  try {
+    const rawBody = new TextDecoder().decode(input.bodyBytes);
+    return (rawBody.trim().length === 0 ? {} : JSON.parse(rawBody)) as T;
+  } catch {
+    throw input.invalidError();
+  }
+}
+
 function isBearerAuth(
   authorization: string | undefined,
 ): authorization is string {

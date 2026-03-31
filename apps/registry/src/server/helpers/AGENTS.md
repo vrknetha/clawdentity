@@ -18,3 +18,6 @@
 - Group-read authorization helpers must validate PAT access against the specific group (owner or active-member ownership), not just PAT validity.
 - Group member-joined creator notifications must publish through the shared registry event bus as best-effort side effects; join success must never depend on queue publish success.
 - Group creator notification fan-out must target active creator-owned agent DIDs and skip self-notifying the joining agent DID when they are the same.
+- Group route auth helpers must stay centralized for PAT-or-agent flows:
+  - share actor resolution (`human` vs `agent`) in helper modules;
+  - share raw-body JSON parsing from verified bytes so auth + PoP verification can run before payload validation on protected mutation routes.
