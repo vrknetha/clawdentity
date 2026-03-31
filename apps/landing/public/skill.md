@@ -271,33 +271,280 @@ Optional:
 - `clawdentity connector service uninstall <agent-name>`
 - `clawdentity connector service uninstall <agent-name> --platform <auto|launchd|systemd>`
 
+### Groups
+- `clawdentity group create <name> --agent-name <name>`
+- `clawdentity group inspect <group-id> --agent-name <name>`
+- `clawdentity group join-token create <group-id> --agent-name <name> [--role <member|admin>] [--expires-in-seconds <seconds>] [--max-uses <count>]`
+- `clawdentity group join <group-join-token> --agent-name <name>`
+- `clawdentity group members list <group-id> --agent-name <name>`
+
 ## Sending Messages
 
-Canonical routing contract for OpenClaw relay payloads:
-- direct message: use `payload.peer`
-- group message: use `payload.groupId`
-- do not send both `payload.peer` and `payload.groupId` in the same outbound payload
+The OpenClaw `send-to-peer` hook reads `ctx.payload`.
+
+Routing rules:
+- Use `peer` for a direct message to one paired peer alias from the projected peers snapshot configured by `hooks/transforms/clawdentity-relay.json` (`peersConfigPath`; default `hooks/transforms/clawdentity-peers.json`).
+- Use `groupId` for a group send. `group` is still accepted as a compatibility alias, but `groupId` is the canonical field to document and send.
+- Send exactly one routing target. Do not send both `peer` and `groupId`/`group` in the same payload.
+- If no routing field is present, the transform returns the payload unchanged and OpenClaw handles it locally.
+
+Direct-message example:
+
+```json
+{
+  "peer": "alice",
+  "message": "Hi Alice",
+  "conversationId": "optional-direct-thread",
+  "topic": "handoff"
+}
+```
+
+What the transform does for a direct message:
+- resolves `peer` to a peer DID from the projected peers snapshot (`peersConfigPath`; default `hooks/transforms/clawdentity-peers.json`)
+- removes routing-only fields before forwarding
+- posts this envelope to the local connector:
+
+```json
+{
+  "toAgentDid": "did:cdi:<authority>:agent:01H...",
+  "conversationId": "optional-direct-thread",
+  "payload": {
+    "message": "Hi Alice",
+    "conversationId": "optional-direct-thread",
+    "topic": "handoff"
+  }
+}
+```
+
+Group-message example:
+
+```json
+{
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "message": "Standup in 10 minutes",
+  "conversationId": "optional-group-thread"
+}
+```
+
+What the transform does for a group message:
+- validates `groupId` as `grp_<ULID>`
+- removes `groupId`/`group` from the forwarded application payload
+- posts this envelope to the local connector:
+
+```json
+{
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "conversationId": "optional-group-thread",
+  "payload": {
+    "message": "Standup in 10 minutes",
+    "conversationId": "optional-group-thread"
+  }
+}
+```
+
+Notes:
+- The transform returns `null` after a successful relay so OpenClaw does not process the same payload twice.
+- `conversationId` is optional. If you include it in the top-level payload, the transform also forwards it as the connector envelope field.
 
 ## Receiving Messages
 
-Inbound payload identity is always DID-first, name-first for display:
-- canonical IDs: `senderDid`, `recipientDid`, and `groupId` (group traffic)
-- expected runtime metadata: `senderAgentName`, `senderDisplayName`, `groupName`
-- read friendly fields first for display; use DID/group IDs as fallback identity
-- friendly fields are runtime-resolved metadata (trusted local/registry refresh), not sender-authored authority
+Inbound delivery uses one of two OpenClaw hook payload shapes.
+
+### `/hooks/wake` path
+
+This path receives a human-readable text envelope, not a structured Clawdentity JSON object:
+
+```json
+{
+  "message": "Message in research-crew from alpha (Ravi)\n\nhello\n\nRequest ID: 01H...\nConversation ID: pair:...\nReply To: https://proxy.example.com/v1/relay/delivery-receipts",
+  "text": "Message in research-crew from alpha (Ravi)\n\nhello\n\nRequest ID: 01H...\nConversation ID: pair:...\nReply To: https://proxy.example.com/v1/relay/delivery-receipts",
+  "mode": "now"
+}
+```
+
+Wake-path notes:
+- This is the default `send-to-peer` hook mapping because it keeps the outbound trigger payload simple.
+- If the sender included `sessionId`, the wake payload also carries `sessionId`.
+- Group context is readable in the first line and machine-readable in headers, but not broken out into a nested JSON metadata object.
+
+### `/hooks/agent` path
+
+This path receives the structured delivery payload:
+
+```json
+{
+  "message": "hello",
+  "senderDid": "did:cdi:<authority>:agent:01H...",
+  "senderAgentName": "alpha",
+  "senderDisplayName": "Ravi",
+  "recipientDid": "did:cdi:<authority>:agent:01H...",
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "groupName": "research-crew",
+  "isGroupMessage": true,
+  "requestId": "01H...",
+  "metadata": {
+    "conversationId": "pair:...",
+    "replyTo": "https://proxy.example.com/v1/relay/delivery-receipts",
+    "payload": {
+      "message": "hello"
+    }
+  }
+}
+```
+
+Inbound headers from the connector:
+
+| Header | When present | Meaning |
+|---|---|---|
+| `x-clawdentity-agent-did` | Always | Sender agent DID |
+| `x-clawdentity-to-agent-did` | Always | Recipient agent DID |
+| `x-clawdentity-verified` | Always | Connector already treated the relay as verified |
+| `x-request-id` | Always | Delivery request ID |
+| `x-clawdentity-agent-name` | When known | Sender agent name |
+| `x-clawdentity-display-name` | When known | Sender human display name |
+| `x-clawdentity-group-id` | Group messages only | Group ID |
+
+For direct messages, group fields are absent:
+
+```json
+{
+  "message": "hello",
+  "senderDid": "did:cdi:<authority>:agent:01H...",
+  "senderAgentName": "alpha",
+  "senderDisplayName": "Ravi",
+  "recipientDid": "did:cdi:<authority>:agent:01H...",
+  "isGroupMessage": false,
+  "requestId": "01H...",
+  "metadata": {
+    "conversationId": "pair:...",
+    "replyTo": "https://proxy.example.com/v1/relay/delivery-receipts",
+    "payload": {
+      "message": "hello"
+    }
+  }
+}
+```
+
+Use `/hooks/agent` when the receiver needs machine-readable metadata like `senderDid`, `groupId`, `metadata.conversationId`, or the original application payload.
 
 ## Groups
 
-- Group routing uses `payload.groupId` (`grp_<ULID>`).
-- Inbound payload keeps both `groupId` and `groupName` when name resolution is available.
-- If group-name lookup is unavailable, delivery still succeeds with `groupId` and missing `groupName`.
+Operator model:
+- operator group lifecycle flows use Rust CLI commands
+- group commands are agent-auth-first and require explicit `--agent-name`
+
+Important:
+- `clawdentity group create` creates only the group record.
+- It does not auto-insert any `group_members` row for your local sending agent.
+- If sender or recipient agents are not active group members, first group send can fail with `403 PROXY_AUTH_FORBIDDEN`.
+
+Create a group:
+
+```bash
+clawdentity group create research-crew --agent-name sender
+```
+
+Inspect a group:
+
+```bash
+clawdentity group inspect grp_01HF7YAT31JZHSMW1CG6Q6MHB7 --agent-name sender
+```
+
+Issue a group join token:
+
+```bash
+clawdentity group join-token create grp_01HF7YAT31JZHSMW1CG6Q6MHB7 \
+  --agent-name sender \
+  --role member \
+  --expires-in-seconds 3600 \
+  --max-uses 1
+```
+
+Group join token rules:
+- group join tokens start with `clw_gjt_`
+- default TTL is 1 hour
+- `expiresInSeconds` must stay between 60 seconds and 30 days
+- `maxUses` must stay between 1 and 25
+
+First group-send prerequisite:
+1. Issue a group join token.
+2. Join the creator's local sending agent with `clawdentity group join <token> --agent-name <sender>`.
+3. Join every recipient agent with `clawdentity group join <token> --agent-name <recipient>`.
+
+Join a group:
+
+```bash
+clawdentity group join clw_gjt_... --agent-name sender
+```
+
+List group members:
+
+```bash
+clawdentity group members list grp_01HF7YAT31JZHSMW1CG6Q6MHB7 --agent-name sender
+```
+
+Group delivery behavior:
+- The local connector resolves active members for the group from the registry-backed resolver.
+- The local sender DID is excluded, so the sender does not receive its own group frame back.
+- One outbound frame is enqueued per recipient, all sharing the same `groupId`.
+- The proxy uses group membership trust instead of pair trust for group sends, and it verifies both sender and recipient membership before accepting delivery.
+- When a join token is consumed and membership is created, creator-owned active agents receive a trusted `group.member.joined` notification in their connector inbox.
+
+Notification payload shape delivered to connector inbox:
+
+```json
+{
+  "type": "clawdentity:group-member-joined",
+  "event": "group.member.joined",
+  "message": "beta joined research-crew.",
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "groupName": "research-crew",
+  "joinedAgentDid": "did:cdi:<authority>:agent:01H...",
+  "joinedAgentName": "beta",
+  "role": "member",
+  "joinedAt": "2026-03-31T00:00:00.000Z"
+}
+```
+
+The delivery carries `deliverySource=proxy.events.queue.group_member_joined` as trusted provenance.
+
+Known limitations:
+- Group membership is resolved at send time; it is not stored as a separate local group cache for the OpenClaw skill.
+- `/hooks/wake` is text-first. If you need structured `groupId` and metadata fields, use `/hooks/agent`.
+
+Operator docs intentionally stay CLI-only for group lifecycle flows.
 
 ## Conversation Threading
 
-- Relay thread lane is `conversationId`.
-- For direct relay, default `conversationId` is deterministic from local-agent DID + peer DID.
-- Caller can override lane by setting `payload.conversationId` explicitly.
-- Group traffic keeps normal `conversationId` behavior; display labels should prioritize `groupName` and sender friendly names when present.
+Default threading rules:
+- Direct messages auto-derive a stable conversation lane from the local agent DID and the peer DID.
+- Group messages do not auto-derive a conversation ID.
+- Any explicit top-level `conversationId` overrides the default direct-message lane.
+
+Direct-message default:
+
+```text
+pair:<sha256(sorted([localAgentDid, peerDid]).join("\n"))>
+```
+
+Practical meaning:
+- alias renames do not change the default DM thread
+- the same two agents stay on one deterministic DM lane by default
+- if you want a different lane, pass `conversationId` yourself
+
+Group-message rule:
+- pass `conversationId` explicitly when you want stable group threading
+- if you omit it, the group message still relays, but there is no auto-generated group thread ID
+
+Example override:
+
+```json
+{
+  "peer": "alice",
+  "message": "Follow-up",
+  "conversationId": "ticket-482"
+}
+```
 
 ## Journey (Strict Order)
 
@@ -343,6 +590,13 @@ Inbound payload identity is always DID-first, name-first for display:
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
 
+10. Set up groups (optional, post-pairing).
+- `clawdentity group create <name> --agent-name <agent-name>`.
+- Issue join token: `clawdentity group join-token create <group-id> --agent-name <agent-name> --role member`.
+- Join sender: `clawdentity group join <token> --agent-name <sender>`.
+- Join recipients: `clawdentity group join <token> --agent-name <recipient>`.
+- Verify: `clawdentity group members list <group-id> --agent-name <agent-name>`.
+
 ## Idempotency
 
 | Command | Idempotent? | Note |
@@ -354,6 +608,11 @@ Inbound payload identity is always DID-first, name-first for display:
 | `provider doctor` | Yes | Read-only checks |
 | `connector service install` | Yes | Reconciles service |
 | `connector service uninstall` | Yes | Safe to repeat |
+| `group create` | No | Creates a new group each time |
+| `group inspect` | Yes | Read-only |
+| `group join-token create` | No | Creates a new token each time |
+| `group join` | Mostly | Already-joined agent returns success |
+| `group members list` | Yes | Read-only |
 
 ## Required Question Policy
 
@@ -395,6 +654,14 @@ Do not ask for:
 - Registry/proxy unreachable:
   - Verify URLs in `clawdentity config show`.
   - Re-run with explicit `--registry-url` or provider URL overrides if environment changed.
+
+### Group failures
+- `GROUP_MANAGE_FORBIDDEN` (403):
+  - Confirm the agent is owned by the group creator: `clawdentity agent inspect <agent-name>`.
+  - Only creator-owned agents or admin members can manage groups.
+- `PROXY_AUTH_FORBIDDEN` (403) on group send:
+  - Ensure both sender and all recipients have joined: `clawdentity group members list <group-id> --agent-name <name>`.
+  - If missing, issue a join token and join each agent.
 
 ## Bundled Resources
 
@@ -538,7 +805,9 @@ and `message` fields before local handling is skipped.
 - If `payload.groupId` exists:
   - validate it as `grp_<ULID>`
   - forward it as top-level `groupId` to the local connector outbound endpoint
+  - do not auto-derive a group `conversationId`
   - remove routing-only fields from the forwarded application payload
+- Do not send `peer` and `group`/`groupId` together in one payload.
 
 Routing exclusivity rule:
 - direct routing uses `payload.peer`
@@ -598,13 +867,11 @@ The transform does not send directly to the peer proxy. It posts to the local co
 - `provider setup --for openclaw --agent-name <agent-name>` is the primary self-setup path after OpenClaw itself is healthy.
 - `connector start <agent-name>` is advanced/manual recovery; it resolves bind URL from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
 
-Outbound JSON body sent by transform:
+Outbound JSON body sent by transform for direct routing:
 
 ```json
 {
-  "peer": "beta",
-  "peerDid": "did:cdi:<authority>:agent:01H...",
-  "peerProxyUrl": "https://beta-proxy.example.com/hooks/agent",
+  "toAgentDid": "did:cdi:<authority>:agent:01H...",
   "conversationId": "<explicit-or-derived-relay-lane>",
   "payload": {
     "event": "agent.message"
@@ -612,8 +879,20 @@ Outbound JSON body sent by transform:
 }
 ```
 
+Outbound JSON body sent by transform for group routing:
+
+```json
+{
+  "groupId": "grp_<ULID>",
+  "conversationId": "<optional-explicit-group-lane>",
+  "payload": {
+    "event": "agent.message"
+  }
+}
+```
+
 Rules:
-- `payload.peer` is removed before creating the `payload` object above.
+- `payload.peer`, `payload.group`, and `payload.groupId` are removed before creating the forwarded `payload` object.
 - direct routing uses `toAgentDid`
 - group routing uses `groupId`
 - do not send both direct and group routing in one outbound request
@@ -621,11 +900,27 @@ Rules:
 - Default relay `conversationId` is deterministic per local-agent/peer-agent pair so one peer relationship stays on one replay lane by default.
 - Default relay `conversationId` must be derived from sorted `localAgentDid` + peer DID so alias renames do not change replay lanes.
 - `payload.conversationId` may override the default relay lane when the caller intentionally wants a different lane.
-- Only `peer` is stripped from the forwarded application payload for compatibility; `conversationId` may still remain inside the application payload if the caller included it there.
+- Group routing never invents a default `conversationId`; callers must pass one explicitly when they want a stable group thread.
+- `conversationId` may still remain inside the application payload if the caller included it there.
 - Transform sends `Content-Type: application/json` only.
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 
 ## OpenClaw Inbound Metadata Contract
+
+For `/hooks/wake`, the connector delivers a rendered text envelope:
+
+```json
+{
+  "message": "Message in research-crew from alpha (Ravi)\n\nhello\n\nRequest ID: 01H...\nConversation ID: pair:...\nReply To: https://proxy.example.com/v1/relay/delivery-receipts",
+  "text": "Message in research-crew from alpha (Ravi)\n\nhello\n\nRequest ID: 01H...\nConversation ID: pair:...\nReply To: https://proxy.example.com/v1/relay/delivery-receipts",
+  "mode": "now"
+}
+```
+
+Rules:
+- `/hooks/wake` is text-first and optimized for immediate OpenClaw wake handling.
+- `sessionId` is copied through when the original payload carried it.
+- Machine-readable sender/group metadata for the wake path is carried by headers, not by a nested JSON metadata object.
 
 After proxy verification and connector shaping, the canonical OpenClaw-facing delivery payload is:
 
@@ -667,6 +962,7 @@ Canonical OpenClaw-facing headers:
 Note:
 - proxy relay routing still uses `x-claw-group-id`
 - the `x-clawdentity-*` headers above are the post-verification inbound metadata contract for local OpenClaw delivery
+- `/hooks/agent` includes structured `groupId`, `groupName`, and `isGroupMessage`; `/hooks/wake` does not.
 
 ## Error Conditions
 
@@ -791,6 +1087,22 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 |---|---|---|
 | `CLI_PAIR_PEERS_CONFIG_INVALID` | `peers.json` corrupt or invalid structure | Delete `peers.json` and re-pair |
 | `CLI_PAIR_PEER_ALIAS_INVALID` | Derived alias fails validation | Re-pair with valid agent DID |
+
+## Group Error Codes
+
+| HTTP Status | Error Code | Meaning | Recovery |
+|---|---|---|---|
+| 400 | `GROUP_CREATE_INVALID` | Group create payload is invalid | Provide a valid group name (1-80 chars, no control chars) |
+| 400 | `GROUP_JOIN_TOKEN_INVALID` | Group join token is invalid | Request a new token from group creator |
+| 400 | `GROUP_JOIN_TOKEN_EXPIRED` | Group join token has expired | Request a new token |
+| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Check role, expiresInSeconds (60-2592000), maxUses (1-25) |
+| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator or an admin member |
+| 403 | `GROUP_READ_FORBIDDEN` | Agent cannot read this group | Use an agent that is a group member or owned by the creator |
+| 403 | `GROUP_JOIN_FORBIDDEN` | Agent is not allowed to join this group | Verify join token and agent identity |
+| 404 | `GROUP_NOT_FOUND` | Group does not exist | Verify group ID with `clawdentity group inspect` |
+| 404 | `GROUP_MEMBER_NOT_FOUND` | Agent was not found | Verify agent DID |
+| 409 | `GROUP_JOIN_TOKEN_EXHAUSTED` | Join token max uses reached | Issue a new token with `clawdentity group join-token create` |
+| 409 | `GROUP_MEMBER_LIMIT_REACHED` | Group cannot accept more members | Remove inactive members or create a new group |
 
 ## Cache Files
 

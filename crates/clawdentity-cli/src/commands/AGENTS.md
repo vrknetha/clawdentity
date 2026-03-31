@@ -5,7 +5,16 @@
 
 ## Rules
 - New user-facing commands belong here, not in a parallel JS CLI.
-- Do not add standalone Rust CLI `group` commands in the group-trust milestone; keep group routing support inside connector runtime outbound APIs and registry-backed membership lookup.
+- Keep `group` commands CLI-first and agent-auth-first:
+  - require explicit `--agent-name` on every group subcommand
+  - do not expose PAT-first, mixed-auth, or auto-detect group command modes
+  - keep `--json` output stable and machine-readable for every group subcommand
+- Group command layout is canonical:
+  - `group create <name> --agent-name <name>`
+  - `group inspect <group-id> --agent-name <name>`
+  - `group join-token create <group-id> --agent-name <name> [--role ...] [--expires-in-seconds ...] [--max-uses ...]`
+  - `group join <group-join-token> --agent-name <name>`
+  - `group members list <group-id> --agent-name <name>`
 - Keep command JSON output stable and machine-readable.
 - Any command that mixes blocking filesystem or blocking HTTP with async runtime must isolate the blocking work with `spawn_blocking` or an equivalent boundary.
 - Connector startup must refresh websocket auth headers on reconnect instead of caching one signed timestamp for the life of the process.

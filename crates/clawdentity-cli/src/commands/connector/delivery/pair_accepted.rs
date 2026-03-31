@@ -5,14 +5,15 @@ use std::path::Path;
 use anyhow::{Result, anyhow};
 use chrono::{SecondsFormat, Utc};
 use clawdentity_core::{
-    ConfigPathOptions, DeliverFrame, PairProfile, SqliteStore, UpsertPeerInput, get_peer_by_alias,
-    now_utc_ms, parse_agent_did, persist_confirmed_peer_from_profile_and_proxy_origin, upsert_peer,
+    ConfigPathOptions, DeliverFrame, PairProfile, RegistryAgentProfile, SqliteStore,
+    UpsertPeerInput, get_peer_by_alias, now_utc_ms, parse_agent_did,
+    persist_confirmed_peer_from_profile_and_proxy_origin, upsert_peer,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tracing::warn;
 
-use super::super::runtime_config::{RegistryAgentProfile, fetch_registry_agent_profile};
+use super::super::runtime_config::fetch_registry_agent_profile;
 
 const PAIR_ACCEPTED_SYSTEM_EVENT_TYPE: &str = "pair.accepted";
 const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE: &str = "proxy.events.queue.pair_accepted";
@@ -378,7 +379,6 @@ fn persist_canonical_peer_profile(
 pub(super) fn is_trusted_pair_accepted_delivery(deliver: &DeliverFrame) -> bool {
     deliver.delivery_source.as_deref() == Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE)
 }
-
 
 #[cfg(test)]
 mod tests;

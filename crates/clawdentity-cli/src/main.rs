@@ -16,6 +16,7 @@ use clawdentity_core::{
 };
 
 use crate::commands::connector::execute_connector_command;
+use crate::commands::group::execute_group_command;
 use crate::commands::install::execute_install_command;
 use crate::commands::onboarding::execute_onboarding_command;
 use crate::commands::pair::execute_pair_command;
@@ -471,6 +472,9 @@ async fn run(cli: Cli) -> Result<()> {
         Some(Commands::Peer { command }) => {
             execute_peer_command(&options, command, cli.json).await?;
         }
+        Some(Commands::Group { command }) => {
+            execute_group_command(&options, command, cli.json).await?;
+        }
         Some(Commands::Onboarding { command }) => {
             execute_onboarding_command(&options, command, cli.json).await?;
         }
@@ -546,12 +550,39 @@ fn init_logging() {
 
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory;
+    use clap::{CommandFactory, Parser};
 
     use super::Cli;
+    use crate::commands::{Commands, group::GroupCommand};
 
     #[test]
     fn clap_configuration_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn group_create_requires_agent_name_flag() {
+        let missing_agent_name =
+            Cli::try_parse_from(["clawdentity", "group", "create", "research-crew"]);
+        assert!(missing_agent_name.is_err());
+
+        let parsed = Cli::try_parse_from([
+            "clawdentity",
+            "group",
+            "create",
+            "research-crew",
+            "--agent-name",
+            "alpha",
+        ])
+        .expect("cli parse");
+        match parsed.command {
+            Some(Commands::Group {
+                command: GroupCommand::Create { name, agent_name },
+            }) => {
+                assert_eq!(name, "research-crew");
+                assert_eq!(agent_name, "alpha");
+            }
+            other => panic!("unexpected command parse: {other:?}"),
+        }
     }
 }

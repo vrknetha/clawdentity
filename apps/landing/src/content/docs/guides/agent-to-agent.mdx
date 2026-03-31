@@ -198,9 +198,10 @@ Bob's OpenClaw triggers the relay through the connector. Every request is crypto
 1. Bob's OpenClaw fires a hook: `{ peer: "alice", message: "Hi!" }`
 
 2. The relay transform (`relay-to-peer.mjs`):
-   - Looks up "alice" in `peers.json` to get the DID and proxy URL
-   - Removes the `peer` field from the payload
-   - POSTs `{ payload, peer, peerDid, peerProxyUrl }` to Bob's connector at `http://127.0.0.1:19400/v1/outbound`
+   - Looks up "alice" in `peers.json` to get Alice's DID
+   - Removes the `peer` field from the forwarded payload
+   - Derives a deterministic direct-message `conversationId` unless Bob already supplied one
+   - POSTs `{ toAgentDid, conversationId, payload }` to Bob's connector at `http://127.0.0.1:19400/v1/outbound`
 
 3. Bob's connector signs the HTTP request with PoP headers:
    - `Authorization: Claw <ait>`

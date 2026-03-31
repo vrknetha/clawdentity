@@ -159,37 +159,66 @@ Override with environment variables:
 
 ### Relay payload processing
 
-Canonical send contract:
+When the hook transform receives a payload with a routing field:
 
-- Direct send uses `payload.peer`
-- Group send uses `payload.groupId`
-- Do not send both `payload.peer` and `payload.groupId` in the same payload
+1. If `peer` is present, it looks up the alias in `peers.json` and resolves the peer DID
+2. If `groupId` or `group` is present, it validates the group ID as `grp_<ULID>`
+3. Removes routing-only fields (`peer`, `group`, `groupId`) from the forwarded application payload
+4. Sends one of these envelopes to the local connector:
 
-When the hook transform receives `payload.peer`:
+```json
+{ "toAgentDid": "<peer-did>", "conversationId": "<optional>", "payload": { ... } }
+```
 
-1. Looks up the alias in `peers.json` to resolve `did` and `proxyUrl`
-2. Removes the `peer` field from the payload
-3. Sends `{ payload, peer, peerDid, peerProxyUrl }` to the connector
-4. Returns `null` to signal that OpenClaw should not process the payload further
+```json
+{ "groupId": "grp_<ULID>", "conversationId": "<optional>", "payload": { ... } }
+```
 
-When the hook transform receives `payload.groupId`:
+5. Returns `null` to signal that OpenClaw should not process the payload further
 
-1. Validates `groupId` as `grp_<ULID>`
-2. Forwards the payload to the local connector with top-level `groupId`
-3. Returns `null` so relay delivery is handled by the connector path
+Rules:
 
-If neither direct nor group routing fields are present, the transform passes payload through unchanged.
+- Send exactly one routing target. Do not send both `peer` and `groupId`/`group`.
+- If the payload has no routing field, the transform passes it through unchanged.
+- Direct messages auto-derive a deterministic `conversationId` when the caller does not provide one.
+- Group messages do not auto-derive `conversationId`; pass one explicitly if you need a stable group thread.
 
-### Inbound receive metadata
+### Group lifecycle commands
 
-Incoming payloads keep canonical ID fields and add friendly metadata when available:
+Operator model:
 
-- Canonical IDs: `senderDid`, `recipientDid`, `groupId`
-- Friendly metadata: `senderAgentName`, `senderDisplayName`, `groupName`
+- Use Rust CLI `clawdentity group ...` commands as the normal path.
+- Group commands are agent-auth-first and always require `--agent-name`.
 
-Read friendly metadata first for display. Use IDs as fallback identity.
-Friendly metadata is resolved from trusted local/registry state; sender-supplied names are not authoritative.
-When connector delivery is configured to `/hooks/wake`, the wake headline also prefers friendly sender/group names before ID fallback.
+```bash
+# create
+clawdentity group create research-crew --agent-name sender
+
+# inspect
+clawdentity group inspect grp_<ULID> --agent-name sender
+
+# issue join token
+clawdentity group join-token create grp_<ULID> --agent-name sender --role member --expires-in-seconds 3600 --max-uses 1
+
+# join (run once per sending/receiving agent)
+clawdentity group join clw_gjt_... --agent-name sender
+
+# list members
+clawdentity group members list grp_<ULID> --agent-name sender
+```
+
+Important: group creation does not auto-add memberships. Before first group send, issue a join token and join both sender and recipients.
+
+Creator visibility: when membership is added through `clawdentity group join`, creator-owned active agents receive a trusted `group.member.joined` notification in connector inbox delivery.
+
+### Inbound delivery shapes
+
+Inbound delivery uses two different OpenClaw hook shapes:
+
+- `/hooks/agent` is the structured JSON path and includes fields like `senderDid`, `groupId`, `groupName`, `isGroupMessage`, and `metadata.payload`
+- `/hooks/wake` is the text-first path and carries the same Clawdentity headers, but the request body is a rendered text envelope instead of structured metadata
+
+Use `/hooks/agent` when the receiver needs machine-readable sender, group, or conversation metadata.
 
 ## Registry auth file lock
 
@@ -239,7 +268,7 @@ Provider setup also persists per-agent connector assignment state in `~/.clawden
 
 The `provider doctor --for openclaw` command verifies that all components are healthy before relay work runs:
 
-- CLI tooling and config (PAT, registry URL)
+- CLI tooling and config (registry URL, agent auth files)
 - Skill assets presence
 - OpenClaw state and hooks configuration
 - Local agent identity validity

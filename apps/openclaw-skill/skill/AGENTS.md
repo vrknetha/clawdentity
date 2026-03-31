@@ -9,6 +9,23 @@
 - Keep `SKILL.md` onboarding prompt-first with a single canonical quick prompt block near the top.
 - Keep immutable fallback mirrors pinned to released artifacts only; never point fallback guidance at mutable branch URLs.
 - `SKILL.md` and `references/*.md` must use command-first remediation with executable Rust CLI commands.
+- Keep `SKILL.md` operator-facing messaging coverage explicit:
+  - `Sending Messages`
+  - `Receiving Messages`
+  - `Groups`
+  - `Conversation Threading`
+- When relay payload or inbound delivery contracts change, update those sections together with `references/clawdentity-protocol.md` in the same change.
+- Verify documented limitations against the current source before publishing them; do not copy stale GitHub issue text into the skill docs unchanged.
+- Keep peer-alias path guidance runtime-accurate:
+  - default OpenClaw runtime reads projected `hooks/transforms/clawdentity-peers.json` via `hooks/transforms/clawdentity-relay.json` (`peersConfigPath`)
+  - `~/.clawdentity/peers.json` is legacy/manual fallback only, not the default projected path
+- Group docs must call out first-send membership prerequisites explicitly:
+  - `clawdentity group create ...` creates only the group record
+  - sending/receiving agents must join via `clawdentity group join <token> --agent-name <name>` before first group relay
+- Group docs must also call out creator visibility: successful member joins emit trusted `group.member.joined` notifications to creator-owned active agents.
+- Skill group lifecycle guidance must be Rust CLI-first and agent-auth-first:
+  - use `clawdentity group ...` commands as the normal operator path
+  - keep raw `/v1/groups*` HTTP examples out of operator guidance
 - Treat Rust CLI command surfaces as the source of truth for this skill. Do not add npm or TS-only execution steps.
 - Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor}`.
 - Prompt-first onboarding should prioritize `clawdentity onboarding run --for <platform>` as the default install/setup/pairing/messaging flow, with manual command groups documented as advanced fallback.

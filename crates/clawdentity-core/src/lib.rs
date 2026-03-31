@@ -34,6 +34,7 @@ pub use registry::admin;
 pub use registry::agent;
 pub use registry::api_key;
 pub use registry::crl;
+pub use registry::group;
 pub use registry::invite;
 pub use runtime::auth as runtime_auth;
 pub use runtime::openclaw as runtime_openclaw;
@@ -100,6 +101,14 @@ pub use did::{
     parse_group_id, parse_human_did,
 };
 pub use error::{CoreError, Result};
+pub use group::{
+    GroupCreateInput, GroupCreateResult, GroupInspectInput, GroupInspectResult, GroupJoinInput,
+    GroupJoinResult, GroupJoinTokenCreateInput, GroupJoinTokenCreateResult, GroupJoinTokenRecord,
+    GroupMemberRecord, GroupMembersListGroup, GroupMembersListInput, GroupMembersListResult,
+    GroupRecord, GroupRole, create_group, create_group_join_token,
+    fetch_group_member_dids_with_agent_auth, fetch_group_name_with_agent_auth, inspect_group,
+    join_group, list_group_members,
+};
 pub use identity::{
     LocalIdentity, PublicIdentityView, decode_secret_key, init_identity, read_identity,
 };
@@ -144,7 +153,8 @@ pub use qr::{
     persist_pairing_qr,
 };
 pub use registry::{
-    RegisterIdentityResult, RegistryMetadata, fetch_registry_metadata, register_identity,
+    RegisterIdentityResult, RegistryAgentProfile, RegistryMetadata, fetch_registry_agent_profile,
+    fetch_registry_metadata, register_identity,
 };
 pub use runtime_auth::{RelayConnectHeaders, build_relay_connect_headers};
 pub use runtime_openclaw::{OpenclawRuntimeConfig, check_openclaw_gateway_health};

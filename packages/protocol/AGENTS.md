@@ -41,6 +41,8 @@
 - Keep pair-accepted user text optional (`message`) and non-empty when present; it is UX metadata only and must not drive trust or persistence decisions.
 - Keep static pair-accepted UX wording centralized in a single exported contract constant (`PAIR_ACCEPTED_NOTIFICATION_MESSAGE`) so proxy producers/tests stay in sync.
 - Treat blank pair-accepted `message` as absent metadata (not a parse failure) to prevent cosmetic text drift from blocking trusted pairing side effects.
+- Keep group-member-joined queue contract constants and parser exports centralized (`GROUP_MEMBER_JOINED_EVENT_TYPE`, `GROUP_MEMBER_JOINED_TRUSTED_DELIVERY_SOURCE`, `parseGroupMemberJoinedEventData`) so registry publishers and proxy consumers cannot drift.
+- Keep group-member-joined notification copy generation centralized (`createGroupMemberJoinedNotificationMessage`) so creator-facing messaging is consistent across producers/consumers/tests.
 
 ## Testing
 - Add focused Vitest tests per helper module and one root export test in `src/index.test.ts`.
