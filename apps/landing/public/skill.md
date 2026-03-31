@@ -271,6 +271,13 @@ Optional:
 - `clawdentity connector service uninstall <agent-name>`
 - `clawdentity connector service uninstall <agent-name> --platform <auto|launchd|systemd>`
 
+### Groups
+- `clawdentity group create <name> --agent-name <name>`
+- `clawdentity group inspect <group-id> --agent-name <name>`
+- `clawdentity group join-token create <group-id> --agent-name <name> [--role <member|admin>] [--expires-in-seconds <seconds>] [--max-uses <count>]`
+- `clawdentity group join <group-join-token> --agent-name <name>`
+- `clawdentity group members list <group-id> --agent-name <name>`
+
 ## Sending Messages
 
 The OpenClaw `send-to-peer` hook reads `ctx.payload`.
@@ -397,6 +404,27 @@ Inbound headers from the connector:
 | `x-clawdentity-display-name` | When known | Sender human display name |
 | `x-clawdentity-group-id` | Group messages only | Group ID |
 
+For direct messages, group fields are absent:
+
+```json
+{
+  "message": "hello",
+  "senderDid": "did:cdi:<authority>:agent:01H...",
+  "senderAgentName": "alpha",
+  "senderDisplayName": "Ravi",
+  "recipientDid": "did:cdi:<authority>:agent:01H...",
+  "isGroupMessage": false,
+  "requestId": "01H...",
+  "metadata": {
+    "conversationId": "pair:...",
+    "replyTo": "https://proxy.example.com/v1/relay/delivery-receipts",
+    "payload": {
+      "message": "hello"
+    }
+  }
+}
+```
+
 Use `/hooks/agent` when the receiver needs machine-readable metadata like `senderDid`, `groupId`, `metadata.conversationId`, or the original application payload.
 
 ## Groups
@@ -461,6 +489,24 @@ Group delivery behavior:
 - One outbound frame is enqueued per recipient, all sharing the same `groupId`.
 - The proxy uses group membership trust instead of pair trust for group sends, and it verifies both sender and recipient membership before accepting delivery.
 - When a join token is consumed and membership is created, creator-owned active agents receive a trusted `group.member.joined` notification in their connector inbox.
+
+Notification payload shape delivered to connector inbox:
+
+```json
+{
+  "type": "clawdentity:group-member-joined",
+  "event": "group.member.joined",
+  "message": "beta joined research-crew.",
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "groupName": "research-crew",
+  "joinedAgentDid": "did:cdi:<authority>:agent:01H...",
+  "joinedAgentName": "beta",
+  "role": "member",
+  "joinedAt": "2026-03-31T00:00:00.000Z"
+}
+```
+
+The delivery carries `deliverySource=proxy.events.queue.group_member_joined` as trusted provenance.
 
 Known limitations:
 - Group membership is resolved at send time; it is not stored as a separate local group cache for the OpenClaw skill.
@@ -544,6 +590,13 @@ Example override:
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
 
+10. Set up groups (optional, post-pairing).
+- `clawdentity group create <name> --agent-name <agent-name>`.
+- Issue join token: `clawdentity group join-token create <group-id> --agent-name <agent-name> --role member`.
+- Join sender: `clawdentity group join <token> --agent-name <sender>`.
+- Join recipients: `clawdentity group join <token> --agent-name <recipient>`.
+- Verify: `clawdentity group members list <group-id> --agent-name <agent-name>`.
+
 ## Idempotency
 
 | Command | Idempotent? | Note |
@@ -555,6 +608,11 @@ Example override:
 | `provider doctor` | Yes | Read-only checks |
 | `connector service install` | Yes | Reconciles service |
 | `connector service uninstall` | Yes | Safe to repeat |
+| `group create` | No | Creates a new group each time |
+| `group inspect` | Yes | Read-only |
+| `group join-token create` | No | Creates a new token each time |
+| `group join` | Mostly | Already-joined agent returns success |
+| `group members list` | Yes | Read-only |
 
 ## Required Question Policy
 
@@ -596,6 +654,14 @@ Do not ask for:
 - Registry/proxy unreachable:
   - Verify URLs in `clawdentity config show`.
   - Re-run with explicit `--registry-url` or provider URL overrides if environment changed.
+
+### Group failures
+- `GROUP_MANAGE_FORBIDDEN` (403):
+  - Confirm the agent is owned by the group creator: `clawdentity agent inspect <agent-name>`.
+  - Only creator-owned agents or admin members can manage groups.
+- `PROXY_AUTH_FORBIDDEN` (403) on group send:
+  - Ensure both sender and all recipients have joined: `clawdentity group members list <group-id> --agent-name <name>`.
+  - If missing, issue a join token and join each agent.
 
 ## Bundled Resources
 
@@ -1021,6 +1087,22 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 |---|---|---|
 | `CLI_PAIR_PEERS_CONFIG_INVALID` | `peers.json` corrupt or invalid structure | Delete `peers.json` and re-pair |
 | `CLI_PAIR_PEER_ALIAS_INVALID` | Derived alias fails validation | Re-pair with valid agent DID |
+
+## Group Error Codes
+
+| HTTP Status | Error Code | Meaning | Recovery |
+|---|---|---|---|
+| 400 | `GROUP_CREATE_INVALID` | Group create payload is invalid | Provide a valid group name (1-80 chars, no control chars) |
+| 400 | `GROUP_JOIN_TOKEN_INVALID` | Group join token is invalid | Request a new token from group creator |
+| 400 | `GROUP_JOIN_TOKEN_EXPIRED` | Group join token has expired | Request a new token |
+| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Check role, expiresInSeconds (60-2592000), maxUses (1-25) |
+| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator or an admin member |
+| 403 | `GROUP_READ_FORBIDDEN` | Agent cannot read this group | Use an agent that is a group member or owned by the creator |
+| 403 | `GROUP_JOIN_FORBIDDEN` | Agent is not allowed to join this group | Verify join token and agent identity |
+| 404 | `GROUP_NOT_FOUND` | Group does not exist | Verify group ID with `clawdentity group inspect` |
+| 404 | `GROUP_MEMBER_NOT_FOUND` | Agent was not found | Verify agent DID |
+| 409 | `GROUP_JOIN_TOKEN_EXHAUSTED` | Join token max uses reached | Issue a new token with `clawdentity group join-token create` |
+| 409 | `GROUP_MEMBER_LIMIT_REACHED` | Group cannot accept more members | Remove inactive members or create a new group |
 
 ## Cache Files
 

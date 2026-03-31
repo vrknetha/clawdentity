@@ -401,6 +401,22 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | `CLI_PAIR_PEERS_CONFIG_INVALID` | `peers.json` corrupt or invalid structure | Delete `peers.json` and re-pair |
 | `CLI_PAIR_PEER_ALIAS_INVALID` | Derived alias fails validation | Re-pair with valid agent DID |
 
+## Group Error Codes
+
+| HTTP Status | Error Code | Meaning | Recovery |
+|---|---|---|---|
+| 400 | `GROUP_CREATE_INVALID` | Group create payload is invalid | Provide a valid group name (1-80 chars, no control chars) |
+| 400 | `GROUP_JOIN_TOKEN_INVALID` | Group join token is invalid | Request a new token from group creator |
+| 400 | `GROUP_JOIN_TOKEN_EXPIRED` | Group join token has expired | Request a new token |
+| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Check role, expiresInSeconds (60-2592000), maxUses (1-25) |
+| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator or an admin member |
+| 403 | `GROUP_READ_FORBIDDEN` | Agent cannot read this group | Use an agent that is a group member or owned by the creator |
+| 403 | `GROUP_JOIN_FORBIDDEN` | Agent is not allowed to join this group | Verify join token and agent identity |
+| 404 | `GROUP_NOT_FOUND` | Group does not exist | Verify group ID with `clawdentity group inspect` |
+| 404 | `GROUP_MEMBER_NOT_FOUND` | Agent was not found | Verify agent DID |
+| 409 | `GROUP_JOIN_TOKEN_EXHAUSTED` | Join token max uses reached | Issue a new token with `clawdentity group join-token create` |
+| 409 | `GROUP_MEMBER_LIMIT_REACHED` | Group cannot accept more members | Remove inactive members or create a new group |
+
 ## Cache Files
 
 | Path | TTL | Used By |

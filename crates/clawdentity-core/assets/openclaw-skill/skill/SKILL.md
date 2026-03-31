@@ -271,6 +271,13 @@ Optional:
 - `clawdentity connector service uninstall <agent-name>`
 - `clawdentity connector service uninstall <agent-name> --platform <auto|launchd|systemd>`
 
+### Groups
+- `clawdentity group create <name> --agent-name <name>`
+- `clawdentity group inspect <group-id> --agent-name <name>`
+- `clawdentity group join-token create <group-id> --agent-name <name> [--role <member|admin>] [--expires-in-seconds <seconds>] [--max-uses <count>]`
+- `clawdentity group join <group-join-token> --agent-name <name>`
+- `clawdentity group members list <group-id> --agent-name <name>`
+
 ## Sending Messages
 
 The OpenClaw `send-to-peer` hook reads `ctx.payload`.
@@ -397,6 +404,27 @@ Inbound headers from the connector:
 | `x-clawdentity-display-name` | When known | Sender human display name |
 | `x-clawdentity-group-id` | Group messages only | Group ID |
 
+For direct messages, group fields are absent:
+
+```json
+{
+  "message": "hello",
+  "senderDid": "did:cdi:<authority>:agent:01H...",
+  "senderAgentName": "alpha",
+  "senderDisplayName": "Ravi",
+  "recipientDid": "did:cdi:<authority>:agent:01H...",
+  "isGroupMessage": false,
+  "requestId": "01H...",
+  "metadata": {
+    "conversationId": "pair:...",
+    "replyTo": "https://proxy.example.com/v1/relay/delivery-receipts",
+    "payload": {
+      "message": "hello"
+    }
+  }
+}
+```
+
 Use `/hooks/agent` when the receiver needs machine-readable metadata like `senderDid`, `groupId`, `metadata.conversationId`, or the original application payload.
 
 ## Groups
@@ -461,6 +489,24 @@ Group delivery behavior:
 - One outbound frame is enqueued per recipient, all sharing the same `groupId`.
 - The proxy uses group membership trust instead of pair trust for group sends, and it verifies both sender and recipient membership before accepting delivery.
 - When a join token is consumed and membership is created, creator-owned active agents receive a trusted `group.member.joined` notification in their connector inbox.
+
+Notification payload shape delivered to connector inbox:
+
+```json
+{
+  "type": "clawdentity:group-member-joined",
+  "event": "group.member.joined",
+  "message": "beta joined research-crew.",
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "groupName": "research-crew",
+  "joinedAgentDid": "did:cdi:<authority>:agent:01H...",
+  "joinedAgentName": "beta",
+  "role": "member",
+  "joinedAt": "2026-03-31T00:00:00.000Z"
+}
+```
+
+The delivery carries `deliverySource=proxy.events.queue.group_member_joined` as trusted provenance.
 
 Known limitations:
 - Group membership is resolved at send time; it is not stored as a separate local group cache for the OpenClaw skill.
@@ -544,6 +590,13 @@ Example override:
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
 
+10. Set up groups (optional, post-pairing).
+- `clawdentity group create <name> --agent-name <agent-name>`.
+- Issue join token: `clawdentity group join-token create <group-id> --agent-name <agent-name> --role member`.
+- Join sender: `clawdentity group join <token> --agent-name <sender>`.
+- Join recipients: `clawdentity group join <token> --agent-name <recipient>`.
+- Verify: `clawdentity group members list <group-id> --agent-name <agent-name>`.
+
 ## Idempotency
 
 | Command | Idempotent? | Note |
@@ -555,6 +608,11 @@ Example override:
 | `provider doctor` | Yes | Read-only checks |
 | `connector service install` | Yes | Reconciles service |
 | `connector service uninstall` | Yes | Safe to repeat |
+| `group create` | No | Creates a new group each time |
+| `group inspect` | Yes | Read-only |
+| `group join-token create` | No | Creates a new token each time |
+| `group join` | Mostly | Already-joined agent returns success |
+| `group members list` | Yes | Read-only |
 
 ## Required Question Policy
 
@@ -596,6 +654,14 @@ Do not ask for:
 - Registry/proxy unreachable:
   - Verify URLs in `clawdentity config show`.
   - Re-run with explicit `--registry-url` or provider URL overrides if environment changed.
+
+### Group failures
+- `GROUP_MANAGE_FORBIDDEN` (403):
+  - Confirm the agent is owned by the group creator: `clawdentity agent inspect <agent-name>`.
+  - Only creator-owned agents or admin members can manage groups.
+- `PROXY_AUTH_FORBIDDEN` (403) on group send:
+  - Ensure both sender and all recipients have joined: `clawdentity group members list <group-id> --agent-name <name>`.
+  - If missing, issue a join token and join each agent.
 
 ## Bundled Resources
 
