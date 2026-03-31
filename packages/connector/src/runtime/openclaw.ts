@@ -7,6 +7,7 @@ import {
   applyOpenclawSenderProfileHeaders,
   type OpenclawSenderProfile,
 } from "../openclaw-headers.js";
+import { buildOpenclawHookPayload } from "../openclaw-payload.js";
 import { OPENCLAW_RELAY_RUNTIME_FILE_NAME } from "./constants.js";
 import { LocalOpenclawDeliveryError, sanitizeErrorReason } from "./errors.js";
 import { isRecord } from "./parse.js";
@@ -97,11 +98,14 @@ export async function readOpenclawHookTokenFromRelayRuntimeConfig(input: {
 }
 
 export async function deliverToOpenclawHook(input: {
+  conversationId?: string;
   fetchImpl: typeof fetch;
   fromAgentDid: string;
+  groupId?: string;
   openclawHookToken?: string;
   openclawHookUrl: string;
   payload: unknown;
+  replyTo?: string;
   requestId: string;
   senderProfile?: OpenclawSenderProfile;
   shutdownSignal: AbortSignal;
@@ -122,16 +126,31 @@ export async function deliverToOpenclawHook(input: {
   if (input.openclawHookToken !== undefined) {
     headers["x-openclaw-token"] = input.openclawHookToken;
   }
+  if (typeof input.groupId === "string" && input.groupId.trim().length > 0) {
+    headers["x-clawdentity-group-id"] = input.groupId.trim();
+  }
   applyOpenclawSenderProfileHeaders({
     headers,
     senderProfile: input.senderProfile,
+  });
+
+  const hookPayload = buildOpenclawHookPayload({
+    conversationId: input.conversationId,
+    groupId: input.groupId,
+    hookUrl: input.openclawHookUrl,
+    payload: input.payload,
+    replyTo: input.replyTo,
+    requestId: input.requestId,
+    senderDid: input.fromAgentDid,
+    senderProfile: input.senderProfile,
+    toAgentDid: input.toAgentDid,
   });
 
   try {
     const response = await input.fetchImpl(input.openclawHookUrl, {
       method: "POST",
       headers,
-      body: JSON.stringify(input.payload),
+      body: JSON.stringify(hookPayload),
       signal,
     });
     if (!response.ok) {

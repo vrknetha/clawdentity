@@ -42,6 +42,7 @@ function buildPendingItem(frame: DeliverFrame): ConnectorInboundInboxItem {
     requestId: frame.id,
     fromAgentDid: frame.fromAgentDid,
     toAgentDid: frame.toAgentDid,
+    groupId: parseOptionalNonEmptyString(frame.groupId),
     payload: frame.payload,
     payloadBytes: Buffer.byteLength(
       JSON.stringify(frame.payload ?? null),
@@ -124,6 +125,7 @@ export class ConnectorInboundInbox {
             payloadBytes: pendingItem.payloadBytes,
             fromAgentDid: pendingItem.fromAgentDid,
             toAgentDid: pendingItem.toAgentDid,
+            groupId: pendingItem.groupId,
             conversationId: pendingItem.conversationId,
             replyTo: pendingItem.replyTo,
           },

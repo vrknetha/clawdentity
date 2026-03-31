@@ -282,6 +282,69 @@ describe("startConnectorRuntime replay behavior", () => {
     }
   });
 
+  it("preserves wake sessionId for runtime /hooks/wake delivery", async () => {
+    process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
+    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+
+    const sandbox = createSandbox();
+    const wsPort = await findAvailablePort();
+    const wsHarness = await createWsHarness(wsPort);
+    const outboundPort = await findAvailablePort();
+    const openclawBaseUrl = "http://127.0.0.1:39111";
+    const openclawHookUrl = `${openclawBaseUrl}/hooks/wake`;
+    const hookBodies: unknown[] = [];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      const method = init?.method ?? "GET";
+
+      if (method === "GET" && url === openclawBaseUrl) {
+        return new Response("ok", { status: 200 });
+      }
+
+      if (method === "POST" && url === openclawHookUrl) {
+        hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response("ok", { status: 200 });
+      }
+
+      throw new Error(`Unexpected fetch call: ${method} ${url}`);
+    });
+
+    const runtime = await startConnectorRuntime({
+      agentName: "alpha",
+      configDir: sandbox.rootDir,
+      credentials: createRuntimeCredentials(),
+      fetchImpl: fetchMock,
+      openclawBaseUrl,
+      openclawHookPath: "/hooks/wake",
+      outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
+      proxyWebsocketUrl: wsHarness.wsUrl,
+    });
+
+    try {
+      const requestId = generateUlid(207);
+      await wsHarness.sendDeliverFrame({
+        requestId,
+        payload: {
+          message: "wake session test",
+          sessionId: "thread-beta",
+        },
+      });
+      await wsHarness.waitForDeliverAck(requestId);
+
+      await vi.waitFor(() => {
+        expect(hookBodies).toHaveLength(1);
+      });
+      const payload = hookBodies[0] as { sessionId?: string };
+      expect(payload.sessionId).toBe("thread-beta");
+    } finally {
+      await runtime.stop();
+      await wsHarness.cleanup();
+      sandbox.cleanup();
+    }
+  });
+
   it("retries replay delivery for transient hook failures", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
     process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";

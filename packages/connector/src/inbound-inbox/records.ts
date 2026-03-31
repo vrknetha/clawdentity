@@ -9,6 +9,7 @@ type PendingRow = {
   attempt_count: number;
   conversation_id: string | null;
   from_agent_did: string;
+  group_id: string | null;
   id: string;
   last_attempt_at: string | null;
   last_error: string | null;
@@ -55,6 +56,7 @@ export function toPendingRow(item: ConnectorInboundInboxItem): PendingRow {
     request_id: item.requestId,
     from_agent_did: item.fromAgentDid,
     to_agent_did: item.toAgentDid,
+    group_id: item.groupId ?? null,
     conversation_id: item.conversationId ?? null,
     reply_to: item.replyTo ?? null,
     payload: serializePayload(item.payload),
@@ -73,6 +75,7 @@ export function toPendingItem(row: PendingRow): ConnectorInboundInboxItem {
     requestId: row.request_id,
     fromAgentDid: row.from_agent_did,
     toAgentDid: row.to_agent_did,
+    groupId: parseOptionalNonEmptyString(row.group_id),
     conversationId: parseOptionalNonEmptyString(row.conversation_id),
     replyTo: parseOptionalNonEmptyString(row.reply_to),
     payload: parseJsonPayload(row.payload),

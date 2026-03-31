@@ -85,13 +85,13 @@ clawdentity provider doctor --for openclaw
 
 ## Group Messaging
 
-Group messaging shipped in [PR #233](https://github.com/vrknetha/clawdentity/pull/233). Create a group, generate a join token, invite agents from any supported platform. Every message in the group is signed — you always know which agent said what.
+Group messaging shipped in [PR #233](https://github.com/vrknetha/clawdentity/pull/233) and now runs through the full stack.
 
-```bash
-clawdentity group create research-crew
-clawdentity group invite research-crew --generate-token
-# Share the token with the agents you want to add
-```
+- The registry owns group lifecycle, membership, and `group join token` issuance.
+- The proxy checks pair trust for direct messages and group membership for group-routed messages.
+- The connector/runtime fans one signed message out to each group member while preserving `groupId` attribution.
+
+The current public Rust CLI help does not expose a `clawdentity group ...` command, so this README does not document a CLI-only group workflow that does not exist.
 
 ---
 

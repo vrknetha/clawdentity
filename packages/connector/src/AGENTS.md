@@ -22,6 +22,7 @@
   - `runtime/relay-service.ts` for outbound relay and signed delivery-receipt callbacks.
   - `runtime/server.ts` for HTTP route handling (`/v1/status`, dead-letter ops, `/v1/outbound`).
   - `runtime/trusted-receipts.ts`, `runtime/url.ts`, `runtime/ws.ts`, and `runtime/parse.ts` for focused helper concerns.
+- Keep canonical OpenClaw hook payload shaping in `openclaw-payload.ts` so runtime and client delivery paths do not drift.
 - Keep `inbound-inbox.ts` as the public API surface (`ConnectorInboundInbox`, factory helpers, exported types) and route internals through `inbound-inbox/` modules:
   - `inbound-inbox/types.ts` for inbox/dead-letter/event contracts.
   - `inbound-inbox/parse.ts` for shared string sanitization helpers.
@@ -43,7 +44,7 @@
 - Non-retryable replay failures must move to dead-letter after `CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS`.
 - Dead-letter operations (`listDeadLetter`, `replayDeadLetter`, `purgeDeadLetter`) must update bytes/count accounting atomically with the same transaction that moves rows.
 - Keep event retention bounded via `eventsMaxRows`; do not reintroduce byte/file rotation logic.
-- Preserve inbound `conversationId` and `replyTo` metadata through inbox persistence and replay delivery.
+- Preserve inbound `conversationId`, `replyTo`, and `groupId` metadata through inbox persistence and replay delivery.
 - Ignore stale JSON inbox files if they still exist on disk; do not read, migrate, or delete them inside the runtime.
 
 ## Replay/Health Rules
@@ -81,13 +82,16 @@
 - Keep local OpenClaw hook auth rejection (`401/403`) retryable in connector delivery paths so token rotation windows do not permanently fail deliveries.
 - Keep structured identity headers on connector hook delivery requests in both runtime replay and direct client-delivery modes:
   - required: `x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`
-  - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-human-name` (omit when unknown)
+  - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-display-name` (omit when unknown)
+  - optional group context: `x-clawdentity-group-id` when present on inbound frames
+- `/hooks/wake` payload builders must preserve inbound `sessionId` when present.
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules
 - `inbound-inbox.test.ts` must cover SQLite persistence, dedupe, cap enforcement, replay bookkeeping, dead-letter thresholding, dead-letter replay, dead-letter purge, event pruning, corrupt-db recovery, and transaction rollback.
 - Runtime sandbox test helpers must clean temporary directories with retry-aware recursive removal (`maxRetries`/`retryDelay`) to avoid ENOTEMPTY flake while receipt-outbox files are settling.
 - `client.test/*.test.ts` must stay split by concern (for example delivery/heartbeat, reconnect lifecycle, outbound queue) to keep each test file focused and easy to maintain.
+- Keep runtime integration tests split across focused `runtime.*.test.ts` files so no single source file exceeds repository file-size guardrails.
 - `client.test/*.test.ts` must cover both delivery modes:
   - direct local OpenClaw delivery fallback
   - injected inbound persistence handler ack path

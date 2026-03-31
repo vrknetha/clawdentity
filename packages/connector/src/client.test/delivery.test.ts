@@ -110,9 +110,65 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     ).toBeUndefined();
     expect(
       (requestInit?.headers as Record<string, string>)[
-        "x-clawdentity-human-name"
+        "x-clawdentity-display-name"
       ],
     ).toBeUndefined();
+
+    const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);
+    expect(ack.type).toBe("deliver_ack");
+    if (ack.type !== "deliver_ack") {
+      throw new Error("expected deliver_ack frame");
+    }
+    expect(ack.ackId).toBe(deliverId);
+    expect(ack.accepted).toBe(true);
+
+    client.disconnect();
+  });
+
+  it("preserves wake sessionId when forwarding to /hooks/wake", async () => {
+    const { sockets, webSocketFactory } = createMockWebSocketFactory();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("ok", { status: 200 }));
+
+    const client = new ConnectorClient({
+      connectorUrl: "wss://connector.example.com/agent",
+      openclawBaseUrl: "http://127.0.0.1:18789",
+      openclawHookPath: "/hooks/wake",
+      heartbeatIntervalMs: 0,
+      fetchImpl: fetchMock,
+      webSocketFactory,
+    });
+
+    client.connect();
+    sockets[0].open();
+
+    const deliverId = generateUlid(1700000000001);
+    sockets[0].message(
+      serializeFrame({
+        v: 1,
+        type: "deliver",
+        id: deliverId,
+        ts: "2026-01-01T00:00:00.000Z",
+        fromAgentDid: createAgentDid(1700000000101),
+        toAgentDid: createAgentDid(1700000000201),
+        payload: {
+          message: "wake message",
+          sessionId: "thread-alpha",
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sockets[0].sent.length).toBeGreaterThan(0);
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0];
+    const body = JSON.parse(String(requestInit?.body ?? "{}")) as {
+      sessionId?: string;
+    };
+    expect(body.sessionId).toBe("thread-alpha");
 
     const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);
     expect(ack.type).toBe("deliver_ack");
@@ -138,7 +194,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
       fetchImpl: fetchMock,
       resolveInboundSenderProfile: async () => ({
         agentName: "ravi-assistant",
-        humanName: "Ravi Kiran",
+        displayName: "Ravi Kiran",
       }),
       webSocketFactory,
     });
@@ -169,7 +225,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     const [, requestInit] = fetchMock.mock.calls[0];
     expect(requestInit?.headers).toMatchObject({
       "x-clawdentity-agent-name": "ravi-assistant",
-      "x-clawdentity-human-name": "Ravi Kiran",
+      "x-clawdentity-display-name": "Ravi Kiran",
     });
 
     const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);

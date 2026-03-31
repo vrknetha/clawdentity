@@ -9,7 +9,7 @@
 - Keep command JSON output stable and machine-readable.
 - Any command that mixes blocking filesystem or blocking HTTP with async runtime must isolate the blocking work with `spawn_blocking` or an equivalent boundary.
 - Connector startup must refresh websocket auth headers on reconnect instead of caching one signed timestamp for the life of the process.
-- Connector -> OpenClaw hook payloads must send top-level `message`; keep `content` only as a compatibility alias, never as the sole field, and include `text` when targeting `/hooks/wake`.
+- Connector -> OpenClaw hook payloads are hard-cutover canonical: send top-level `message` plus canonical sender/group fields only, and include `text` only for `/hooks/wake` contract compliance.
 - Connector receipt notifications must also satisfy OpenClaw hook contracts: `/hooks/agent` needs `message`, `/hooks/wake` needs `text`, with structured receipt metadata preserved alongside the summary text.
 - OpenClaw peer-delivery defaults must stay aligned with visible UX: use `/hooks/agent` for inbound relay traffic by default; treat `/hooks/wake` as an explicit wake-only path when chat-history visibility is not required.
 - `onboarding run` is the primary operator UX flow; keep it stateful and resumable via `~/.clawdentity/onboarding-session.json` with stable machine states (`cli_ready`, `identity_ready`, `provider_ready`, `pairing_pending`, `paired`, `messaging_ready`).

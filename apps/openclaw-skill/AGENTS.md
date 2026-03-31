@@ -3,7 +3,9 @@
 ## Purpose
 - Define conventions for the OpenClaw skill package that relays selected payloads to remote Clawdentity peers.
 - Keep peer routing config and local connector handoff deterministic and testable.
-- Keep peer profile metadata explicit and non-ambiguous (`agentName`, `humanName`).
+- Keep peer/profile naming explicit and non-ambiguous:
+  - pair payloads use `agentName` + `humanName`
+  - projected relay snapshots use `agentName` + `displayName`
 
 ## Filesystem Contracts
 - Peer routing map lives at `~/.clawdentity/peers.json` by default.
@@ -55,7 +57,9 @@
 - Keep user-facing onboarding prompt-first, with `/skill.md` as canonical instruction source.
 - Keep `skill/SKILL.md` command utilization section explicit and executable with current CLI commands used by this skill (`config`, `invite redeem`, `agent`, `install --for`, `pair`, `verify`, `provider {status|setup|doctor|relay-test}`, advanced `connector start`/`connector service install`).
 - Keep pairing flow documented as proxy API-based (`POST /pair/start`, `POST /pair/confirm`, `POST /pair/status`), not unsupported CLI `pair` commands.
-- Keep pairing metadata documented and preserved end-to-end: pair APIs exchange `initiatorProfile`/`responderProfile` and peer map stores `agentName` + `humanName`.
+- Keep pairing metadata documented and preserved end-to-end:
+  - pair APIs exchange `initiatorProfile`/`responderProfile` with `humanName`
+  - projected relay peer snapshots may additionally carry `displayName`, `framework`, `description`, and `lastSyncedAtMs`
 - Keep pairing flow deterministic in docs:
   - Initiator default is `POST /pair/start` (returns `clwpair1_...` ticket and optional QR payload).
   - Responder confirms with `POST /pair/confirm`.

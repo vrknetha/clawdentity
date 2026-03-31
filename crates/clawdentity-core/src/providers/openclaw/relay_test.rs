@@ -383,7 +383,10 @@ mod tests {
                     .to_string(),
                 proxy_url: "https://proxy.example/hooks/agent".to_string(),
                 agent_name: Some("alpha".to_string()),
-                human_name: Some("alice".to_string()),
+                display_name: Some("alice".to_string()),
+                framework: None,
+                description: None,
+                last_synced_at_ms: None,
             },
         )
         .expect("peer");

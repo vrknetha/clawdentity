@@ -16,6 +16,10 @@ export {
   resolveApiKeySelectRows,
 } from "./api-keys.js";
 export { getCrlSelectColumnValue, resolveCrlSelectRows } from "./crl.js";
+export {
+  getGroupSelectColumnValue,
+  resolveGroupSelectRows,
+} from "./groups.js";
 export { getHumanSelectColumnValue, resolveHumanSelectRows } from "./humans.js";
 export {
   getInternalServiceSelectColumnValue,

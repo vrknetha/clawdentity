@@ -231,7 +231,7 @@ async function writeRelayTransformPeersSnapshot(input: {
     {
       agentName?: string;
       did: string;
-      humanName?: string;
+      displayName?: string;
       proxyUrl?: string;
     }
   >;
@@ -274,7 +274,7 @@ describe("startConnectorRuntime sender profile headers", () => {
           did: senderDid,
           proxyUrl: "https://proxy.example.test/hooks/wake",
           agentName: "ravi-assistant",
-          humanName: "Ravi Kiran",
+          displayName: "Ravi Kiran",
         },
       },
     });
@@ -335,7 +335,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       expect(hookHeaders[0]?.get("x-clawdentity-agent-name")).toBe(
         "ravi-assistant",
       );
-      expect(hookHeaders[0]?.get("x-clawdentity-human-name")).toBe(
+      expect(hookHeaders[0]?.get("x-clawdentity-display-name")).toBe(
         "Ravi Kiran",
       );
     } finally {
@@ -358,7 +358,7 @@ describe("startConnectorRuntime sender profile headers", () => {
           did: makeAgentDid(DID_AUTHORITY, generateUlid(400)),
           proxyUrl: "https://proxy.example.test/hooks/wake",
           agentName: "other-assistant",
-          humanName: "Other Human",
+          displayName: "Other Human",
         },
       },
     });
@@ -417,7 +417,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       });
       expect(hookHeaders).toHaveLength(1);
       expect(hookHeaders[0]?.get("x-clawdentity-agent-name")).toBeNull();
-      expect(hookHeaders[0]?.get("x-clawdentity-human-name")).toBeNull();
+      expect(hookHeaders[0]?.get("x-clawdentity-display-name")).toBeNull();
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();

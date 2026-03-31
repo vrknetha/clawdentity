@@ -5,15 +5,18 @@ use std::path::Path;
 use anyhow::{Result, anyhow};
 use chrono::{SecondsFormat, Utc};
 use clawdentity_core::{
-    DeliverFrame, PairProfile, SqliteStore, parse_agent_did,
-    persist_confirmed_peer_from_profile_and_proxy_origin,
+    ConfigPathOptions, DeliverFrame, PairProfile, SqliteStore, UpsertPeerInput, get_peer_by_alias,
+    now_utc_ms, parse_agent_did, persist_confirmed_peer_from_profile_and_proxy_origin, upsert_peer,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use tracing::warn;
 
+use super::super::runtime_config::{RegistryAgentProfile, fetch_registry_agent_profile};
+
 const PAIR_ACCEPTED_SYSTEM_EVENT_TYPE: &str = "pair.accepted";
 const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE: &str = "proxy.events.queue.pair_accepted";
+const PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME: &str = "__simulate_registry_outage__";
 const ONBOARDING_SESSION_FILE_NAME: &str = "onboarding-session.json";
 // Serialized `OnboardingState` / `PairingProgressState` values are snake_case.
 const ONBOARDING_STATE_PAIRING_PENDING: &str = "pairing_pending";
@@ -113,7 +116,7 @@ fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &st
 #[serde(rename_all = "camelCase")]
 struct PairAcceptedSystemProfile {
     agent_name: String,
-    human_name: String,
+    display_name: String,
     proxy_origin: String,
 }
 
@@ -180,9 +183,9 @@ fn normalize_pair_accepted_event(raw: PairAcceptedSystemEvent) -> Result<PairAcc
             &raw.responder_profile.agent_name,
             "responderProfile.agentName",
         )?,
-        human_name: normalize_non_empty(
-            &raw.responder_profile.human_name,
-            "responderProfile.humanName",
+        display_name: normalize_non_empty(
+            &raw.responder_profile.display_name,
+            "responderProfile.displayName",
         )?,
         proxy_origin: normalize_proxy_origin(
             &raw.responder_profile.proxy_origin,
@@ -231,7 +234,7 @@ fn build_notification_payload(event: &PairAcceptedSystemEvent, peer_alias: &str)
     let message = event.message.clone().unwrap_or_else(|| {
         format!(
             "Clawdentity pairing accepted: {} ({}) is now saved as peer alias {}.",
-            event.responder_profile.agent_name, event.responder_profile.human_name, peer_alias
+            event.responder_profile.agent_name, event.responder_profile.display_name, peer_alias
         )
     });
 
@@ -245,7 +248,7 @@ fn build_notification_payload(event: &PairAcceptedSystemEvent, peer_alias: &str)
             "responderAgentDid": event.responder_agent_did,
             "responderProfile": {
                 "agentName": event.responder_profile.agent_name,
-                "humanName": event.responder_profile.human_name,
+                "displayName": event.responder_profile.display_name,
                 "proxyOrigin": event.responder_profile.proxy_origin,
             },
             "issuerProxyOrigin": event.issuer_proxy_origin,
@@ -254,7 +257,10 @@ fn build_notification_payload(event: &PairAcceptedSystemEvent, peer_alias: &str)
     })
 }
 
-pub(super) fn apply_pair_accepted_system_delivery(
+#[allow(clippy::too_many_lines)]
+pub(super) async fn apply_pair_accepted_system_delivery(
+    options: &ConfigPathOptions,
+    local_agent_name: &str,
     store: &SqliteStore,
     config_dir: &Path,
     deliver: &mut DeliverFrame,
@@ -284,11 +290,25 @@ pub(super) fn apply_pair_accepted_system_delivery(
         &event.responder_agent_did,
         &PairProfile {
             agent_name: event.responder_profile.agent_name.clone(),
-            human_name: event.responder_profile.human_name.clone(),
+            human_name: event.responder_profile.display_name.clone(),
             proxy_origin: Some(event.responder_profile.proxy_origin.clone()),
         },
         Some(event.responder_profile.proxy_origin.clone()),
     )?;
+
+    match fetch_registry_profile(options, local_agent_name, &event).await {
+        Ok(registry_profile) => {
+            persist_canonical_peer_profile(store, &peer_alias, &registry_profile)?;
+        }
+        Err(error) => {
+            warn!(
+                error = %error,
+                peer_alias = %peer_alias,
+                responder_agent_did = %event.responder_agent_did,
+                "pair.accepted registry profile enrichment failed; using responder profile fallback"
+            );
+        }
+    }
 
     if let Err(error) = reconcile_onboarding_session_pairing_state(config_dir, &peer_alias) {
         warn!(
@@ -302,345 +322,63 @@ pub(super) fn apply_pair_accepted_system_delivery(
     Ok(true)
 }
 
+async fn fetch_registry_profile(
+    options: &ConfigPathOptions,
+    local_agent_name: &str,
+    event: &PairAcceptedSystemEvent,
+) -> Result<RegistryAgentProfile> {
+    let profile = if cfg!(test) {
+        if event.responder_profile.agent_name == PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME {
+            return Err(anyhow!(
+                "simulated registry profile lookup outage for pair.accepted test"
+            ));
+        }
+        let _ = (options, local_agent_name);
+        RegistryAgentProfile {
+            agent_did: event.responder_agent_did.clone(),
+            agent_name: event.responder_profile.agent_name.clone(),
+            display_name: event.responder_profile.display_name.clone(),
+            framework: Some("openclaw".to_string()),
+            status: "active".to_string(),
+            human_did: "did:cdi:registry.clawdentity.dev:human:01HF7YAT31JZHSMW1CG6Q6MHB7"
+                .to_string(),
+        }
+    } else {
+        fetch_registry_agent_profile(options, local_agent_name, &event.responder_agent_did).await?
+    };
+    if profile.agent_did != event.responder_agent_did {
+        return Err(anyhow!("registry profile DID does not match responder DID"));
+    }
+    Ok(profile)
+}
+
+fn persist_canonical_peer_profile(
+    store: &SqliteStore,
+    peer_alias: &str,
+    profile: &RegistryAgentProfile,
+) -> Result<()> {
+    let existing = get_peer_by_alias(store, peer_alias)?
+        .ok_or_else(|| anyhow!("persisted peer alias was not found after pair.accepted"))?;
+    upsert_peer(
+        store,
+        UpsertPeerInput {
+            alias: existing.alias,
+            did: existing.did,
+            proxy_url: existing.proxy_url,
+            agent_name: Some(profile.agent_name.clone()),
+            display_name: Some(profile.display_name.clone()),
+            framework: profile.framework.clone(),
+            description: None,
+            last_synced_at_ms: Some(now_utc_ms()),
+        },
+    )?;
+    Ok(())
+}
+
 pub(super) fn is_trusted_pair_accepted_delivery(deliver: &DeliverFrame) -> bool {
     deliver.delivery_source.as_deref() == Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE)
 }
 
+
 #[cfg(test)]
-mod tests {
-    use tempfile::TempDir;
-
-    use clawdentity_core::{list_peers, now_iso};
-    use serde_json::{Value, json};
-
-    use super::PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE;
-    use super::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
-
-    fn fixture_deliver_frame() -> clawdentity_core::DeliverFrame {
-        clawdentity_core::DeliverFrame {
-            v: clawdentity_core::CONNECTOR_FRAME_VERSION,
-            id: "req-pair-accepted-1".to_string(),
-            ts: now_iso(),
-            from_agent_did: "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97"
-                .to_string(),
-            to_agent_did: "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7"
-                .to_string(),
-            group_id: None,
-            payload: json!({
-                "system": {
-                    "type": "pair.accepted",
-                    "initiatorAgentDid": "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
-                    "responderAgentDid": "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-                    "responderProfile": {
-                        "agentName": "beta",
-                        "humanName": "Ira",
-                        "proxyOrigin": "https://beta.proxy.example"
-                    },
-                    "issuerProxyOrigin": "https://proxy.clawdentity.dev",
-                    "eventTimestampUtc": "2026-03-28T00:00:00.000Z"
-                }
-            }),
-            delivery_source: Some(PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE.to_string()),
-            content_type: Some("application/json".to_string()),
-            conversation_id: None,
-            reply_to: None,
-        }
-    }
-
-    fn write_runtime_snapshot_config(
-        config_dir: &std::path::Path,
-        snapshot_path: &std::path::Path,
-    ) {
-        std::fs::write(
-            config_dir.join("openclaw-relay.json"),
-            format!(
-                "{{\"relayTransformPeersPath\":\"{}\"}}",
-                snapshot_path.display()
-            ),
-        )
-        .expect("write relay runtime config");
-    }
-
-    #[test]
-    fn pair_accepted_event_persists_peer_and_updates_notification_payload() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        let mut deliver = fixture_deliver_frame();
-        let handled = apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver)
-            .expect("apply pair accepted delivery");
-        assert!(handled);
-
-        let peers = list_peers(&store).expect("list peers");
-        assert_eq!(peers.len(), 1);
-        assert_eq!(
-            peers[0].did,
-            "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97"
-        );
-        assert!(snapshot_path.exists());
-
-        assert_eq!(
-            deliver
-                .payload
-                .get("type")
-                .and_then(serde_json::Value::as_str),
-            Some("clawdentity:pair-accepted")
-        );
-        let message = deliver
-            .payload
-            .get("message")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        assert!(message.contains("Clawdentity pairing accepted"));
-    }
-
-    #[test]
-    fn duplicate_pair_accepted_events_are_idempotent_for_peer_state() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        let mut first = fixture_deliver_frame();
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut first).expect("first apply");
-
-        let mut second = fixture_deliver_frame();
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut second)
-            .expect("second apply");
-
-        let peers = list_peers(&store).expect("list peers");
-        assert_eq!(peers.len(), 1);
-    }
-
-    #[test]
-    fn non_system_payload_is_ignored() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let mut deliver = fixture_deliver_frame();
-        deliver.payload = json!({ "message": "hello" });
-
-        let handled =
-            apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-        assert!(!handled);
-    }
-
-    #[test]
-    fn pair_accepted_is_ignored_when_delivery_source_is_not_trusted() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let mut deliver = fixture_deliver_frame();
-        deliver.delivery_source = Some("agent.enqueue".to_string());
-
-        let handled =
-            apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-        assert!(!handled);
-        let peers = list_peers(&store).expect("list peers");
-        assert_eq!(peers.len(), 0);
-    }
-
-    #[test]
-    fn trusted_delivery_requires_queue_delivery_source() {
-        let trusted = fixture_deliver_frame();
-        assert!(is_trusted_pair_accepted_delivery(&trusted));
-
-        let mut untrusted = fixture_deliver_frame();
-        untrusted.delivery_source = Some("agent.enqueue".to_string());
-        assert!(!is_trusted_pair_accepted_delivery(&untrusted));
-    }
-
-    #[test]
-    fn pair_accepted_event_normalizes_timestamp_to_utc_rfc3339() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        let mut deliver = fixture_deliver_frame();
-        deliver.payload["system"]["eventTimestampUtc"] = json!("2026-03-28T05:30:00.000+05:30");
-
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-
-        assert_eq!(
-            deliver
-                .payload
-                .get("pairAccepted")
-                .and_then(|value| value.get("eventTimestampUtc"))
-                .and_then(serde_json::Value::as_str),
-            Some("2026-03-28T00:00:00.000Z")
-        );
-    }
-
-    #[test]
-    fn pair_accepted_notification_prefers_proxy_message_when_present() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        let mut deliver = fixture_deliver_frame();
-        deliver.payload["system"]["message"] =
-            json!("Clawdentity pairing complete. You can now message this peer.");
-
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-
-        assert_eq!(
-            deliver
-                .payload
-                .get("message")
-                .and_then(serde_json::Value::as_str),
-            Some("Clawdentity pairing complete. You can now message this peer.")
-        );
-    }
-
-    #[test]
-    fn pair_accepted_ignores_blank_proxy_message_and_uses_fallback() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        let mut deliver = fixture_deliver_frame();
-        deliver.payload["system"]["message"] = json!("   ");
-
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-
-        let message = deliver
-            .payload
-            .get("message")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        assert!(message.contains("Clawdentity pairing accepted"));
-    }
-
-    #[test]
-    fn pair_accepted_updates_stale_onboarding_session_to_messaging_ready() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        std::fs::write(
-            temp.path().join("onboarding-session.json"),
-            serde_json::to_string_pretty(&json!({
-                "version": 1,
-                "state": "pairing_pending",
-                "platform": "openclaw",
-                "agentName": "alpha-local",
-                "displayName": "Alpha Local",
-                "pairing": {
-                    "ticket": "clwpair1_demo",
-                    "phase": "waiting_for_confirm"
-                },
-                "updatedAt": "2026-03-29T00:00:00.000Z"
-            }))
-            .expect("serialize onboarding session"),
-        )
-        .expect("write onboarding session");
-
-        let mut deliver = fixture_deliver_frame();
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-
-        let raw = std::fs::read_to_string(temp.path().join("onboarding-session.json"))
-            .expect("read onboarding session");
-        let session: serde_json::Value = serde_json::from_str(&raw).expect("parse session");
-        assert_eq!(
-            session.get("state").and_then(Value::as_str),
-            Some("messaging_ready")
-        );
-        assert_eq!(
-            session
-                .get("pairing")
-                .and_then(|value| value.get("phase"))
-                .and_then(Value::as_str),
-            Some("peer_saved")
-        );
-        let peer_alias = session
-            .get("pairing")
-            .and_then(|value| value.get("peerAlias"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        assert!(!peer_alias.trim().is_empty());
-        assert_eq!(
-            session
-                .get("pairing")
-                .and_then(|value| value.get("ticket"))
-                .and_then(Value::as_str),
-            Some("clwpair1_demo")
-        );
-    }
-
-    #[test]
-    fn pair_accepted_does_not_fail_when_onboarding_session_is_invalid_json() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        std::fs::write(temp.path().join("onboarding-session.json"), "{not-json")
-            .expect("write invalid onboarding session");
-
-        let mut deliver = fixture_deliver_frame();
-        let handled = apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver)
-            .expect("pair accepted should still succeed");
-        assert!(handled);
-
-        let peers = list_peers(&store).expect("list peers");
-        assert_eq!(peers.len(), 1);
-    }
-
-    #[test]
-    fn pair_accepted_does_not_override_non_pairing_onboarding_state() {
-        let temp = TempDir::new().expect("temp dir");
-        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
-            .expect("open db");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        write_runtime_snapshot_config(temp.path(), &snapshot_path);
-
-        std::fs::write(
-            temp.path().join("onboarding-session.json"),
-            serde_json::to_string_pretty(&json!({
-                "version": 1,
-                "state": "custom_terminal_state",
-                "platform": "openclaw",
-                "agentName": "alpha-local",
-                "displayName": "Alpha Local",
-                "pairing": {
-                    "ticket": "clwpair1_demo",
-                    "phase": "waiting_for_confirm"
-                },
-                "updatedAt": "2026-03-29T00:00:00.000Z"
-            }))
-            .expect("serialize onboarding session"),
-        )
-        .expect("write onboarding session");
-
-        let mut deliver = fixture_deliver_frame();
-        apply_pair_accepted_system_delivery(&store, temp.path(), &mut deliver).expect("apply");
-
-        let raw = std::fs::read_to_string(temp.path().join("onboarding-session.json"))
-            .expect("read onboarding session");
-        let session: serde_json::Value = serde_json::from_str(&raw).expect("parse session");
-        assert_eq!(
-            session.get("state").and_then(Value::as_str),
-            Some("custom_terminal_state")
-        );
-        assert_eq!(
-            session
-                .get("pairing")
-                .and_then(|value| value.get("phase"))
-                .and_then(Value::as_str),
-            Some("peer_saved")
-        );
-    }
-}
+mod tests;

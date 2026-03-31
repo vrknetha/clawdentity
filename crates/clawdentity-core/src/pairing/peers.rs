@@ -20,7 +20,13 @@ pub struct PeerEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub human_name: Option<String>,
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_synced_at_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -34,7 +40,10 @@ pub struct PersistPeerInput {
     pub did: String,
     pub proxy_url: String,
     pub agent_name: Option<String>,
-    pub human_name: Option<String>,
+    pub display_name: Option<String>,
+    pub framework: Option<String>,
+    pub description: Option<String>,
+    pub last_synced_at_ms: Option<i64>,
 }
 
 /// TODO(clawdentity): document `derive_peer_alias_base`.
@@ -66,7 +75,10 @@ pub fn load_peers_config(store: &SqliteStore) -> Result<PeersConfig> {
                 did: peer.did,
                 proxy_url: peer.proxy_url,
                 agent_name: peer.agent_name,
-                human_name: peer.human_name,
+                display_name: peer.display_name,
+                framework: peer.framework,
+                description: peer.description,
+                last_synced_at_ms: peer.last_synced_at_ms,
             },
         );
     }
@@ -115,7 +127,10 @@ pub fn persist_peer(store: &SqliteStore, input: PersistPeerInput) -> Result<Peer
             did,
             proxy_url: input.proxy_url,
             agent_name: input.agent_name,
-            human_name: input.human_name,
+            display_name: input.display_name,
+            framework: input.framework,
+            description: input.description,
+            last_synced_at_ms: input.last_synced_at_ms,
         },
     )
 }
@@ -203,7 +218,10 @@ mod tests {
                     .to_string(),
                 proxy_url: "https://proxy.example/hooks/agent".to_string(),
                 agent_name: Some("Alpha".to_string()),
-                human_name: Some("Alice".to_string()),
+                display_name: Some("Alice".to_string()),
+                framework: Some("openclaw".to_string()),
+                description: Some("test peer".to_string()),
+                last_synced_at_ms: Some(123),
             },
         )
         .expect("persist");
@@ -234,7 +252,10 @@ mod tests {
                         .to_string(),
                     proxy_url: "https://proxy.example/hooks/agent".to_string(),
                     agent_name: None,
-                    human_name: None,
+                    display_name: None,
+                    framework: None,
+                    description: None,
+                    last_synced_at_ms: None,
                 },
             )]
             .into_iter()

@@ -10,8 +10,10 @@
 - Keep SQLite schema, queries, and transaction helpers in `storage.ts`; do not spread SQL across `inbound-inbox.ts`.
 - Keep `inbound-inbox.ts` focused on inbox behavior and orchestration, not SQL details.
 - Preserve request-id dedupe and byte/count accounting through SQL queries rather than cached JSON snapshots.
+- Preserve `groupId` for pending/dead-letter rows so replayed group messages keep thread context after retries.
 - Keep writes transactional and event retention bounded by row count.
 - Configure SQLite busy timeouts before connection probes and write transactions so contended writers do not fail fast with `database is locked`.
 - Ignore stale JSON inbox artifacts on disk; this module is SQLite-only.
 - In SQLite mode, `pruneDelivered()` is an intentional no-op because delivered rows are removed at delivery time; do not reintroduce unreachable prune predicates like `attempt_count < 0`.
 - Keep explicit lifecycle disposal: `InboundInboxStorage.close()` must remain idempotent and be called by runtime shutdown to release `DatabaseSync` handles deterministically.
+- Any schema-migration helper that interpolates table or column names must stay behind a strict local allowlist; do not widen identifier inputs and assume call sites stay trusted forever.

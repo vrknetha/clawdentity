@@ -4,6 +4,7 @@ import {
   applyOpenclawSenderProfileHeaders,
   type OpenclawSenderProfile,
 } from "../openclaw-headers.js";
+import { buildOpenclawHookPayload } from "../openclaw-payload.js";
 import { isAbortError, sanitizeErrorReason, wait } from "./helpers.js";
 import { computeNextBackoffDelayMs } from "./retry.js";
 
@@ -21,6 +22,14 @@ function isRetryableOpenclawDeliveryError(error: unknown): boolean {
   return (
     error instanceof LocalOpenclawDeliveryError && error.retryable === true
   );
+}
+
+function parseOptionalNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 export class LocalOpenclawDeliveryClient {
@@ -163,6 +172,10 @@ export class LocalOpenclawDeliveryClient {
     if (this.openclawHookToken !== undefined) {
       headers["x-openclaw-token"] = this.openclawHookToken;
     }
+    const groupId = parseOptionalNonEmptyString(frame.groupId);
+    if (groupId) {
+      headers["x-clawdentity-group-id"] = groupId;
+    }
     applyOpenclawSenderProfileHeaders({
       headers,
       senderProfile,
@@ -172,7 +185,19 @@ export class LocalOpenclawDeliveryClient {
       const response = await this.fetchImpl(this.openclawHookUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify(frame.payload),
+        body: JSON.stringify(
+          buildOpenclawHookPayload({
+            hookUrl: this.openclawHookUrl,
+            payload: frame.payload,
+            senderDid: frame.fromAgentDid,
+            toAgentDid: frame.toAgentDid,
+            requestId: frame.id,
+            conversationId: frame.conversationId,
+            replyTo: frame.replyTo,
+            groupId: frame.groupId,
+            senderProfile,
+          }),
+        ),
         signal: controller.signal,
       });
 

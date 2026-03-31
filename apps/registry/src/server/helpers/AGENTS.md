@@ -15,3 +15,4 @@
 - Mutation row-count helpers must use strict D1 semantics (`result.meta.changes`) and fail closed with an explicit internal error when the shape is unsupported; do not reintroduce legacy `.changes`/`.rowsAffected` fallbacks.
 - Mutation operation names must come from shared constants (`db-mutation-operations.ts`) so route/helper operation IDs cannot drift by typo.
 - When mutation shape validation fails, emit a structured log payload (including operation + shape metadata) so production diagnosis is fast.
+- Group-read authorization helpers must validate PAT access against the specific group (owner or active-member ownership), not just PAT validity.

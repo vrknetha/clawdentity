@@ -150,11 +150,20 @@ export type FakeStarterPassRow = {
   status: "active" | "redeemed" | "expired";
 };
 
+export type FakeGroupRow = {
+  id: string;
+  name: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type FakeAgentSelectRow = {
   id: string;
   did: string;
   owner_id: string;
   owner_did: string;
+  owner_display_name: string;
   name: string;
   framework: string | null;
   public_key: string;
@@ -181,6 +190,7 @@ export type FakeDbOptions = {
   internalServiceRows?: FakeInternalServiceRow[];
   inviteRows?: FakeInviteRow[];
   starterPassRows?: FakeStarterPassRow[];
+  groupRows?: FakeGroupRow[];
   humanRows?: FakeHumanRow[];
   revocationRows?: FakeRevocationRow[];
   registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
@@ -221,6 +231,7 @@ export type FakeDbState = {
   agentAuthSessionRows: FakeAgentAuthSessionRow[];
   inviteRows: FakeInviteRow[];
   starterPassRows: FakeStarterPassRow[];
+  groupRows: FakeGroupRow[];
   humanRows: FakeHumanRow[];
   apiKeyRows: FakeApiKeyRow[];
   internalServiceRows: FakeInternalServiceRow[];

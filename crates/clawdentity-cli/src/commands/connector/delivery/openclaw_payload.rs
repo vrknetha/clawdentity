@@ -1,18 +1,26 @@
 use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
 use serde_json::{Value, json};
 
+use super::super::headers::SenderProfileHeaders;
 use super::super::normalize_hook_path;
 
 pub(crate) fn build_openclaw_hook_payload(
     hook_path: &str,
     deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+    group_name: Option<&str>,
     openclaw_target_agent_id: Option<&str>,
 ) -> Value {
     if normalize_hook_path(hook_path) == "/hooks/wake" {
-        return build_openclaw_wake_payload(deliver);
+        return build_openclaw_wake_payload(deliver, sender_profile, group_name);
     }
 
-    build_openclaw_agent_payload(deliver, openclaw_target_agent_id)
+    build_openclaw_agent_payload(
+        deliver,
+        sender_profile,
+        group_name,
+        openclaw_target_agent_id,
+    )
 }
 
 pub(crate) fn build_openclaw_receipt_payload(
@@ -109,14 +117,25 @@ fn render_receipt_summary(receipt: &ReceiptFrame) -> String {
 
 fn build_openclaw_agent_payload(
     deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+    group_name: Option<&str>,
     openclaw_target_agent_id: Option<&str>,
 ) -> Value {
     let message = extract_content(&deliver.payload);
+    let sender_agent_name = resolve_sender_agent_name(deliver, sender_profile);
+    let sender_display_name = resolve_sender_display_name(deliver, sender_profile);
+    let group_id = normalize_optional_non_empty(deliver.group_id.as_deref());
+    let resolved_group_name = resolve_group_name(deliver, group_name, group_id.as_deref());
+    let is_group_message = group_id.is_some();
     let mut payload = json!({
         "message": message,
-        "content": message,
         "senderDid": deliver.from_agent_did,
+        "senderAgentName": sender_agent_name,
+        "senderDisplayName": sender_display_name,
         "recipientDid": deliver.to_agent_did,
+        "groupId": group_id,
+        "groupName": resolved_group_name,
+        "isGroupMessage": is_group_message,
         "requestId": deliver.id,
         "metadata": {
             "conversationId": deliver.conversation_id,
@@ -133,8 +152,12 @@ fn build_openclaw_agent_payload(
     payload
 }
 
-fn build_openclaw_wake_payload(deliver: &DeliverFrame) -> Value {
-    let wake_text = render_openclaw_wake_text(deliver);
+fn build_openclaw_wake_payload(
+    deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+    group_name: Option<&str>,
+) -> Value {
+    let wake_text = render_openclaw_wake_text(deliver, sender_profile, group_name);
     let session_id = deliver
         .payload
         .get("sessionId")
@@ -152,12 +175,31 @@ fn build_openclaw_wake_payload(deliver: &DeliverFrame) -> Value {
     payload
 }
 
-fn render_openclaw_wake_text(deliver: &DeliverFrame) -> String {
+#[allow(clippy::too_many_lines)]
+fn render_openclaw_wake_text(
+    deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+    group_name: Option<&str>,
+) -> String {
     let message = extract_content(&deliver.payload);
-    let mut lines = vec![format!(
-        "Clawdentity peer message from {}",
-        deliver.from_agent_did
-    )];
+    let sender_agent_name = resolve_sender_agent_name(deliver, sender_profile);
+    let sender_display_name = resolve_sender_display_name(deliver, sender_profile);
+    let sender_label = render_sender_label(
+        sender_agent_name.as_deref(),
+        sender_display_name.as_deref(),
+        &deliver.from_agent_did,
+    );
+    let group_id = normalize_optional_non_empty(deliver.group_id.as_deref());
+    let resolved_group_name = resolve_group_name(deliver, group_name, group_id.as_deref());
+    let headline = if group_id.is_some() {
+        let group_label = resolved_group_name
+            .or(group_id)
+            .unwrap_or_else(|| "unknown-group".to_string());
+        format!("Message in {group_label} from {sender_label}")
+    } else {
+        format!("Message from {sender_label}")
+    };
+    let mut lines = vec![headline];
 
     if !message.trim().is_empty() {
         lines.push(String::new());
@@ -191,6 +233,69 @@ fn render_openclaw_wake_text(deliver: &DeliverFrame) -> String {
     );
 
     lines.join("\n")
+}
+
+fn normalize_optional_non_empty(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|candidate| !candidate.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn resolve_sender_agent_name(
+    deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+) -> Option<String> {
+    sender_profile
+        .and_then(|profile| profile.agent_name.clone())
+        .or_else(|| {
+            normalize_optional_non_empty(
+                deliver
+                    .payload
+                    .get("senderAgentName")
+                    .and_then(Value::as_str)
+                    .or_else(|| deliver.payload.get("agentName").and_then(Value::as_str)),
+            )
+        })
+}
+
+fn resolve_sender_display_name(
+    deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+) -> Option<String> {
+    sender_profile
+        .and_then(|profile| profile.display_name.clone())
+        .or_else(|| {
+            normalize_optional_non_empty(
+                deliver
+                    .payload
+                    .get("senderDisplayName")
+                    .and_then(Value::as_str)
+                    .or_else(|| deliver.payload.get("displayName").and_then(Value::as_str)),
+            )
+        })
+}
+
+fn resolve_group_name(
+    deliver: &DeliverFrame,
+    explicit_group_name: Option<&str>,
+    group_id: Option<&str>,
+) -> Option<String> {
+    explicit_group_name
+        .and_then(|value| normalize_optional_non_empty(Some(value)))
+        .or_else(|| {
+            normalize_optional_non_empty(deliver.payload.get("groupName").and_then(Value::as_str))
+        })
+        .or_else(|| group_id.map(ToOwned::to_owned))
+}
+
+fn render_sender_label(agent_name: Option<&str>, display_name: Option<&str>, did: &str) -> String {
+    match (agent_name, display_name) {
+        (Some(agent_name), Some(display_name)) => format!("{agent_name} ({display_name})"),
+        (Some(agent_name), None) => agent_name.to_string(),
+        (None, Some(display_name)) => display_name.to_string(),
+        (None, None) => did.to_string(),
+    }
 }
 
 fn append_optional_line(lines: &mut Vec<String>, value: Option<&str>, label: &str, pad: bool) {

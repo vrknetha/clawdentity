@@ -136,6 +136,7 @@ function configureDatabase(database: DatabaseSync): void {
       id TEXT NOT NULL,
       from_agent_did TEXT NOT NULL,
       to_agent_did TEXT NOT NULL,
+      group_id TEXT,
       conversation_id TEXT,
       reply_to TEXT,
       payload TEXT NOT NULL,
@@ -152,6 +153,7 @@ function configureDatabase(database: DatabaseSync): void {
       id TEXT NOT NULL,
       from_agent_did TEXT NOT NULL,
       to_agent_did TEXT NOT NULL,
+      group_id TEXT,
       conversation_id TEXT,
       reply_to TEXT,
       payload TEXT NOT NULL,
@@ -180,6 +182,41 @@ function configureDatabase(database: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_inbox_events_created_at
       ON inbox_events(created_at);
   `);
+  ensureColumn(database, "inbox_pending", "group_id", "TEXT");
+  ensureColumn(database, "inbox_dead_letter", "group_id", "TEXT");
+}
+
+function ensureColumn(
+  database: DatabaseSync,
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const allowlistedDefinitions = {
+    inbox_dead_letter: {
+      group_id: "TEXT",
+    },
+    inbox_pending: {
+      group_id: "TEXT",
+    },
+  } as const;
+  const expectedDefinition =
+    allowlistedDefinitions[table as keyof typeof allowlistedDefinitions]?.[
+      column as "group_id"
+    ];
+  if (expectedDefinition !== definition) {
+    throw new Error(`ensureColumn received unsupported identifier pair`);
+  }
+
+  const rows = database
+    .prepare(`PRAGMA table_info("${table}")`)
+    .all() as Array<{
+    name?: string;
+  }>;
+  if (rows.some((row) => row.name === column)) {
+    return;
+  }
+  database.exec(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition};`);
 }
 
 function openAndConfigureDatabase(
@@ -255,7 +292,7 @@ export class InboundInboxStorage {
     const limit = Math.max(1, input.limit);
     const rows = this.database
       .prepare(
-        `SELECT request_id, id, from_agent_did, to_agent_did, conversation_id,
+        `SELECT request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                 reply_to, payload, payload_bytes, received_at, next_attempt_at,
                 attempt_count, last_attempt_at, last_error
            FROM inbox_pending
@@ -275,7 +312,7 @@ export class InboundInboxStorage {
       input?.limit === undefined
         ? (this.database
             .prepare(
-              `SELECT request_id, id, from_agent_did, to_agent_did, conversation_id,
+              `SELECT request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                       reply_to, payload, payload_bytes, received_at, next_attempt_at,
                       attempt_count, last_attempt_at, last_error, dead_lettered_at,
                       dead_letter_reason
@@ -285,7 +322,7 @@ export class InboundInboxStorage {
             .all() as Array<Parameters<typeof toDeadLetterItem>[0]>)
         : (this.database
             .prepare(
-              `SELECT request_id, id, from_agent_did, to_agent_did, conversation_id,
+              `SELECT request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                       reply_to, payload, payload_bytes, received_at, next_attempt_at,
                       attempt_count, last_attempt_at, last_error, dead_lettered_at,
                       dead_letter_reason
@@ -374,7 +411,7 @@ export class InboundInboxStorage {
       getDeadLetter: (requestId) => {
         const row = this.database
           .prepare(
-            `SELECT request_id, id, from_agent_did, to_agent_did, conversation_id,
+            `SELECT request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                     reply_to, payload, payload_bytes, received_at, next_attempt_at,
                     attempt_count, last_attempt_at, last_error, dead_lettered_at,
                     dead_letter_reason
@@ -397,7 +434,7 @@ export class InboundInboxStorage {
       getPending: (requestId) => {
         const row = this.database
           .prepare(
-            `SELECT request_id, id, from_agent_did, to_agent_did, conversation_id,
+            `SELECT request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                     reply_to, payload, payload_bytes, received_at, next_attempt_at,
                     attempt_count, last_attempt_at, last_error
                FROM inbox_pending
@@ -438,17 +475,18 @@ export class InboundInboxStorage {
         this.database
           .prepare(
             `INSERT INTO inbox_dead_letter (
-               request_id, id, from_agent_did, to_agent_did, conversation_id,
+               request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                reply_to, payload, payload_bytes, received_at, next_attempt_at,
                attempt_count, last_attempt_at, last_error, dead_lettered_at,
                dead_letter_reason
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             row.request_id,
             row.id,
             row.from_agent_did,
             row.to_agent_did,
+            row.group_id,
             row.conversation_id,
             row.reply_to,
             row.payload,
@@ -467,16 +505,17 @@ export class InboundInboxStorage {
         this.database
           .prepare(
             `INSERT INTO inbox_pending (
-               request_id, id, from_agent_did, to_agent_did, conversation_id,
+               request_id, id, from_agent_did, to_agent_did, group_id, conversation_id,
                reply_to, payload, payload_bytes, received_at, next_attempt_at,
                attempt_count, last_attempt_at, last_error
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             row.request_id,
             row.id,
             row.from_agent_did,
             row.to_agent_did,
+            row.group_id,
             row.conversation_id,
             row.reply_to,
             row.payload,
@@ -496,6 +535,7 @@ export class InboundInboxStorage {
                 SET id = ?,
                     from_agent_did = ?,
                     to_agent_did = ?,
+                    group_id = ?,
                     conversation_id = ?,
                     reply_to = ?,
                     payload = ?,
@@ -511,6 +551,7 @@ export class InboundInboxStorage {
             row.id,
             row.from_agent_did,
             row.to_agent_did,
+            row.group_id,
             row.conversation_id,
             row.reply_to,
             row.payload,

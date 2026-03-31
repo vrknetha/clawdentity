@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -12,8 +12,9 @@ use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
     ConnectorServiceUninstallInput, CoreError, OutboundSendObservation, RuntimeServerState,
-    SqliteStore, flush_outbound_queue_to_relay_with_send_observer, install_connector_service,
-    spawn_connector_client, uninstall_connector_service,
+    SqliteStore, UpsertPeerInput, flush_outbound_queue_to_relay_with_send_observer,
+    install_connector_service, list_peers, load_peers_config, now_utc_ms, spawn_connector_client,
+    sync_openclaw_relay_peers_snapshot, uninstall_connector_service, upsert_peer,
 };
 use serde_json::json;
 use tokio::sync::watch;
@@ -23,17 +24,19 @@ const DEFAULT_CONNECTOR_PORT: u16 = 19400;
 const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
+const PEER_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
 type OutboundInflightMap = Arc<Mutex<HashMap<String, String>>>;
 
 mod delivery;
 mod headers;
 mod receipts;
-mod runtime_config;
+pub(crate) mod runtime_config;
 
 use delivery::{
-    InboundLoopRuntime, PendingReceiptQueueHandle, run_inbound_loop, run_inbound_retry_loop,
+    InboundLoopRuntime, InboundRetryRuntime, PendingReceiptQueueHandle, run_inbound_loop,
+    run_inbound_retry_loop,
 };
-use receipts::{ReceiptDispatchRuntime, ReceiptOutboxHandle, start_receipt_outbox_worker};
+use receipts::{ReceiptDispatchRuntime, start_receipt_outbox_worker};
 
 #[cfg(test)]
 use delivery::{
@@ -284,6 +287,8 @@ async fn start_connector_runtime(
     let pending_receipt_notifications: PendingReceiptQueueHandle = Arc::new(Mutex::new(Vec::new()));
 
     let inbound_runtime = InboundLoopRuntime {
+        options: options.clone(),
+        agent_name: runtime.agent_name.clone(),
         receipt_outbox: receipt_outbox.clone(),
         relay_sender: relay_sender.clone(),
         store: store.clone(),
@@ -295,17 +300,30 @@ async fn start_connector_runtime(
     let mut inbound_loop_task =
         spawn_inbound_loop_task(client, inbound_runtime, shutdown_rx.clone());
 
-    let mut inbound_retry_task = spawn_inbound_retry_task(
+    let mut inbound_retry_task = spawn_inbound_retry_task(InboundRetryRuntime {
+        options: options.clone(),
+        agent_name: runtime.agent_name.clone(),
         receipt_outbox,
-        store.clone(),
-        runtime.config_dir.clone(),
-        runtime.openclaw_runtime.clone(),
+        store: store.clone(),
+        config_dir: runtime.config_dir.clone(),
+        openclaw_runtime: runtime.openclaw_runtime.clone(),
         pending_receipt_notifications,
+        shutdown_rx: shutdown_rx.clone(),
+    });
+
+    let mut outbound_flush_task = spawn_outbound_flush_task(
+        store.clone(),
+        relay_sender.clone(),
+        outbound_inflight,
         shutdown_rx.clone(),
     );
-
-    let mut outbound_flush_task =
-        spawn_outbound_flush_task(store, relay_sender.clone(), outbound_inflight, shutdown_rx);
+    let mut peer_refresh_task = spawn_peer_refresh_task(
+        options.clone(),
+        runtime.agent_name.clone(),
+        runtime.config_dir.clone(),
+        store.clone(),
+        shutdown_rx.clone(),
+    );
 
     if json {
         println!(
@@ -342,6 +360,9 @@ async fn start_connector_runtime(
         result = &mut outbound_flush_task => {
             return Err(describe_task_exit("outbound flush loop", result));
         }
+        result = &mut peer_refresh_task => {
+            return Err(describe_task_exit("peer refresh loop", result));
+        }
     }
 
     let _ = shutdown_tx.send(true);
@@ -351,6 +372,7 @@ async fn start_connector_runtime(
     await_task("inbound loop", inbound_loop_task).await?;
     await_task("inbound retry loop", inbound_retry_task).await?;
     await_task("outbound flush loop", outbound_flush_task).await?;
+    await_task("peer refresh loop", peer_refresh_task).await?;
 
     Ok(())
 }
@@ -393,24 +415,19 @@ fn spawn_outbound_flush_task(
     })
 }
 
-fn spawn_inbound_retry_task(
-    receipt_outbox: ReceiptOutboxHandle,
-    store: SqliteStore,
+fn spawn_inbound_retry_task(runtime: InboundRetryRuntime) -> JoinHandle<Result<()>> {
+    tokio::spawn(async move { run_inbound_retry_loop(runtime).await })
+}
+
+fn spawn_peer_refresh_task(
+    options: ConfigPathOptions,
+    agent_name: String,
     config_dir: PathBuf,
-    openclaw_runtime: OpenclawRuntimeConfig,
-    pending_receipt_notifications: PendingReceiptQueueHandle,
+    store: SqliteStore,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
     tokio::spawn(async move {
-        run_inbound_retry_loop(
-            receipt_outbox,
-            store,
-            config_dir,
-            openclaw_runtime,
-            pending_receipt_notifications,
-            shutdown_rx,
-        )
-        .await
+        run_peer_refresh_loop(options, &agent_name, config_dir, store, shutdown_rx).await
     })
 }
 
@@ -460,6 +477,100 @@ async fn run_outbound_flush_loop(
                         tracing::warn!(error = %error, "failed to flush outbound queue to relay");
                     }
                 }
+            }
+        }
+    }
+}
+
+async fn run_peer_refresh_loop(
+    options: ConfigPathOptions,
+    agent_name: &str,
+    config_dir: PathBuf,
+    store: SqliteStore,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> Result<()> {
+    refresh_peer_profiles_once(&options, agent_name, config_dir.as_path(), &store).await;
+    let mut interval = tokio::time::interval(PEER_REFRESH_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    return Ok(());
+                }
+            }
+            _ = interval.tick() => {
+                refresh_peer_profiles_once(&options, agent_name, config_dir.as_path(), &store)
+                    .await;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+async fn refresh_peer_profiles_once(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    config_dir: &Path,
+    store: &SqliteStore,
+) {
+    let peers = match list_peers(store) {
+        Ok(peers) => peers,
+        Err(error) => {
+            tracing::warn!(error = %error, "failed to list peers for periodic refresh");
+            return;
+        }
+    };
+    if peers.is_empty() {
+        return;
+    }
+
+    let mut refreshed_any = false;
+    for peer in peers {
+        match runtime_config::fetch_registry_agent_profile(options, agent_name, &peer.did).await {
+            Ok(profile) => {
+                let update = upsert_peer(
+                    store,
+                    UpsertPeerInput {
+                        alias: peer.alias.clone(),
+                        did: peer.did.clone(),
+                        proxy_url: peer.proxy_url.clone(),
+                        agent_name: Some(profile.agent_name),
+                        display_name: Some(profile.display_name),
+                        framework: profile.framework,
+                        description: None,
+                        last_synced_at_ms: Some(now_utc_ms()),
+                    },
+                );
+                if let Err(error) = update {
+                    tracing::warn!(
+                        error = %error,
+                        alias = %peer.alias,
+                        "failed to persist periodic peer profile refresh"
+                    );
+                } else {
+                    refreshed_any = true;
+                }
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    alias = %peer.alias,
+                    did = %peer.did,
+                    "failed to refresh peer profile from registry"
+                );
+            }
+        }
+    }
+
+    if refreshed_any {
+        match load_peers_config(store)
+            .and_then(|peers_config| sync_openclaw_relay_peers_snapshot(config_dir, &peers_config))
+        {
+            Ok(()) => {}
+            Err(error) => {
+                tracing::warn!(error = %error, "failed to sync relay peer snapshot after periodic refresh");
             }
         }
     }

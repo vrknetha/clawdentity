@@ -97,7 +97,8 @@ Rust runtime side:
 ```text
 +--------------------------------------------------------------------------+
 |                           CLAWDENTITY REGISTRY                            |
-| Issues identities (AIT), keys, CRL, invites, API keys, pairing metadata  |
+| Issues identities (AIT), keys, CRL, invites, API keys, pairing metadata, |
+| group state, and helper profile/group lookups                             |
 +-----------------------+-------------------------------+------------------+
                         |                               |
                  issues AIT/auth                 issues AIT/auth
@@ -185,9 +186,9 @@ Operators exchange non-secret routing metadata (alias, DID, proxy URL), then con
 
 No private keys or hook secrets are exchanged between peers.
 
-#### Step 4: First Message (Bob -> Alice)
+#### Step 4: First Message (Direct or Group)
 
-Bob connector/relay transform builds signed request:
+Bob connector/relay transform builds a signed request:
 
 - `Authorization: Claw <AIT>`
 - `X-Claw-Timestamp`
@@ -196,7 +197,11 @@ Bob connector/relay transform builds signed request:
 - `X-Claw-Proof`
 - optional agent-access token for proxy policy checks
 
-Alice proxy validates before forwarding to OpenClaw hook endpoint.
+Routing rules:
+- direct delivery uses `toAgentDid` and proxy pair trust
+- group delivery uses `groupId` and proxy membership verification against the registry
+
+Alice proxy validates before forwarding to OpenClaw hook endpoint. For group delivery, the connector/runtime keeps the shared `groupId` on each per-recipient fan-out frame so attribution and retries stay consistent.
 
 ### Verification Pipeline
 
@@ -232,7 +237,9 @@ Key distinction:
 Primary responsibilities:
 - issue and refresh agent identity artifacts
 - manage humans, invites, API keys, revocations
+- manage groups, group members, and group join tokens
 - publish verification metadata (keys/CRL)
+- serve authenticated helper lookups for agent profiles and readable groups
 - provide health/version/environment endpoint for deployment checks
 
 Implementation profile:
@@ -246,13 +253,16 @@ Core domain entities:
 - revocations
 - api_keys
 - invites
+- groups
+- group_members
+- group_join_tokens
 
 ### Proxy Relay (`apps/proxy`)
 
 Primary responsibilities:
 - receive signed relay traffic
 - verify AIT + request PoP + nonce/timestamp
-- enforce trust policy and rate limits
+- enforce direct-route pair trust, group-route membership trust, and rate limits
 - forward verified requests to local OpenClaw gateway with hook token injection
 
 Operational behavior:
@@ -324,6 +334,8 @@ Role:
 Design concerns:
 - frame and transport semantics must remain consistent with proxy/runtime expectations
 - connector state and retry behavior should avoid delivery loss and replay ambiguity
+- direct and group routing stay mutually exclusive at the outbound contract boundary (`toAgentDid` xor `groupId`)
+- OpenClaw-facing inbound delivery must preserve canonical sender/group metadata such as `senderAgentName`, `senderDisplayName`, `groupId`, `groupName`, and `isGroupMessage`
 
 ### Common (`packages/common`)
 
@@ -433,7 +445,9 @@ Outbound path:
 
 ```text
 POST /v1/outbound (runtime)
- -> enqueue outbound row
+ -> validate exactly one route target (`toAgentDid` or `groupId`)
+ -> direct route: enqueue one outbound row for the remote agent
+ -> group route: resolve member DIDs from registry, exclude local sender, enqueue one outbound row per recipient with shared groupId
  -> relay flush to websocket enqueue frame
  -> proxy routes to destination
 ```
@@ -442,7 +456,7 @@ Inbound path:
 
 ```text
 websocket Deliver frame
- -> connector forwards to provider hook
+ -> connector forwards to provider hook with canonical sender/group metadata
  -> success: append delivered event
  -> failure: persist inbound_pending + negative ack
 ```
@@ -480,6 +494,9 @@ Storage model (`rusqlite`, WAL mode):
 - `inbound_dead_letter`
 - `inbound_events`
 - `verify_cache`
+
+Delivery persistence rule:
+- inbound/outbound pending and dead-letter records preserve `group_id` so group retries do not lose thread context
 
 Migration approach:
 - embedded SQL migrations applied at startup
@@ -526,6 +543,9 @@ Practical consequence:
 Both TypeScript and Rust implementations consume the same logical API surfaces:
 - registry metadata
 - agent challenge/register flows
+- authenticated agent profile lookup (`GET /v1/agents/profile`), currently directory-style after auth so peer refresh and pair-accepted enrichment can resolve any valid agent DID
+- lightweight group lookup (`GET /v1/groups/:id`)
+- group lifecycle and internal membership-check routes
 - invite/API key/admin bootstrap endpoints
 - pairing and trust policy endpoints
 - verification key/CRL retrieval endpoints
@@ -549,6 +569,7 @@ Integration responsibilities split as:
 - CLI installs/updates skill artifacts
 - connector/runtime performs authenticated relay transport
 - proxy validates identity/policy before OpenClaw hook delivery
+- registry resolves helper reads for peer refresh, readable group labels, and group membership trust checks
 
 OpenClaw hook token handling rule:
 - keep hook token private on gateway/proxy side
