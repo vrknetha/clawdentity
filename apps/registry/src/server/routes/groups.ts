@@ -757,6 +757,18 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         agentDid: claims.sub,
         aitJti: claims.jti,
       });
+      const groupRows = await db
+        .select({
+          id: groups.id,
+          name: groups.name,
+        })
+        .from(groups)
+        .where(eq(groups.id, groupId))
+        .limit(1);
+      const group = groupRows[0];
+      if (!group) {
+        throw groupNotFoundError();
+      }
       const membershipRows = await db
         .select({
           agentId: group_members.agent_id,
@@ -772,6 +784,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       if (!membershipRows[0]) {
         throw groupJoinForbiddenError();
       }
+      resolvedGroup = group;
     }
 
     const group =

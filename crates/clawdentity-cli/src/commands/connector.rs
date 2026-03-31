@@ -490,7 +490,17 @@ async fn run_peer_refresh_loop(
     store: SqliteStore,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    refresh_peer_profiles_once(&options, agent_name, config_dir.as_path(), &store).await;
+    if refresh_peer_profiles_once(
+        &options,
+        agent_name,
+        config_dir.as_path(),
+        &store,
+        &mut shutdown_rx,
+    )
+    .await
+    {
+        return Ok(());
+    }
     let mut interval = tokio::time::interval(PEER_REFRESH_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -502,8 +512,17 @@ async fn run_peer_refresh_loop(
                 }
             }
             _ = interval.tick() => {
-                refresh_peer_profiles_once(&options, agent_name, config_dir.as_path(), &store)
-                    .await;
+                if refresh_peer_profiles_once(
+                    &options,
+                    agent_name,
+                    config_dir.as_path(),
+                    &store,
+                    &mut shutdown_rx,
+                )
+                .await
+                {
+                    return Ok(());
+                }
             }
         }
     }
@@ -515,21 +534,37 @@ async fn refresh_peer_profiles_once(
     agent_name: &str,
     config_dir: &Path,
     store: &SqliteStore,
-) {
+    shutdown_rx: &mut watch::Receiver<bool>,
+) -> bool {
+    if *shutdown_rx.borrow() {
+        return true;
+    }
+
     let peers = match list_peers(store) {
         Ok(peers) => peers,
         Err(error) => {
             tracing::warn!(error = %error, "failed to list peers for periodic refresh");
-            return;
+            return false;
         }
     };
     if peers.is_empty() {
-        return;
+        return false;
     }
 
     let mut refreshed_any = false;
     for peer in peers {
-        match runtime_config::fetch_registry_agent_profile(options, agent_name, &peer.did).await {
+        if *shutdown_rx.borrow() {
+            return true;
+        }
+
+        tokio::select! {
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
+                    return true;
+                }
+                continue;
+            }
+            profile_result = runtime_config::fetch_registry_agent_profile(options, agent_name, &peer.did) => match profile_result {
             Ok(profile) => {
                 let update = upsert_peer(
                     store,
@@ -562,10 +597,11 @@ async fn refresh_peer_profiles_once(
                     "failed to refresh peer profile from registry"
                 );
             }
+            }
         }
     }
 
-    if refreshed_any {
+    if refreshed_any && !*shutdown_rx.borrow() {
         match load_peers_config(store)
             .and_then(|peers_config| sync_openclaw_relay_peers_snapshot(config_dir, &peers_config))
         {
@@ -575,6 +611,8 @@ async fn refresh_peer_profiles_once(
             }
         }
     }
+
+    false
 }
 
 pub(super) fn env_trimmed(name: &str) -> Option<String> {

@@ -25,6 +25,7 @@
 - Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
 - OpenClaw inbound payload shape is canonical and non-legacy: emit `message`, `senderDid`, `senderAgentName`, `senderDisplayName`, `recipientDid`, `groupId`, `groupName`, `isGroupMessage`, `requestId`, and `metadata` only.
 - Group-name lookups for inbound delivery should use a short in-process TTL cache behind the runtime-config helper so repeated group traffic does not force one registry read per message.
+- Periodic peer-profile refresh must stay shutdown-aware: check `shutdown_rx` before and between peer lookups, and make each registry call cancellable with `tokio::select!` so connector stop latency does not scale with peer count or network timeout.
 - Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
 - Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
 - Prefer `&Path` in internal helper signatures and only use `PathBuf` where ownership is required, so Clippy `ptr_arg` remains green in connector runtime code.
