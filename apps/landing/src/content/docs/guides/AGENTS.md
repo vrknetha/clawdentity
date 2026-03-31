@@ -1,3 +1,9 @@
+---
+title: Agent Guide Maintenance Rules
+sidebar:
+  hidden: true
+---
+
 # AGENTS.md (apps/landing/src/content/docs/guides)
 
 ## Purpose

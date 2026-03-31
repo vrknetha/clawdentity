@@ -144,6 +144,43 @@ fn fallback_sender_profile(
         .or_else(|| lookup_stale_cached_sender_profile(sender_agent_did))
 }
 
+async fn refresh_sender_profile_from_registry(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    store: &SqliteStore,
+    local_peer: Option<&LocalSenderPeer>,
+    sender_agent_did: &str,
+    now_ms: i64,
+) -> Option<SenderProfileHeaders> {
+    match fetch_registry_agent_profile(options, agent_name, sender_agent_did).await {
+        Ok(registry_profile) => {
+            if registry_profile.agent_did.trim() != sender_agent_did {
+                tracing::warn!(
+                    sender_agent_did,
+                    fetched_agent_did = %registry_profile.agent_did,
+                    "registry sender profile DID mismatch; falling back to local metadata"
+                );
+                return None;
+            }
+
+            let resolved_profile = sender_profile_from_registry(&registry_profile);
+            remember_sender_profile(sender_agent_did, &resolved_profile, now_ms);
+            if let Some(peer) = local_peer {
+                persist_refreshed_sender_profile(store, peer, &registry_profile);
+            }
+            Some(resolved_profile)
+        }
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                sender_agent_did,
+                "failed to refresh sender profile from registry for inbound delivery"
+            );
+            None
+        }
+    }
+}
+
 pub(super) async fn resolve_sender_profile_for_delivery(
     options: &ConfigPathOptions,
     agent_name: &str,
@@ -169,31 +206,18 @@ pub(super) async fn resolve_sender_profile_for_delivery(
         return Some(cached_profile);
     }
 
-    match fetch_registry_agent_profile(options, agent_name, sender_agent_did).await {
-        Ok(registry_profile) => {
-            if registry_profile.agent_did.trim() != sender_agent_did {
-                tracing::warn!(
-                    sender_agent_did,
-                    fetched_agent_did = %registry_profile.agent_did,
-                    "registry sender profile DID mismatch; falling back to local metadata"
-                );
-                return fallback_sender_profile(local_peer.as_ref(), sender_agent_did);
-            }
-
-            let resolved_profile = sender_profile_from_registry(&registry_profile);
-            remember_sender_profile(sender_agent_did, &resolved_profile, now_ms);
-            if let Some(peer) = local_peer.as_ref() {
-                persist_refreshed_sender_profile(store, peer, &registry_profile);
-            }
-            Some(resolved_profile)
-        }
-        Err(error) => {
-            tracing::warn!(
-                error = %error,
-                sender_agent_did,
-                "failed to refresh sender profile from registry for inbound delivery"
-            );
-            fallback_sender_profile(local_peer.as_ref(), sender_agent_did)
-        }
+    if let Some(registry_profile) = refresh_sender_profile_from_registry(
+        options,
+        agent_name,
+        store,
+        local_peer.as_ref(),
+        sender_agent_did,
+        now_ms,
+    )
+    .await
+    {
+        return Some(registry_profile);
     }
+
+    fallback_sender_profile(local_peer.as_ref(), sender_agent_did)
 }
