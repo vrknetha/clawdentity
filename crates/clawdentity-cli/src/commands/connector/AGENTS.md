@@ -17,11 +17,15 @@
 - Keep connector test files under structural limits by grouping focused cases into submodules (for example `tests/expected_agent_name.rs`) instead of growing a single monolithic `tests.rs`.
 - Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.
 - Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-display-name`) when local peer metadata exists.
+- Inbound sender name metadata must be resolved name-first from trusted local peer metadata, with registry profile refresh (`GET /v1/agents/profile?did=...`) when local names are missing or stale; never treat sender-supplied payload names as authoritative.
+- Sender profile refresh is best-effort: failed refresh must not block valid delivery, and fallback behavior must preserve IDs while returning the freshest available local/cached names when present.
 - Group-scoped inbound deliveries must propagate `x-clawdentity-group-id` and preserve `group_id` in pending/dead-letter persistence so retries keep thread context.
+- Group name resolution for inbound delivery must use registry lookups plus short-lived cache reuse; when no trustworthy name is available, keep `groupId` and leave `groupName` missing instead of echoing IDs as names.
 - Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.
 - Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
 - OpenClaw inbound payload shape is canonical and non-legacy: emit `message`, `senderDid`, `senderAgentName`, `senderDisplayName`, `recipientDid`, `groupId`, `groupName`, `isGroupMessage`, `requestId`, and `metadata` only.
 - Group-name lookups for inbound delivery should use a short in-process TTL cache behind the runtime-config helper so repeated group traffic does not force one registry read per message.
+- Periodic peer-profile refresh must stay shutdown-aware: check `shutdown_rx` before and between peer lookups, and make each registry call cancellable with `tokio::select!` so connector stop latency does not scale with peer count or network timeout.
 - Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
 - Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
 - Prefer `&Path` in internal helper signatures and only use `PathBuf` where ownership is required, so Clippy `ptr_arg` remains green in connector runtime code.

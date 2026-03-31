@@ -4,7 +4,10 @@ use clawdentity_core::agent::AgentAuthRecord;
 use clawdentity_core::config::{CliConfig, ConfigPathOptions, get_config_dir, write_config};
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
-use clawdentity_core::{DeliverFrame, ReceiptFrame, ReceiptStatus};
+use clawdentity_core::{
+    DeliverFrame, ReceiptFrame, ReceiptStatus, SqliteStore, UpsertPeerInput, get_peer_by_did,
+    now_utc_ms, upsert_peer,
+};
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
@@ -18,12 +21,15 @@ use super::runtime_config::{
 use super::{
     SenderProfileHeaders, build_deliver_ack_reason, build_openclaw_delivery_headers,
     build_openclaw_hook_payload, build_openclaw_receipt_payload, forward_deliver_to_openclaw,
-    normalize_hook_path, should_dead_letter_after_failure,
+    normalize_hook_path, resolve_group_name_for_delivery, resolve_sender_profile_for_delivery,
+    should_dead_letter_after_failure,
 };
-use wiremock::matchers::{body_json, method, path};
+use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod expected_agent_name;
+mod inbound_names;
+mod peer_refresh;
 #[test]
 fn normalizes_hook_path_with_leading_slash() {
     assert_eq!(normalize_hook_path("hooks/agent"), "/hooks/agent");
@@ -385,6 +391,7 @@ fn openclaw_wake_payload_ignores_agent_mapping() {
     let payload = build_openclaw_hook_payload("/hooks/wake", &deliver, None, None, Some("alpha"));
     assert!(payload.get("agentId").is_none());
 }
+
 #[test]
 fn openclaw_receipt_payload_uses_message_field_for_agent_hooks() {
     let receipt = ReceiptFrame {
@@ -529,6 +536,7 @@ async fn forward_delivery_posts_agent_id_for_agent_hook_path() {
         .await
         .expect("forward delivery should succeed");
 }
+
 #[test]
 fn pending_retry_dead_letters_at_max_attempt_threshold() {
     assert!(!should_dead_letter_after_failure(0));
@@ -583,8 +591,12 @@ fn fixture_ait() -> String {
 static RECEIPT_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 fn setup_receipt_header_fixture() -> (ConfigPathOptions, String) {
+    setup_receipt_header_fixture_with_registry("https://registry.example")
+}
+
+fn setup_receipt_header_fixture_with_registry(registry_url: &str) -> (ConfigPathOptions, String) {
     let options = receipt_fixture_options();
-    write_receipt_fixture_config(&options);
+    write_receipt_fixture_config(&options, registry_url);
 
     let agent_name = "alpha".to_string();
     write_receipt_fixture_agent_files(&options, &agent_name);
@@ -606,10 +618,10 @@ fn receipt_fixture_options() -> ConfigPathOptions {
     }
 }
 
-fn write_receipt_fixture_config(options: &ConfigPathOptions) {
+fn write_receipt_fixture_config(options: &ConfigPathOptions, registry_url: &str) {
     write_config(
         &CliConfig {
-            registry_url: "https://registry.example".to_string(),
+            registry_url: registry_url.to_string(),
             proxy_url: Some("https://proxy.example".to_string()),
             api_key: None,
             human_name: Some("Tester".to_string()),

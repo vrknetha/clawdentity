@@ -271,6 +271,34 @@ Optional:
 - `clawdentity connector service uninstall <agent-name>`
 - `clawdentity connector service uninstall <agent-name> --platform <auto|launchd|systemd>`
 
+## Sending Messages
+
+Canonical routing contract for OpenClaw relay payloads:
+- direct message: use `payload.peer`
+- group message: use `payload.groupId`
+- do not send both `payload.peer` and `payload.groupId` in the same outbound payload
+
+## Receiving Messages
+
+Inbound payload identity is always DID-first, name-first for display:
+- canonical IDs: `senderDid`, `recipientDid`, and `groupId` (group traffic)
+- expected runtime metadata: `senderAgentName`, `senderDisplayName`, `groupName`
+- read friendly fields first for display; use DID/group IDs as fallback identity
+- friendly fields are runtime-resolved metadata (trusted local/registry refresh), not sender-authored authority
+
+## Groups
+
+- Group routing uses `payload.groupId` (`grp_<ULID>`).
+- Inbound payload keeps both `groupId` and `groupName` when name resolution is available.
+- If group-name lookup is unavailable, delivery still succeeds with `groupId` and missing `groupName`.
+
+## Conversation Threading
+
+- Relay thread lane is `conversationId`.
+- For direct relay, default `conversationId` is deterministic from local-agent DID + peer DID.
+- Caller can override lane by setting `payload.conversationId` explicitly.
+- Group traffic keeps normal `conversationId` behavior; display labels should prioritize `groupName` and sender friendly names when present.
+
 ## Journey (Strict Order)
 
 1. Install CLI.

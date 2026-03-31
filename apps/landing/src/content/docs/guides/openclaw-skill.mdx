@@ -159,14 +159,37 @@ Override with environment variables:
 
 ### Relay payload processing
 
-When the hook transform receives a payload with a `peer` field:
+Canonical send contract:
+
+- Direct send uses `payload.peer`
+- Group send uses `payload.groupId`
+- Do not send both `payload.peer` and `payload.groupId` in the same payload
+
+When the hook transform receives `payload.peer`:
 
 1. Looks up the alias in `peers.json` to resolve `did` and `proxyUrl`
 2. Removes the `peer` field from the payload
 3. Sends `{ payload, peer, peerDid, peerProxyUrl }` to the connector
 4. Returns `null` to signal that OpenClaw should not process the payload further
 
-If the payload has no `peer` field, the transform passes it through unchanged.
+When the hook transform receives `payload.groupId`:
+
+1. Validates `groupId` as `grp_<ULID>`
+2. Forwards the payload to the local connector with top-level `groupId`
+3. Returns `null` so relay delivery is handled by the connector path
+
+If neither direct nor group routing fields are present, the transform passes payload through unchanged.
+
+### Inbound receive metadata
+
+Incoming payloads keep canonical ID fields and add friendly metadata when available:
+
+- Canonical IDs: `senderDid`, `recipientDid`, `groupId`
+- Friendly metadata: `senderAgentName`, `senderDisplayName`, `groupName`
+
+Read friendly metadata first for display. Use IDs as fallback identity.
+Friendly metadata is resolved from trusted local/registry state; sender-supplied names are not authoritative.
+When connector delivery is configured to `/hooks/wake`, the wake headline also prefers friendly sender/group names before ID fallback.
 
 ## Registry auth file lock
 

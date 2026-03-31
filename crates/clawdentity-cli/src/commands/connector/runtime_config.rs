@@ -68,6 +68,11 @@ fn lookup_cached_group_name(group_id: &str, now_ms: i64) -> Option<String> {
     Some(entry.name.clone())
 }
 
+fn lookup_stale_cached_group_name(group_id: &str) -> Option<String> {
+    let cache = group_name_cache().lock().ok()?;
+    cache.get(group_id).map(|entry| entry.name.clone())
+}
+
 fn remember_group_name(group_id: &str, name: &str, now_ms: i64) {
     if let Ok(mut cache) = group_name_cache().lock() {
         cache.retain(|_, entry| entry.expires_at_ms > now_ms);
@@ -612,9 +617,23 @@ pub(crate) async fn fetch_group_name(
     }
 
     let runtime_inputs = load_runtime_inputs(options, agent_name).await?;
-    let group_name = lookup_group_name_from_registry(&runtime_inputs, &normalized_group_id).await?;
-    remember_group_name(&normalized_group_id, &group_name, now_ms);
-    Ok(group_name)
+    match lookup_group_name_from_registry(&runtime_inputs, &normalized_group_id).await {
+        Ok(group_name) => {
+            remember_group_name(&normalized_group_id, &group_name, now_ms);
+            Ok(group_name)
+        }
+        Err(error) => {
+            if let Some(group_name) = lookup_stale_cached_group_name(&normalized_group_id) {
+                tracing::warn!(
+                    error = %error,
+                    group_id = %normalized_group_id,
+                    "group lookup failed; reusing stale cached group name"
+                );
+                return Ok(group_name);
+            }
+            Err(error)
+        }
+    }
 }
 
 fn parse_group_name_response(payload: serde_json::Value) -> Result<String> {

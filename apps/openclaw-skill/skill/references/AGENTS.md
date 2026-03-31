@@ -9,3 +9,5 @@
 - Projected relay snapshot examples must use `displayName` and may include additive metadata such as `framework`, `description`, and `lastSyncedAtMs`.
 - When documenting group headers, distinguish proxy routing headers from OpenClaw-facing inbound metadata headers.
 - Use `group join token` as the canonical term.
+- Protocol receive docs must describe `senderAgentName`, `senderDisplayName`, and `groupName` as expected runtime metadata sourced from trusted local/registry resolution, with IDs as fallback identity.
+- Protocol send docs must keep canonical routing language (`payload.peer` for direct, `payload.groupId` for groups, mutually exclusive in one request).

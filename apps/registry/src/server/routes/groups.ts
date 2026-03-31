@@ -34,7 +34,10 @@ import {
   getMutationRowCount,
   isUnsupportedLocalTransactionError,
 } from "../helpers/db-queries.js";
-import { resolveReadableGroupForHuman } from "../helpers/group-access.js";
+import {
+  resolveReadableGroupForAgent,
+  resolveReadableGroupForHuman,
+} from "../helpers/group-access.js";
 import {
   groupCreateInvalidError,
   groupJoinForbiddenError,
@@ -757,21 +760,11 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         agentDid: claims.sub,
         aitJti: claims.jti,
       });
-      const membershipRows = await db
-        .select({
-          agentId: group_members.agent_id,
-        })
-        .from(group_members)
-        .where(
-          and(
-            eq(group_members.group_id, groupId),
-            eq(group_members.agent_id, activeAgent.id),
-          ),
-        )
-        .limit(1);
-      if (!membershipRows[0]) {
-        throw groupJoinForbiddenError();
-      }
+      resolvedGroup = await resolveReadableGroupForAgent({
+        db,
+        groupId,
+        agentId: activeAgent.id,
+      });
     }
 
     const group =

@@ -20,6 +20,12 @@
   - pair payloads use `humanName`
   - registry profile lookup and projected relay snapshots use `displayName`
   - OpenClaw inbound payloads use `senderDisplayName`
+- Keep send contract wording simple and canonical in user-facing skill docs:
+  - direct send uses `payload.peer`
+  - group send uses `payload.groupId`
+  - do not document mixed direct+group routing in one outbound payload
+- Receiving docs must be name-first for runtime metadata: read `senderAgentName`, `senderDisplayName`, and `groupName` first, with DID/group IDs as identity fallback.
+- Do not present sender-supplied name fields as authoritative; docs should reflect registry/local trusted metadata resolution behavior.
 - Keep local harness/testing instructions out of user-facing documentation; those belong in internal testing skills or operator runbooks, not the published skill/docs.
 - When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
 - Keep a single canonical skill URL path:
