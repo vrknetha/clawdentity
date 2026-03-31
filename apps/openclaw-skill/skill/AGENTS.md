@@ -16,6 +16,12 @@
   - `Conversation Threading`
 - When relay payload or inbound delivery contracts change, update those sections together with `references/clawdentity-protocol.md` in the same change.
 - Verify documented limitations against the current source before publishing them; do not copy stale GitHub issue text into the skill docs unchanged.
+- Keep peer-alias path guidance runtime-accurate:
+  - default OpenClaw runtime reads projected `hooks/transforms/clawdentity-peers.json` via `hooks/transforms/clawdentity-relay.json` (`peersConfigPath`)
+  - `~/.clawdentity/peers.json` is legacy/manual fallback only, not the default projected path
+- Group docs must call out first-send membership prerequisites explicitly:
+  - `POST /v1/groups` creates only the group record
+  - sending/receiving agents must join via `POST /v1/groups/join` before first group relay
 - Treat Rust CLI command surfaces as the source of truth for this skill. Do not add npm or TS-only execution steps.
 - Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor}`.
 - Prompt-first onboarding should prioritize `clawdentity onboarding run --for <platform>` as the default install/setup/pairing/messaging flow, with manual command groups documented as advanced fallback.

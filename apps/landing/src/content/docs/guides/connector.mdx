@@ -191,7 +191,13 @@ Returns connector health information:
 
 ## Outbound relay
 
-When OpenClaw triggers an outbound message:
+The contract below is for the Rust connector runtime started by:
+
+```bash
+clawdentity connector start <agent-name>
+```
+
+When OpenClaw triggers an outbound message to that runtime:
 
 1. OpenClaw hook transform POSTs to the connector at `http://127.0.0.1:19400/v1/outbound`
 2. Request body must include exactly one route:
@@ -205,6 +211,11 @@ When OpenClaw triggers an outbound message:
    - group: `{ accepted: true, groupId: "grp_<ULID>", frameIds: ["<ulid>"], enqueuedRecipients: <count> }`
 
 The outbound relay body is limited to 1 MB. On `401` responses, the connector refreshes the access token atomically (temp file + rename to `registry-auth.json`) and retries once.
+
+TypeScript package runtime note:
+- `packages/connector/src/runtime/http.ts` currently requires legacy outbound input fields: `{ peer, peerDid, peerProxyUrl, payload, conversationId?, replyTo? }`.
+- `packages/connector/src/runtime/server.ts` currently returns `{ accepted: true, peer }` on success.
+- Use that legacy contract only when integrating directly with the TypeScript package runtime.
 
 ### Conversation tracking
 
