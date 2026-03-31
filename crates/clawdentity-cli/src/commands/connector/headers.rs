@@ -3,7 +3,7 @@ use clawdentity_core::{DeliverFrame, SqliteStore, get_peer_by_did};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SenderProfileHeaders {
     pub(super) agent_name: Option<String>,
-    pub(super) human_name: Option<String>,
+    pub(super) display_name: Option<String>,
 }
 
 fn sanitize_optional_header_value(value: Option<String>) -> Option<String> {
@@ -30,9 +30,9 @@ pub(super) fn lookup_sender_profile_headers(
         Ok(Some(peer)) => {
             let profile = SenderProfileHeaders {
                 agent_name: sanitize_optional_header_value(peer.agent_name),
-                human_name: sanitize_optional_header_value(peer.human_name),
+                display_name: sanitize_optional_header_value(peer.display_name),
             };
-            if profile.agent_name.is_none() && profile.human_name.is_none() {
+            if profile.agent_name.is_none() && profile.display_name.is_none() {
                 None
             } else {
                 Some(profile)
@@ -67,9 +67,17 @@ pub(super) fn build_openclaw_delivery_headers(
         if let Some(agent_name) = profile.agent_name.as_deref() {
             headers.push(("x-clawdentity-agent-name", agent_name.to_string()));
         }
-        if let Some(human_name) = profile.human_name.as_deref() {
-            headers.push(("x-clawdentity-human-name", human_name.to_string()));
+        if let Some(display_name) = profile.display_name.as_deref() {
+            headers.push(("x-clawdentity-display-name", display_name.to_string()));
         }
+    }
+    if let Some(group_id) = deliver
+        .group_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.push(("x-clawdentity-group-id", group_id.to_string()));
     }
 
     if let Some(token) = openclaw_hook_token.and_then(|value| {

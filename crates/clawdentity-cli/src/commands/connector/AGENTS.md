@@ -16,13 +16,15 @@
 - Connector runtime tests must cover expected-agent-name bypass behavior (`None`/blank expected value) in addition to match/mismatch failures so env-unset paths remain intentional and stable.
 - Keep connector test files under structural limits by grouping focused cases into submodules (for example `tests/expected_agent_name.rs`) instead of growing a single monolithic `tests.rs`.
 - Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.
-- Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-human-name`) when local peer metadata exists.
+- Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-display-name`) when local peer metadata exists.
+- Group-scoped inbound deliveries must propagate `x-clawdentity-group-id` and preserve `group_id` in pending/dead-letter persistence so retries keep thread context.
 - Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.
 - Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
+- OpenClaw inbound payload shape is canonical and non-legacy: emit `message`, `senderDid`, `senderAgentName`, `senderDisplayName`, `recipientDid`, `groupId`, `groupName`, `isGroupMessage`, `requestId`, and `metadata` only.
 - Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
 - Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
 - Handle pairing acceptance system events in `delivery/pair_accepted.rs` and invoke that processor in both live inbound delivery flow and retry replay flow.
-- Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`; never duplicate direct peer upsert/snapshot logic in connector runtime.
+- Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`, then enrich the saved peer with registry profile fields (`display_name`, `framework`, `last_synced_at_ms`) from `GET /v1/agents/profile`.
 - Pair-accepted system side effects must run only for trusted relay delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`); never mutate peer state for user-authored payload-only `system.type=pair.accepted`.
 - Pair-accepted system payload validation must include DID checks, responder proxy origin URL checks, and event timestamp parsing before mutating peer state.
 - Pair-accepted structured fields are mandatory for trusted side effects; optional `system.message` is UX-only and must never be used as a replacement for persistence/trust metadata.

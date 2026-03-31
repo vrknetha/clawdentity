@@ -110,7 +110,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     ).toBeUndefined();
     expect(
       (requestInit?.headers as Record<string, string>)[
-        "x-clawdentity-human-name"
+        "x-clawdentity-display-name"
       ],
     ).toBeUndefined();
 
@@ -138,7 +138,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
       fetchImpl: fetchMock,
       resolveInboundSenderProfile: async () => ({
         agentName: "ravi-assistant",
-        humanName: "Ravi Kiran",
+        displayName: "Ravi Kiran",
       }),
       webSocketFactory,
     });
@@ -169,7 +169,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     const [, requestInit] = fetchMock.mock.calls[0];
     expect(requestInit?.headers).toMatchObject({
       "x-clawdentity-agent-name": "ravi-assistant",
-      "x-clawdentity-human-name": "Ravi Kiran",
+      "x-clawdentity-display-name": "Ravi Kiran",
     });
 
     const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);

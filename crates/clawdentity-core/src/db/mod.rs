@@ -151,6 +151,46 @@ ALTER TABLE outbound_queue
 ALTER TABLE outbound_dead_letter
     ADD COLUMN group_id TEXT;
 "#;
+const MIGRATION_NAME_PHASE8: &str = "0006_peer_profile_cutover";
+const MIGRATION_SQL_PHASE8: &str = r#"
+ALTER TABLE inbound_pending
+    ADD COLUMN group_id TEXT;
+
+ALTER TABLE inbound_dead_letter
+    ADD COLUMN group_id TEXT;
+
+CREATE TABLE peers_next (
+    alias TEXT PRIMARY KEY,
+    did TEXT NOT NULL,
+    proxy_url TEXT NOT NULL,
+    agent_name TEXT,
+    display_name TEXT,
+    framework TEXT,
+    description TEXT,
+    last_synced_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+
+INSERT INTO peers_next (
+    alias, did, proxy_url, agent_name, display_name, framework, description, last_synced_at_ms, created_at_ms, updated_at_ms
+)
+SELECT
+    alias,
+    did,
+    proxy_url,
+    agent_name,
+    human_name,
+    NULL,
+    NULL,
+    updated_at_ms,
+    created_at_ms,
+    updated_at_ms
+FROM peers;
+
+DROP TABLE peers;
+ALTER TABLE peers_next RENAME TO peers;
+"#;
 
 #[derive(Clone)]
 pub struct SqliteStore {
@@ -227,6 +267,7 @@ fn apply_migrations(connection: &Connection) -> Result<()> {
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE5, MIGRATION_SQL_PHASE5)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE6, MIGRATION_SQL_PHASE6)?;
     apply_migration_if_needed(connection, MIGRATION_NAME_PHASE7, MIGRATION_SQL_PHASE7)?;
+    apply_migration_if_needed(connection, MIGRATION_NAME_PHASE8, MIGRATION_SQL_PHASE8)?;
     Ok(())
 }
 

@@ -2,6 +2,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
 
 use crate::db::{SqliteStore, now_utc_ms};
+use crate::did::parse_group_id;
 use crate::error::{CoreError, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -10,6 +11,7 @@ pub struct InboundPendingItem {
     pub frame_id: String,
     pub from_agent_did: String,
     pub to_agent_did: String,
+    pub group_id: Option<String>,
     pub payload_json: String,
     pub payload_bytes: i64,
     pub received_at_ms: i64,
@@ -28,6 +30,7 @@ pub struct InboundDeadLetterItem {
     pub frame_id: String,
     pub from_agent_did: String,
     pub to_agent_did: String,
+    pub group_id: Option<String>,
     pub payload_json: String,
     pub payload_bytes: i64,
     pub received_at_ms: i64,
@@ -67,16 +70,17 @@ fn map_pending_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InboundPendingIt
         frame_id: row.get(1)?,
         from_agent_did: row.get(2)?,
         to_agent_did: row.get(3)?,
-        payload_json: row.get(4)?,
-        payload_bytes: row.get(5)?,
-        received_at_ms: row.get(6)?,
-        next_attempt_at_ms: row.get(7)?,
-        attempt_count: row.get(8)?,
-        last_error: row.get(9)?,
-        last_attempt_at_ms: row.get(10)?,
-        delivery_source: row.get(11)?,
-        conversation_id: row.get(12)?,
-        reply_to: row.get(13)?,
+        group_id: row.get(4)?,
+        payload_json: row.get(5)?,
+        payload_bytes: row.get(6)?,
+        received_at_ms: row.get(7)?,
+        next_attempt_at_ms: row.get(8)?,
+        attempt_count: row.get(9)?,
+        last_error: row.get(10)?,
+        last_attempt_at_ms: row.get(11)?,
+        delivery_source: row.get(12)?,
+        conversation_id: row.get(13)?,
+        reply_to: row.get(14)?,
     })
 }
 
@@ -86,17 +90,18 @@ fn map_dead_letter_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<InboundDeadL
         frame_id: row.get(1)?,
         from_agent_did: row.get(2)?,
         to_agent_did: row.get(3)?,
-        payload_json: row.get(4)?,
-        payload_bytes: row.get(5)?,
-        received_at_ms: row.get(6)?,
-        attempt_count: row.get(7)?,
-        last_error: row.get(8)?,
-        last_attempt_at_ms: row.get(9)?,
-        delivery_source: row.get(10)?,
-        conversation_id: row.get(11)?,
-        reply_to: row.get(12)?,
-        dead_lettered_at_ms: row.get(13)?,
-        dead_letter_reason: row.get(14)?,
+        group_id: row.get(4)?,
+        payload_json: row.get(5)?,
+        payload_bytes: row.get(6)?,
+        received_at_ms: row.get(7)?,
+        attempt_count: row.get(8)?,
+        last_error: row.get(9)?,
+        last_attempt_at_ms: row.get(10)?,
+        delivery_source: row.get(11)?,
+        conversation_id: row.get(12)?,
+        reply_to: row.get(13)?,
+        dead_lettered_at_ms: row.get(14)?,
+        dead_letter_reason: row.get(15)?,
     })
 }
 
@@ -126,18 +131,24 @@ pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<(
             "payload_bytes and attempt_count must be >= 0".to_string(),
         ));
     }
+    let group_id = parse_optional_non_empty(item.group_id);
+    if let Some(candidate_group_id) = &group_id {
+        parse_group_id(candidate_group_id)
+            .map_err(|_| CoreError::InvalidInput("group_id is invalid".to_string()))?;
+    }
 
     store.with_connection(|connection| {
         connection.execute(
             "INSERT INTO inbound_pending (
-                request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+                request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                 received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
                 delivery_source, conversation_id, reply_to
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(request_id) DO UPDATE SET
                 frame_id = excluded.frame_id,
                 from_agent_did = excluded.from_agent_did,
                 to_agent_did = excluded.to_agent_did,
+                group_id = excluded.group_id,
                 payload_json = excluded.payload_json,
                 payload_bytes = excluded.payload_bytes,
                 received_at_ms = excluded.received_at_ms,
@@ -153,6 +164,7 @@ pub fn upsert_pending(store: &SqliteStore, item: InboundPendingItem) -> Result<(
                 item.frame_id.trim(),
                 item.from_agent_did.trim(),
                 item.to_agent_did.trim(),
+                group_id,
                 item.payload_json.trim(),
                 item.payload_bytes,
                 item.received_at_ms,
@@ -178,7 +190,7 @@ pub fn list_pending_due(
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+            "SELECT request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                     received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
                     delivery_source, conversation_id, reply_to
              FROM inbound_pending
@@ -209,7 +221,7 @@ pub fn get_pending(store: &SqliteStore, request_id: &str) -> Result<Option<Inbou
     }
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+            "SELECT request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                     received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
                     delivery_source, conversation_id, reply_to
              FROM inbound_pending
@@ -287,7 +299,7 @@ pub fn move_pending_to_dead_letter(
 
     store.with_connection(|connection| {
         let mut select_statement = connection.prepare(
-            "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+            "SELECT request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                     received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
                     delivery_source, conversation_id, reply_to
              FROM inbound_pending
@@ -303,14 +315,15 @@ pub fn move_pending_to_dead_letter(
         let dead_lettered_at_ms = now_utc_ms();
         connection.execute(
             "INSERT INTO inbound_dead_letter (
-                request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+                request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                 received_at_ms, attempt_count, last_error, last_attempt_at_ms, delivery_source,
                 conversation_id, reply_to, dead_lettered_at_ms, dead_letter_reason
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
             ON CONFLICT(request_id) DO UPDATE SET
                 frame_id = excluded.frame_id,
                 from_agent_did = excluded.from_agent_did,
                 to_agent_did = excluded.to_agent_did,
+                group_id = excluded.group_id,
                 payload_json = excluded.payload_json,
                 payload_bytes = excluded.payload_bytes,
                 received_at_ms = excluded.received_at_ms,
@@ -327,6 +340,7 @@ pub fn move_pending_to_dead_letter(
                 pending.frame_id,
                 pending.from_agent_did,
                 pending.to_agent_did,
+                pending.group_id,
                 pending.payload_json,
                 pending.payload_bytes,
                 pending.received_at_ms,
@@ -367,7 +381,7 @@ pub fn list_dead_letter(store: &SqliteStore, limit: usize) -> Result<Vec<Inbound
     let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+            "SELECT request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                     received_at_ms, attempt_count, last_error, last_attempt_at_ms, delivery_source,
                     conversation_id, reply_to, dead_lettered_at_ms, dead_letter_reason
              FROM inbound_dead_letter
@@ -404,7 +418,7 @@ pub fn replay_dead_letter(
     }
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+            "SELECT request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                     received_at_ms, attempt_count, last_error, last_attempt_at_ms, delivery_source,
                     conversation_id, reply_to, dead_lettered_at_ms, dead_letter_reason
              FROM inbound_dead_letter
@@ -419,14 +433,15 @@ pub fn replay_dead_letter(
 
         connection.execute(
             "INSERT INTO inbound_pending (
-                request_id, frame_id, from_agent_did, to_agent_did, payload_json, payload_bytes,
+                request_id, frame_id, from_agent_did, to_agent_did, group_id, payload_json, payload_bytes,
                 received_at_ms, next_attempt_at_ms, attempt_count, last_error, last_attempt_at_ms,
                 delivery_source, conversation_id, reply_to
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(request_id) DO UPDATE SET
                 frame_id = excluded.frame_id,
                 from_agent_did = excluded.from_agent_did,
                 to_agent_did = excluded.to_agent_did,
+                group_id = excluded.group_id,
                 payload_json = excluded.payload_json,
                 payload_bytes = excluded.payload_bytes,
                 received_at_ms = excluded.received_at_ms,
@@ -442,6 +457,7 @@ pub fn replay_dead_letter(
                 dead_letter.frame_id,
                 dead_letter.from_agent_did,
                 dead_letter.to_agent_did,
+                dead_letter.group_id,
                 dead_letter.payload_json,
                 dead_letter.payload_bytes,
                 dead_letter.received_at_ms,
@@ -575,6 +591,7 @@ mod tests {
                 .to_string(),
             to_agent_did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXTE"
                 .to_string(),
+            group_id: Some("grp_01HF7YAT31JZHSMW1CG6Q6MHB7".to_string()),
             payload_json: "{\"message\":\"hello\"}".to_string(),
             payload_bytes: 20,
             received_at_ms: 100,
@@ -605,6 +622,10 @@ mod tests {
             .expect("pending");
         assert_eq!(pending.attempt_count, 1);
         assert_eq!(pending.last_error.as_deref(), Some("retry failed"));
+        assert_eq!(
+            pending.group_id.as_deref(),
+            Some("grp_01HF7YAT31JZHSMW1CG6Q6MHB7")
+        );
 
         let moved = move_pending_to_dead_letter(&store, "req-1", "max-attempts-exceeded")
             .expect("move dead letter");

@@ -73,8 +73,11 @@ export function createInboundReplayController(input: {
   let replayInFlight = false;
 
   const deliverToOpenclawHookWithRetry = async (inputReplay: {
+    conversationId?: string;
     fromAgentDid: string;
+    groupId?: string;
     payload: unknown;
+    replyTo?: string;
     requestId: string;
     senderProfile?: OpenclawSenderProfile;
     toAgentDid: string;
@@ -86,9 +89,12 @@ export function createInboundReplayController(input: {
         await deliverToOpenclawHook({
           fetchImpl: input.fetchImpl,
           fromAgentDid: inputReplay.fromAgentDid,
+          groupId: inputReplay.groupId,
           openclawHookUrl: input.openclawHookUrl,
           openclawHookToken: input.getCurrentOpenclawHookToken(),
           payload: inputReplay.payload,
+          conversationId: inputReplay.conversationId,
+          replyTo: inputReplay.replyTo,
           requestId: inputReplay.requestId,
           senderProfile: inputReplay.senderProfile,
           shutdownSignal: input.runtimeShutdownSignal,
@@ -217,8 +223,11 @@ export function createInboundReplayController(input: {
             try {
               await deliverToOpenclawHookWithRetry({
                 fromAgentDid: pending.fromAgentDid,
+                groupId: pending.groupId,
                 requestId: pending.requestId,
                 payload: pending.payload,
+                conversationId: pending.conversationId,
+                replyTo: pending.replyTo,
                 senderProfile: senderProfilesByDid.get(pending.fromAgentDid),
                 toAgentDid: pending.toAgentDid,
               });

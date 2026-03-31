@@ -33,6 +33,13 @@ export function getAgentSelectColumnValue(
   if (column === "owner_did") {
     return row.owner_did;
   }
+  if (
+    column === "owner_display_name" ||
+    column === "ownerdisplayname" ||
+    column === "display_name"
+  ) {
+    return row.owner_display_name;
+  }
   if (column === "name") {
     return row.name;
   }
@@ -138,12 +145,16 @@ export function resolveAgentSelectRows(options: {
       const ownerDid = options.authRows.find(
         (authRow) => authRow.humanId === row.ownerId,
       )?.humanDid;
+      const ownerDisplayName = options.authRows.find(
+        (authRow) => authRow.humanId === row.ownerId,
+      )?.humanDisplayName;
 
       return {
         id: row.id,
         did: row.did,
         owner_id: row.ownerId,
         owner_did: ownerDid ?? "",
+        owner_display_name: ownerDisplayName ?? "",
         name: row.name,
         framework: row.framework,
         public_key: row.publicKey ?? createFakePublicKey(row.id),

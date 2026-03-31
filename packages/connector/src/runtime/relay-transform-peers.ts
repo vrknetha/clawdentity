@@ -129,14 +129,14 @@ export async function loadRelayTransformPeerEntries(input: {
     }
 
     const agentName = parseOptionalNonEmptyString(peerValue.agentName);
-    const humanName = parseOptionalNonEmptyString(peerValue.humanName);
+    const displayName = parseOptionalNonEmptyString(peerValue.displayName);
 
     entries.push({
       agentDid,
       proxyOrigin: parseOptionalProxyOrigin(peerValue.proxyUrl),
       senderProfile:
-        agentName !== undefined || humanName !== undefined
-          ? { agentName, humanName }
+        agentName !== undefined || displayName !== undefined
+          ? { agentName, displayName }
           : undefined,
     });
   }

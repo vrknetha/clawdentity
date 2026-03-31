@@ -414,7 +414,10 @@ pub fn persist_confirmed_peer_from_profile_and_proxy_origin(
             did: peer_did.to_string(),
             proxy_url: peer_proxy_url,
             agent_name: Some(peer_profile.agent_name.clone()),
-            human_name: Some(peer_profile.human_name.clone()),
+            display_name: Some(peer_profile.human_name.clone()),
+            framework: None,
+            description: None,
+            last_synced_at_ms: Some(crate::now_utc_ms()),
         },
     )?;
     let peers_config = load_peers_config(store)?;

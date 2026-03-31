@@ -3,6 +3,7 @@ import {
   AGENT_REGISTRATION_CHALLENGE_PATH,
   createAgentAuthRevokedMetadata,
   generateUlid,
+  parseAgentDid,
 } from "@clawdentity/protocol";
 import {
   AppError,
@@ -32,12 +33,14 @@ import {
   invalidAgentRevokeStateError,
   parseAgentRevokePath,
 } from "../../agent-revocation.js";
-import { createApiKeyAuth } from "../../auth/api-key-auth.js";
+import { verifyAgentClawRequest } from "../../auth/agent-claw-auth.js";
+import { createApiKeyAuth, resolvePatHuman } from "../../auth/api-key-auth.js";
 import { createDb } from "../../db/client.js";
 import {
   agent_auth_sessions,
   agent_registration_challenges,
   agents,
+  humans,
   revocations,
 } from "../../db/schema.js";
 import { resolveRegistrySigner } from "../../registry-signer.js";
@@ -59,6 +62,98 @@ import {
 
 export function registerAgentRoutes(input: RegistryRouteDependencies): void {
   const { app, getConfig, getEventBus } = input;
+
+  app.get("/v1/agents/profile", async (c) => {
+    const config = getConfig(c.env);
+    const didParam = c.req.query("did");
+    const did = didParam?.trim() ?? "";
+    if (did.length === 0) {
+      throw new AppError({
+        code: "AGENT_PROFILE_INVALID_QUERY",
+        message: "Query parameter did is required",
+        status: 400,
+        expose: true,
+      });
+    }
+    try {
+      parseAgentDid(did);
+    } catch {
+      throw new AppError({
+        code: "AGENT_PROFILE_INVALID_QUERY",
+        message: "Query parameter did must be a valid agent DID",
+        status: 400,
+        expose: true,
+      });
+    }
+
+    const db = createDb(c.env.DB);
+    const authorization = c.req.header("authorization");
+    const isBearer =
+      typeof authorization === "string" && authorization.startsWith("Bearer ");
+    if (isBearer) {
+      await resolvePatHuman({
+        db,
+        authorizationHeader: authorization,
+        touchLastUsed: true,
+      });
+    } else {
+      const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
+      const claims = await verifyAgentClawRequest({
+        config,
+        request: c.req.raw,
+        bodyBytes,
+      });
+
+      const authRows = await db
+        .select({
+          status: agents.status,
+          currentJti: agents.current_jti,
+        })
+        .from(agents)
+        .where(eq(agents.did, claims.sub))
+        .limit(1);
+      const authAgent = authRows[0];
+      if (
+        !authAgent ||
+        authAgent.status !== "active" ||
+        authAgent.currentJti !== claims.jti
+      ) {
+        throw new AppError({
+          code: "AGENT_AUTH_VALIDATE_UNAUTHORIZED",
+          message: "Agent access token is invalid",
+          status: 401,
+          expose: true,
+        });
+      }
+    }
+
+    const rows = await db
+      .select({
+        did: agents.did,
+        name: agents.name,
+        framework: agents.framework,
+        status: agents.status,
+        ownerDid: humans.did,
+        ownerDisplayName: humans.display_name,
+      })
+      .from(agents)
+      .innerJoin(humans, eq(agents.owner_id, humans.id))
+      .where(eq(agents.did, did))
+      .limit(1);
+    const row = rows[0];
+    if (!row) {
+      throw agentNotFoundError();
+    }
+
+    return c.json({
+      agentDid: row.did,
+      agentName: row.name,
+      displayName: row.ownerDisplayName,
+      framework: row.framework ?? "openclaw",
+      status: row.status,
+      humanDid: row.ownerDid,
+    });
+  });
 
   app.get("/v1/agents", createApiKeyAuth(), async (c) => {
     const config = getConfig(c.env);

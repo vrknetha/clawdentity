@@ -6,12 +6,14 @@ pub mod connector;
 pub mod install;
 pub mod onboarding;
 pub mod pair;
+pub mod peer;
 pub mod provider;
 pub mod verify;
 
 use crate::commands::connector::ConnectorCommand;
 use crate::commands::onboarding::OnboardingCommand;
 use crate::commands::pair::PairCommand;
+use crate::commands::peer::PeerCommand;
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
@@ -51,6 +53,10 @@ pub enum Commands {
     Pair {
         #[command(subcommand)]
         command: PairCommand,
+    },
+    Peer {
+        #[command(subcommand)]
+        command: PeerCommand,
     },
     Onboarding {
         #[command(subcommand)]

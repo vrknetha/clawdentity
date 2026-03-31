@@ -43,7 +43,7 @@
 - Non-retryable replay failures must move to dead-letter after `CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS`.
 - Dead-letter operations (`listDeadLetter`, `replayDeadLetter`, `purgeDeadLetter`) must update bytes/count accounting atomically with the same transaction that moves rows.
 - Keep event retention bounded via `eventsMaxRows`; do not reintroduce byte/file rotation logic.
-- Preserve inbound `conversationId` and `replyTo` metadata through inbox persistence and replay delivery.
+- Preserve inbound `conversationId`, `replyTo`, and `groupId` metadata through inbox persistence and replay delivery.
 - Ignore stale JSON inbox files if they still exist on disk; do not read, migrate, or delete them inside the runtime.
 
 ## Replay/Health Rules
@@ -81,7 +81,8 @@
 - Keep local OpenClaw hook auth rejection (`401/403`) retryable in connector delivery paths so token rotation windows do not permanently fail deliveries.
 - Keep structured identity headers on connector hook delivery requests in both runtime replay and direct client-delivery modes:
   - required: `x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`
-  - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-human-name` (omit when unknown)
+  - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-display-name` (omit when unknown)
+  - optional group context: `x-clawdentity-group-id` when present on inbound frames
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules

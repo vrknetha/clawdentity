@@ -5,6 +5,7 @@ import {
   getAgentSelectColumnValue,
   getApiKeySelectColumnValue,
   getCrlSelectColumnValue,
+  getGroupSelectColumnValue,
   getHumanSelectColumnValue,
   getInternalServiceSelectColumnValue,
   getInviteSelectColumnValue,
@@ -14,6 +15,7 @@ import {
   resolveAgentSelectRows,
   resolveApiKeySelectRows,
   resolveCrlSelectRows,
+  resolveGroupSelectRows,
   resolveHumanSelectRows,
   resolveInternalServiceSelectRows,
   resolveInviteSelectRows,
@@ -108,6 +110,7 @@ export function createFakeDb(
     ...(options.internalServiceRows ?? []),
   ];
   const starterPassRows = [...(options.starterPassRows ?? [])];
+  const groupRows = [...(options.groupRows ?? [])];
   const state: FakeDbState = {
     authRows: rows,
     agentRows,
@@ -133,6 +136,7 @@ export function createFakeDb(
     agentAuthSessionRows,
     inviteRows,
     starterPassRows,
+    groupRows,
     humanRows,
     apiKeyRows,
     internalServiceRows,
@@ -431,6 +435,33 @@ export function createFakeDb(
             };
           }
           if (
+            (normalizedQuery.includes('from "groups"') ||
+              normalizedQuery.includes("from groups")) &&
+            normalizedQuery.includes("select")
+          ) {
+            const resultRows = resolveGroupSelectRows({
+              query,
+              params,
+              groupRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return {
+              results: resultRows.map((row) => {
+                if (selectedColumns.length === 0) {
+                  return row;
+                }
+
+                return selectedColumns.reduce<Record<string, unknown>>(
+                  (acc, column) => {
+                    acc[column] = getGroupSelectColumnValue(row, column);
+                    return acc;
+                  },
+                  {},
+                );
+              }),
+            };
+          }
+          if (
             (normalizedQuery.includes('from "revocations"') ||
               normalizedQuery.includes("from revocations")) &&
             normalizedQuery.includes("select")
@@ -612,6 +643,22 @@ export function createFakeDb(
             );
           }
           if (
+            normalizedQuery.includes('from "groups"') ||
+            normalizedQuery.includes("from groups")
+          ) {
+            const resultRows = resolveGroupSelectRows({
+              query,
+              params,
+              groupRows,
+            });
+            const selectedColumns = parseSelectedColumns(query);
+            return resultRows.map((row) =>
+              selectedColumns.map((column) =>
+                getGroupSelectColumnValue(row, column),
+              ),
+            );
+          }
+          if (
             normalizedQuery.includes('from "revocations"') ||
             normalizedQuery.includes("from revocations")
           ) {
@@ -663,6 +710,7 @@ export function createFakeDb(
     starterPassInserts,
     starterPassUpdates,
     starterPassRows,
+    groupRows,
     revocationInserts,
     registrationChallengeRows,
   };

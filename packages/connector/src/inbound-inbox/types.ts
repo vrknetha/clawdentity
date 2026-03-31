@@ -2,6 +2,7 @@ export type ConnectorInboundInboxItem = {
   attemptCount: number;
   conversationId?: string;
   fromAgentDid: string;
+  groupId?: string;
   id: string;
   lastAttemptAt?: string;
   lastError?: string;

@@ -23,3 +23,5 @@
 - Group member-cap enforcement must run inside the same join mutation unit as the member insert (transaction path or guarded insert), not as a pre-check outside the write path.
 - Route handlers that expect JSON request bodies must treat malformed JSON as client input errors (4xx) and must not silently coerce parse failures into default payloads that trigger mutations.
 - When a route supports both PAT and non-PAT auth (for example PAT-or-agent flows), reuse the shared auth resolver from `src/auth/` instead of re-implementing PAT hash/lookup logic in route modules.
+- `GET /v1/agents/profile` is the canonical authenticated profile lookup by DID and must return only contract fields: `agentDid`, `agentName`, `displayName`, `framework`, `status`, `humanDid`.
+- `GET /v1/groups/:id` must remain lightweight and return only `group.id` + `group.name`; keep membership/authorization checks in route-layer helpers and avoid embedding rendering logic.

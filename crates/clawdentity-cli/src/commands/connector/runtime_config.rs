@@ -10,8 +10,8 @@ use clawdentity_core::config::{ConfigPathOptions, get_config_dir, resolve_config
 use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use clawdentity_core::{
     SignHttpRequestInput, build_relay_connect_headers, fetch_registry_metadata,
-    load_connector_assignments, new_frame_id, parse_agent_did, parse_group_id, refresh_agent_auth,
-    resolve_openclaw_base_url, resolve_openclaw_hook_token, sign_http_request,
+    load_connector_assignments, new_frame_id, parse_agent_did, parse_group_id, parse_human_did,
+    refresh_agent_auth, resolve_openclaw_base_url, resolve_openclaw_hook_token, sign_http_request,
 };
 
 use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
@@ -21,6 +21,16 @@ const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
 const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
 const RELAY_DELIVERY_RECEIPTS_PATH: &str = "/v1/relay/delivery-receipts";
 static GROUP_MEMBERSHIP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RegistryAgentProfile {
+    pub agent_did: String,
+    pub agent_name: String,
+    pub display_name: String,
+    pub framework: Option<String>,
+    pub status: String,
+    pub human_did: String,
+}
 
 struct ConnectorRuntimeInputs {
     config: clawdentity_core::config::CliConfig,
@@ -361,7 +371,7 @@ fn build_signed_registry_request_headers(
     Ok(headers)
 }
 
-fn group_membership_http_client() -> Result<&'static reqwest::Client> {
+fn registry_http_client() -> Result<&'static reqwest::Client> {
     if let Some(client) = GROUP_MEMBERSHIP_CLIENT.get() {
         return Ok(client);
     }
@@ -369,12 +379,175 @@ fn group_membership_http_client() -> Result<&'static reqwest::Client> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
-        .map_err(|error| anyhow!("failed to create group membership client: {error}"))?;
+        .map_err(|error| anyhow!("failed to create registry lookup client: {error}"))?;
 
     let _ = GROUP_MEMBERSHIP_CLIENT.set(client);
     GROUP_MEMBERSHIP_CLIENT
         .get()
-        .ok_or_else(|| anyhow!("failed to initialize group membership client"))
+        .ok_or_else(|| anyhow!("failed to initialize registry lookup client"))
+}
+
+#[allow(clippy::too_many_lines)]
+fn parse_registry_agent_profile(payload: serde_json::Value) -> Result<RegistryAgentProfile> {
+    let agent_did = payload
+        .get("agentDid")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow!("agent profile response is invalid: missing agentDid"))?
+        .trim()
+        .to_string();
+    parse_agent_did(&agent_did)
+        .map_err(|error| anyhow!("agent profile response is invalid: {error}"))?;
+
+    let agent_name = payload
+        .get("agentName")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("agent profile response is invalid: missing agentName"))?
+        .to_string();
+
+    let display_name = payload
+        .get("displayName")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("agent profile response is invalid: missing displayName"))?
+        .to_string();
+
+    let framework = payload
+        .get("framework")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let status = payload
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("agent profile response is invalid: missing status"))?
+        .to_string();
+
+    let human_did = payload
+        .get("humanDid")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow!("agent profile response is invalid: missing humanDid"))?
+        .trim()
+        .to_string();
+    parse_human_did(&human_did)
+        .map_err(|error| anyhow!("agent profile response is invalid: {error}"))?;
+
+    Ok(RegistryAgentProfile {
+        agent_did,
+        agent_name,
+        display_name,
+        framework,
+        status,
+        human_did,
+    })
+}
+
+pub(crate) async fn fetch_registry_agent_profile(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    agent_did: &str,
+) -> Result<RegistryAgentProfile> {
+    let normalized_agent_did = agent_did.trim();
+    parse_agent_did(normalized_agent_did)
+        .map_err(|error| anyhow!("agentDid is invalid: {error}"))?;
+    let runtime_inputs = load_runtime_inputs(options, agent_name).await?;
+
+    let mut request_url = reqwest::Url::parse(runtime_inputs.config.registry_url.trim())
+        .map_err(|error| anyhow!("registry URL is invalid: {error}"))?
+        .join("/v1/agents/profile")
+        .map_err(|error| anyhow!("agent profile URL is invalid: {error}"))?;
+    request_url
+        .query_pairs_mut()
+        .append_pair("did", normalized_agent_did);
+
+    let headers = build_signed_registry_request_headers(&runtime_inputs, "GET", &request_url, &[])?;
+    let mut request = registry_http_client()?.get(request_url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| anyhow!("agent profile lookup failed: {error}"))?;
+
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(anyhow!("agent profile not found"));
+    }
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        || response.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        return Err(anyhow!("agent profile lookup is unauthorized"));
+    }
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "agent profile lookup failed with status {}",
+            response.status()
+        ));
+    }
+
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| anyhow!("agent profile response is invalid: {error}"))?;
+    parse_registry_agent_profile(payload)
+}
+
+pub(crate) async fn fetch_group_name(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    group_id: &str,
+) -> Result<String> {
+    let normalized_group_id =
+        parse_group_id(group_id).map_err(|error| anyhow!("groupId is invalid: {error}"))?;
+    let runtime_inputs = load_runtime_inputs(options, agent_name).await?;
+    let request_url = reqwest::Url::parse(runtime_inputs.config.registry_url.trim())
+        .map_err(|error| anyhow!("registry URL is invalid: {error}"))?
+        .join(&format!("/v1/groups/{normalized_group_id}"))
+        .map_err(|error| anyhow!("group URL is invalid: {error}"))?;
+    let headers = build_signed_registry_request_headers(&runtime_inputs, "GET", &request_url, &[])?;
+    let mut request = registry_http_client()?.get(request_url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+
+    let response = request
+        .send()
+        .await
+        .map_err(|error| anyhow!("group lookup failed: {error}"))?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(anyhow!("group not found"));
+    }
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED
+        || response.status() == reqwest::StatusCode::FORBIDDEN
+    {
+        return Err(anyhow!("group lookup is unauthorized"));
+    }
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "group lookup failed with status {}",
+            response.status()
+        ));
+    }
+
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| anyhow!("group response is invalid: {error}"))?;
+    let name = payload
+        .get("group")
+        .and_then(|group| group.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("group response is invalid"))?;
+    Ok(name.to_string())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -395,7 +568,7 @@ pub(super) async fn fetch_group_member_dids(
 
     let headers = build_signed_registry_request_headers(&runtime_inputs, "GET", &request_url, &[])?;
 
-    let mut request = group_membership_http_client()?.get(request_url);
+    let mut request = registry_http_client()?.get(request_url);
     for (name, value) in headers {
         request = request.header(name, value);
     }

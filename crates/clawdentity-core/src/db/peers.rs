@@ -9,7 +9,10 @@ pub struct PeerRecord {
     pub did: String,
     pub proxy_url: String,
     pub agent_name: Option<String>,
-    pub human_name: Option<String>,
+    pub display_name: Option<String>,
+    pub framework: Option<String>,
+    pub description: Option<String>,
+    pub last_synced_at_ms: Option<i64>,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
 }
@@ -20,7 +23,10 @@ pub struct UpsertPeerInput {
     pub did: String,
     pub proxy_url: String,
     pub agent_name: Option<String>,
-    pub human_name: Option<String>,
+    pub display_name: Option<String>,
+    pub framework: Option<String>,
+    pub description: Option<String>,
+    pub last_synced_at_ms: Option<i64>,
 }
 
 fn invalid_data_error(message: impl Into<String>) -> CoreError {
@@ -44,13 +50,17 @@ fn map_peer_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PeerRecord> {
         did: row.get(1)?,
         proxy_url: row.get(2)?,
         agent_name: row.get(3)?,
-        human_name: row.get(4)?,
-        created_at_ms: row.get(5)?,
-        updated_at_ms: row.get(6)?,
+        display_name: row.get(4)?,
+        framework: row.get(5)?,
+        description: row.get(6)?,
+        last_synced_at_ms: row.get(7)?,
+        created_at_ms: row.get(8)?,
+        updated_at_ms: row.get(9)?,
     })
 }
 
 /// TODO(clawdentity): document `upsert_peer`.
+#[allow(clippy::too_many_lines)]
 pub fn upsert_peer(store: &SqliteStore, input: UpsertPeerInput) -> Result<PeerRecord> {
     let alias = input.alias.trim().to_string();
     let did = input.did.trim().to_string();
@@ -66,21 +76,37 @@ pub fn upsert_peer(store: &SqliteStore, input: UpsertPeerInput) -> Result<PeerRe
     }
 
     let agent_name = parse_optional_non_empty(input.agent_name);
-    let human_name = parse_optional_non_empty(input.human_name);
+    let display_name = parse_optional_non_empty(input.display_name);
+    let framework = parse_optional_non_empty(input.framework);
+    let description = parse_optional_non_empty(input.description);
     let now_ms = now_utc_ms();
+    let last_synced_at_ms = input.last_synced_at_ms.or(Some(now_ms));
 
     store.with_connection(|connection| {
         connection.execute(
             "INSERT INTO peers (
-                alias, did, proxy_url, agent_name, human_name, created_at_ms, updated_at_ms
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+                alias, did, proxy_url, agent_name, display_name, framework, description, last_synced_at_ms, created_at_ms, updated_at_ms
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
             ON CONFLICT(alias) DO UPDATE SET
                 did = excluded.did,
                 proxy_url = excluded.proxy_url,
                 agent_name = excluded.agent_name,
-                human_name = excluded.human_name,
+                display_name = excluded.display_name,
+                framework = excluded.framework,
+                description = excluded.description,
+                last_synced_at_ms = excluded.last_synced_at_ms,
                 updated_at_ms = excluded.updated_at_ms",
-            params![&alias, &did, &proxy_url, &agent_name, &human_name, now_ms],
+            params![
+                &alias,
+                &did,
+                &proxy_url,
+                &agent_name,
+                &display_name,
+                &framework,
+                &description,
+                &last_synced_at_ms,
+                now_ms
+            ],
         )?;
 
         get_peer(connection, &alias).ok_or_else(|| {
@@ -114,7 +140,7 @@ pub fn get_peer_by_did(store: &SqliteStore, did: &str) -> Result<Option<PeerReco
 fn get_peer(connection: &rusqlite::Connection, alias: &str) -> Option<PeerRecord> {
     let mut statement = connection
         .prepare(
-            "SELECT alias, did, proxy_url, agent_name, human_name, created_at_ms, updated_at_ms
+            "SELECT alias, did, proxy_url, agent_name, display_name, framework, description, last_synced_at_ms, created_at_ms, updated_at_ms
             FROM peers WHERE alias = ?1",
         )
         .ok()?;
@@ -124,7 +150,7 @@ fn get_peer(connection: &rusqlite::Connection, alias: &str) -> Option<PeerRecord
 fn get_peer_by_did_value(connection: &rusqlite::Connection, did: &str) -> Option<PeerRecord> {
     let mut statement = connection
         .prepare(
-            "SELECT alias, did, proxy_url, agent_name, human_name, created_at_ms, updated_at_ms
+            "SELECT alias, did, proxy_url, agent_name, display_name, framework, description, last_synced_at_ms, created_at_ms, updated_at_ms
             FROM peers
             WHERE did = ?1
             ORDER BY updated_at_ms DESC, alias ASC
@@ -138,7 +164,7 @@ fn get_peer_by_did_value(connection: &rusqlite::Connection, did: &str) -> Option
 pub fn list_peers(store: &SqliteStore) -> Result<Vec<PeerRecord>> {
     store.with_connection(|connection| {
         let mut statement = connection.prepare(
-            "SELECT alias, did, proxy_url, agent_name, human_name, created_at_ms, updated_at_ms
+            "SELECT alias, did, proxy_url, agent_name, display_name, framework, description, last_synced_at_ms, created_at_ms, updated_at_ms
              FROM peers
              ORDER BY alias ASC",
         )?;
@@ -183,7 +209,10 @@ mod tests {
                     .to_string(),
                 proxy_url: "https://proxy.example".to_string(),
                 agent_name: Some("Alpha".to_string()),
-                human_name: Some("Alice".to_string()),
+                display_name: Some("Alice".to_string()),
+                framework: Some("openclaw".to_string()),
+                description: Some("test peer".to_string()),
+                last_synced_at_ms: Some(123),
             },
         )
         .expect("insert peer");
@@ -222,7 +251,10 @@ mod tests {
                     .to_string(),
                 proxy_url: "https://proxy.example".to_string(),
                 agent_name: Some("Alpha".to_string()),
-                human_name: Some("Alice".to_string()),
+                display_name: Some("Alice".to_string()),
+                framework: Some("openclaw".to_string()),
+                description: Some("test peer".to_string()),
+                last_synced_at_ms: Some(123),
             },
         )
         .expect("insert peer");
@@ -235,7 +267,10 @@ mod tests {
         .expect("matching peer");
         assert_eq!(by_did.alias, "alpha");
         assert_eq!(by_did.agent_name.as_deref(), Some("Alpha"));
-        assert_eq!(by_did.human_name.as_deref(), Some("Alice"));
+        assert_eq!(by_did.display_name.as_deref(), Some("Alice"));
+        assert_eq!(by_did.framework.as_deref(), Some("openclaw"));
+        assert_eq!(by_did.description.as_deref(), Some("test peer"));
+        assert_eq!(by_did.last_synced_at_ms, Some(123));
     }
 
     #[test]

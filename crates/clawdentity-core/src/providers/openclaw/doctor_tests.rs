@@ -86,7 +86,10 @@ async fn doctor_reports_healthy_when_runtime_is_ready() {
             did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4".to_string(),
             proxy_url: "https://proxy.example/hooks/agent".to_string(),
             agent_name: Some("alpha".to_string()),
-            human_name: Some("alice".to_string()),
+            display_name: Some("alice".to_string()),
+            framework: None,
+            description: None,
+            last_synced_at_ms: None,
         },
     )
     .expect("peer");

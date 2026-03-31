@@ -23,6 +23,100 @@ function isRetryableOpenclawDeliveryError(error: unknown): boolean {
   );
 }
 
+function parseOptionalNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function extractMessage(payload: unknown): string {
+  if (typeof payload === "string") {
+    return payload;
+  }
+  if (isRecord(payload)) {
+    return (
+      parseOptionalNonEmptyString(payload.content) ??
+      parseOptionalNonEmptyString(payload.message) ??
+      parseOptionalNonEmptyString(payload.text) ??
+      JSON.stringify(payload)
+    );
+  }
+  return JSON.stringify(payload ?? null);
+}
+
+function buildOpenclawHookPayload(input: {
+  frame: DeliverFrame;
+  hookUrl: string;
+  senderProfile: OpenclawSenderProfile | undefined;
+}): unknown {
+  const message = extractMessage(input.frame.payload);
+  const senderAgentName =
+    parseOptionalNonEmptyString(input.senderProfile?.agentName) ??
+    (isRecord(input.frame.payload)
+      ? parseOptionalNonEmptyString(input.frame.payload.senderAgentName)
+      : undefined);
+  const senderDisplayName =
+    parseOptionalNonEmptyString(input.senderProfile?.displayName) ??
+    (isRecord(input.frame.payload)
+      ? parseOptionalNonEmptyString(input.frame.payload.senderDisplayName)
+      : undefined);
+  const groupId = parseOptionalNonEmptyString(input.frame.groupId);
+  const groupName = isRecord(input.frame.payload)
+    ? (parseOptionalNonEmptyString(input.frame.payload.groupName) ?? groupId)
+    : groupId;
+  const senderLabel =
+    senderAgentName && senderDisplayName
+      ? `${senderAgentName} (${senderDisplayName})`
+      : (senderAgentName ?? senderDisplayName ?? input.frame.fromAgentDid);
+
+  if (new URL(input.hookUrl).pathname === "/hooks/wake") {
+    const firstLine =
+      groupId !== undefined
+        ? `Message in ${groupName ?? groupId} from ${senderLabel}`
+        : `Message from ${senderLabel}`;
+    const lines = [firstLine];
+    if (message.trim().length > 0) {
+      lines.push("", message);
+    }
+    lines.push("", `Request ID: ${input.frame.id}`);
+    if (parseOptionalNonEmptyString(input.frame.conversationId)) {
+      lines.push(`Conversation ID: ${input.frame.conversationId}`);
+    }
+    if (parseOptionalNonEmptyString(input.frame.replyTo)) {
+      lines.push(`Reply To: ${input.frame.replyTo}`);
+    }
+    const text = lines.join("\n");
+    return {
+      message: text,
+      text,
+      mode: "now",
+    };
+  }
+
+  return {
+    message,
+    senderDid: input.frame.fromAgentDid,
+    senderAgentName: senderAgentName ?? null,
+    senderDisplayName: senderDisplayName ?? null,
+    recipientDid: input.frame.toAgentDid,
+    groupId: groupId ?? null,
+    groupName: groupName ?? null,
+    isGroupMessage: groupId !== undefined,
+    requestId: input.frame.id,
+    metadata: {
+      conversationId: input.frame.conversationId ?? null,
+      replyTo: input.frame.replyTo ?? null,
+      payload: input.frame.payload ?? null,
+    },
+  };
+}
+
 export class LocalOpenclawDeliveryClient {
   private readonly fetchImpl: typeof fetch;
   private readonly openclawHookUrl: string;
@@ -163,6 +257,10 @@ export class LocalOpenclawDeliveryClient {
     if (this.openclawHookToken !== undefined) {
       headers["x-openclaw-token"] = this.openclawHookToken;
     }
+    const groupId = parseOptionalNonEmptyString(frame.groupId);
+    if (groupId) {
+      headers["x-clawdentity-group-id"] = groupId;
+    }
     applyOpenclawSenderProfileHeaders({
       headers,
       senderProfile,
@@ -172,7 +270,13 @@ export class LocalOpenclawDeliveryClient {
       const response = await this.fetchImpl(this.openclawHookUrl, {
         method: "POST",
         headers,
-        body: JSON.stringify(frame.payload),
+        body: JSON.stringify(
+          buildOpenclawHookPayload({
+            frame,
+            hookUrl: this.openclawHookUrl,
+            senderProfile,
+          }),
+        ),
         signal: controller.signal,
       });
 

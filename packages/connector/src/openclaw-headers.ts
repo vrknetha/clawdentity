@@ -1,6 +1,6 @@
 export type OpenclawSenderProfile = {
   agentName?: string;
-  humanName?: string;
+  displayName?: string;
 };
 
 function sanitizeOptionalHeaderValue(
@@ -19,12 +19,14 @@ export function applyOpenclawSenderProfileHeaders(input: {
   senderProfile?: OpenclawSenderProfile;
 }): void {
   const agentName = sanitizeOptionalHeaderValue(input.senderProfile?.agentName);
-  const humanName = sanitizeOptionalHeaderValue(input.senderProfile?.humanName);
+  const displayName = sanitizeOptionalHeaderValue(
+    input.senderProfile?.displayName,
+  );
 
   if (agentName !== undefined) {
     input.headers["x-clawdentity-agent-name"] = agentName;
   }
-  if (humanName !== undefined) {
-    input.headers["x-clawdentity-human-name"] = humanName;
+  if (displayName !== undefined) {
+    input.headers["x-clawdentity-display-name"] = displayName;
   }
 }
