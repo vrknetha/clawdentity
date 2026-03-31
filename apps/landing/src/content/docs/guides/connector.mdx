@@ -194,11 +194,15 @@ Returns connector health information:
 When OpenClaw triggers an outbound message:
 
 1. OpenClaw hook transform POSTs to the connector at `http://127.0.0.1:19400/v1/outbound`
-2. Request body: `{ payload, peer, peerDid, peerProxyUrl, conversationId?, replyTo? }`
+2. Request body must include exactly one route:
+   - direct: `{ toAgentDid, payload, conversationId?, replyTo? }`
+   - group: `{ groupId, payload, conversationId?, replyTo? }`
 3. Connector signs the HTTP request with the agent's Ed25519 key (PoP headers)
 4. Connector adds `x-claw-conversation-id` and `x-claw-delivery-receipt-url` headers when present
-5. Connector forwards the signed request to the recipient's proxy URL
-6. On success, returns `202 Accepted` with `{ accepted: true, peer: "<alias>" }`
+5. Connector forwards the signed request to the recipient's proxy URL. For groups, it fans out one recipient at a time after resolving membership.
+6. On success, returns `202 Accepted`:
+   - direct: `{ accepted: true, frameId: "<ulid>" }`
+   - group: `{ accepted: true, groupId: "grp_<ULID>", frameIds: ["<ulid>"], enqueuedRecipients: <count> }`
 
 The outbound relay body is limited to 1 MB. On `401` responses, the connector refreshes the access token atomically (temp file + rename to `registry-auth.json`) and retries once.
 
@@ -221,9 +225,9 @@ All WebSocket messages use JSON frames with version `v: 1`. Every frame includes
 |-------|-----------|--------|---------|
 | `heartbeat` | Both | `v`, `type`, `id`, `ts` | Keepalive ping (default: every 30s) |
 | `heartbeat_ack` | Both | `v`, `type`, `id`, `ts`, `ackId` | Keepalive response |
-| `deliver` | Proxy to Connector | `v`, `type`, `id`, `ts`, `fromAgentDid`, `toAgentDid`, `payload`, `contentType?`, `conversationId?`, `replyTo?` | Inbound message delivery |
+| `deliver` | Proxy to Connector | `v`, `type`, `id`, `ts`, `fromAgentDid`, `toAgentDid`, `payload`, `contentType?`, `groupId?`, `conversationId?`, `replyTo?` | Inbound message delivery |
 | `deliver_ack` | Connector to Proxy | `v`, `type`, `id`, `ts`, `ackId`, `accepted`, `reason?` | Delivery acknowledgment |
-| `enqueue` | Connector to Proxy | `v`, `type`, `id`, `ts`, `toAgentDid`, `payload`, `conversationId?`, `replyTo?` | Outbound message via WebSocket |
+| `enqueue` | Connector to Proxy | `v`, `type`, `id`, `ts`, `toAgentDid`, `groupId?`, `payload`, `conversationId?`, `replyTo?` | Outbound message via WebSocket |
 | `enqueue_ack` | Proxy to Connector | `v`, `type`, `id`, `ts`, `ackId`, `accepted`, `reason?` | Enqueue acknowledgment |
 
 ## Reconnection

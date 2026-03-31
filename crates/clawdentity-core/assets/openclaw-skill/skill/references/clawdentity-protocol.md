@@ -118,7 +118,9 @@ and `message` fields before local handling is skipped.
 - If `payload.groupId` exists:
   - validate it as `grp_<ULID>`
   - forward it as top-level `groupId` to the local connector outbound endpoint
+  - do not auto-derive a group `conversationId`
   - remove routing-only fields from the forwarded application payload
+- Do not send `peer` and `group`/`groupId` together in one payload.
 
 Routing exclusivity rule:
 - direct routing uses `payload.peer`
@@ -178,13 +180,11 @@ The transform does not send directly to the peer proxy. It posts to the local co
 - `provider setup --for openclaw --agent-name <agent-name>` is the primary self-setup path after OpenClaw itself is healthy.
 - `connector start <agent-name>` is advanced/manual recovery; it resolves bind URL from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
 
-Outbound JSON body sent by transform:
+Outbound JSON body sent by transform for direct routing:
 
 ```json
 {
-  "peer": "beta",
-  "peerDid": "did:cdi:<authority>:agent:01H...",
-  "peerProxyUrl": "https://beta-proxy.example.com/hooks/agent",
+  "toAgentDid": "did:cdi:<authority>:agent:01H...",
   "conversationId": "<explicit-or-derived-relay-lane>",
   "payload": {
     "event": "agent.message"
@@ -192,8 +192,20 @@ Outbound JSON body sent by transform:
 }
 ```
 
+Outbound JSON body sent by transform for group routing:
+
+```json
+{
+  "groupId": "grp_<ULID>",
+  "conversationId": "<optional-explicit-group-lane>",
+  "payload": {
+    "event": "agent.message"
+  }
+}
+```
+
 Rules:
-- `payload.peer` is removed before creating the `payload` object above.
+- `payload.peer`, `payload.group`, and `payload.groupId` are removed before creating the forwarded `payload` object.
 - direct routing uses `toAgentDid`
 - group routing uses `groupId`
 - do not send both direct and group routing in one outbound request
@@ -201,11 +213,27 @@ Rules:
 - Default relay `conversationId` is deterministic per local-agent/peer-agent pair so one peer relationship stays on one replay lane by default.
 - Default relay `conversationId` must be derived from sorted `localAgentDid` + peer DID so alias renames do not change replay lanes.
 - `payload.conversationId` may override the default relay lane when the caller intentionally wants a different lane.
-- Only `peer` is stripped from the forwarded application payload for compatibility; `conversationId` may still remain inside the application payload if the caller included it there.
+- Group routing never invents a default `conversationId`; callers must pass one explicitly when they want a stable group thread.
+- `conversationId` may still remain inside the application payload if the caller included it there.
 - Transform sends `Content-Type: application/json` only.
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 
 ## OpenClaw Inbound Metadata Contract
+
+For `/hooks/wake`, the connector delivers a rendered text envelope:
+
+```json
+{
+  "message": "Message in research-crew from alpha (Ravi)\n\nhello\n\nRequest ID: 01H...\nConversation ID: pair:...\nReply To: https://proxy.example.com/v1/relay/delivery-receipts",
+  "text": "Message in research-crew from alpha (Ravi)\n\nhello\n\nRequest ID: 01H...\nConversation ID: pair:...\nReply To: https://proxy.example.com/v1/relay/delivery-receipts",
+  "mode": "now"
+}
+```
+
+Rules:
+- `/hooks/wake` is text-first and optimized for immediate OpenClaw wake handling.
+- `sessionId` is copied through when the original payload carried it.
+- Machine-readable sender/group metadata for the wake path is carried by headers, not by a nested JSON metadata object.
 
 After proxy verification and connector shaping, the canonical OpenClaw-facing delivery payload is:
 
@@ -247,6 +275,7 @@ Canonical OpenClaw-facing headers:
 Note:
 - proxy relay routing still uses `x-claw-group-id`
 - the `x-clawdentity-*` headers above are the post-verification inbound metadata contract for local OpenClaw delivery
+- `/hooks/agent` includes structured `groupId`, `groupName`, and `isGroupMessage`; `/hooks/wake` does not.
 
 ## Error Conditions
 

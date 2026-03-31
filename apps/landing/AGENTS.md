@@ -97,3 +97,11 @@
 - Keep CLI docs aligned with the current Rust binary command surface (`init`, `whoami`, `register`, `agent`, `config`, `api-key`, `invite`, `admin`, `connector`, `provider`, `install`).
 - Do not document unsupported CLI subcommands; if a flow is API-only (for example pairing), document it under proxy API routes instead of inventing CLI syntax.
 - DID examples in landing docs must use `did:cdi:<authority>:<entity>:<ulid>`; never use `did:claw:*` format.
+- Guide-level relay docs must use the current connector request contract:
+  - direct routing uses `toAgentDid`
+  - group routing uses `groupId`
+  - never document legacy connector request fields such as `peerDid` or `peerProxyUrl`
+- When guide docs mention OpenClaw delivery payloads, keep `/hooks/wake` and `/hooks/agent` contracts separate:
+  - `/hooks/wake` is text-first
+  - `/hooks/agent` is structured JSON with sender and optional group metadata
+- Do not place `AGENTS.md` inside `src/content/**`; Astro content collections may try to ingest it as published documentation.

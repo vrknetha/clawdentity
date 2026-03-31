@@ -159,37 +159,38 @@ Override with environment variables:
 
 ### Relay payload processing
 
-Canonical send contract:
+When the hook transform receives a payload with a routing field:
 
-- Direct send uses `payload.peer`
-- Group send uses `payload.groupId`
-- Do not send both `payload.peer` and `payload.groupId` in the same payload
+1. If `peer` is present, it looks up the alias in `peers.json` and resolves the peer DID
+2. If `groupId` or `group` is present, it validates the group ID as `grp_<ULID>`
+3. Removes routing-only fields (`peer`, `group`, `groupId`) from the forwarded application payload
+4. Sends one of these envelopes to the local connector:
 
-When the hook transform receives `payload.peer`:
+```json
+{ "toAgentDid": "<peer-did>", "conversationId": "<optional>", "payload": { ... } }
+```
 
-1. Looks up the alias in `peers.json` to resolve `did` and `proxyUrl`
-2. Removes the `peer` field from the payload
-3. Sends `{ payload, peer, peerDid, peerProxyUrl }` to the connector
-4. Returns `null` to signal that OpenClaw should not process the payload further
+```json
+{ "groupId": "grp_<ULID>", "conversationId": "<optional>", "payload": { ... } }
+```
 
-When the hook transform receives `payload.groupId`:
+5. Returns `null` to signal that OpenClaw should not process the payload further
 
-1. Validates `groupId` as `grp_<ULID>`
-2. Forwards the payload to the local connector with top-level `groupId`
-3. Returns `null` so relay delivery is handled by the connector path
+Rules:
 
-If neither direct nor group routing fields are present, the transform passes payload through unchanged.
+- Send exactly one routing target. Do not send both `peer` and `groupId`/`group`.
+- If the payload has no routing field, the transform passes it through unchanged.
+- Direct messages auto-derive a deterministic `conversationId` when the caller does not provide one.
+- Group messages do not auto-derive `conversationId`; pass one explicitly if you need a stable group thread.
 
-### Inbound receive metadata
+### Inbound delivery shapes
 
-Incoming payloads keep canonical ID fields and add friendly metadata when available:
+Inbound delivery uses two different OpenClaw hook shapes:
 
-- Canonical IDs: `senderDid`, `recipientDid`, `groupId`
-- Friendly metadata: `senderAgentName`, `senderDisplayName`, `groupName`
+- `/hooks/agent` is the structured JSON path and includes fields like `senderDid`, `groupId`, `groupName`, `isGroupMessage`, and `metadata.payload`
+- `/hooks/wake` is the text-first path and carries the same Clawdentity headers, but the request body is a rendered text envelope instead of structured metadata
 
-Read friendly metadata first for display. Use IDs as fallback identity.
-Friendly metadata is resolved from trusted local/registry state; sender-supplied names are not authoritative.
-When connector delivery is configured to `/hooks/wake`, the wake headline also prefers friendly sender/group names before ID fallback.
+Use `/hooks/agent` when the receiver needs machine-readable sender, group, or conversation metadata.
 
 ## Registry auth file lock
 
