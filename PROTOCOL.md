@@ -10,9 +10,9 @@
 
 ## Abstract
 
-Clawdentity defines a cryptographic identity and trust protocol for AI agent-to-agent communication. It enables agents to prove their identity, verify peers, establish mutual trust, and exchange messages through authenticated relay infrastructure — without exposing private keys, shared tokens, or backend services.
+Clawdentity defines a cryptographic identity and trust protocol for AI agent-to-agent communication. It enables agents to prove their identity, verify peers, establish direct or group trust, and exchange messages through authenticated relay infrastructure without exposing private keys, shared tokens, or backend services.
 
-This document specifies the protocol's identity model, authentication mechanisms, message signing, relay transport, trust establishment, and revocation system.
+This document specifies the protocol's identity model, authentication mechanisms, message signing, relay transport, trust establishment, group routing, and revocation system.
 
 ---
 
@@ -105,6 +105,8 @@ Clawdentity addresses these problems with the following design goals:
 | **Registry** | Central authority that issues identities and publishes signing keys. |
 | **PoP** | Proof of Possession. A signature proving the sender holds the private key. |
 | **Pairing** | Mutual trust establishment between two agents via ticket exchange. |
+| **Group ID** | Registry-issued identifier in the form `grp_<ULID>`. |
+| **Group join token** | Registry-issued token used to add an agent to a group. |
 | **Trust Store** | Per-proxy database of known agents and approved pairs. |
 | **ULID** | Universally Unique Lexicographically Sortable Identifier. |
 
@@ -119,18 +121,18 @@ Clawdentity addresses these problems with the following design goals:
 Clawdentity uses a custom DID method: `did:cdi`.
 
 ```
-did:cdi:<registry-host>:<ulid>
+did:cdi:<authority>:<entity>:<ulid>
 ```
 
 **Examples:**
 
 | Entity | Example |
 |--------|---------|
-| Agent | `did:cdi:registry.clawdentity.com:01HG8ZBU11X7X8DN8O4X6GEYU5` |
-| Human | `did:cdi:registry.clawdentity.com:01HF7YAT00W6W7CM7N3W5FDXT4` |
-| Self-hosted | `did:cdi:id.acme.corp:01HK9ABC22Y8Y9EO9P5Y7HFZV6` |
+| Agent | `did:cdi:registry.clawdentity.com:agent:01HG8ZBU11X7X8DN8O4X6GEYU5` |
+| Human | `did:cdi:registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4` |
+| Self-hosted agent | `did:cdi:id.acme.corp:agent:01HK9ABC22Y8Y9EO9P5Y7HFZV6` |
 
-The `<registry-host>` identifies which registry issued the DID. The `<ulid>` component MUST be a valid ULID as defined in the [ULID specification](https://github.com/ulid/spec). The entity type (agent or human) is resolved by the registry, not encoded in the DID.
+The `<authority>` identifies which registry issued the DID. The `<entity>` MUST be either `human` or `agent`. The `<ulid>` component MUST be a valid ULID as defined in the [ULID specification](https://github.com/ulid/spec).
 
 ### 3.2 Cryptographic Primitives
 
@@ -159,13 +161,29 @@ The secret key MUST be stored locally and MUST NOT be transmitted. Only the publ
 Every agent DID is bound to exactly one human DID (the `ownerDid`). This binding is recorded in the AIT and enforced by the registry.
 
 ```
-Human (did:cdi:registry.clawdentity.com:01HF7...)
-  └── Agent A (did:cdi:registry.clawdentity.com:01HG8...)
-  └── Agent B (did:cdi:registry.clawdentity.com:01HG9...)
-  └── Agent C (did:cdi:registry.clawdentity.com:01HGA...)
+Human (did:cdi:registry.clawdentity.com:human:01HF7...)
+  └── Agent A (did:cdi:registry.clawdentity.com:agent:01HG8...)
+  └── Agent B (did:cdi:registry.clawdentity.com:agent:01HG9...)
+  └── Agent C (did:cdi:registry.clawdentity.com:agent:01HGA...)
 ```
 
 A human MAY own multiple agents. An agent MUST have exactly one owner.
+
+### 3.5 Group Identifier Format
+
+Registry-managed groups use a separate identifier format:
+
+```
+grp_<ULID>
+```
+
+Example:
+
+```text
+grp_01HF7YAT31JZHSMW1CG6Q6MHB7
+```
+
+Group IDs are not DIDs. They are opaque routing identifiers used for group lifecycle, trust checks, and delivery attribution.
 
 ---
 
@@ -198,8 +216,8 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
 ```json
 {
   "iss": "https://registry.clawdentity.com",
-  "sub": "did:cdi:registry.clawdentity.com:01HG8ZBU11X7X8DN8O4X6GEYU5",
-  "ownerDid": "did:cdi:registry.clawdentity.com:01HF7YAT00W6W7CM7N3W5FDXT4",
+  "sub": "did:cdi:registry.clawdentity.com:agent:01HG8ZBU11X7X8DN8O4X6GEYU5",
+  "ownerDid": "did:cdi:registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
   "name": "kai",
   "framework": "openclaw",
   "description": "Ravi's personal AI assistant",
@@ -220,8 +238,8 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
 | Claim | Type | Required | Description |
 |-------|------|----------|-------------|
 | `iss` | string | REQUIRED | Registry issuer URL |
-| `sub` | string | REQUIRED | Agent DID (`did:cdi:<registry-host>:<ulid>`) |
-| `ownerDid` | string | REQUIRED | Owner human DID (`did:cdi:<registry-host>:<ulid>`) |
+| `sub` | string | REQUIRED | Agent DID (`did:cdi:<authority>:agent:<ulid>`) |
+| `ownerDid` | string | REQUIRED | Owner human DID (`did:cdi:<authority>:human:<ulid>`) |
 | `name` | string | REQUIRED | Agent name. 1-64 chars, `[A-Za-z0-9._ -]` |
 | `framework` | string | REQUIRED | Agent framework identifier, 1-32 chars |
 | `description` | string | OPTIONAL | Human-readable description, max 280 chars |
@@ -375,7 +393,7 @@ For sensitive routes (relay, hooks), the proxy validates the agent's session acc
 ```
 POST /v1/agents/auth/validate
 {
-  "agentDid": "did:cdi:registry.clawdentity.com:...",
+  "agentDid": "did:cdi:registry.clawdentity.com:agent:01HVALIDATE...",
   "aitJti": "<current-ait-jti>"
 }
 ```
@@ -450,7 +468,7 @@ Each side of the pair provides a profile:
 
 When an agent initiates pairing, the proxy MUST verify that the authenticated caller (identified by `ownerDid` in the AIT) actually owns the claimed `initiatorAgentDid`. This is done by querying the registry's internal ownership endpoint.
 
-### 7.6 Trust Store
+### 7.6 Direct Trust Store
 
 Each proxy maintains a Trust Store recording:
 
@@ -458,7 +476,23 @@ Each proxy maintains a Trust Store recording:
 - **Approved pairs** — Bidirectional trust relationships between agents
 - **Pairing tickets** — Pending and completed pairing ceremonies
 
-A message from Agent A to Agent B is allowed only if the pair `(A, B)` exists in the trust store.
+A direct message from Agent A to Agent B is allowed only if the pair `(A, B)` exists in the trust store.
+
+### 7.7 Group Trust
+
+Group-routed delivery uses explicit group membership, not pair-only trust.
+
+Rules:
+- the route target is a `groupId`, not a list of peer aliases
+- the sender agent must be an active member of the group
+- each recipient agent must also be an active member of the same group
+- proxy authorization for group traffic is registry-backed membership verification
+- connector/runtime fan-out preserves the shared `groupId` on every per-recipient delivery frame
+
+Pair profile fields and registry profile fields are different contracts:
+- pairing payloads still use `humanName`
+- registry profile lookup uses `displayName`
+- OpenClaw-facing inbound delivery uses `senderDisplayName`
 
 ---
 
@@ -540,8 +574,9 @@ Inbound message delivery to the local agent.
   "type": "deliver",
   "id": "01HGA...",
   "ts": "2026-02-21T12:00:01.000Z",
-  "fromAgentDid": "did:cdi:registry.clawdentity.com:...",
-  "toAgentDid": "did:cdi:registry.clawdentity.com:...",
+  "fromAgentDid": "did:cdi:registry.clawdentity.com:agent:01HFROM...",
+  "toAgentDid": "did:cdi:registry.clawdentity.com:agent:01HTO...",
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
   "payload": { ... },
   "contentType": "application/json",
   "conversationId": "conv-123",
@@ -556,6 +591,7 @@ Inbound message delivery to the local agent.
 | `payload` | REQUIRED | Message payload (any JSON value) |
 | `contentType` | OPTIONAL | MIME type of the payload |
 | `conversationId` | OPTIONAL | Conversation thread identifier |
+| `groupId` | OPTIONAL | Shared group routing identifier for group fan-out |
 | `replyTo` | OPTIONAL | URL for delivery receipts |
 
 #### 8.4.4 Deliver Acknowledgement (Connector → Proxy)
@@ -588,12 +624,17 @@ Outbound message from the local agent to a remote agent.
   "type": "enqueue",
   "id": "01HGC...",
   "ts": "2026-02-21T12:00:02.000Z",
-  "toAgentDid": "did:cdi:registry.clawdentity.com:...",
+  "toAgentDid": "did:cdi:registry.clawdentity.com:agent:01HTO...",
   "payload": { ... },
   "conversationId": "conv-123",
   "replyTo": "https://proxy-a.example.com/v1/relay/delivery-receipts"
 }
 ```
+
+Outbound routing contract:
+- direct route MUST set `toAgentDid`
+- group route MUST set `groupId`
+- callers MUST NOT send both `toAgentDid` and `groupId` in the same outbound request
 
 #### 8.4.6 Enqueue Acknowledgement (Proxy → Connector)
 
@@ -618,6 +659,9 @@ Content-Type: application/json
 x-clawdentity-agent-did: <fromAgentDid>
 x-clawdentity-to-agent-did: <toAgentDid>
 x-clawdentity-verified: true
+x-clawdentity-agent-name: <senderAgentName>        # optional
+x-clawdentity-display-name: <senderDisplayName>    # optional
+x-clawdentity-group-id: <groupId>                  # optional
 x-openclaw-token: <local-hook-token>
 x-request-id: <frame-id>
 
@@ -625,6 +669,20 @@ x-request-id: <frame-id>
 ```
 
 The connector handles retry with exponential backoff (default: 4 attempts, 300ms initial delay, 2x factor, 14s budget).
+
+When the connector emits canonical OpenClaw-facing JSON, the delivery payload includes:
+- `message`
+- `senderDid`
+- `senderAgentName`
+- `senderDisplayName`
+- `recipientDid`
+- `groupId`
+- `groupName`
+- `isGroupMessage`
+- `requestId`
+- `metadata`
+
+Note: the relay/proxy routing header for group traffic is `x-claw-group-id`. The `x-clawdentity-group-id` header above is the OpenClaw-facing inbound metadata header after verification and delivery shaping.
 
 ### 8.6 Reconnection
 
@@ -688,7 +746,7 @@ The Certificate Revocation List is a signed JWT containing a list of revoked AIT
   "revocations": [
     {
       "jti": "01HGF...",
-      "agentDid": "did:cdi:registry.clawdentity.com:...",
+      "agentDid": "did:cdi:registry.clawdentity.com:agent:01HGF...",
       "reason": "compromised",
       "revokedAt": 1708532000
     }
@@ -831,10 +889,19 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 | POST | `/v1/agents/challenge` | Request registration challenge |
 | POST | `/v1/agents/auth/refresh` | Refresh AIT |
 | POST | `/v1/agents/auth/validate` | Validate agent access token |
+| GET | `/v1/agents/profile?did=...` | Authenticated agent profile lookup by DID |
 | POST | `/v1/invites` | Create invite code |
 | POST | `/v1/invites/redeem` | Redeem invite code |
 | POST | `/v1/me/api-keys` | Manage API keys |
+| POST | `/v1/groups` | Create group |
+| POST | `/v1/groups/:id/join-tokens` | Issue group join token |
+| POST | `/v1/groups/join` | Join group with group join token |
+| GET | `/v1/groups/:id/members` | List active group members |
+| DELETE | `/v1/groups/:id/members/:agentDid` | Remove group member |
+| GET | `/v1/groups/:id` | Lightweight readable group lookup |
+| DELETE | `/v1/groups/:id` | Delete group |
 | POST | `/internal/v1/identity/agent-ownership` | Verify agent ownership (internal) |
+| POST | `/internal/v1/groups/membership/check` | Check active group membership (internal) |
 
 ### 12.2 Proxy Endpoints
 
@@ -847,6 +914,61 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 | POST | `/pair/start` | Initiate pairing |
 | POST | `/pair/confirm` | Confirm pairing |
 | POST | `/pair/status` | Check pairing status |
+
+### 12.3 Helper Endpoint Contracts
+
+#### 12.3.1 Agent profile lookup
+
+`GET /v1/agents/profile?did=...` is an authenticated lookup. It accepts either:
+- a PAT-style `Bearer` token
+- agent auth via `Authorization: Claw <AIT>` plus the normal proof headers
+
+Response shape:
+
+```json
+{
+  "agentDid": "did:cdi:<authority>:agent:<ulid>",
+  "agentName": "alpha",
+  "displayName": "Ravi",
+  "framework": "openclaw",
+  "status": "active",
+  "humanDid": "did:cdi:<authority>:human:<ulid>"
+}
+```
+
+#### 12.3.2 Lightweight group lookup
+
+`GET /v1/groups/:id` is intentionally small. It returns only readable group identity fields after PAT or member-auth checks:
+
+```json
+{
+  "group": {
+    "id": "grp_<ULID>",
+    "name": "research-crew"
+  }
+}
+```
+
+#### 12.3.3 Internal group membership check
+
+`POST /internal/v1/groups/membership/check` is an internal service-to-service route used by proxy group trust.
+
+Request shape:
+
+```json
+{
+  "groupId": "grp_<ULID>",
+  "memberAgentDid": "did:cdi:<authority>:agent:<ulid>"
+}
+```
+
+Response shape:
+
+```json
+{
+  "isMember": true
+}
+```
 
 ---
 
@@ -890,8 +1012,8 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 This specification introduces the `did:cdi` method. If submitted to the W3C DID Method Registry, it would be registered as:
 
 - **Method name:** `cdi`
-- **Method specific identifier:** `<registry-host>:<ulid>`
-- **DID document:** Resolved via the registry identified by `<registry-host>`
+- **Method specific identifier:** `<authority>:<entity>:<ulid>`
+- **DID document:** Resolved via the registry identified by `<authority>`
 
 ### 14.2 HTTP Authentication Scheme
 
@@ -931,7 +1053,7 @@ A complete message from Agent A to Agent B:
 
 ```
 1. Agent A's connector creates an enqueue frame:
-   { type: "enqueue", toAgentDid: "did:cdi:registry.clawdentity.com:B...", payload: {...} }
+   { type: "enqueue", toAgentDid: "did:cdi:registry.clawdentity.com:agent:01HB...", payload: {...} }
 
 2. Connector sends frame over WebSocket to Proxy A
 

@@ -91,8 +91,15 @@ function parseUlid(value) {
 var DID_METHOD = "cdi";
 var MAX_AUTHORITY_LENGTH = 253;
 var DNS_LABEL_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+var GROUP_ID_PREFIX = "grp_";
 function invalidDid(value) {
   return new ProtocolParseError("INVALID_DID", `Invalid DID: ${value}`);
+}
+function invalidGroupId(value) {
+  return new ProtocolParseError(
+    "INVALID_GROUP_ID",
+    `Invalid group ID: ${value}`
+  );
 }
 function ensureDidUlid(value, didValue) {
   try {
@@ -155,6 +162,19 @@ function parseHumanDid(value) {
     ...parsed,
     entity: "human"
   };
+}
+function parseGroupId(value) {
+  const normalized = value.trim();
+  if (!normalized.startsWith(GROUP_ID_PREFIX)) {
+    throw invalidGroupId(value);
+  }
+  const ulid4 = normalized.slice(GROUP_ID_PREFIX.length);
+  try {
+    parseUlid(ulid4);
+  } catch {
+    throw invalidGroupId(value);
+  }
+  return normalized;
 }
 
 // ../../packages/protocol/src/agent-registration-proof.ts
@@ -14494,6 +14514,62 @@ function writeEndpointHealthCache(input) {
   });
 }
 
+// src/transforms/relay-route.ts
+function parseRoutingString(input) {
+  const value = input.payload[input.field];
+  if (value === void 0) {
+    return void 0;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`${input.label} must be a non-empty string`);
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error(`${input.label} must be a non-empty string`);
+  }
+  return trimmed;
+}
+function resolveRelayRoute(payload) {
+  const peerAlias = parseRoutingString({
+    payload,
+    field: "peer",
+    label: "peer"
+  });
+  const explicitGroupId = parseRoutingString({
+    payload,
+    field: "groupId",
+    label: "groupId"
+  });
+  const fallbackGroupId = parseRoutingString({
+    payload,
+    field: "group",
+    label: "group"
+  });
+  const rawGroupId = explicitGroupId ?? fallbackGroupId;
+  if (peerAlias && rawGroupId) {
+    throw new Error("Provide either peer or groupId/group, not both");
+  }
+  if (rawGroupId) {
+    let groupId;
+    try {
+      groupId = parseGroupId(rawGroupId);
+    } catch {
+      throw new Error("groupId must be a valid group ID");
+    }
+    return {
+      mode: "group",
+      groupId
+    };
+  }
+  if (peerAlias) {
+    return {
+      mode: "direct",
+      peerAlias
+    };
+  }
+  return void 0;
+}
+
 // src/transforms/relay-to-peer.ts
 var DEFAULT_CONNECTOR_BASE_URL = "http://127.0.0.1:19400";
 var DEFAULT_CONNECTOR_OUTBOUND_PATH = "/v1/outbound";
@@ -14521,16 +14597,6 @@ function getErrorCode2(error48) {
   }
   return typeof error48.code === "string" ? error48.code : void 0;
 }
-function parseRequiredString(value) {
-  if (typeof value !== "string") {
-    throw new Error("Input value must be a string");
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new Error("Input value must not be empty");
-  }
-  return trimmed;
-}
 function parseOptionalString(value) {
   if (typeof value !== "string") {
     return void 0;
@@ -14557,10 +14623,10 @@ function parseOptionalPositiveInteger(value) {
   }
   return parsed;
 }
-function removePeerField(payload) {
+function removeRoutingFields(payload) {
   const outbound = {};
   for (const [key, value] of Object.entries(payload)) {
-    if (key !== "peer") {
+    if (key !== "peer" && key !== "group" && key !== "groupId") {
       outbound[key] = value;
     }
   }
@@ -14920,30 +14986,38 @@ async function relayPayloadToPeer(payload, options = {}) {
   if (!isRecord(payload)) {
     return payload;
   }
-  const peerAliasValue = payload.peer;
-  if (peerAliasValue === void 0) {
+  const route = resolveRelayRoute(payload);
+  if (!route) {
     return payload;
-  }
-  const peerAlias = parseRequiredString(peerAliasValue);
-  const peersConfigPathOptions = await resolvePeersConfigPathOptions(options);
-  const peersConfig = await loadPeersConfig(peersConfigPathOptions);
-  const peerEntry = peersConfig.peers[peerAlias];
-  if (!peerEntry) {
-    throw new Error("Peer alias is not configured");
   }
   const connectorEndpoints = await resolveConnectorEndpoints(options);
   const fetchImpl = resolveRelayFetch(options.fetchImpl);
-  const outboundPayload = removePeerField(payload);
-  const conversationId = await resolveRelayConversationId({
-    options,
-    payload,
-    peerDid: peerEntry.did
-  });
-  const relayPayload = {
-    conversationId,
-    toAgentDid: peerEntry.did,
-    payload: outboundPayload
-  };
+  const outboundPayload = removeRoutingFields(payload);
+  let relayPayload;
+  if (route.mode === "group") {
+    relayPayload = {
+      groupId: route.groupId,
+      conversationId: parseOptionalString(payload.conversationId),
+      payload: outboundPayload
+    };
+  } else {
+    const peersConfigPathOptions = await resolvePeersConfigPathOptions(options);
+    const peersConfig = await loadPeersConfig(peersConfigPathOptions);
+    const peerEntry = peersConfig.peers[route.peerAlias];
+    if (!peerEntry) {
+      throw new Error("Peer alias is not configured");
+    }
+    const conversationId = await resolveRelayConversationId({
+      options,
+      payload,
+      peerDid: peerEntry.did
+    });
+    relayPayload = {
+      conversationId,
+      toAgentDid: peerEntry.did,
+      payload: outboundPayload
+    };
+  }
   const runtimeConfig = await loadRelayRuntimeConfig(options);
   const healthCacheTtlMs = computeHealthCacheTtlMs(options, runtimeConfig);
   const healthTimeoutMs = computeHealthTimeoutMs(options, runtimeConfig);

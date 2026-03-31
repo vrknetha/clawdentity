@@ -70,6 +70,19 @@ Why:
 Tradeoff:
 - Protocol changes require broader rollout planning and compatibility validation.
 
+## 6) Explicit group routing and canonical inbound metadata
+
+Decision:
+- Treat direct delivery and group delivery as different trust paths, and keep inbound sender/group metadata on the canonical no-legacy field names.
+
+Why:
+- Group routing is not just "pairing plus more recipients"; it depends on registry-backed membership and group-specific authorization.
+- Canonical field names (`displayName`, `groupId`, `groupName`, `senderDisplayName`) keep registry responses, connector payloads, and OpenClaw-facing metadata aligned.
+- Hard-cut metadata avoids long-lived fallback code paths that make auth and debugging harder.
+
+Tradeoff:
+- Contract cutovers are stricter, so docs and release assets must be updated at the same time as runtime changes.
+
 ## Rust-Specific Decisions
 
 The sections below are preserved and maintained from the original Rust-focused design decisions document.

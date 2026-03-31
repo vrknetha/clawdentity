@@ -19,9 +19,9 @@ Rules:
 - peers config snapshot still exists and may be empty until pairing is completed
 - setup assumes OpenClaw itself is already healthy and only layers Clawdentity relay assets on top
 
-## Peer Map Schema
+## Projected Relay Peer Snapshot
 
-`~/.clawdentity/peers.json` must be valid JSON:
+The default OpenClaw relay path reads the projected peer snapshot referenced by `hooks/transforms/clawdentity-relay.json`. In the standard setup that file is `hooks/transforms/clawdentity-peers.json`.
 
 ```json
 {
@@ -30,7 +30,10 @@ Rules:
       "did": "did:cdi:<authority>:agent:01H...",
       "proxyUrl": "https://beta-proxy.example.com/hooks/agent",
       "agentName": "beta",
-      "humanName": "Ira"
+      "displayName": "Ira",
+      "framework": "openclaw",
+      "description": "Research assistant",
+      "lastSyncedAtMs": 1710000000000
     }
   }
 }
@@ -40,8 +43,19 @@ Rules:
 - peer alias key uses `[a-zA-Z0-9._-]`
 - `did` required and must be a valid DID v2 agent identifier (`did:cdi:<authority>:agent:<ulid>`)
 - `proxyUrl` required and must be a valid absolute URL
-- `agentName` optional
-- `humanName` optional
+- `agentName` and `displayName` are optional additive metadata
+- `framework`, `description`, and `lastSyncedAtMs` are optional additive metadata written by the Rust peer refresh/sync path
+- current transform code only requires `did` and `proxyUrl` for direct routing; additive metadata may be ignored by older readers without breaking delivery
+
+## Legacy Manual Peer Config
+
+Older/manual setups may still point the transform at `~/.clawdentity/peers.json`.
+
+That file can still contain pair-derived profile metadata such as:
+- `agentName`
+- `humanName`
+
+Do not mix this legacy pair-profile naming with the projected relay snapshot naming above.
 
 ## Proxy Pairing Prerequisite
 
@@ -89,7 +103,7 @@ Current pairing contract is ticket-based at proxy API level:
 Rules:
 - `ticket` is one-time and expires (default 5 minutes, max 15 minutes).
 - Confirm establishes mutual trust for the initiator/responder pair.
-- Confirm auto-persists peer DID/proxy mapping locally in `~/.clawdentity/peers.json` using ticket issuer metadata.
+- Confirm auto-persists peer DID/proxy mapping locally, and the runtime may then project a `clawdentity-peers.json` snapshot for OpenClaw-local relay use.
 - Same-agent sender/recipient is allowed by policy without explicit pair entry.
 
 ## Relay Input Contract
@@ -104,12 +118,17 @@ and `message` fields before local handling is skipped.
   - return payload unchanged
   - do not relay
 - If `payload.peer` exists:
-  - resolve peer from `peers.json`
+  - resolve peer from the projected peer snapshot (`clawdentity-peers.json` by default)
+  - only `did` and `proxyUrl` are required for direct routing
   - derive a default relay `conversationId` only from stable DIDs: projected `localAgentDid` + peer DID
   - if `payload.conversationId` is a non-empty string, treat it as an explicit relay-lane override
   - remove `peer` from forwarded body
   - send JSON POST to local connector outbound endpoint
   - return `null` to skip local handling
+- If `payload.group` or `payload.groupId` exists:
+  - validate it as `grp_<ULID>`
+  - forward it as top-level `groupId` to the local connector outbound endpoint
+  - remove routing-only fields from the forwarded application payload
 
 ## Relay Runtime Metadata Contract
 
@@ -180,6 +199,9 @@ Outbound JSON body sent by transform:
 
 Rules:
 - `payload.peer` is removed before creating the `payload` object above.
+- direct routing uses `toAgentDid`
+- group routing uses `groupId`
+- do not send both direct and group routing in one outbound request
 - Transform sends relay `conversationId` as a top-level connector field, not as hidden ordering metadata inside the forwarded payload body.
 - Default relay `conversationId` is deterministic per local-agent/peer-agent pair so one peer relationship stays on one replay lane by default.
 - Default relay `conversationId` must be derived from sorted `localAgentDid` + peer DID so alias renames do not change replay lanes.
@@ -187,6 +209,42 @@ Rules:
 - Only `peer` is stripped from the forwarded application payload for compatibility; `conversationId` may still remain inside the application payload if the caller included it there.
 - Transform sends `Content-Type: application/json` only.
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
+
+## OpenClaw Inbound Metadata Contract
+
+After proxy verification and connector shaping, the canonical OpenClaw-facing delivery payload is:
+
+```json
+{
+  "message": "hello",
+  "senderDid": "did:cdi:<authority>:agent:<ulid>",
+  "senderAgentName": "alpha",
+  "senderDisplayName": "Ravi",
+  "recipientDid": "did:cdi:<authority>:agent:<ulid>",
+  "groupId": "grp_<ULID>",
+  "groupName": "research-crew",
+  "isGroupMessage": true,
+  "requestId": "01H...",
+  "metadata": {
+    "conversationId": "pair:...",
+    "replyTo": "https://proxy.example.com/v1/relay/delivery-receipts",
+    "payload": {}
+  }
+}
+```
+
+Canonical OpenClaw-facing headers:
+- `x-clawdentity-agent-did`
+- `x-clawdentity-to-agent-did`
+- `x-clawdentity-verified`
+- `x-request-id`
+- `x-clawdentity-agent-name` when known
+- `x-clawdentity-display-name` when known
+- `x-clawdentity-group-id` when present
+
+Note:
+- proxy relay routing still uses `x-claw-group-id`
+- the `x-clawdentity-*` headers above are the post-verification inbound metadata contract for local OpenClaw delivery
 
 ## Error Conditions
 
