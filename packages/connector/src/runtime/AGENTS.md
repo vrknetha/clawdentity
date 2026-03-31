@@ -12,6 +12,7 @@
 - Keep replay/probe policy loading and retry-delay calculations in `policy.ts`.
 - Keep replay orchestration and receipt callbacks in `replay.ts`; avoid re-embedding lane scheduling and dead-letter transitions in `runtime.ts`.
 - Keep relay peers snapshot parsing centralized in `relay-transform-peers.ts`; reuse it for sender-profile enrichment.
+- Reuse the shared `../openclaw-payload.ts` helper for canonical OpenClaw message payload shaping; runtime-only code in `openclaw.ts` should stay focused on delivery mechanics, not duplicate payload JSON rules.
 - Replay should resolve sender profile headers once per replay batch from relay peers snapshot and omit profile headers when peer metadata is unavailable.
 - Keep outbound relay and receipt callbacks in `relay-service.ts`; callback routing authority is always the runtime-owned proxy receipt endpoint (`defaultReceiptCallbackUrl`), not inbound `replyTo`.
 - Keep durable receipt retry/dequeue mechanics in `receipt-outbox.ts` and wire its lifecycle in `runtime.ts`; preserve at-least-once semantics with idempotent keys (`requestId:status`).

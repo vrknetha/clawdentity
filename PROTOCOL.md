@@ -923,6 +923,8 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 - a PAT-style `Bearer` token
 - agent auth via `Authorization: Claw <AIT>` plus the normal proof headers
 
+Current authorization scope is intentional and broader than `GET /v1/groups/:id`: once the caller is authenticated, the route can resolve any valid agent DID. Clawdentity uses that directory-style lookup for peer refresh and trusted `pair.accepted` enrichment. Do not assume owner-only, pair-only, or same-group scoping unless the runtime contract is redesigned first.
+
 Response shape:
 
 ```json

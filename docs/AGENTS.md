@@ -13,6 +13,9 @@
 - Keep pair-profile docs and registry-profile docs separate:
   - pair payloads still use `humanName`
   - registry profile lookup and projected relay snapshots use `displayName`
+- Be explicit about helper-route scope in docs:
+  - `GET /v1/agents/profile` is currently an authenticated directory-style lookup
+  - `GET /v1/groups/:id` remains resource-scoped and must not be described as globally readable
 - Keep group wording exact:
   - `group join token` is the canonical term
   - do not reintroduce `group invite` in docs

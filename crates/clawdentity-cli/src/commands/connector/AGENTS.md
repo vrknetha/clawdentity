@@ -21,6 +21,7 @@
 - Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.
 - Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
 - OpenClaw inbound payload shape is canonical and non-legacy: emit `message`, `senderDid`, `senderAgentName`, `senderDisplayName`, `recipientDid`, `groupId`, `groupName`, `isGroupMessage`, `requestId`, and `metadata` only.
+- Group-name lookups for inbound delivery should use a short in-process TTL cache behind the runtime-config helper so repeated group traffic does not force one registry read per message.
 - Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
 - Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
 - Prefer `&Path` in internal helper signatures and only use `PathBuf` where ownership is required, so Clippy `ptr_arg` remains green in connector runtime code.
@@ -34,6 +35,7 @@
 - Treat blank/whitespace `system.message` as absent UX metadata so trusted peer persistence cannot fail on cosmetic message formatting drift.
 - After trusted `pair.accepted` peer persistence succeeds, reconcile local `onboarding-session.json` to `messaging_ready` + `pairing.phase=peer_saved` as a best-effort UX sync; stale onboarding session state must not block relay send when peer state is already persisted.
 - Keep `pair.accepted` onboarding-session reconciliation split into small helpers (`read`/`reconcile`/`write`) so non-test function line-budget checks stay green while preserving best-effort semantics.
+- Runtime input resolution may use a short in-process TTL cache to avoid per-message file reads, but it must stay short-lived so refreshed auth/config changes still become visible without restarting the connector.
 - Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
 - Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
 - Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.

@@ -4,6 +4,7 @@ import {
   applyOpenclawSenderProfileHeaders,
   type OpenclawSenderProfile,
 } from "../openclaw-headers.js";
+import { buildOpenclawHookPayload } from "../openclaw-payload.js";
 import { isAbortError, sanitizeErrorReason, wait } from "./helpers.js";
 import { computeNextBackoffDelayMs } from "./retry.js";
 
@@ -29,99 +30,6 @@ function parseOptionalNonEmptyString(value: unknown): string | undefined {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function extractMessage(payload: unknown): string {
-  if (typeof payload === "string") {
-    return payload;
-  }
-  if (isRecord(payload)) {
-    return (
-      parseOptionalNonEmptyString(payload.content) ??
-      parseOptionalNonEmptyString(payload.message) ??
-      parseOptionalNonEmptyString(payload.text) ??
-      JSON.stringify(payload)
-    );
-  }
-  return JSON.stringify(payload ?? null);
-}
-
-function buildOpenclawHookPayload(input: {
-  frame: DeliverFrame;
-  hookUrl: string;
-  senderProfile: OpenclawSenderProfile | undefined;
-}): unknown {
-  const message = extractMessage(input.frame.payload);
-  const senderAgentName =
-    parseOptionalNonEmptyString(input.senderProfile?.agentName) ??
-    (isRecord(input.frame.payload)
-      ? parseOptionalNonEmptyString(input.frame.payload.senderAgentName)
-      : undefined);
-  const senderDisplayName =
-    parseOptionalNonEmptyString(input.senderProfile?.displayName) ??
-    (isRecord(input.frame.payload)
-      ? parseOptionalNonEmptyString(input.frame.payload.senderDisplayName)
-      : undefined);
-  const groupId = parseOptionalNonEmptyString(input.frame.groupId);
-  const groupName = isRecord(input.frame.payload)
-    ? (parseOptionalNonEmptyString(input.frame.payload.groupName) ?? groupId)
-    : groupId;
-  const senderLabel =
-    senderAgentName && senderDisplayName
-      ? `${senderAgentName} (${senderDisplayName})`
-      : (senderAgentName ?? senderDisplayName ?? input.frame.fromAgentDid);
-
-  if (new URL(input.hookUrl).pathname === "/hooks/wake") {
-    const firstLine =
-      groupId !== undefined
-        ? `Message in ${groupName ?? groupId} from ${senderLabel}`
-        : `Message from ${senderLabel}`;
-    const lines = [firstLine];
-    if (message.trim().length > 0) {
-      lines.push("", message);
-    }
-    lines.push("", `Request ID: ${input.frame.id}`);
-    if (parseOptionalNonEmptyString(input.frame.conversationId)) {
-      lines.push(`Conversation ID: ${input.frame.conversationId}`);
-    }
-    if (parseOptionalNonEmptyString(input.frame.replyTo)) {
-      lines.push(`Reply To: ${input.frame.replyTo}`);
-    }
-    const text = lines.join("\n");
-    const wakePayload: Record<string, unknown> = {
-      message: text,
-      text,
-      mode: "now",
-    };
-    const sessionId = isRecord(input.frame.payload)
-      ? parseOptionalNonEmptyString(input.frame.payload.sessionId)
-      : undefined;
-    if (sessionId) {
-      wakePayload.sessionId = sessionId;
-    }
-    return wakePayload;
-  }
-
-  return {
-    message,
-    senderDid: input.frame.fromAgentDid,
-    senderAgentName: senderAgentName ?? null,
-    senderDisplayName: senderDisplayName ?? null,
-    recipientDid: input.frame.toAgentDid,
-    groupId: groupId ?? null,
-    groupName: groupName ?? null,
-    isGroupMessage: groupId !== undefined,
-    requestId: input.frame.id,
-    metadata: {
-      conversationId: input.frame.conversationId ?? null,
-      replyTo: input.frame.replyTo ?? null,
-      payload: input.frame.payload ?? null,
-    },
-  };
 }
 
 export class LocalOpenclawDeliveryClient {
@@ -279,8 +187,14 @@ export class LocalOpenclawDeliveryClient {
         headers,
         body: JSON.stringify(
           buildOpenclawHookPayload({
-            frame,
             hookUrl: this.openclawHookUrl,
+            payload: frame.payload,
+            senderDid: frame.fromAgentDid,
+            toAgentDid: frame.toAgentDid,
+            requestId: frame.id,
+            conversationId: frame.conversationId,
+            replyTo: frame.replyTo,
+            groupId: frame.groupId,
             senderProfile,
           }),
         ),

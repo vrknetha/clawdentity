@@ -16,3 +16,4 @@
 - Ignore stale JSON inbox artifacts on disk; this module is SQLite-only.
 - In SQLite mode, `pruneDelivered()` is an intentional no-op because delivered rows are removed at delivery time; do not reintroduce unreachable prune predicates like `attempt_count < 0`.
 - Keep explicit lifecycle disposal: `InboundInboxStorage.close()` must remain idempotent and be called by runtime shutdown to release `DatabaseSync` handles deterministically.
+- Any schema-migration helper that interpolates table or column names must stay behind a strict local allowlist; do not widen identifier inputs and assume call sites stay trusted forever.

@@ -192,13 +192,31 @@ function ensureColumn(
   column: string,
   definition: string,
 ): void {
-  const rows = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+  const allowlistedDefinitions = {
+    inbox_dead_letter: {
+      group_id: "TEXT",
+    },
+    inbox_pending: {
+      group_id: "TEXT",
+    },
+  } as const;
+  const expectedDefinition =
+    allowlistedDefinitions[table as keyof typeof allowlistedDefinitions]?.[
+      column as "group_id"
+    ];
+  if (expectedDefinition !== definition) {
+    throw new Error(`ensureColumn received unsupported identifier pair`);
+  }
+
+  const rows = database
+    .prepare(`PRAGMA table_info("${table}")`)
+    .all() as Array<{
     name?: string;
   }>;
   if (rows.some((row) => row.name === column)) {
     return;
   }
-  database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  database.exec(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition};`);
 }
 
 function openAndConfigureDatabase(

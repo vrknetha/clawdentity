@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -18,9 +19,14 @@ use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_
 
 const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
+const GROUP_NAME_CACHE_TTL_MS: i64 = 60_000;
+const RUNTIME_INPUTS_CACHE_TTL_MS: i64 = 5_000;
 const RELAY_CONNECT_PATH: &str = "/v1/relay/connect";
 const RELAY_DELIVERY_RECEIPTS_PATH: &str = "/v1/relay/delivery-receipts";
 static GROUP_MEMBERSHIP_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static GROUP_NAME_CACHE: OnceLock<Mutex<HashMap<String, CachedGroupName>>> = OnceLock::new();
+static RUNTIME_INPUTS_CACHE: OnceLock<Mutex<HashMap<String, CachedRuntimeInputs>>> =
+    OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RegistryAgentProfile {
@@ -32,6 +38,93 @@ pub(crate) struct RegistryAgentProfile {
     pub human_did: String,
 }
 
+#[derive(Debug, Clone)]
+struct CachedGroupName {
+    name: String,
+    expires_at_ms: i64,
+}
+
+#[derive(Debug, Clone)]
+struct CachedRuntimeInputs {
+    inputs: ConnectorRuntimeInputs,
+    expires_at_ms: i64,
+}
+
+fn group_name_cache() -> &'static Mutex<HashMap<String, CachedGroupName>> {
+    GROUP_NAME_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn runtime_inputs_cache() -> &'static Mutex<HashMap<String, CachedRuntimeInputs>> {
+    RUNTIME_INPUTS_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn lookup_cached_group_name(group_id: &str, now_ms: i64) -> Option<String> {
+    let cache = group_name_cache().lock().ok()?;
+    let entry = cache.get(group_id)?;
+    if entry.expires_at_ms <= now_ms {
+        return None;
+    }
+
+    Some(entry.name.clone())
+}
+
+fn remember_group_name(group_id: &str, name: &str, now_ms: i64) {
+    if let Ok(mut cache) = group_name_cache().lock() {
+        cache.retain(|_, entry| entry.expires_at_ms > now_ms);
+        cache.insert(
+            group_id.to_string(),
+            CachedGroupName {
+                name: name.to_string(),
+                expires_at_ms: now_ms + GROUP_NAME_CACHE_TTL_MS,
+            },
+        );
+    }
+}
+
+fn runtime_inputs_cache_key(options: &ConfigPathOptions, agent_name: &str) -> String {
+    let home_dir = options
+        .home_dir
+        .as_deref()
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let registry_url_hint = options.registry_url_hint.clone().unwrap_or_default();
+    format!("{agent_name}|{home_dir}|{registry_url_hint}")
+}
+
+fn lookup_cached_runtime_inputs(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    now_ms: i64,
+) -> Option<ConnectorRuntimeInputs> {
+    let cache_key = runtime_inputs_cache_key(options, agent_name);
+    let cache = runtime_inputs_cache().lock().ok()?;
+    let entry = cache.get(&cache_key)?;
+    if entry.expires_at_ms <= now_ms {
+        return None;
+    }
+
+    Some(entry.inputs.clone())
+}
+
+fn remember_runtime_inputs(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    inputs: &ConnectorRuntimeInputs,
+    now_ms: i64,
+) {
+    if let Ok(mut cache) = runtime_inputs_cache().lock() {
+        cache.retain(|_, entry| entry.expires_at_ms > now_ms);
+        cache.insert(
+            runtime_inputs_cache_key(options, agent_name),
+            CachedRuntimeInputs {
+                inputs: inputs.clone(),
+                expires_at_ms: now_ms + RUNTIME_INPUTS_CACHE_TTL_MS,
+            },
+        );
+    }
+}
+
+#[derive(Debug, Clone)]
 struct ConnectorRuntimeInputs {
     config: clawdentity_core::config::CliConfig,
     config_dir: PathBuf,
@@ -137,13 +230,20 @@ async fn load_runtime_inputs(
     options: &ConfigPathOptions,
     agent_name: &str,
 ) -> Result<ConnectorRuntimeInputs> {
+    let now_ms = clawdentity_core::db::now_utc_ms();
+    if let Some(runtime_inputs) = lookup_cached_runtime_inputs(options, agent_name, now_ms) {
+        return Ok(runtime_inputs);
+    }
+
     let blocking_options = options.clone();
     let blocking_agent_name = agent_name.to_string();
-    tokio::task::spawn_blocking(move || {
+    let runtime_inputs = tokio::task::spawn_blocking(move || {
         resolve_runtime_inputs(&blocking_options, &blocking_agent_name)
     })
     .await
-    .map_err(|error| anyhow!("failed to resolve connector runtime inputs: {error}"))?
+    .map_err(|error| anyhow!("failed to resolve connector runtime inputs: {error}"))??;
+    remember_runtime_inputs(options, agent_name, &runtime_inputs, now_ms);
+    Ok(runtime_inputs)
 }
 
 fn resolve_runtime_inputs(
@@ -506,6 +606,10 @@ pub(crate) async fn fetch_group_name(
 ) -> Result<String> {
     let normalized_group_id =
         parse_group_id(group_id).map_err(|error| anyhow!("groupId is invalid: {error}"))?;
+    let now_ms = clawdentity_core::db::now_utc_ms();
+    if let Some(group_name) = lookup_cached_group_name(&normalized_group_id, now_ms) {
+        return Ok(group_name);
+    }
     let runtime_inputs = load_runtime_inputs(options, agent_name).await?;
     let request_url = reqwest::Url::parse(runtime_inputs.config.registry_url.trim())
         .map_err(|error| anyhow!("registry URL is invalid: {error}"))?
@@ -547,6 +651,7 @@ pub(crate) async fn fetch_group_name(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow!("group response is invalid"))?;
+    remember_group_name(&normalized_group_id, name, now_ms);
     Ok(name.to_string())
 }
 

@@ -543,7 +543,7 @@ Practical consequence:
 Both TypeScript and Rust implementations consume the same logical API surfaces:
 - registry metadata
 - agent challenge/register flows
-- authenticated agent profile lookup (`GET /v1/agents/profile`)
+- authenticated agent profile lookup (`GET /v1/agents/profile`), currently directory-style after auth so peer refresh and pair-accepted enrichment can resolve any valid agent DID
 - lightweight group lookup (`GET /v1/groups/:id`)
 - group lifecycle and internal membership-check routes
 - invite/API key/admin bootstrap endpoints

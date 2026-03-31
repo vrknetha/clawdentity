@@ -22,6 +22,7 @@
   - `runtime/relay-service.ts` for outbound relay and signed delivery-receipt callbacks.
   - `runtime/server.ts` for HTTP route handling (`/v1/status`, dead-letter ops, `/v1/outbound`).
   - `runtime/trusted-receipts.ts`, `runtime/url.ts`, `runtime/ws.ts`, and `runtime/parse.ts` for focused helper concerns.
+- Keep canonical OpenClaw hook payload shaping in `openclaw-payload.ts` so runtime and client delivery paths do not drift.
 - Keep `inbound-inbox.ts` as the public API surface (`ConnectorInboundInbox`, factory helpers, exported types) and route internals through `inbound-inbox/` modules:
   - `inbound-inbox/types.ts` for inbox/dead-letter/event contracts.
   - `inbound-inbox/parse.ts` for shared string sanitization helpers.
@@ -83,7 +84,7 @@
   - required: `x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`
   - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-display-name` (omit when unknown)
   - optional group context: `x-clawdentity-group-id` when present on inbound frames
-- `/hooks/wake` payload builders in both `client/delivery.ts` and `runtime/openclaw.ts` must preserve inbound `sessionId` when present.
+- `/hooks/wake` payload builders must preserve inbound `sessionId` when present.
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules
