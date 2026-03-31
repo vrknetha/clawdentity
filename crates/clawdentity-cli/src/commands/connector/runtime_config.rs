@@ -610,12 +610,34 @@ pub(crate) async fn fetch_group_name(
     if let Some(group_name) = lookup_cached_group_name(&normalized_group_id, now_ms) {
         return Ok(group_name);
     }
+
     let runtime_inputs = load_runtime_inputs(options, agent_name).await?;
+    let group_name = lookup_group_name_from_registry(&runtime_inputs, &normalized_group_id).await?;
+    remember_group_name(&normalized_group_id, &group_name, now_ms);
+    Ok(group_name)
+}
+
+fn parse_group_name_response(payload: serde_json::Value) -> Result<String> {
+    payload
+        .get("group")
+        .and_then(|group| group.get("name"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| anyhow!("group response is invalid"))
+}
+
+async fn lookup_group_name_from_registry(
+    runtime_inputs: &ConnectorRuntimeInputs,
+    normalized_group_id: &str,
+) -> Result<String> {
     let request_url = reqwest::Url::parse(runtime_inputs.config.registry_url.trim())
         .map_err(|error| anyhow!("registry URL is invalid: {error}"))?
         .join(&format!("/v1/groups/{normalized_group_id}"))
         .map_err(|error| anyhow!("group URL is invalid: {error}"))?;
-    let headers = build_signed_registry_request_headers(&runtime_inputs, "GET", &request_url, &[])?;
+
+    let headers = build_signed_registry_request_headers(runtime_inputs, "GET", &request_url, &[])?;
     let mut request = registry_http_client()?.get(request_url);
     for (name, value) in headers {
         request = request.header(name, value);
@@ -644,15 +666,7 @@ pub(crate) async fn fetch_group_name(
         .json()
         .await
         .map_err(|error| anyhow!("group response is invalid: {error}"))?;
-    let name = payload
-        .get("group")
-        .and_then(|group| group.get("name"))
-        .and_then(serde_json::Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("group response is invalid"))?;
-    remember_group_name(&normalized_group_id, name, now_ms);
-    Ok(name.to_string())
+    parse_group_name_response(payload)
 }
 
 #[allow(clippy::too_many_lines)]
