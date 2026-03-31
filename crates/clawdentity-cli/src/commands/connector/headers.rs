@@ -1,4 +1,4 @@
-use clawdentity_core::{DeliverFrame, SqliteStore, get_peer_by_did};
+use clawdentity_core::DeliverFrame;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct SenderProfileHeaders {
@@ -17,36 +17,18 @@ fn sanitize_optional_header_value(value: Option<String>) -> Option<String> {
     })
 }
 
-pub(super) fn lookup_sender_profile_headers(
-    store: &SqliteStore,
-    sender_agent_did: &str,
+pub(super) fn build_sender_profile_headers(
+    agent_name: Option<String>,
+    display_name: Option<String>,
 ) -> Option<SenderProfileHeaders> {
-    let sender_agent_did = sender_agent_did.trim();
-    if sender_agent_did.is_empty() {
-        return None;
-    }
-
-    match get_peer_by_did(store, sender_agent_did) {
-        Ok(Some(peer)) => {
-            let profile = SenderProfileHeaders {
-                agent_name: sanitize_optional_header_value(peer.agent_name),
-                display_name: sanitize_optional_header_value(peer.display_name),
-            };
-            if profile.agent_name.is_none() && profile.display_name.is_none() {
-                None
-            } else {
-                Some(profile)
-            }
-        }
-        Ok(None) => None,
-        Err(error) => {
-            tracing::warn!(
-                error = %error,
-                sender_agent_did,
-                "failed to resolve sender profile for inbound delivery"
-            );
-            None
-        }
+    let profile = SenderProfileHeaders {
+        agent_name: sanitize_optional_header_value(agent_name),
+        display_name: sanitize_optional_header_value(display_name),
+    };
+    if profile.agent_name.is_none() && profile.display_name.is_none() {
+        None
+    } else {
+        Some(profile)
     }
 }
 

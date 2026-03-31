@@ -20,9 +20,7 @@ use clawdentity_core::{
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use super::headers::{
-    SenderProfileHeaders, build_openclaw_delivery_headers, lookup_sender_profile_headers,
-};
+use super::headers::{SenderProfileHeaders, build_openclaw_delivery_headers};
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
 pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
 use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
@@ -30,10 +28,12 @@ use receipt_forward_queue::{
     PendingReceiptNotification, PendingReceiptQueue, enqueue_pending_receipt_notification,
     flush_pending_receipt_notifications,
 };
+use sender_profile::resolve_sender_profile_for_delivery as resolve_sender_profile_for_delivery_inner;
 
 mod openclaw_payload;
 mod pair_accepted;
 mod receipt_forward_queue;
+mod sender_profile;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -272,7 +272,10 @@ async fn retry_due_inbound_deliveries(context: &InboundRetryContext<'_>) {
 }
 
 #[allow(clippy::too_many_lines)]
-async fn retry_pending_inbound_delivery(context: &InboundRetryContext<'_>, item: InboundPendingItem) {
+async fn retry_pending_inbound_delivery(
+    context: &InboundRetryContext<'_>,
+    item: InboundPendingItem,
+) {
     let Ok(mut deliver) = build_deliver_from_pending(&item) else {
         dead_letter_invalid_pending_payload(context.store, context.receipt_outbox, &item).await;
         return;
@@ -291,9 +294,19 @@ async fn retry_pending_inbound_delivery(context: &InboundRetryContext<'_>, item:
         return;
     }
 
-    let sender_profile = lookup_sender_profile_headers(context.store, &item.from_agent_did);
-    let group_name =
-        resolve_group_name_for_delivery(context.options, context.agent_name, deliver.group_id.as_deref()).await;
+    let sender_profile = resolve_sender_profile_for_delivery(
+        context.options,
+        context.agent_name,
+        context.store,
+        &item.from_agent_did,
+    )
+    .await;
+    let group_name = resolve_group_name_for_delivery(
+        context.options,
+        context.agent_name,
+        deliver.group_id.as_deref(),
+    )
+    .await;
     match forward_deliver_to_openclaw(
         context.http_client,
         context.hook_url,
@@ -318,8 +331,7 @@ async fn retry_pending_inbound_delivery(context: &InboundRetryContext<'_>, item:
                 .await;
         }
         Err(error) => {
-            handle_pending_retry_failure(context.store, context.receipt_outbox, &item, &error)
-                .await
+            handle_pending_retry_failure(context.store, context.receipt_outbox, &item, &error).await
         }
     }
 }
@@ -492,7 +504,13 @@ async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: 
     } else {
         Ok(false)
     };
-    let sender_profile = lookup_sender_profile_headers(context.store, &deliver.from_agent_did);
+    let sender_profile = resolve_sender_profile_for_delivery(
+        context.options,
+        context.agent_name,
+        context.store,
+        &deliver.from_agent_did,
+    )
+    .await;
     let group_name = resolve_group_name_for_delivery(
         context.options,
         context.agent_name,
@@ -605,7 +623,7 @@ pub(super) async fn forward_deliver_to_openclaw(
     Ok(())
 }
 
-async fn resolve_group_name_for_delivery(
+pub(super) async fn resolve_group_name_for_delivery(
     options: &ConfigPathOptions,
     agent_name: &str,
     group_id: Option<&str>,
@@ -622,9 +640,18 @@ async fn resolve_group_name_for_delivery(
                 group_id,
                 "failed to resolve group name for inbound delivery"
             );
-            Some(group_id.to_string())
+            None
         }
     }
+}
+
+pub(super) async fn resolve_sender_profile_for_delivery(
+    options: &ConfigPathOptions,
+    agent_name: &str,
+    store: &SqliteStore,
+    sender_agent_did: &str,
+) -> Option<SenderProfileHeaders> {
+    resolve_sender_profile_for_delivery_inner(options, agent_name, store, sender_agent_did).await
 }
 
 async fn persist_inbound_delivery_result(

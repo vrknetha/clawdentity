@@ -122,10 +122,10 @@ fn build_openclaw_agent_payload(
     openclaw_target_agent_id: Option<&str>,
 ) -> Value {
     let message = extract_content(&deliver.payload);
-    let sender_agent_name = resolve_sender_agent_name(deliver, sender_profile);
-    let sender_display_name = resolve_sender_display_name(deliver, sender_profile);
+    let sender_agent_name = resolve_sender_agent_name(sender_profile);
+    let sender_display_name = resolve_sender_display_name(sender_profile);
     let group_id = normalize_optional_non_empty(deliver.group_id.as_deref());
-    let resolved_group_name = resolve_group_name(deliver, group_name, group_id.as_deref());
+    let resolved_group_name = resolve_group_name(group_name);
     let is_group_message = group_id.is_some();
     let mut payload = json!({
         "message": message,
@@ -182,15 +182,15 @@ fn render_openclaw_wake_text(
     group_name: Option<&str>,
 ) -> String {
     let message = extract_content(&deliver.payload);
-    let sender_agent_name = resolve_sender_agent_name(deliver, sender_profile);
-    let sender_display_name = resolve_sender_display_name(deliver, sender_profile);
+    let sender_agent_name = resolve_sender_agent_name(sender_profile);
+    let sender_display_name = resolve_sender_display_name(sender_profile);
     let sender_label = render_sender_label(
         sender_agent_name.as_deref(),
         sender_display_name.as_deref(),
         &deliver.from_agent_did,
     );
     let group_id = normalize_optional_non_empty(deliver.group_id.as_deref());
-    let resolved_group_name = resolve_group_name(deliver, group_name, group_id.as_deref());
+    let resolved_group_name = resolve_group_name(group_name);
     let headline = if group_id.is_some() {
         let group_label = resolved_group_name
             .or(group_id)
@@ -242,51 +242,16 @@ fn normalize_optional_non_empty(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn resolve_sender_agent_name(
-    deliver: &DeliverFrame,
-    sender_profile: Option<&SenderProfileHeaders>,
-) -> Option<String> {
-    sender_profile
-        .and_then(|profile| profile.agent_name.clone())
-        .or_else(|| {
-            normalize_optional_non_empty(
-                deliver
-                    .payload
-                    .get("senderAgentName")
-                    .and_then(Value::as_str)
-                    .or_else(|| deliver.payload.get("agentName").and_then(Value::as_str)),
-            )
-        })
+fn resolve_sender_agent_name(sender_profile: Option<&SenderProfileHeaders>) -> Option<String> {
+    sender_profile.and_then(|profile| profile.agent_name.clone())
 }
 
-fn resolve_sender_display_name(
-    deliver: &DeliverFrame,
-    sender_profile: Option<&SenderProfileHeaders>,
-) -> Option<String> {
-    sender_profile
-        .and_then(|profile| profile.display_name.clone())
-        .or_else(|| {
-            normalize_optional_non_empty(
-                deliver
-                    .payload
-                    .get("senderDisplayName")
-                    .and_then(Value::as_str)
-                    .or_else(|| deliver.payload.get("displayName").and_then(Value::as_str)),
-            )
-        })
+fn resolve_sender_display_name(sender_profile: Option<&SenderProfileHeaders>) -> Option<String> {
+    sender_profile.and_then(|profile| profile.display_name.clone())
 }
 
-fn resolve_group_name(
-    deliver: &DeliverFrame,
-    explicit_group_name: Option<&str>,
-    group_id: Option<&str>,
-) -> Option<String> {
-    explicit_group_name
-        .and_then(|value| normalize_optional_non_empty(Some(value)))
-        .or_else(|| {
-            normalize_optional_non_empty(deliver.payload.get("groupName").and_then(Value::as_str))
-        })
-        .or_else(|| group_id.map(ToOwned::to_owned))
+fn resolve_group_name(explicit_group_name: Option<&str>) -> Option<String> {
+    explicit_group_name.and_then(|value| normalize_optional_non_empty(Some(value)))
 }
 
 fn render_sender_label(agent_name: Option<&str>, display_name: Option<&str>, did: &str) -> String {

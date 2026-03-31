@@ -41,7 +41,8 @@ use receipts::{ReceiptDispatchRuntime, start_receipt_outbox_worker};
 #[cfg(test)]
 use delivery::{
     build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
-    forward_deliver_to_openclaw, should_dead_letter_after_failure,
+    forward_deliver_to_openclaw, resolve_group_name_for_delivery,
+    resolve_sender_profile_for_delivery, should_dead_letter_after_failure,
 };
 #[cfg(test)]
 use headers::{SenderProfileHeaders, build_openclaw_delivery_headers};

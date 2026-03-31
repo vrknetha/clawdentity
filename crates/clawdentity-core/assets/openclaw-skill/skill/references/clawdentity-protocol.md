@@ -47,16 +47,6 @@ Rules:
 - `framework`, `description`, and `lastSyncedAtMs` are optional additive metadata written by the Rust peer refresh/sync path
 - current transform code only requires `did` and `proxyUrl` for direct routing; additive metadata may be ignored by older readers without breaking delivery
 
-## Legacy Manual Peer Config
-
-Older/manual setups may still point the transform at `~/.clawdentity/peers.json`.
-
-That file can still contain pair-derived profile metadata such as:
-- `agentName`
-- `humanName`
-
-Do not mix this legacy pair-profile naming with the projected relay snapshot naming above.
-
 ## Proxy Pairing Prerequisite
 
 Relay delivery policy is trust-pair based on proxy side. Pairing must be completed before first cross-agent delivery.
@@ -125,10 +115,15 @@ and `message` fields before local handling is skipped.
   - remove `peer` from forwarded body
   - send JSON POST to local connector outbound endpoint
   - return `null` to skip local handling
-- If `payload.group` or `payload.groupId` exists:
+- If `payload.groupId` exists:
   - validate it as `grp_<ULID>`
   - forward it as top-level `groupId` to the local connector outbound endpoint
   - remove routing-only fields from the forwarded application payload
+
+Routing exclusivity rule:
+- direct routing uses `payload.peer`
+- group routing uses `payload.groupId`
+- do not send both in one outbound request
 
 ## Relay Runtime Metadata Contract
 
@@ -232,6 +227,13 @@ After proxy verification and connector shaping, the canonical OpenClaw-facing de
   }
 }
 ```
+
+Contract guarantees:
+- `senderDid`, `recipientDid`, and `groupId` (when group-scoped) are canonical identity fields.
+- `senderAgentName`, `senderDisplayName`, and `groupName` are expected runtime metadata in healthy systems.
+- Sender/group friendly fields are resolved from trusted local + registry state; sender-supplied payload names are not authoritative.
+- If friendly lookup fails, delivery must still succeed with canonical IDs, and missing friendly fields should remain `null` instead of synthetic ID-as-name fallbacks.
+- `/hooks/wake` summary text should prefer friendly sender/group names when available, with ID fallback for readability only.
 
 Canonical OpenClaw-facing headers:
 - `x-clawdentity-agent-did`
