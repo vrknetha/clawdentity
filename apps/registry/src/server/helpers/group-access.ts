@@ -50,3 +50,41 @@ export async function resolveReadableGroupForHuman(input: {
 
   return { id: group.id, name: group.name };
 }
+
+export async function resolveReadableGroupForAgent(input: {
+  db: ReturnType<typeof createDb>;
+  groupId: string;
+  agentId: string;
+}): Promise<{ id: string; name: string }> {
+  const groupRows = await input.db
+    .select({
+      id: groups.id,
+      name: groups.name,
+    })
+    .from(groups)
+    .where(eq(groups.id, input.groupId))
+    .limit(1);
+  const group = groupRows[0];
+  if (!group) {
+    throw groupNotFoundError();
+  }
+
+  const membershipRows = await input.db
+    .select({
+      agentId: group_members.agent_id,
+    })
+    .from(group_members)
+    .where(
+      and(
+        eq(group_members.group_id, input.groupId),
+        eq(group_members.agent_id, input.agentId),
+      ),
+    )
+    .limit(1);
+
+  if (!membershipRows[0]) {
+    throw groupJoinForbiddenError();
+  }
+
+  return group;
+}
