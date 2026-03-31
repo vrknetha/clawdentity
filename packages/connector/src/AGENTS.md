@@ -83,6 +83,7 @@
   - required: `x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`
   - optional sender profile: `x-clawdentity-agent-name`, `x-clawdentity-display-name` (omit when unknown)
   - optional group context: `x-clawdentity-group-id` when present on inbound frames
+- `/hooks/wake` payload builders in both `client/delivery.ts` and `runtime/openclaw.ts` must preserve inbound `sessionId` when present.
 - Keep runtime stop behavior fail-fast by aborting in-flight local OpenClaw hook requests via shared runtime shutdown signals.
 
 ## Testing Rules

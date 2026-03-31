@@ -342,11 +342,18 @@ function buildOpenclawHookPayload(input: {
       senderDid: input.fromAgentDid,
       senderDisplayName,
     });
-    return {
+    const wakePayload: Record<string, unknown> = {
       message: wakeText,
       text: wakeText,
       mode: "now",
     };
+    const sessionId = isRecord(input.payload)
+      ? parseOptionalNonEmptyString(input.payload.sessionId)
+      : undefined;
+    if (sessionId) {
+      wakePayload.sessionId = sessionId;
+    }
+    return wakePayload;
   }
 
   return {

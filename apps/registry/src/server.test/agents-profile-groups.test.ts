@@ -149,6 +149,37 @@ describe("GET /v1/groups/:id", () => {
     });
   });
 
+  it("returns 403 when PAT caller is not authorized for the group", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const { database } = createFakeDb([authRow], [], {
+      groupRows: [
+        {
+          id: groupId,
+          name: "alpha squad",
+          createdBy: "human-unauthorized",
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("GROUP_JOIN_FORBIDDEN");
+  });
+
   it("returns 404 for missing group", async () => {
     const { token, authRow } = await makeValidPatContext();
     const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";

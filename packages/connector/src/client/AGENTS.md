@@ -33,3 +33,4 @@
 - `delivery.ts` and `inbound-delivery.ts` stay responsible for OpenClaw delivery + ack orchestration and should expose injectable hooks for testing retries/timeout logic.
 - `delivery.ts` may resolve optional sender profile metadata via injected resolver callbacks, but delivery must stay best-effort: lookup failures cannot block ACK flow.
 - When sender profile is unavailable, omit `x-clawdentity-agent-name` and `x-clawdentity-display-name` instead of sending empty placeholders.
+- `/hooks/wake` payload shaping in `delivery.ts` must preserve inbound `sessionId` when present so explicit OpenClaw thread routing is not lost.

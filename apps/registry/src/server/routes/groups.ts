@@ -34,6 +34,7 @@ import {
   getMutationRowCount,
   isUnsupportedLocalTransactionError,
 } from "../helpers/db-queries.js";
+import { resolveReadableGroupForHuman } from "../helpers/group-access.js";
 import {
   groupCreateInvalidError,
   groupJoinForbiddenError,
@@ -732,11 +733,17 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     const isBearer =
       typeof authorization === "string" && authorization.startsWith("Bearer ");
 
+    let resolvedGroup: { id: string; name: string } | null = null;
     if (isBearer) {
-      await resolvePatHuman({
+      const human = await resolvePatHuman({
         db,
         authorizationHeader: authorization,
         touchLastUsed: true,
+      });
+      resolvedGroup = await resolveReadableGroupForHuman({
+        db,
+        groupId,
+        humanId: human.id,
       });
     } else {
       const bodyBytes = new Uint8Array(await c.req.raw.clone().arrayBuffer());
@@ -767,15 +774,17 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       }
     }
 
-    const groupRows = await db
-      .select({
-        id: groups.id,
-        name: groups.name,
-      })
-      .from(groups)
-      .where(eq(groups.id, groupId))
-      .limit(1);
-    const group = groupRows[0];
+    const group =
+      resolvedGroup ??
+      (await db
+        .select({
+          id: groups.id,
+          name: groups.name,
+        })
+        .from(groups)
+        .where(eq(groups.id, groupId))
+        .limit(1)
+        .then((rows) => rows[0]));
     if (!group) {
       throw groupNotFoundError();
     }

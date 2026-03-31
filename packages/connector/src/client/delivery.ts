@@ -92,11 +92,18 @@ function buildOpenclawHookPayload(input: {
       lines.push(`Reply To: ${input.frame.replyTo}`);
     }
     const text = lines.join("\n");
-    return {
+    const wakePayload: Record<string, unknown> = {
       message: text,
       text,
       mode: "now",
     };
+    const sessionId = isRecord(input.frame.payload)
+      ? parseOptionalNonEmptyString(input.frame.payload.sessionId)
+      : undefined;
+    if (sessionId) {
+      wakePayload.sessionId = sessionId;
+    }
+    return wakePayload;
   }
 
   return {

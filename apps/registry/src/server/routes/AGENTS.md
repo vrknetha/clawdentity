@@ -25,3 +25,4 @@
 - When a route supports both PAT and non-PAT auth (for example PAT-or-agent flows), reuse the shared auth resolver from `src/auth/` instead of re-implementing PAT hash/lookup logic in route modules.
 - `GET /v1/agents/profile` is the canonical authenticated profile lookup by DID and must return only contract fields: `agentDid`, `agentName`, `displayName`, `framework`, `status`, `humanDid`.
 - `GET /v1/groups/:id` must remain lightweight and return only `group.id` + `group.name`; keep membership/authorization checks in route-layer helpers and avoid embedding rendering logic.
+- `GET /v1/groups/:id` PAT access must be authorized against that specific group (owner or active-member ownership), not just token validity.

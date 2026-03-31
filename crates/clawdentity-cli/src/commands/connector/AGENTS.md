@@ -24,7 +24,7 @@
 - Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
 - Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
 - Handle pairing acceptance system events in `delivery/pair_accepted.rs` and invoke that processor in both live inbound delivery flow and retry replay flow.
-- Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`, then enrich the saved peer with registry profile fields (`display_name`, `framework`, `last_synced_at_ms`) from `GET /v1/agents/profile`.
+- Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`; registry enrichment from `GET /v1/agents/profile` is best-effort and must not block trusted peer persistence when registry is unavailable.
 - Pair-accepted system side effects must run only for trusted relay delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`); never mutate peer state for user-authored payload-only `system.type=pair.accepted`.
 - Pair-accepted system payload validation must include DID checks, responder proxy origin URL checks, and event timestamp parsing before mutating peer state.
 - Pair-accepted structured fields are mandatory for trusted side effects; optional `system.message` is UX-only and must never be used as a replacement for persistence/trust metadata.

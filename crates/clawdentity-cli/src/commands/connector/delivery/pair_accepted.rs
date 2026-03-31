@@ -16,6 +16,7 @@ use super::super::runtime_config::{RegistryAgentProfile, fetch_registry_agent_pr
 
 const PAIR_ACCEPTED_SYSTEM_EVENT_TYPE: &str = "pair.accepted";
 const PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE: &str = "proxy.events.queue.pair_accepted";
+const PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME: &str = "__simulate_registry_outage__";
 const ONBOARDING_SESSION_FILE_NAME: &str = "onboarding-session.json";
 // Serialized `OnboardingState` / `PairingProgressState` values are snake_case.
 const ONBOARDING_STATE_PAIRING_PENDING: &str = "pairing_pending";
@@ -283,19 +284,31 @@ pub(super) async fn apply_pair_accepted_system_delivery(
         ));
     }
 
-    let registry_profile = fetch_registry_profile(options, local_agent_name, &event).await?;
     let peer_alias = persist_confirmed_peer_from_profile_and_proxy_origin(
         store,
         config_dir,
         &event.responder_agent_did,
         &PairProfile {
-            agent_name: registry_profile.agent_name.clone(),
-            human_name: registry_profile.display_name.clone(),
+            agent_name: event.responder_profile.agent_name.clone(),
+            human_name: event.responder_profile.display_name.clone(),
             proxy_origin: Some(event.responder_profile.proxy_origin.clone()),
         },
         Some(event.responder_profile.proxy_origin.clone()),
     )?;
-    persist_canonical_peer_profile(store, &peer_alias, &registry_profile)?;
+
+    match fetch_registry_profile(options, local_agent_name, &event).await {
+        Ok(registry_profile) => {
+            persist_canonical_peer_profile(store, &peer_alias, &registry_profile)?;
+        }
+        Err(error) => {
+            warn!(
+                error = %error,
+                peer_alias = %peer_alias,
+                responder_agent_did = %event.responder_agent_did,
+                "pair.accepted registry profile enrichment failed; using responder profile fallback"
+            );
+        }
+    }
 
     if let Err(error) = reconcile_onboarding_session_pairing_state(config_dir, &peer_alias) {
         warn!(
@@ -315,6 +328,11 @@ async fn fetch_registry_profile(
     event: &PairAcceptedSystemEvent,
 ) -> Result<RegistryAgentProfile> {
     let profile = if cfg!(test) {
+        if event.responder_profile.agent_name == PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME {
+            return Err(anyhow!(
+                "simulated registry profile lookup outage for pair.accepted test"
+            ));
+        }
         let _ = (options, local_agent_name);
         RegistryAgentProfile {
             agent_did: event.responder_agent_did.clone(),
@@ -368,7 +386,7 @@ mod tests {
     use clawdentity_core::{ConfigPathOptions, list_peers, now_iso};
     use serde_json::{Value, json};
 
-    use super::PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE;
+    use super::{PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME, PAIR_ACCEPTED_TRUSTED_DELIVERY_SOURCE};
     use super::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
 
     fn test_options() -> ConfigPathOptions {
@@ -734,6 +752,39 @@ mod tests {
 
         let peers = list_peers(&store).expect("list peers");
         assert_eq!(peers.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn pair_accepted_persists_peer_when_registry_lookup_is_unavailable() {
+        let temp = TempDir::new().expect("temp dir");
+        let store = clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3"))
+            .expect("open db");
+        let snapshot_path = temp.path().join("relay-peers.json");
+        write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+        let mut deliver = fixture_deliver_frame();
+        deliver.payload["system"]["responderProfile"]["agentName"] =
+            json!(PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME);
+        deliver.payload["system"]["responderProfile"]["displayName"] = json!("Fallback Name");
+
+        let handled = apply_pair_accepted_system_delivery(
+            &test_options(),
+            "alpha",
+            &store,
+            temp.path(),
+            &mut deliver,
+        )
+        .await
+        .expect("pair accepted should succeed with fallback profile");
+        assert!(handled);
+
+        let peers = list_peers(&store).expect("list peers");
+        assert_eq!(peers.len(), 1);
+        assert_eq!(
+            peers[0].agent_name.as_deref(),
+            Some(PAIR_ACCEPTED_TEST_OUTAGE_AGENT_NAME)
+        );
+        assert_eq!(peers[0].display_name.as_deref(), Some("Fallback Name"));
     }
 
     #[tokio::test]
