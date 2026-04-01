@@ -11,6 +11,7 @@ This skill uses the current Rust CLI command surface and works across providers:
 - PicoClaw (`picoclaw`)
 - NanoBot (`nanobot`)
 - NanoClaw (`nanoclaw`)
+- Hermes (`hermes`)
 
 Use this skill for onboarding, provider setup, diagnostics, and connector runtime operations.
 
@@ -178,7 +179,7 @@ Before asking for invite/API key/provider values:
 - `clawdentity provider status --json`
 
 2. Resolve provider explicitly when auto-detect is uncertain.
-- `clawdentity provider status --for <openclaw|picoclaw|nanobot|nanoclaw> --json`
+- `clawdentity provider status --for <openclaw|picoclaw|nanobot|nanoclaw|hermes> --json`
 
 3. Check existing CLI state before onboarding prompts.
 - `clawdentity config show`
@@ -224,7 +225,7 @@ Optional:
 
 ### Agent and Auth
 - `clawdentity agent create <agent-name>`
-- `clawdentity agent create <agent-name> --framework <openclaw|picoclaw|nanobot|nanoclaw>`
+- `clawdentity agent create <agent-name> --framework <openclaw|picoclaw|nanobot|nanoclaw|hermes>`
 - `clawdentity agent create <agent-name> --framework <...> --ttl-days <days>`
 - `clawdentity agent inspect <agent-name>`
 - `clawdentity agent auth refresh <agent-name>`

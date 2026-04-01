@@ -29,7 +29,7 @@ Agent A (OpenClaw)          Agent B (NanoBot)
 
 That's it. No shared tokens. No custom webhooks. No "let me check if that platform supports this." Just agents messaging agents.
 
-One CLI. Works across OpenClaw, PicoClaw, NanoBot, and NanoClaw today.
+One CLI. Works across OpenClaw, PicoClaw, NanoBot, NanoClaw, and Hermes today.
 
 ---
 
@@ -51,7 +51,7 @@ One CLI. Works across OpenClaw, PicoClaw, NanoBot, and NanoClaw today.
 | [NanoBot](https://github.com/HKUDS/nanobot) | Python | 22.6K ⭐ | ✅ [PR #985](https://github.com/HKUDS/nanobot/pull/985) |
 | [PicoClaw](https://github.com/sipeed/picoclaw) | Go | 17.4K ⭐ | ✅ [PR #626](https://github.com/sipeed/picoclaw/pull/626) |
 | [NanoClaw](https://github.com/qwibitai/nanoclaw) | TypeScript | 10.6K ⭐ | ✅ [PR #377](https://github.com/qwibitai/nanoclaw/pull/377) |
-| [hermes-agent](https://github.com/vrknetha/clawdentity/issues/231) | — | — | 🔧 In progress |
+| [hermes-agent](https://github.com/vrknetha/hermes-agent) | Python | — | ✅ Native |
 
 ---
 
@@ -117,6 +117,7 @@ The current public Rust CLI help does not expose a `clawdentity group ...` comma
 | PicoClaw | `picoclaw` in PATH | Enables webhook channel in `config.json` |
 | NanoBot | `~/.nanobot/` dir | Enables webhook channel in `config.yaml` |
 | NanoClaw | `.claude/` skills dir | Applies webhook skill via skills engine |
+| Hermes | `~/.hermes/config.yaml` + `hermes` in PATH | Configures webhook route at `/webhooks/clawdentity` |
 
 The connector can run as a system service (launchd on macOS, systemd on Linux).
 
@@ -167,10 +168,10 @@ Connector (:19400)                     Connector (:19400)
 - [x] QR-code pairing and trust policies
 - [x] Relay proxy (WebSocket + HTTP)
 - [x] Rust CLI (single binary, zero deps)
-- [x] Cross-platform webhook channels (OpenClaw, PicoClaw, NanoBot, NanoClaw)
+- [x] Cross-platform webhook channels (OpenClaw, PicoClaw, NanoBot, NanoClaw, Hermes)
 - [x] Install providers with platform auto-detection
 - [x] Group messaging (multi-agent channels with attribution)
-- [ ] hermes-agent support ([#231](https://github.com/vrknetha/clawdentity/issues/231))
+- [x] hermes-agent support ([#231](https://github.com/vrknetha/clawdentity/issues/231))
 - [ ] Agent discovery (find agents by capability)
 - [ ] Encrypted messaging (E2E between agents)
 - [ ] Federation (multiple registries)

@@ -184,7 +184,7 @@ Decision:
 
 Why:
 - One contract for detect/install/verify/doctor/setup/relay-test across providers.
-- Isolates provider-specific config/runtime details (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`).
+- Isolates provider-specific config/runtime details (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`, `hermes`).
 - Allows CLI to dispatch provider operations consistently.
 
 Evidence in code:

@@ -1,8 +1,10 @@
+pub mod hermes;
 pub mod nanobot;
 pub mod nanoclaw;
 pub mod openclaw;
 pub mod picoclaw;
 
+pub use hermes::HermesProvider;
 pub use nanobot::NanobotProvider;
 pub use nanoclaw::NanoclawProvider;
 pub use openclaw::OpenclawProvider;
@@ -22,7 +24,7 @@ use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 
 pub trait PlatformProvider {
-    /// Provider name (e.g., "openclaw", "picoclaw", "nanobot", "nanoclaw")
+    /// Provider name (e.g., "openclaw", "picoclaw", "nanobot", "nanoclaw", "hermes")
     fn name(&self) -> &str;
 
     /// Human-readable display name
@@ -238,6 +240,7 @@ pub fn all_providers() -> Vec<Box<dyn PlatformProvider>> {
         Box::new(PicoclawProvider::default()),
         Box::new(NanobotProvider::default()),
         Box::new(NanoclawProvider::default()),
+        Box::new(HermesProvider::default()),
     ]
 }
 
@@ -758,7 +761,10 @@ mod tests {
             .map(|provider| provider.name().to_string())
             .collect::<Vec<_>>();
 
-        assert_eq!(names, vec!["openclaw", "picoclaw", "nanobot", "nanoclaw"]);
+        assert_eq!(
+            names,
+            vec!["openclaw", "picoclaw", "nanobot", "nanoclaw", "hermes"]
+        );
     }
 
     #[test]

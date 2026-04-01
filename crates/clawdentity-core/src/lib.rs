@@ -26,6 +26,7 @@ pub use identity::signing;
 pub use pairing::peers;
 pub use pairing::qr;
 pub use providers as provider;
+pub use providers::hermes as provider_hermes;
 pub use providers::nanobot as provider_nanobot;
 pub use providers::nanoclaw as provider_nanoclaw;
 pub use providers::openclaw as provider_openclaw;

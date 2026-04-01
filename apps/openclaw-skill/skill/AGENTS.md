@@ -44,7 +44,7 @@
 - Receiving docs must be name-first for runtime metadata: read `senderAgentName`, `senderDisplayName`, and `groupName` first, with DID/group IDs as identity fallback.
 - Do not present sender-supplied name fields as authoritative; docs should reflect registry/local trusted metadata resolution behavior.
 - Keep local harness/testing instructions out of user-facing documentation; those belong in internal testing skills or operator runbooks, not the published skill/docs.
-- When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw>` in docs.
+- When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw|hermes>` in docs.
 - Keep a single canonical skill URL path:
   - `https://clawdentity.com/skill.md`
 - Keep a non-canonical fallback mirror path:

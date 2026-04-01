@@ -463,6 +463,8 @@ fn doctor_has_connector_failure(checks: &[ProviderDoctorCheck]) -> bool {
                 "state.connectorRuntime"
                     | "state.connectorInboundInbox"
                     | "state.openclawHookHealth"
+                    | "connector.runtime"
+                    | "webhook.health"
             )
     })
 }
@@ -476,7 +478,9 @@ fn classify_doctor_failures(checks: &[ProviderDoctorCheck]) -> (&'static str, St
         match check.id.as_str() {
             "state.connectorRuntime"
             | "state.connectorInboundInbox"
-            | "state.openclawHookHealth" => {
+            | "state.openclawHookHealth"
+            | "connector.runtime"
+            | "webhook.health" => {
                 return (
                     FAILURE_CODE_CONNECTOR_DOWN,
                     "Run this command with --repair to restart connector runtime and rerun health checks."
@@ -716,17 +720,19 @@ mod tests {
 
     #[test]
     fn doctor_failure_classifies_connector_runtime_code() {
-        let checks = vec![ProviderDoctorCheck {
-            id: "state.connectorRuntime".to_string(),
-            label: "Connector runtime".to_string(),
-            status: ProviderDoctorCheckStatus::Fail,
-            message: "connector runtime is down".to_string(),
-            remediation_hint: None,
-            details: None,
-        }];
+        for check_id in ["state.connectorRuntime", "connector.runtime"] {
+            let checks = vec![ProviderDoctorCheck {
+                id: check_id.to_string(),
+                label: "Connector runtime".to_string(),
+                status: ProviderDoctorCheckStatus::Fail,
+                message: "connector runtime is down".to_string(),
+                remediation_hint: None,
+                details: None,
+            }];
 
-        let (code, _) = classify_doctor_failures(&checks);
-        assert_eq!(code, FAILURE_CODE_CONNECTOR_DOWN);
+            let (code, _) = classify_doctor_failures(&checks);
+            assert_eq!(code, FAILURE_CODE_CONNECTOR_DOWN);
+        }
     }
 
     #[test]

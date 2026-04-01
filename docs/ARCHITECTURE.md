@@ -517,6 +517,7 @@ Current provider implementations:
 - PicoClaw
 - NanoBot
 - NanoClaw
+- Hermes
 
 Operational invariants:
 - structural tests enforce architecture constraints

@@ -25,6 +25,7 @@
 - `onboarding run` must remain idempotent on re-runs and should only ask for missing mandatory inputs (`onboarding_code`, `display_name`, `agent_name`, `peer_ticket`) while auto-repairing provider runtime when `--repair` is used.
 - Keep onboarding implementation split by responsibility: `onboarding.rs` owns command/session orchestration and lightweight helpers, while `onboarding/onboarding_flow.rs` owns provider/pairing/messaging execution steps.
 - In `onboarding/onboarding_flow.rs`, run provider `setup`/`doctor`/`relay_test` inside `spawn_blocking` boundaries; these paths use blocking HTTP clients and must never execute directly on async runtime threads.
+- Keep onboarding doctor-failure classification provider-agnostic: treat generic check IDs (`connector.runtime`, `webhook.health`) as connector/runtime repair candidates alongside OpenClaw-specific IDs.
 - Best-effort OpenClaw pairing notifications emitted during onboarding must use short HTTP client timeouts so optional notifications never stall the primary pairing/messaging readiness path.
 - Pair-accepted side effects in connector inbound handling must stay gated by trusted relay provenance metadata (`deliverySource=proxy.events.queue.pair_accepted`), never by user payload content alone.
 - Keep `provider setup --for openclaw --openclaw-agent-id <id>` wired end-to-end into core setup options; default mapping remains `main` when omitted.
