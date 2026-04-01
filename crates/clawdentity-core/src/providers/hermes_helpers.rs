@@ -62,7 +62,7 @@ impl HermesProvider {
     }
 
     fn mapping_string(map: &Mapping, key: &str) -> Option<String> {
-        map.get(&Self::yaml_key(key))
+        map.get(Self::yaml_key(key))
             .and_then(YamlValue::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -70,7 +70,7 @@ impl HermesProvider {
     }
 
     fn mapping_u16(map: &Mapping, key: &str) -> Option<u16> {
-        map.get(&Self::yaml_key(key)).and_then(|value| {
+        map.get(Self::yaml_key(key)).and_then(|value| {
             value
                 .as_u64()
                 .and_then(|number| u16::try_from(number).ok())
@@ -81,15 +81,15 @@ impl HermesProvider {
     fn route_config<'a>(config: &'a YamlValue, route_name: &str) -> Option<&'a Mapping> {
         config
             .as_mapping()
-            .and_then(|root| root.get(&Self::yaml_key("platforms")))
+            .and_then(|root| root.get(Self::yaml_key("platforms")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|platforms| platforms.get(&Self::yaml_key("webhook")))
+            .and_then(|platforms| platforms.get(Self::yaml_key("webhook")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|webhook| webhook.get(&Self::yaml_key("extra")))
+            .and_then(|webhook| webhook.get(Self::yaml_key("extra")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|extra| extra.get(&Self::yaml_key("routes")))
+            .and_then(|extra| extra.get(Self::yaml_key("routes")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|routes| routes.get(&Self::yaml_key(route_name)))
+            .and_then(|routes| routes.get(Self::yaml_key(route_name)))
             .and_then(YamlValue::as_mapping)
     }
 
@@ -101,11 +101,11 @@ impl HermesProvider {
     pub(super) fn configured_webhook_host(config: &YamlValue) -> Option<String> {
         config
             .as_mapping()
-            .and_then(|root| root.get(&Self::yaml_key("platforms")))
+            .and_then(|root| root.get(Self::yaml_key("platforms")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|platforms| platforms.get(&Self::yaml_key("webhook")))
+            .and_then(|platforms| platforms.get(Self::yaml_key("webhook")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|webhook| webhook.get(&Self::yaml_key("extra")))
+            .and_then(|webhook| webhook.get(Self::yaml_key("extra")))
             .and_then(YamlValue::as_mapping)
             .and_then(|extra| Self::mapping_string(extra, "host"))
     }
@@ -113,11 +113,11 @@ impl HermesProvider {
     pub(super) fn configured_webhook_port(config: &YamlValue) -> Option<u16> {
         config
             .as_mapping()
-            .and_then(|root| root.get(&Self::yaml_key("platforms")))
+            .and_then(|root| root.get(Self::yaml_key("platforms")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|platforms| platforms.get(&Self::yaml_key("webhook")))
+            .and_then(|platforms| platforms.get(Self::yaml_key("webhook")))
             .and_then(YamlValue::as_mapping)
-            .and_then(|webhook| webhook.get(&Self::yaml_key("extra")))
+            .and_then(|webhook| webhook.get(Self::yaml_key("extra")))
             .and_then(YamlValue::as_mapping)
             .and_then(|extra| Self::mapping_u16(extra, "port"))
     }
