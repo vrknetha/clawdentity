@@ -145,7 +145,10 @@ impl HermesProvider {
         {
             extra.insert(Self::yaml_key("host"), YamlValue::String(host.to_string()));
         }
-        let port = opts.webhook_port.unwrap_or(8644);
+        let port = opts
+            .webhook_port
+            .or_else(|| Self::mapping_u16(extra, "port"))
+            .unwrap_or(8644);
         extra.insert(
             Self::yaml_key("port"),
             YamlValue::Number(YamlNumber::from(u64::from(port))),
@@ -199,7 +202,7 @@ impl HermesProvider {
     ) -> Result<HermesInstallArtifacts> {
         let home_dir = self.install_home_dir(opts)?;
         let config_path = Self::config_path_from_home(&home_dir);
-        let mut config = Self::load_yaml_or_default(&config_path)?;
+        let config = Self::load_yaml_or_default(&config_path)?;
         let explicit_secret = opts
             .webhook_token
             .as_deref()
@@ -216,9 +219,10 @@ impl HermesProvider {
             (Self::generate_webhook_secret()?, true)
         };
 
-        Self::upsert_clawdentity_route(&mut config, opts, &webhook_secret);
-        Self::write_yaml(&config_path, &config)?;
-        let webhook_endpoint = self.resolve_webhook_url(opts, &config)?;
+        let mut updated_config = config.clone();
+        Self::upsert_clawdentity_route(&mut updated_config, opts, &webhook_secret);
+        let webhook_endpoint = self.resolve_webhook_url(opts, &updated_config)?;
+        Self::write_yaml(&config_path, &updated_config)?;
 
         Ok(HermesInstallArtifacts {
             config_path,
@@ -303,10 +307,14 @@ impl HermesProvider {
     pub(super) fn build_runtime_config(
         opts: &ProviderSetupOptions,
         artifacts: &HermesInstallArtifacts,
+        existing_runtime: Option<&ProviderRelayRuntimeConfig>,
     ) -> ProviderRelayRuntimeConfig {
         ProviderRelayRuntimeConfig {
             webhook_endpoint: artifacts.webhook_endpoint.clone(),
-            connector_base_url: opts.connector_base_url.clone(),
+            connector_base_url: opts
+                .connector_base_url
+                .clone()
+                .or_else(|| existing_runtime.and_then(|cfg| cfg.connector_base_url.clone())),
             webhook_token: Some(artifacts.webhook_secret.clone()),
             platform_base_url: opts.platform_base_url.clone(),
             relay_transform_peers_path: opts.relay_transform_peers_path.clone(),

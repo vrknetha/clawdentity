@@ -12,6 +12,9 @@
   - `setup`
   - `relay_test`
 - Keep provider config changes idempotent; re-running setup/install must update in place without duplicating blocks or clobbering unrelated config.
+- When setup inputs omit optional runtime fields (for example connector base URL), preserve the previously persisted runtime value instead of clearing it.
+- When install/setup omits webhook port overrides, preserve existing configured port values; only change port when an explicit override is passed.
+- Validate derived endpoints/URLs before writing config mutations to disk so failed commands do not leave partial provider state.
 - Keep webhook auth fail-closed:
   - prefer signed headers or explicit tokens
   - never silently downgrade to unsigned delivery when a secret/token is configured

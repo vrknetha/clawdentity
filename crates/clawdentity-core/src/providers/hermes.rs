@@ -369,12 +369,13 @@ impl PlatformProvider for HermesProvider {
         let artifacts = self.configure_install(&Self::setup_install_options(opts))?;
         let state_dir =
             resolve_state_dir(opts.home_dir.clone().or(self.home_dir_override.clone()))?;
+        let existing_runtime = load_provider_runtime_config(&state_dir, self.name())?;
         let agent_name = Self::resolve_agent_name(opts);
         let marker_path = write_provider_agent_marker(&state_dir, self.name(), &agent_name)?;
         let runtime_path = save_provider_runtime_config(
             &state_dir,
             self.name(),
-            Self::build_runtime_config(opts, &artifacts),
+            Self::build_runtime_config(opts, &artifacts, existing_runtime.as_ref()),
         )?;
 
         Ok(ProviderSetupResult {

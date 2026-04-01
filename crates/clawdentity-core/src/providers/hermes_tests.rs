@@ -6,7 +6,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::provider::{
     InboundMessage, InstallOptions, PlatformProvider, ProviderDoctorCheckStatus,
-    ProviderDoctorOptions, ProviderRelayTestOptions,
+    ProviderDoctorOptions, ProviderRelayTestOptions, ProviderSetupOptions,
 };
 
 use super::{HERMES_CONFIG_FILE, HERMES_DIR_NAME, HermesProvider};
@@ -148,6 +148,142 @@ platforms:
 
     assert!(routes.contains_key(yaml_key("github")));
     assert!(routes.contains_key(yaml_key("clawdentity")));
+}
+
+#[test]
+fn install_preserves_existing_webhook_port_when_no_override_is_passed() {
+    let home = TempDir::new().expect("temp home");
+    let config_dir = home.path().join(HERMES_DIR_NAME);
+    std::fs::create_dir_all(&config_dir).expect("config dir");
+    let config_path = config_dir.join(HERMES_CONFIG_FILE);
+    std::fs::write(
+        &config_path,
+        r#"
+platforms:
+  webhook:
+    enabled: true
+    extra:
+      host: 127.0.0.1
+      port: 9999
+      routes:
+        github:
+          secret: existing-secret
+"#,
+    )
+    .expect("seed config");
+
+    let provider = HermesProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+    provider
+        .install(&InstallOptions {
+            home_dir: Some(home.path().to_path_buf()),
+            webhook_port: None,
+            webhook_host: None,
+            webhook_token: Some("fixed-secret".to_string()),
+            connector_url: None,
+        })
+        .expect("install");
+
+    let updated = std::fs::read_to_string(&config_path).expect("read config");
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&updated).expect("parse yaml");
+    let port = parsed
+        .as_mapping()
+        .and_then(|root| root.get(yaml_key("platforms")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|platforms| platforms.get(yaml_key("webhook")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|webhook| webhook.get(yaml_key("extra")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|extra| extra.get(yaml_key("port")))
+        .and_then(serde_yaml::Value::as_u64);
+
+    assert_eq!(port, Some(9999));
+}
+
+#[test]
+fn install_with_invalid_connector_url_does_not_mutate_yaml() {
+    let home = TempDir::new().expect("temp home");
+    let config_dir = home.path().join(HERMES_DIR_NAME);
+    std::fs::create_dir_all(&config_dir).expect("config dir");
+    let config_path = config_dir.join(HERMES_CONFIG_FILE);
+    std::fs::write(
+        &config_path,
+        r#"
+platforms:
+  webhook:
+    enabled: true
+    extra:
+      routes:
+        github:
+          secret: existing-secret
+"#,
+    )
+    .expect("seed config");
+
+    let provider = HermesProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+    let result = provider.install(&InstallOptions {
+        home_dir: Some(home.path().to_path_buf()),
+        webhook_port: None,
+        webhook_host: None,
+        webhook_token: Some("new-secret".to_string()),
+        connector_url: Some("not-a-valid-url".to_string()),
+    });
+    assert!(result.is_err());
+
+    let updated = std::fs::read_to_string(&config_path).expect("read config");
+    let parsed: serde_yaml::Value = serde_yaml::from_str(&updated).expect("parse yaml");
+    let routes = parsed
+        .as_mapping()
+        .and_then(|root| root.get(yaml_key("platforms")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|platforms| platforms.get(yaml_key("webhook")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|webhook| webhook.get(yaml_key("extra")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .and_then(|extra| extra.get(yaml_key("routes")))
+        .and_then(serde_yaml::Value::as_mapping)
+        .expect("routes");
+
+    assert!(routes.contains_key(yaml_key("github")));
+    assert!(!routes.contains_key(yaml_key("clawdentity")));
+}
+
+#[test]
+fn setup_preserves_existing_connector_base_url_when_arg_is_omitted() {
+    let home = TempDir::new().expect("temp home");
+    let provider = HermesProvider::with_test_context(home.path().to_path_buf(), Vec::new());
+
+    provider
+        .setup(&ProviderSetupOptions {
+            home_dir: Some(home.path().to_path_buf()),
+            agent_name: Some("alpha".to_string()),
+            connector_base_url: Some("http://127.0.0.1:19400".to_string()),
+            webhook_host: Some("127.0.0.1".to_string()),
+            webhook_port: Some(8644),
+            webhook_token: Some("fixed-secret".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect("initial setup");
+
+    provider
+        .setup(&ProviderSetupOptions {
+            home_dir: Some(home.path().to_path_buf()),
+            agent_name: Some("alpha".to_string()),
+            webhook_host: Some("127.0.0.1".to_string()),
+            webhook_port: Some(8644),
+            webhook_token: Some("fixed-secret".to_string()),
+            ..ProviderSetupOptions::default()
+        })
+        .expect("second setup");
+
+    let state_dir =
+        crate::provider::resolve_state_dir(Some(home.path().to_path_buf())).expect("state dir");
+    let runtime = crate::provider::load_provider_runtime_config(&state_dir, "hermes")
+        .expect("load runtime")
+        .expect("runtime config");
+    assert_eq!(
+        runtime.connector_base_url.as_deref(),
+        Some("http://127.0.0.1:19400")
+    );
 }
 
 #[test]
