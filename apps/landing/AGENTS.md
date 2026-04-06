@@ -16,6 +16,7 @@
 - `CLAWDENTITY_RELEASE_MANIFEST_URL` is optional and overrides the latest manifest URL.
 - `CLAWDENTITY_INSTALL_DIR` is optional and overrides the destination directory.
 - `CLAWDENTITY_SITE_BASE_URL` is optional and overrides the onboarding guide origin used by generated local `skill.md` content and installer next-step messaging.
+- For local/operator preview origins, `CLAWDENTITY_SITE_BASE_URL` must also be sufficient to keep installer manifest + binary resolution on the same origin when `CLAWDENTITY_RELEASE_MANIFEST_URL` and `CLAWDENTITY_DOWNLOADS_BASE_URL` are unset.
 - `CLAWDENTITY_SKILL_URL` is optional and overrides the exact onboarding guide URL printed by the installers.
 - `CLAWDENTITY_INSTALL_DRY_RUN=1` performs a no-write simulation.
 - `CLAWDENTITY_NO_VERIFY=1` is the only allowed checksum bypass.
@@ -99,6 +100,8 @@
 - DID examples in landing docs must use `did:cdi:<authority>:<entity>:<ulid>`; never use `did:claw:*` format.
 - Guide-level relay docs must clearly scope runtime contracts:
   - Rust connector runtime (`clawdentity connector start`) uses direct `toAgentDid` or group `groupId` routing
+  - Rust connector runtime inbound delivery is provider-aware: OpenClaw uses `/hooks/*`, Hermes/non-OpenClaw providers use saved provider runtime endpoints
+  - OpenClaw-specific connector overrides (`--openclaw-*`, `OPENCLAW_*`) must be labeled as OpenClaw-only manual recovery controls
   - TypeScript package runtime (`packages/connector/src/runtime/*`) currently uses legacy outbound fields (`peer`, `peerDid`, `peerProxyUrl`)
   - when both are documented, label each contract explicitly and avoid mixing examples
 - When guide docs mention OpenClaw delivery payloads, keep `/hooks/wake` and `/hooks/agent` contracts separate:

@@ -47,6 +47,13 @@ export default defineConfig({
           tag: "link",
           attrs: {
             rel: "preconnect",
+            href: "https://api.fontshare.com",
+          },
+        },
+        {
+          tag: "link",
+          attrs: {
+            rel: "preconnect",
             href: "https://fonts.googleapis.com",
           },
         },
@@ -62,7 +69,14 @@ export default defineConfig({
           tag: "link",
           attrs: {
             rel: "stylesheet",
-            href: "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital,wght@0,400;1,400&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap",
+            href: "https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap",
+          },
+        },
+        {
+          tag: "link",
+          attrs: {
+            rel: "stylesheet",
+            href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap",
           },
         },
       ],

@@ -5,6 +5,8 @@ Set-StrictMode -Version Latest
 $BinaryName = "clawdentity.exe"
 $DefaultDownloadsBaseUrl = "https://downloads.clawdentity.com"
 $DefaultSiteBaseUrl = "https://clawdentity.com"
+$DefaultReleaseManifestPath = "/rust/latest.json"
+$DefaultLocalReleaseManifestPath = "/rust/latest-local.json"
 
 $DryRun = $env:CLAWDENTITY_INSTALL_DRY_RUN -eq "1"
 $NoVerify = $env:CLAWDENTITY_NO_VERIFY -eq "1"
@@ -41,19 +43,49 @@ function Trim-TrailingSlash {
   return $Value.TrimEnd("/")
 }
 
+function Uses-NoncanonicalSiteOrigin {
+  if ([string]::IsNullOrWhiteSpace($SiteBaseUrlInput)) {
+    return $false
+  }
+
+  return (Trim-TrailingSlash $SiteBaseUrlInput) -ne $DefaultSiteBaseUrl
+}
+
+function Resolve-DownloadsBaseUrl {
+  if (-not [string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
+    return Trim-TrailingSlash $DownloadsBaseUrl
+  }
+
+  if (Uses-NoncanonicalSiteOrigin) {
+    return Trim-TrailingSlash $SiteBaseUrlInput
+  }
+
+  return Trim-TrailingSlash $DefaultDownloadsBaseUrl
+}
+
+function Should-UseSiteOriginReleaseAssets {
+  if (-not (Uses-NoncanonicalSiteOrigin)) {
+    return $false
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
+    return $false
+  }
+
+  return [string]::IsNullOrWhiteSpace($ManifestUrlInput)
+}
+
 function Resolve-ManifestUrl {
   if (-not [string]::IsNullOrWhiteSpace($ManifestUrlInput)) {
     return $ManifestUrlInput
   }
 
-  $baseUrl = if ([string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
-    $DefaultDownloadsBaseUrl
-  }
-  else {
-    $DownloadsBaseUrl
+  if ((Uses-NoncanonicalSiteOrigin) -and [string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
+    return "$(Trim-TrailingSlash $SiteBaseUrlInput)$DefaultLocalReleaseManifestPath"
   }
 
-  return "$(Trim-TrailingSlash $baseUrl)/rust/latest.json"
+  $baseUrl = Resolve-DownloadsBaseUrl
+  return "$baseUrl$DefaultReleaseManifestPath"
 }
 
 function Resolve-LatestReleaseInfo {
@@ -80,6 +112,12 @@ function Resolve-LatestReleaseInfo {
   $script:Tag = $manifest.tag.Trim()
   $script:AssetBaseUrl = $manifest.assetBaseUrl.Trim()
   $script:ChecksumsUrl = $manifest.checksumsUrl.Trim()
+
+  if (Should-UseSiteOriginReleaseAssets) {
+    $siteBaseUrl = Trim-TrailingSlash $SiteBaseUrlInput
+    $script:AssetBaseUrl = "$siteBaseUrl/rust/v$($script:Version)"
+    $script:ChecksumsUrl = "$script:AssetBaseUrl/clawdentity-$($script:Version)-checksums.txt"
+  }
 }
 
 function Resolve-SkillUrl {
@@ -174,13 +212,8 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
 
 if (-not [string]::IsNullOrWhiteSpace($VersionInput)) {
   Set-VersionInfo -InputVersion $VersionInput
-  $baseUrl = if ([string]::IsNullOrWhiteSpace($DownloadsBaseUrl)) {
-    $DefaultDownloadsBaseUrl
-  }
-  else {
-    $DownloadsBaseUrl
-  }
-  $script:AssetBaseUrl = "$(Trim-TrailingSlash $baseUrl)/rust/v$Version"
+  $baseUrl = Resolve-DownloadsBaseUrl
+  $script:AssetBaseUrl = "$baseUrl/rust/v$Version"
   $script:ChecksumsUrl = "$script:AssetBaseUrl/clawdentity-$Version-checksums.txt"
 }
 else {

@@ -77,6 +77,8 @@ clawdentity connector service install <agentName>
 clawdentity connector service uninstall <agentName>
 ```
 
+`connector start` and `connector service install` are provider-aware on inbound delivery. They reuse the runtime saved by `provider setup --for <platform>`. OpenClaw-only flags stay OpenClaw-only manual overrides.
+
 ### Diagnostics
 
 ```bash

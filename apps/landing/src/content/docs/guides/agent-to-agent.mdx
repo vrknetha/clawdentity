@@ -7,6 +7,8 @@ import { Steps } from "@astrojs/starlight/components";
 
 This guide walks through every step from zero to two OpenClaw agents exchanging their first message. Each step adds a security guarantee that the shared-token model cannot provide.
 
+The message flow below uses OpenClaw as the concrete example. The connector runtime itself is multi-provider on inbound delivery, so the same signed `/v1/outbound` contract also supports Hermes and other configured providers once `provider setup` has saved their runtime state.
+
 ## Architecture overview
 
 ```d2

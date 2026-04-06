@@ -173,7 +173,7 @@ clawdentity install [--for <platform>] [--port <port>] [--token <token>] [--json
 ```
 
 Options:
-- `--for <platform>` — explicit platform (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`)
+- `--for <platform>` — explicit platform (`openclaw`, `hermes`, `picoclaw`, `nanobot`, `nanoclaw`)
 - `--port <port>` — webhook port override
 - `--token <token>` — webhook auth token override
 - `--json` — machine-readable JSON output
@@ -216,6 +216,10 @@ clawdentity provider setup \
 OpenClaw-specific setup options:
 - `--openclaw-agent-id <id>` — target OpenClaw agent ID used for connector delivery on default `/hooks/agent` routing; defaults to `main` and is validated against OpenClaw config during setup
 - If you explicitly switch connector delivery to `/hooks/wake`, `openclawAgentId` is ignored for that wake-only path
+
+Provider-aware runtime note:
+- `provider setup --for <platform>` persists the inbound runtime target used later by `connector start` and `connector service install`
+- OpenClaw-only overrides (`--openclaw-agent-id`, `--openclaw-*`) must not be used as generic Hermes or multi-provider controls
 
 ### `provider doctor`
 
@@ -295,11 +299,13 @@ clawdentity connector start <agentName> \
   [--openclaw-hook-token <token>]
 ```
 
+The connector runtime is provider-aware on inbound delivery. It resolves the saved provider runtime for the selected agent first, then applies OpenClaw-only overrides only when the selected provider is OpenClaw.
+
 Options:
 - `--proxy-ws-url <url>` — proxy websocket URL (or `CLAWDENTITY_PROXY_WS_URL` env)
-- `--openclaw-base-url <url>` — OpenClaw base URL (default `OPENCLAW_BASE_URL` env or `http://127.0.0.1:18789`)
-- `--openclaw-hook-path <path>` — OpenClaw hooks path (default `OPENCLAW_HOOK_PATH` env or `/hooks/agent`)
-- `--openclaw-hook-token <token>` — OpenClaw hooks token (default `OPENCLAW_HOOK_TOKEN` env)
+- `--openclaw-base-url <url>` — OpenClaw base URL (OpenClaw only; default `OPENCLAW_BASE_URL` env or `http://127.0.0.1:18789`)
+- `--openclaw-hook-path <path>` — OpenClaw hooks path (OpenClaw only; default `OPENCLAW_HOOK_PATH` env or `/hooks/agent`)
+- `--openclaw-hook-token <token>` — OpenClaw hooks token (OpenClaw only; default `OPENCLAW_HOOK_TOKEN` env)
 
 ### `connector service install`
 
@@ -314,12 +320,14 @@ clawdentity connector service install <agentName> \
   [--openclaw-hook-token <token>]
 ```
 
+The installed service starts the same provider-aware connector runtime as `connector start`.
+
 Options:
 - `--platform <platform>` — service platform: `auto`, `launchd`, or `systemd` (default `auto`)
 - `--proxy-ws-url <url>` — proxy websocket URL (or `CLAWDENTITY_PROXY_WS_URL` env)
-- `--openclaw-base-url <url>` — OpenClaw base URL override for connector runtime
-- `--openclaw-hook-path <path>` — OpenClaw hooks path override for connector runtime
-- `--openclaw-hook-token <token>` — OpenClaw hooks token override for connector runtime
+- `--openclaw-base-url <url>` — OpenClaw base URL override for connector runtime (OpenClaw only)
+- `--openclaw-hook-path <path>` — OpenClaw hooks path override for connector runtime (OpenClaw only)
+- `--openclaw-hook-token <token>` — OpenClaw hooks token override for connector runtime (OpenClaw only)
 
 ### `connector service uninstall`
 

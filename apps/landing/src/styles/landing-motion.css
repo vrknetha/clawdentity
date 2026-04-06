@@ -1,15 +1,15 @@
 /* ============================================
-   Iron Ledger — Micro-animations
-   Subtle only. No bounce, no glow.
+   Friendly Wire — Animations & Motion
+   Bouncy, playful, character-driven.
    ============================================ */
 
 /* ── Scroll reveal ── */
 .animate-on-scroll {
   opacity: 0;
-  transform: translateY(16px);
+  transform: translateY(20px);
   transition:
-    opacity 0.5s cubic-bezier(0.25, 0, 0, 1),
-    transform 0.5s cubic-bezier(0.25, 0, 0, 1);
+    opacity 0.5s ease-out,
+    transform 0.5s ease-out;
 }
 
 .animate-on-scroll.animate {
@@ -17,13 +17,13 @@
   transform: translateY(0);
 }
 
-/* Stagger children */
+/* ── Stagger children (80ms gap) ── */
 .stagger-child {
   opacity: 0;
-  transform: translateY(16px);
+  transform: translateY(20px);
   transition:
-    opacity 0.5s cubic-bezier(0.25, 0, 0, 1),
-    transform 0.5s cubic-bezier(0.25, 0, 0, 1);
+    opacity 0.5s ease-out,
+    transform 0.5s ease-out;
 }
 
 .stagger-child.animate {
@@ -31,90 +31,131 @@
   transform: translateY(0);
 }
 
-/* Stagger delays — 60ms between */
-.stagger-child:nth-child(1) {
-  transition-delay: 0ms;
-}
-.stagger-child:nth-child(2) {
-  transition-delay: 60ms;
-}
-.stagger-child:nth-child(3) {
-  transition-delay: 120ms;
-}
-.stagger-child:nth-child(4) {
-  transition-delay: 180ms;
-}
-.stagger-child:nth-child(5) {
-  transition-delay: 240ms;
-}
-.stagger-child:nth-child(6) {
-  transition-delay: 300ms;
-}
-.stagger-child:nth-child(7) {
-  transition-delay: 360ms;
-}
-.stagger-child:nth-child(8) {
-  transition-delay: 420ms;
+.stagger-child:nth-child(1) { transition-delay: 0ms; }
+.stagger-child:nth-child(2) { transition-delay: 80ms; }
+.stagger-child:nth-child(3) { transition-delay: 160ms; }
+.stagger-child:nth-child(4) { transition-delay: 240ms; }
+.stagger-child:nth-child(5) { transition-delay: 320ms; }
+.stagger-child:nth-child(6) { transition-delay: 400ms; }
+.stagger-child:nth-child(7) { transition-delay: 480ms; }
+.stagger-child:nth-child(8) { transition-delay: 560ms; }
+
+/* Manual stagger delays */
+.stagger-1 { transition-delay: 80ms; }
+.stagger-2 { transition-delay: 160ms; }
+.stagger-3 { transition-delay: 240ms; }
+.stagger-4 { transition-delay: 320ms; }
+.stagger-5 { transition-delay: 400ms; }
+.stagger-6 { transition-delay: 480ms; }
+
+/* ── Character entrance — pop in with bounce ── */
+.character-enter {
+  opacity: 0;
+  transform: scale(0.3);
+  transition:
+    opacity 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* Manual stagger delays (used inline or via data attrs) */
-.stagger-1 {
-  transition-delay: 60ms;
-}
-.stagger-2 {
-  transition-delay: 120ms;
-}
-.stagger-3 {
-  transition-delay: 180ms;
-}
-.stagger-4 {
-  transition-delay: 240ms;
-}
-.stagger-5 {
-  transition-delay: 300ms;
-}
-.stagger-6 {
-  transition-delay: 360ms;
+.character-enter.animate {
+  opacity: 1;
+  transform: scale(1);
 }
 
-/* ── Float animation — Agent Identity Card ── */
-@keyframes float-card {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
+/* Staggered character entrance */
+.character-enter:nth-child(1) { transition-delay: 0ms; }
+.character-enter:nth-child(2) { transition-delay: 120ms; }
+.character-enter:nth-child(3) { transition-delay: 240ms; }
+.character-enter:nth-child(4) { transition-delay: 360ms; }
+.character-enter:nth-child(5) { transition-delay: 480ms; }
 
-.animate-float {
-  animation: float-card 6s ease-in-out infinite;
-}
-
-/* ── SVG line draw-on (applied via JS when entering viewport) ── */
+/* ── Connection line draw ── */
 .svg-draw {
   stroke-dasharray: var(--path-length, 400);
   stroke-dashoffset: var(--path-length, 400);
-  transition: stroke-dashoffset 0.8s cubic-bezier(0.25, 0, 0, 1);
+  transition: stroke-dashoffset 0.8s ease-out;
 }
 
 .svg-draw.drawn {
   stroke-dashoffset: 0;
 }
 
-/* Staggered draw */
-.svg-draw-1 {
-  transition-delay: 0ms;
+/* Staggered draw delays */
+.svg-draw-1 { transition-delay: 200ms; }
+.svg-draw-2 { transition-delay: 400ms; }
+.svg-draw-3 { transition-delay: 600ms; }
+.svg-draw-4 { transition-delay: 800ms; }
+
+/* ── Chat bubble entrance ── */
+.bubble-enter {
+  opacity: 0;
+  transform: translateX(-12px) scale(0.95);
+  transition:
+    opacity 0.4s ease-out,
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.svg-draw-2 {
-  transition-delay: 200ms;
+
+.bubble-enter--right {
+  transform: translateX(12px) scale(0.95);
 }
-.svg-draw-3 {
-  transition-delay: 400ms;
+
+.bubble-enter.animate {
+  opacity: 1;
+  transform: translateX(0) scale(1);
 }
-.svg-draw-4 {
-  transition-delay: 600ms;
+
+/* Staggered bubble entrance */
+.bubble-enter:nth-child(1) { transition-delay: 0ms; }
+.bubble-enter:nth-child(2) { transition-delay: 200ms; }
+.bubble-enter:nth-child(3) { transition-delay: 400ms; }
+.bubble-enter:nth-child(4) { transition-delay: 600ms; }
+
+/* ── Typing indicator — three dots pulsing ── */
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.typing-indicator .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cl-text-3);
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+
+.typing-indicator .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-indicator .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* ── Character float — gentle hover ── */
+@keyframes character-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: character-float 6s ease-in-out infinite;
 }
 
 /* ── Nav underline slide ── */
@@ -128,19 +169,22 @@
   bottom: -2px;
   left: 0;
   right: 100%;
-  height: 1px;
+  height: 2px;
   background: var(--cl-accent);
-  transition: right 0.2s linear;
+  border-radius: 1px;
+  transition: right 0.25s ease-out;
 }
 
 .nav-link-underline:hover::after {
   right: 0;
 }
 
-/* ── Reduced motion: disable everything ── */
+/* ── Reduced motion: disable ALL animations ── */
 @media (prefers-reduced-motion: reduce) {
   .animate-on-scroll,
-  .stagger-child {
+  .stagger-child,
+  .character-enter,
+  .bubble-enter {
     opacity: 1;
     transform: none;
     transition: none;
@@ -148,6 +192,12 @@
 
   .animate-float {
     animation: none;
+  }
+
+  .typing-indicator .dot {
+    animation: none;
+    opacity: 0.6;
+    transform: none;
   }
 
   .svg-draw {
@@ -160,9 +210,14 @@
   }
 }
 
-/* ── Mobile: disable hover transforms ── */
+/* ── Mobile: disable float and hover transforms ── */
 @media (max-width: 768px) {
   .animate-float {
     animation: none;
+  }
+
+  .character-enter:hover,
+  .agent-character:hover {
+    transform: none;
   }
 }

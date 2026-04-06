@@ -1,291 +1,297 @@
 ---
-// Comparison — Section 03 — Ledger table with SVG circle symbols
+// Comparison — "Today vs. Clawdentity"
+// Desktop: clean HTML table with highlighted Clawdentity column
+// Mobile: stacked comparison cards
 
-const features = [
-  { name: "Per-agent identity", apiKeys: false, oauth: "Partial", clawdentity: true },
-  { name: "Proof of possession", apiKeys: false, oauth: false, clawdentity: true },
-  { name: "Instant revocation", apiKeys: false, oauth: "Partial", clawdentity: true },
-  { name: "No shared secrets", apiKeys: false, oauth: true, clawdentity: true },
-  { name: "Offline verification", apiKeys: false, oauth: false, clawdentity: true },
-  { name: "Works as sidecar", apiKeys: "N/A", oauth: false, clawdentity: true },
-  { name: "Open source", apiKeys: "Varies", oauth: "Varies", clawdentity: true },
+const rows = [
+  {
+    question: "Know who sent it?",
+    passwords: "Nope",
+    integrations: "Maybe",
+    diy: "If you build it",
+    clawdentity: "Every time",
+  },
+  {
+    question: "Revoke one agent?",
+    passwords: "Reset everything",
+    integrations: "Rebuild the integration",
+    diy: "Rewrite it",
+    clawdentity: "Instantly",
+  },
+  {
+    question: "Group conversations?",
+    passwords: "Not possible",
+    integrations: "Not possible",
+    diy: "Months of work",
+    clawdentity: "Built in",
+  },
+  {
+    question: "Works across platforms?",
+    passwords: "Same platform only",
+    integrations: "One pair at a time",
+    diy: "Your problem",
+    clawdentity: "Any agent, anywhere",
+  },
+  {
+    question: "Message history?",
+    passwords: "Hope you saved it",
+    integrations: "Hope you logged it",
+    diy: "Your problem",
+    clawdentity: "Automatic",
+  },
 ];
-
-type FeatureValue = boolean | string;
-
-function renderValue(v: FeatureValue) {
-  if (v === true) return { type: 'yes' as const };
-  if (v === false) return { type: 'no' as const };
-  if (v === "N/A") return { type: 'na' as const };
-  return { type: 'partial' as const, text: v as string };
-}
 ---
 
 <section class="section comparison-section animate-on-scroll" id="comparison">
   <div class="container">
     <div class="section-header">
-      <span class="section-number">03 —</span>
-      <h2>How it compares.</h2>
+      <h2>What are you doing today?</h2>
     </div>
 
     <!-- Desktop table -->
-    <div class="comparison-desktop animate-children">
-      <table class="ledger-table" aria-label="Feature comparison">
+    <div class="comparison-table-wrap animate-children">
+      <table class="comparison-table" aria-label="Comparison of approaches">
         <thead>
-          <tr>
-            <th class="col-feature">Feature</th>
-            <th class="col-provider">API Keys</th>
-            <th class="col-provider">OAuth 2.0</th>
-            <th class="col-provider col-highlight">
-              <span>Clawdentity</span>
-            </th>
+          <tr class="stagger-child">
+            <th class="col-question"></th>
+            <th class="col-other">Shared Passwords</th>
+            <th class="col-other">One-Off Integrations</th>
+            <th class="col-other">Building It Yourself</th>
+            <th class="col-clawdentity">Clawdentity</th>
           </tr>
         </thead>
         <tbody>
-          {features.map((feature, index) => {
-            const ak = renderValue(feature.apiKeys);
-            const oa = renderValue(feature.oauth);
-            const cl = renderValue(feature.clawdentity);
-            return (
-              <tr class="stagger-child" style={`transition-delay: ${index * 50}ms`}>
-                <td class="cell-feature">{feature.name}</td>
-                <td class="cell-value">
-                  {ak.type === 'yes' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="Yes">
-                      <circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/>
-                    </svg>
-                  )}
-                  {ak.type === 'no' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="No">
-                      <circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/>
-                    </svg>
-                  )}
-                  {ak.type === 'na' && <span class="sym-na">—</span>}
-                  {ak.type === 'partial' && <span class="sym-partial">{ak.text}</span>}
-                </td>
-                <td class="cell-value">
-                  {oa.type === 'yes' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="Yes">
-                      <circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/>
-                    </svg>
-                  )}
-                  {oa.type === 'no' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="No">
-                      <circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/>
-                    </svg>
-                  )}
-                  {oa.type === 'na' && <span class="sym-na">—</span>}
-                  {oa.type === 'partial' && <span class="sym-partial">{oa.text}</span>}
-                </td>
-                <td class="cell-value cell-cl">
-                  {cl.type === 'yes' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="Yes">
-                      <circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/>
-                    </svg>
-                  )}
-                  {cl.type === 'no' && (
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-label="No">
-                      <circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/>
-                    </svg>
-                  )}
-                  {cl.type === 'na' && <span class="sym-na">—</span>}
-                  {cl.type === 'partial' && <span class="sym-partial">{cl.text}</span>}
-                </td>
-              </tr>
-            );
-          })}
+          {rows.map((row) => (
+            <tr class="stagger-child">
+              <td class="cell-question">{row.question}</td>
+              <td class="cell-answer">{row.passwords}</td>
+              <td class="cell-answer">{row.integrations}</td>
+              <td class="cell-answer">{row.diy}</td>
+              <td class="cell-answer cell-answer--cl">
+                <svg class="checkmark-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3 8.5l3.5 3.5 6.5-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                {row.clawdentity}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
 
     <!-- Mobile cards -->
-    <div class="comparison-mobile animate-children">
-      {features.map((feature, index) => {
-        const ak = renderValue(feature.apiKeys);
-        const oa = renderValue(feature.oauth);
-        const cl = renderValue(feature.clawdentity);
-        return (
-          <div class="feature-card stagger-child" style={`transition-delay: ${index * 50}ms`}>
-            <h4 class="feature-card__title">{feature.name}</h4>
-            <div class="feature-card__rows">
-              <div class="feature-card__row">
-                <span class="feature-card__provider">API Keys</span>
-                <span>
-                  {ak.type === 'yes' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="Yes"><circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/></svg>}
-                  {ak.type === 'no' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="No"><circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/></svg>}
-                  {ak.type === 'na' && <span class="sym-na">—</span>}
-                  {ak.type === 'partial' && <span class="sym-partial">{ak.text}</span>}
-                </span>
-              </div>
-              <div class="feature-card__row">
-                <span class="feature-card__provider">OAuth 2.0</span>
-                <span>
-                  {oa.type === 'yes' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="Yes"><circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/></svg>}
-                  {oa.type === 'no' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="No"><circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/></svg>}
-                  {oa.type === 'na' && <span class="sym-na">—</span>}
-                  {oa.type === 'partial' && <span class="sym-partial">{oa.text}</span>}
-                </span>
-              </div>
-              <div class="feature-card__row feature-card__row--highlight">
-                <span class="feature-card__provider feature-card__provider--cl">Clawdentity</span>
-                <span>
-                  {cl.type === 'yes' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="Yes"><circle cx="7" cy="7" r="6" fill="var(--cl-accent)"/></svg>}
-                  {cl.type === 'no' && <svg width="12" height="12" viewBox="0 0 14 14" aria-label="No"><circle cx="7" cy="7" r="5.5" stroke="var(--cl-border-3)" stroke-width="1.5" fill="none"/></svg>}
-                  {cl.type === 'na' && <span class="sym-na">—</span>}
-                  {cl.type === 'partial' && <span class="sym-partial">{cl.text}</span>}
-                </span>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+    <div class="comparison-cards animate-children">
+      {rows.map((row) => (
+        <div class="comparison-card stagger-child">
+          <h3 class="comparison-card__question">{row.question}</h3>
+          <ul class="comparison-card__answers">
+            <li class="comparison-card__answer">
+              <span class="comparison-card__label">Shared Passwords</span>
+              <span class="comparison-card__value">{row.passwords}</span>
+            </li>
+            <li class="comparison-card__answer">
+              <span class="comparison-card__label">One-Off Integrations</span>
+              <span class="comparison-card__value">{row.integrations}</span>
+            </li>
+            <li class="comparison-card__answer">
+              <span class="comparison-card__label">Building It Yourself</span>
+              <span class="comparison-card__value">{row.diy}</span>
+            </li>
+            <li class="comparison-card__answer comparison-card__answer--highlight">
+              <span class="comparison-card__label comparison-card__label--cl">Clawdentity</span>
+              <span class="comparison-card__value comparison-card__value--cl">
+                <svg class="checkmark-icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3 8.5l3.5 3.5 6.5-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                {row.clawdentity}
+              </span>
+            </li>
+          </ul>
+        </div>
+      ))}
     </div>
   </div>
 </section>
 
 <style>
-  /* Desktop */
-  .comparison-desktop {
-    display: block;
-  }
-  .comparison-mobile {
-    display: none;
+  /* ── Table container ── */
+  .comparison-table-wrap {
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--cl-border);
+    background: var(--cl-surface-2);
   }
 
-  /* Ledger table */
-  .ledger-table {
+  .comparison-table {
     width: 100%;
     border-collapse: collapse;
     font-family: var(--font-sans);
   }
 
-  .ledger-table th {
-    font-family: var(--font-mono);
-    font-size: 0.6875rem;
-    font-variant: small-caps;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--cl-text-3);
-    background: var(--cl-surface);
-    padding: 0.875rem 1.25rem;
-    border-bottom: 1px solid var(--cl-rule);
+  /* ── Header ── */
+  .comparison-table thead th {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: var(--fw-semibold);
+    color: var(--cl-text-2);
+    padding: 1rem 1.25rem;
     text-align: center;
-    font-weight: 500;
-  }
-
-  .col-feature {
-    text-align: left !important;
-    width: 40%;
-  }
-
-  .col-highlight {
-    background: var(--cl-surface-2) !important;
-    color: var(--cl-accent) !important;
-    border-top: 2px solid var(--cl-accent) !important;
-  }
-
-  .ledger-table td {
-    padding: 0.875rem 1.25rem;
     border-bottom: 1px solid var(--cl-rule);
+    background: var(--cl-surface);
+  }
+
+  .col-question {
+    width: 28%;
+    text-align: left !important;
+  }
+
+  .col-other {
+    width: 18%;
+    white-space: nowrap;
+  }
+
+  .col-clawdentity {
+    background: var(--cl-accent) !important;
+    color: #fff !important;
+    font-weight: var(--fw-bold) !important;
+    border-radius: 0;
+    white-space: nowrap;
+  }
+
+  /* Round only the top-right corner of the clawdentity header */
+  thead tr .col-clawdentity {
+    border-top-right-radius: var(--radius-lg);
+  }
+
+  /* ── Body cells ── */
+  .comparison-table tbody td {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--cl-rule);
+    font-size: 0.9375rem;
     vertical-align: middle;
   }
 
-  .ledger-table tr:hover td {
+  .comparison-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .comparison-table tbody tr:hover td {
     background: var(--cl-surface);
   }
 
-  .cell-feature {
-    font-size: 0.9375rem;
+  .cell-question {
+    font-weight: var(--fw-semibold);
+    color: var(--cl-text);
+    text-align: left;
+  }
+
+  .cell-answer {
+    text-align: center;
+    color: var(--cl-text-2);
+  }
+
+  .cell-answer--cl {
+    background: rgba(255, 107, 74, 0.06);
+    color: var(--cl-accent) !important;
+    font-weight: var(--fw-semibold);
+  }
+
+  .cell-answer--cl .checkmark-icon {
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 0.25rem;
+  }
+
+  :global([data-theme="dark"]) .cell-answer {
     color: var(--cl-text);
   }
 
-  .cell-value {
-    text-align: center;
-    vertical-align: middle;
+  :global([data-theme="dark"]) .cell-answer--cl {
+    background: rgba(255, 122, 92, 0.08);
   }
 
-  .cell-value svg {
-    display: block;
-    margin: 0 auto;
+  :global([data-theme="dark"]) .comparison-table tbody td {
+    border-color: var(--cl-border-2);
   }
 
-  .cell-cl {
-    background: var(--cl-surface-2);
+  :global([data-theme="dark"]) .comparison-table thead th {
+    border-color: var(--cl-border-2);
   }
 
-  .sym-na {
+  .checkmark-icon {
+    flex-shrink: 0;
+  }
+
+  /* ── Mobile cards ── */
+  .comparison-cards {
+    display: none;
+  }
+
+  .comparison-card__answers {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .comparison-card__answer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.625rem 0;
+    border-bottom: 1px solid var(--cl-rule);
+  }
+
+  .comparison-card__answer:last-child {
+    border-bottom: none;
+  }
+
+  .comparison-card__label {
+    font-size: 0.8125rem;
     color: var(--cl-text-3);
-    font-family: var(--font-mono);
-    font-size: 0.875rem;
-    display: block;
-    text-align: center;
+    font-weight: var(--fw-medium);
   }
 
-  .sym-partial {
+  .comparison-card__value {
+    font-size: 0.9375rem;
     color: var(--cl-text-2);
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    display: block;
-    text-align: center;
+    text-align: right;
   }
 
-  /* Mobile */
-  @media (max-width: 640px) {
-    .comparison-desktop { display: none; }
-    .comparison-mobile {
+  .comparison-card__answer--highlight {
+    background: rgba(255, 107, 74, 0.06);
+    margin: 0 calc(var(--space-md) * -1);
+    padding: 0.75rem var(--space-md);
+    border-radius: var(--radius-sm);
+    border-bottom: none;
+  }
+
+  :root[data-theme="dark"] .comparison-card__answer--highlight {
+    background: rgba(255, 122, 92, 0.08);
+  }
+
+  .comparison-card__label--cl {
+    color: var(--cl-accent);
+    font-weight: var(--fw-semibold);
+  }
+
+  .comparison-card__value--cl {
+    color: var(--cl-accent);
+    font-weight: var(--fw-semibold);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .comparison-table-wrap {
+      display: none;
+    }
+
+    .comparison-cards {
       display: flex;
       flex-direction: column;
       gap: var(--space-sm);
     }
-  }
-
-  .feature-card {
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border-2);
-    border-left: 2px solid var(--cl-accent);
-    border-radius: 4px;
-    padding: var(--space-md);
-  }
-
-  .feature-card__title {
-    font-size: 0.9375rem;
-    font-weight: 600;
-    color: var(--cl-text);
-    margin-bottom: 0.75rem;
-  }
-
-  .feature-card__rows {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .feature-card__row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.375rem 0;
-    border-bottom: 1px solid var(--cl-rule);
-  }
-
-  .feature-card__row:last-child {
-    border-bottom: none;
-  }
-
-  .feature-card__row--highlight {
-    background: var(--cl-surface-2);
-    margin: 0 -0.5rem;
-    padding: 0.5rem;
-    border-radius: 2px;
-  }
-
-  .feature-card__provider {
-    font-size: 0.8125rem;
-    color: var(--cl-text-3);
-    font-family: var(--font-mono);
-  }
-
-  .feature-card__provider--cl {
-    color: var(--cl-accent);
   }
 </style>

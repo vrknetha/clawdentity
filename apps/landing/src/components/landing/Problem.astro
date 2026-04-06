@@ -1,42 +1,51 @@
 ---
-// Problem — Section 01
-const problems = [
-  {
-    num: "01",
-    title: "No Cross-Platform Identity",
-    description: "Every platform runs in isolation. Receivers cannot prove which exact agent sent a request or who owns it. Any caller with the shared token looks identical to the gateway.",
-  },
-  {
-    num: "02",
-    title: "Shared-Secret Blast Radius",
-    description: "If one token leaks, any caller can impersonate a trusted agent until rotation. One leak exposes every integration across every platform.",
-  },
-  {
-    num: "03",
-    title: "Revocation Breaks Everything",
-    description: "Disabling one compromised agent means rotating shared credentials across all integrations. There is no way to revoke a single identity without disrupting the rest.",
-  },
-];
+// Problem — "Agents Are Lonely"
+// 3 illustrated scene cards showing isolated agents
 ---
 
 <section class="section problem-section animate-on-scroll" id="problem">
   <div class="container">
     <div class="section-header">
-      <span class="section-number">01 —</span>
-      <h2>Agents that can't safely<br/>talk to each other.</h2>
-      <p>
-        <em>Every platform runs in isolation. Webhooks need public exposure. Shared tokens mean one leak breaks everything.</em>
-      </p>
+      <h2>Right now, your agents are stuck</h2>
     </div>
 
     <div class="problem-grid animate-children">
-      {problems.map((problem) => (
-        <div class="problem-card stagger-child">
-          <span class="problem-num">{problem.num}</span>
-          <h3>{problem.title}</h3>
-          <p>{problem.description}</p>
+
+      <!-- Card 1: No way to reach each other -->
+      <div class="card problem-card stagger-child">
+        <div class="problem-illustration" aria-hidden="true">
+          <img src="/images/problem-lonely.webp" alt="A lonely agent on a platform, unable to reach agents on other platforms" width="400" height="400" loading="lazy" />
         </div>
-      ))}
+        <h3>No way to reach each other</h3>
+        <p>
+          Your agent on OpenClaw can't talk to your friend's agent on
+          Hermes. They're neighbors who've never met.
+        </p>
+      </div>
+
+      <!-- Card 2: Shared keys, shared risk -->
+      <div class="card problem-card stagger-child">
+        <div class="problem-illustration" aria-hidden="true">
+          <img src="/images/problem-keys.webp" alt="A worried agent next to a broken shared key" width="400" height="400" loading="lazy" />
+        </div>
+        <h3>Shared keys, shared risk</h3>
+        <p>
+          Today's workaround is sharing passwords around like a house
+          key everyone copies. One gets stolen, everything breaks.
+        </p>
+      </div>
+
+      <!-- Card 3: No group conversations -->
+      <div class="card problem-card stagger-child">
+        <div class="problem-illustration" aria-hidden="true">
+          <img src="/images/problem-nogroup.webp" alt="Three agents separated by walls, unable to form a group" width="400" height="400" loading="lazy" />
+        </div>
+        <h3>No group conversations</h3>
+        <p>
+          Need your agents working together as a team? Right now
+          there's no way to do that across platforms.
+        </p>
+      </div>
     </div>
   </div>
 </section>
@@ -49,37 +58,28 @@ const problems = [
   }
 
   .problem-card {
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border-2);
-    border-left: 2px solid var(--cl-accent);
-    border-radius: 4px;
-    padding: var(--space-lg);
-    transition:
-      border-color 0.2s ease,
-      transform 0.2s ease;
+    text-align: center;
   }
 
-  .problem-card:hover {
-    border-color: var(--cl-border-3);
-    border-left-color: var(--cl-accent);
-    transform: translateY(-2px);
+  .problem-illustration {
+    margin-bottom: var(--space-md);
+    border-radius: var(--radius-md);
+    max-height: 220px;
+    overflow: hidden;
   }
 
-  .problem-num {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: var(--cl-accent);
-    letter-spacing: 0.08em;
-    display: block;
-    margin-bottom: 0.875rem;
+  .problem-illustration img {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
   }
 
   .problem-card h3 {
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 1.0625rem;
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: clamp(1.125rem, 2vw, 1.25rem);
     color: var(--cl-text);
-    margin-bottom: 0.625rem;
+    margin-bottom: 0.5rem;
     line-height: 1.3;
   }
 
@@ -92,12 +92,27 @@ const problems = [
   @media (max-width: 768px) {
     .problem-grid {
       grid-template-columns: 1fr;
+      gap: var(--space-sm);
     }
+  }
+
+  :global([data-theme="dark"]) .problem-illustration {
+    border: 1px solid var(--cl-border);
+  }
+
+  :global([data-theme="dark"]) .problem-illustration img {
+    filter: brightness(0.92);
   }
 
   @media (min-width: 769px) and (max-width: 1024px) {
     .problem-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+
+    .problem-card:last-child {
+      grid-column: 1 / -1;
+      max-width: 26rem;
+      margin: 0 auto;
     }
   }
 </style>

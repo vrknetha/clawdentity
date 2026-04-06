@@ -1,115 +1,254 @@
 ---
-// GettingStarted — Section 07
-// Agent-first: give your AI agent one URL
-import {
-  GITHUB_ONBOARDING_START_URL,
-} from "./onboarding";
+// GettingStarted — polished single card
 ---
 
-<section class="section getting-started-section animate-on-scroll" id="getting-started">
+<section class="section gs-section animate-on-scroll" id="getting-started">
   <div class="container">
     <div class="section-header">
-      <span class="section-number">07 —</span>
-      <h2>Hosted onboarding starts with GitHub.</h2>
+      <h2>Ready? It takes 60 seconds.</h2>
     </div>
 
-    <p class="getting-started-intro stagger-child">
-      Public onboarding is now one GitHub sign-in, one starter pass, and one first agent. The
-      prompt is generated only after the GitHub redirect lands on the starter-pass page. Private or
-      self-hosted installs still use operator-issued invites and the advanced docs.
-    </p>
+    <div class="gs-wrapper animate-children">
+      <div class="gs-card stagger-child">
 
-    <div class="flow-card stagger-child">
-      <span class="flow-card__label">HOSTED FLOW</span>
-      <ol class="flow-card__steps">
-        <li>Start with GitHub sign-in.</li>
-        <li>Finish onboarding and land on <code>/getting-started/github/</code>.</li>
-        <li>Copy the generated prompt from that page into OpenClaw.</li>
-      </ol>
-      <p class="flow-card__note">
-        If you run a private or self-hosted rollout, use the operator docs and invite-based flow
-        instead of the hosted starter-pass path.
-      </p>
-    </div>
+        <!-- Two steps side by side -->
+        <div class="gs-row">
+          <div class="gs-step">
+            <div class="gs-icon-wrap">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+            </div>
+            <div class="gs-step-body">
+              <h3>Sign in with GitHub</h3>
+              <p>One click. We generate your invite code.</p>
+            </div>
+          </div>
 
-    <div class="cta-row stagger-child" style="transition-delay: 300ms">
-      <a href={GITHUB_ONBOARDING_START_URL} class="btn btn-primary">
-        Get Started with GitHub
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-        </svg>
-      </a>
-      <a href="/getting-started/quickstart/" class="btn btn-secondary">
-        Read the Quick Start Guide
-      </a>
+          <div class="gs-arrow-wrap" aria-hidden="true">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--cl-accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+            </svg>
+          </div>
+
+          <div class="gs-step">
+            <div class="gs-icon-wrap">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+            </div>
+            <div class="gs-step-body">
+              <h3>Give the prompt to your agent</h3>
+              <p>Copy and paste it into your AI agent. Done.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTA button -->
+        <div class="gs-cta-wrap">
+          <a href="/getting-started/github/" class="btn btn-primary gs-btn">
+            Get Started with GitHub
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+          </a>
+        </div>
+
+        <!-- Divider -->
+        <div class="gs-line"></div>
+
+        <!-- Already have a code -->
+        <div class="gs-alt-section">
+          <p class="gs-alt-label">Already have an invite code? Give this to your agent:</p>
+          <div class="gs-prompt">
+            <code class="gs-prompt-code">Read https://clawdentity.com/skill.md and follow the instructions</code>
+            <button class="gs-prompt-copy" type="button" aria-label="Copy prompt to clipboard">
+              <svg class="gs-icon-copy" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              <svg class="gs-icon-check" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cl-connected)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:none;"><path d="M20 6L9 17l-5-5"/></svg>
+            </button>
+          </div>
+        </div>
+
+      </div>
     </div>
   </div>
 </section>
 
+<script is:inline>
+  document.querySelector('.gs-prompt-copy')?.addEventListener('click', function() {
+    var t = document.querySelector('.gs-prompt-code')?.textContent || '';
+    navigator.clipboard.writeText(t).then(function() {
+      var a = document.querySelector('.gs-icon-copy');
+      var b = document.querySelector('.gs-icon-check');
+      if (a) a.style.display = 'none';
+      if (b) b.style.display = 'block';
+      setTimeout(function() { if (a) a.style.display='block'; if (b) b.style.display='none'; }, 2000);
+    });
+  });
+</script>
+
 <style>
-  /* Tighten gap between heading and block */
-  .getting-started-section .section-header {
-    margin-bottom: var(--space-sm);
+  .gs-wrapper {
+    max-width: 48rem;
   }
 
-  .getting-started-intro {
-    max-width: 42rem;
-    margin: 0 0 var(--space-lg);
-    color: var(--cl-text-2);
-    font-size: 0.95rem;
-    line-height: 1.7;
-  }
-
-  .flow-card {
-    max-width: 640px;
+  .gs-card {
     background: var(--cl-surface-2);
-    border: 1px solid var(--cl-border-3);
-    border-left: 2px solid var(--cl-accent);
-    border-radius: 4px;
-    padding: 1.125rem 1rem;
-    margin-bottom: var(--space-xl);
+    border: 1px solid var(--cl-border);
+    border-radius: var(--radius-2xl);
+    padding: 2.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
   }
 
-  .flow-card__label {
-    display: block;
-    margin-bottom: 0.75rem;
-    font-family: var(--font-mono);
-    font-size: 0.625rem;
-    font-variant: small-caps;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--cl-accent);
-  }
-
-  .flow-card__steps {
-    margin: 0;
-    padding-left: 1.125rem;
-    color: var(--cl-text);
-    line-height: 1.75;
-  }
-
-  .flow-card__steps li + li {
-    margin-top: 0.25rem;
-  }
-
-  .flow-card__note {
-    margin: 0.875rem 0 0;
-    font-family: var(--font-sans);
-    font-size: 0.8125rem;
-    color: var(--cl-text-2);
-    line-height: 1.6;
-  }
-
-  .cta-row {
-    margin-top: var(--space-md);
+  /* ── Steps row: icon+text | arrow | icon+text ── */
+  .gs-row {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
+    align-items: flex-start;
+    gap: 2rem;
+    margin-bottom: 2rem;
   }
 
+  .gs-step {
+    flex: 1;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .gs-icon-wrap {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: var(--cl-surface);
+    border: 1px solid var(--cl-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--cl-text-2);
+  }
+
+  .gs-step-body {
+    min-width: 0;
+  }
+
+  .gs-step-body h3 {
+    font-family: var(--font-display);
+    font-size: 1.0625rem;
+    font-weight: 700;
+    color: var(--cl-text);
+    line-height: 1.3;
+    margin-bottom: 0.375rem;
+  }
+
+  .gs-step-body p {
+    font-size: 0.9375rem;
+    color: var(--cl-text-2);
+    line-height: 1.5;
+  }
+
+  .gs-arrow-wrap {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding-top: 6px;
+    opacity: 0.6;
+  }
+
+  /* ── CTA ── */
+  .gs-cta-wrap {
+    margin-bottom: 2rem;
+  }
+
+  .gs-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.875rem 2rem;
+    font-size: 1rem;
+    min-height: 48px;
+  }
+
+  /* ── Divider ── */
+  .gs-line {
+    height: 1px;
+    background: var(--cl-border);
+    margin-bottom: 1.5rem;
+  }
+
+  /* ── Invite code ── */
+  .gs-alt-label {
+    font-size: 0.9375rem;
+    color: var(--cl-text-2);
+    margin-bottom: 0.75rem;
+  }
+
+  .gs-prompt {
+    display: flex;
+    align-items: stretch;
+    background: var(--cl-bg);
+    border: 1px solid var(--cl-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+  }
+
+  .gs-prompt-code {
+    flex: 1;
+    padding: 0.875rem 1.125rem;
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    color: var(--cl-text);
+    line-height: 1.5;
+  }
+
+  .gs-prompt-copy {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    border: none;
+    border-left: 1px solid var(--cl-border);
+    background: none;
+    color: var(--cl-text-3);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .gs-prompt-copy:hover {
+    color: var(--cl-accent);
+    background: var(--cl-surface-3);
+  }
+
+  /* ── Dark mode ── */
+  :global([data-theme="dark"]) .gs-step-body h3 {
+    color: var(--cl-text);
+  }
+
+  :global([data-theme="dark"]) .gs-step-body p {
+    color: var(--cl-text-2);
+  }
+
+  :global([data-theme="dark"]) .gs-icon-wrap {
+    background: var(--cl-surface-3);
+    border-color: var(--cl-border-2);
+  }
+
+  :global([data-theme="dark"]) .gs-prompt {
+    background: var(--cl-surface);
+    border-color: var(--cl-border-2);
+  }
+
+  /* ── Responsive ── */
   @media (max-width: 640px) {
-    .flow-card {
-      padding: 1rem 0.875rem;
+    .gs-card {
+      padding: 1.75rem 1.5rem;
+    }
+
+    .gs-row {
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .gs-arrow-wrap {
+      align-self: center;
+      transform: rotate(90deg);
+      padding-top: 0;
     }
   }
 </style>

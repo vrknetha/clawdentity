@@ -9,7 +9,7 @@ import Problem from "../components/landing/Problem.astro";
 import TheFix from "../components/landing/TheFix.astro";
 import Comparison from "../components/landing/Comparison.astro";
 import HowItWorks from "../components/landing/HowItWorks.astro";
-import Privacy from "../components/landing/Privacy.astro";
+// Privacy content merged into HowItWorks
 import UseCases from "../components/landing/UseCases.astro";
 import GettingStarted from "../components/landing/GettingStarted.astro";
 import Footer from "../components/landing/Footer.astro";
@@ -23,7 +23,7 @@ import Footer from "../components/landing/Footer.astro";
     <TheFix />
     <Comparison />
     <HowItWorks />
-    <Privacy />
+    <!-- Privacy merged into HowItWorks -->
     <UseCases />
     <GettingStarted />
   </main>
@@ -36,7 +36,7 @@ import Footer from "../components/landing/Footer.astro";
   }
 
   ::selection {
-    background: rgba(212, 82, 42, 0.25);
+    background: rgba(255, 107, 74, 0.2);
     color: var(--cl-text);
   }
 
@@ -56,7 +56,7 @@ import Footer from "../components/landing/Footer.astro";
 
   ::-webkit-scrollbar-thumb {
     background: var(--cl-border-3);
-    border-radius: 0;
+    border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {

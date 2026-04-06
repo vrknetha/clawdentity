@@ -1,19 +1,24 @@
 ---
-// Nav — Iron Ledger design
-import iconSrc from "../../assets/landing/clawdentity_icon_only.svg?url";
+// Nav — Friendly Wire design
 ---
 
 <nav class="nav" id="nav">
   <div class="nav-inner container">
     <!-- Logotype -->
     <a href="/" class="nav-logo" aria-label="Clawdentity home">
-      <img src={iconSrc} alt="" class="nav-logo__icon" width="28" height="28" aria-hidden="true" />
+      <svg class="nav-logo__icon" width="28" height="28" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="26" height="22" rx="8" fill="var(--cl-accent)" />
+        <polygon points="8,23 14,23 8,30" fill="var(--cl-accent)" />
+        <circle cx="10" cy="12" r="2.5" fill="#fff" />
+        <circle cx="18" cy="12" r="2.5" fill="#fff" />
+        <path d="M9 17 Q14 22 19 17" stroke="#fff" stroke-width="2" stroke-linecap="round" fill="none" />
+      </svg>
       <span class="nav-logo__wordmark">Clawdentity</span>
     </a>
 
     <div class="nav-links" id="nav-links">
       <a href="/getting-started/introduction/" class="nav-link nav-link-underline">
-        <span>Docs</span>
+        <span>How It Works</span>
       </a>
       <a href="/getting-started/github/" class="nav-link nav-link-underline">
         <span>Get Started</span>
@@ -208,8 +213,8 @@ import iconSrc from "../../assets/landing/clawdentity_icon_only.svg?url";
   }
 
   .nav-logo__wordmark {
-    font-family: var(--font-serif);
-    font-style: italic;
+    font-family: var(--font-display);
+    font-style: normal;
     font-size: 1.0625rem;
     color: var(--cl-text);
     letter-spacing: 0.04em;
@@ -276,7 +281,7 @@ import iconSrc from "../../assets/landing/clawdentity_icon_only.svg?url";
     height: 36px;
     background: transparent;
     border: 1px solid var(--cl-border-2);
-    border-radius: 2px;
+    border-radius: 8px;
     color: var(--cl-text-3);
     cursor: pointer;
     transition:

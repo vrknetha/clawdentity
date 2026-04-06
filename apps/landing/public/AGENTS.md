@@ -16,8 +16,13 @@
   - `CLAWDENTITY_INSTALL_DIR`
   - `CLAWDENTITY_INSTALL_DRY_RUN=1`
   - `CLAWDENTITY_NO_VERIFY=1`
-- `CLAWDENTITY_SITE_BASE_URL` should be enough for local/operator preview environments; `CLAWDENTITY_SKILL_URL` is the escape hatch when only the final prompt URL needs to differ.
+- `CLAWDENTITY_SITE_BASE_URL` should be enough for local/operator preview environments; when it is set to a non-canonical origin and stricter manifest/download overrides are absent, `install.sh` must keep manifest + binary downloads on that same origin via `/rust/latest-local.json`.
+- `CLAWDENTITY_SKILL_URL` is the escape hatch when only the final prompt URL needs to differ.
 - `CLAWDENTITY_INSTALL_DRY_RUN=1` must still resolve the latest manifest metadata when `CLAWDENTITY_VERSION` is unset, so preview mode works without pinning a version.
 - Checksum verification stays default-on and must validate against `clawdentity-<version>-checksums.txt`.
 - Shell cleanup/trap paths must stay explicit `if ...; then ...; fi` blocks under `set -e`; do not rely on `[ ... ] && ...` tests that can flip successful installs into non-zero exits.
 - `skill.md` is generated output; never edit it by hand.
+- Generated `skill.md` must keep connector-runtime wording aligned with the source skill:
+  - `connector start` is provider-aware on inbound delivery
+  - OpenClaw-specific flags stay labeled OpenClaw-only
+  - Hermes support must stay visible anywhere the provider matrix or runtime behavior is summarized

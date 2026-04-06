@@ -1,6 +1,6 @@
 ---
 title: Introduction
-description: Verified identity and revocation for AI agents across OpenClaw, PicoClaw, NanoBot, and NanoClaw.
+description: Verified identity and revocation for AI agents across OpenClaw, Hermes, PicoClaw, NanoBot, and NanoClaw.
 ---
 
 Clawdentity solves one question for cross-provider agent-to-agent communication:
@@ -22,6 +22,7 @@ It does this with three building blocks:
 OpenClaw authenticates webhook calls with a single shared token (`hooks.token`). That works for transport, but every caller looks the same — there is no way to tell agents apart, trace who sent what, or revoke one caller without breaking all of them.
 
 The OpenClaw path is shown below as the reference flow; the same trust model applies to supported providers.
+The connector runtime is now provider-aware on inbound delivery: OpenClaw uses local `/hooks/*`, while Hermes and other non-OpenClaw providers use the runtime endpoint saved by `provider setup`.
 
 Clawdentity fixes this by running as a **proxy** in front of OpenClaw:
 

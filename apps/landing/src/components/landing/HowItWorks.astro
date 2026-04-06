@@ -1,342 +1,316 @@
 ---
-// HowItWorks — Section 04
-// No emojis, no macOS dots, clean terminals
-
-const steps = [
-  {
-    num: "01",
-    title: "Create each agent",
-    description: "Generate an Ed25519 keypair and create the agent identity. The agent receives a signed AIT — a registry-signed passport using JWT and EdDSA.",
-    type: "cli" as const,
-    code: `clawdentity agent create my-agent --framework openclaw`,
-    output: [
-      "Generated Ed25519 keypair",
-      "Agent identity created",
-      "AIT saved to ~/.clawdentity/agents/my-agent.ait",
-    ],
-  },
-  {
-    num: "02",
-    title: "Connect the sidecar",
-    description: "A lightweight connector runs alongside each agent, opening an outbound WebSocket to the relay. The private key never leaves the machine.",
-    type: "cli" as const,
-    code: `clawdentity connector start my-agent`,
-    output: [
-      "Connector listening on :19400",
-      "WebSocket established to relay",
-      "Outbound queue ready",
-    ],
-  },
-  {
-    num: "03",
-    title: "Agents talk — relay verifies",
-    description: "Every message is signed with AIT + private key before leaving. The relay verifies the signature, checks the CRL, and delivers to the remote connector's webhook.",
-    type: "signing" as const,
-  },
-];
+// HowItWorks — "Behind the Curtain"
+// Simple flow diagram + trust badges. Absorbs the Privacy section.
+// NO technical jargon: no AIT, PoP, CRL, Ed25519, JWT, sidecar, WebSocket, connector ports.
 ---
 
 <section class="section how-it-works-section animate-on-scroll" id="how-it-works">
   <div class="container">
     <div class="section-header">
-      <span class="section-number">04 —</span>
-      <h2>Three steps to secure cross-platform messaging.</h2>
+      <h2>You never have to think about security. We already did.</h2>
     </div>
 
-    <div class="steps-list">
-      <div class="steps-ruler" aria-hidden="true"></div>
-      {steps.map((step, index) => (
-        <div class="step stagger-child" style={`transition-delay: ${index * 120}ms`}>
-          <div class="step-marker">
-            <span class="step-num">{step.num}</span>
+    <!-- Horizontal flow diagram -->
+    <div class="flow-diagram" aria-label="How messages flow: Your agent signs every message, the cloud verifies everyone, then the message reaches their agent.">
+
+      <!-- Desktop / tablet: horizontal flow -->
+      <div class="flow-horizontal">
+        <svg class="flow-svg" viewBox="0 0 820 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+
+          <!-- Step 1: Your Agent (coral character) -->
+          <g class="flow-step">
+            <circle cx="60" cy="60" r="40" fill="var(--cl-char-coral)" />
+            <circle cx="48" cy="54" r="3.5" fill="#1F1D2B" />
+            <circle cx="72" cy="54" r="3.5" fill="#1F1D2B" />
+            <path d="M50 68 Q60 78 70 68" stroke="#1F1D2B" stroke-width="2.5" stroke-linecap="round" fill="none" />
+            <text x="60" y="120" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--cl-text)">Your Agent</text>
+          </g>
+
+          <!-- Arrow 1 -->
+          <g class="flow-arrow">
+            <line x1="110" y1="60" x2="170" y2="60" stroke="var(--cl-border-3)" stroke-width="3" stroke-linecap="round" />
+            <polygon points="165,52 180,60 165,68" fill="var(--cl-border-3)" />
+          </g>
+
+          <!-- Step 2: Shield (signs every message) -->
+          <g class="flow-step">
+            <!-- Shield icon -->
+            <path d="M240 22 L275 34 L275 68 Q275 90 240 104 Q205 90 205 68 L205 34 Z" fill="var(--cl-accent)" opacity="0.18" stroke="var(--cl-accent)" stroke-width="2.5" />
+            <!-- Checkmark inside shield -->
+            <path d="M226 58 L236 68 L256 48" stroke="var(--cl-accent)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            <text x="240" y="130" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="500" fill="var(--cl-text-2)">signs every</text>
+            <text x="240" y="147" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="500" fill="var(--cl-text-2)">message</text>
+          </g>
+
+          <!-- Arrow 2 -->
+          <g class="flow-arrow">
+            <line x1="290" y1="60" x2="350" y2="60" stroke="var(--cl-border-3)" stroke-width="3" stroke-linecap="round" />
+            <polygon points="345,52 360,60 345,68" fill="var(--cl-border-3)" />
+          </g>
+
+          <!-- Step 3: Cloud (verifies everyone) -->
+          <g class="flow-step">
+            <!-- Cloud shape -->
+            <path d="M400 80 Q385 80 382 68 Q376 50 392 42 Q396 28 414 28 Q430 28 436 40 Q450 38 454 50 Q460 62 450 72 Q452 80 438 80 Z" fill="var(--cl-accent-2)" opacity="0.2" stroke="var(--cl-accent-2)" stroke-width="2.5" />
+            <!-- Small check inside cloud -->
+            <path d="M408 58 L416 66 L430 50" stroke="var(--cl-accent-2)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            <text x="418" y="130" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="500" fill="var(--cl-text-2)">verifies</text>
+            <text x="418" y="147" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="500" fill="var(--cl-text-2)">everyone</text>
+          </g>
+
+          <!-- Arrow 3 -->
+          <g class="flow-arrow">
+            <line x1="468" y1="60" x2="528" y2="60" stroke="var(--cl-border-3)" stroke-width="3" stroke-linecap="round" />
+            <polygon points="523,52 538,60 523,68" fill="var(--cl-border-3)" />
+          </g>
+
+          <!-- Step 4: Shield (delivers safely) -->
+          <g class="flow-step">
+            <!-- Shield icon -->
+            <path d="M596 22 L631 34 L631 68 Q631 90 596 104 Q561 90 561 68 L561 34 Z" fill="var(--cl-accent)" opacity="0.18" stroke="var(--cl-accent)" stroke-width="2.5" />
+            <!-- Checkmark inside shield -->
+            <path d="M582 58 L592 68 L612 48" stroke="var(--cl-accent)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            <text x="596" y="130" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="500" fill="var(--cl-text-2)">delivers</text>
+            <text x="596" y="147" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="500" fill="var(--cl-text-2)">safely</text>
+          </g>
+
+          <!-- Arrow 4 -->
+          <g class="flow-arrow">
+            <line x1="646" y1="60" x2="706" y2="60" stroke="var(--cl-border-3)" stroke-width="3" stroke-linecap="round" />
+            <polygon points="701,52 716,60 701,68" fill="var(--cl-border-3)" />
+          </g>
+
+          <!-- Step 5: Their Agent (teal character) -->
+          <g class="flow-step">
+            <rect x="720" y="20" width="80" height="80" rx="24" fill="var(--cl-char-teal)" />
+            <circle cx="746" cy="54" r="3.5" fill="#1F1D2B" />
+            <circle cx="774" cy="54" r="3.5" fill="#1F1D2B" />
+            <path d="M748 68 Q760 78 772 68" stroke="#1F1D2B" stroke-width="2.5" stroke-linecap="round" fill="none" />
+            <text x="760" y="120" text-anchor="middle" font-family="var(--font-sans)" font-size="13" font-weight="600" fill="var(--cl-text)">Their Agent</text>
+          </g>
+        </svg>
+      </div>
+
+      <!-- Mobile: vertical flow -->
+      <div class="flow-vertical">
+        <div class="flow-v-step animate-children">
+          <div class="flow-v-icon stagger-child" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="40" cy="40" r="36" fill="var(--cl-char-coral)" />
+              <circle cx="30" cy="34" r="3" fill="#1F1D2B" />
+              <circle cx="50" cy="34" r="3" fill="#1F1D2B" />
+              <path d="M32 48 Q40 56 48 48" stroke="#1F1D2B" stroke-width="2" stroke-linecap="round" fill="none" />
+            </svg>
           </div>
-          <div class="step-body">
-            <h3>{step.title}</h3>
-            <p class="step-desc">{step.description}</p>
-
-            {step.type === 'cli' && (
-              <div class="terminal">
-                <div class="terminal__header">
-                  <span class="terminal__path">~/</span>
-                  <button
-                    class="terminal__copy"
-                    data-code={step.code}
-                    aria-label="Copy code"
-                    type="button"
-                  >
-                    <svg class="copy-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                    </svg>
-                    <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M20 6L9 17l-5-5"/>
-                    </svg>
-                  </button>
-                </div>
-                <div class="terminal__content">
-                  <div class="command-line">
-                    <span class="prompt">$</span>
-                    <code class="command-text">{step.code}</code>
-                  </div>
-                  <div class="output-block">
-                    {step.output?.map(line => (
-                      <div class="output-line">{line}</div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {step.type === 'signing' && (
-              <div class="signing-visual">
-                <svg viewBox="0 0 520 80" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Signing process: AIT plus private key produces signed request with PoP" class="signing-svg">
-                  <!-- AIT box -->
-                  <rect x="2" y="16" width="100" height="48" rx="2"
-                    fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
-                  <text x="52" y="36" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="12" font-weight="500"
-                    fill="var(--cl-accent)">AIT</text>
-                  <text x="52" y="52" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="7.5"
-                    fill="var(--cl-text-3)">JWT / EdDSA</text>
-
-                  <!-- Plus -->
-                  <text x="120" y="44" text-anchor="middle"
-                    font-family="'DM Sans', sans-serif" font-size="20" font-weight="300"
-                    fill="var(--cl-text-3)">+</text>
-
-                  <!-- Private Key box -->
-                  <rect x="138" y="16" width="120" height="48" rx="2"
-                    fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
-                  <text x="198" y="36" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500"
-                    fill="var(--cl-text)">Private Key</text>
-                  <text x="198" y="52" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="7.5"
-                    fill="var(--cl-accent-2)">stays local</text>
-
-                  <!-- Arrow -->
-                  <path d="M 260 40 L 290 40" stroke="var(--cl-text-3)" stroke-width="1" stroke-linecap="round"/>
-                  <polygon points="287,36 295,40 287,44" fill="var(--cl-text-3)"/>
-
-                  <!-- Signed Request box -->
-                  <rect x="296" y="8" width="140" height="64" rx="2"
-                    fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1.5"/>
-                  <text x="366" y="32" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="10" font-weight="500"
-                    fill="var(--cl-text)">Signed Request</text>
-                  <line x1="296" y1="40" x2="436" y2="40" stroke="var(--cl-border-2)" stroke-width="0.5"/>
-                  <text x="366" y="56" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="8"
-                    fill="var(--cl-accent-2)">PoP · Ed25519</text>
-                  <text x="366" y="66" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="7.5"
-                    fill="var(--cl-text-3)">timestamp + nonce</text>
-
-                  <!-- Arrow to relay -->
-                  <path d="M 436 40 L 466 40" stroke="var(--cl-text-3)" stroke-width="1" stroke-linecap="round"/>
-                  <polygon points="463,36 471,40 463,44" fill="var(--cl-text-3)"/>
-
-                  <!-- Relay verify box -->
-                  <rect x="472" y="16" width="46" height="48" rx="2"
-                    fill="var(--cl-surface)" stroke="var(--cl-accent)" stroke-width="1"/>
-                  <text x="495" y="36" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="7.5"
-                    fill="var(--cl-accent)">Relay</text>
-                  <text x="495" y="48" text-anchor="middle"
-                    font-family="'JetBrains Mono', monospace" font-size="7"
-                    fill="var(--cl-text-3)">verify</text>
-                </svg>
-              </div>
-            )}
+          <span class="flow-v-label">Your Agent</span>
+          <div class="flow-v-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 32" fill="none"><path d="M12 0 L12 24 M6 18 L12 26 L18 18" stroke="var(--cl-border-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </div>
         </div>
-      ))}
+
+        <div class="flow-v-step animate-children">
+          <div class="flow-v-icon stagger-child" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M40 8 L68 18 L68 46 Q68 64 40 76 Q12 64 12 46 L12 18 Z" fill="var(--cl-accent)" opacity="0.18" stroke="var(--cl-accent)" stroke-width="2.5" />
+              <path d="M28 40 L36 48 L52 32" stroke="var(--cl-accent)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+          </div>
+          <span class="flow-v-label">Signs every message</span>
+          <div class="flow-v-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 32" fill="none"><path d="M12 0 L12 24 M6 18 L12 26 L18 18" stroke="var(--cl-border-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </div>
+        </div>
+
+        <div class="flow-v-step animate-children">
+          <div class="flow-v-icon stagger-child" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M16 54 Q4 54 2 44 Q-4 28 10 22 Q14 10 28 10 Q42 10 48 20 Q60 18 64 28 Q70 40 60 48 Q62 54 50 54 Z" transform="translate(8, 6)" fill="var(--cl-accent-2)" opacity="0.2" stroke="var(--cl-accent-2)" stroke-width="2.5" />
+              <path d="M30 40 L38 48 L52 34" stroke="var(--cl-accent-2)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+          </div>
+          <span class="flow-v-label">Verifies everyone</span>
+          <div class="flow-v-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 32" fill="none"><path d="M12 0 L12 24 M6 18 L12 26 L18 18" stroke="var(--cl-border-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </div>
+        </div>
+
+        <div class="flow-v-step animate-children">
+          <div class="flow-v-icon stagger-child" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M40 8 L68 18 L68 46 Q68 64 40 76 Q12 64 12 46 L12 18 Z" fill="var(--cl-accent)" opacity="0.18" stroke="var(--cl-accent)" stroke-width="2.5" />
+              <path d="M28 40 L36 48 L52 32" stroke="var(--cl-accent)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+            </svg>
+          </div>
+          <span class="flow-v-label">Delivers safely</span>
+          <div class="flow-v-arrow" aria-hidden="true">
+            <svg viewBox="0 0 24 32" fill="none"><path d="M12 0 L12 24 M6 18 L12 26 L18 18" stroke="var(--cl-border-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </div>
+        </div>
+
+        <div class="flow-v-step animate-children">
+          <div class="flow-v-icon stagger-child" aria-hidden="true">
+            <svg viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="4" y="4" width="72" height="72" rx="22" fill="var(--cl-char-teal)" />
+              <circle cx="30" cy="34" r="3" fill="#1F1D2B" />
+              <circle cx="50" cy="34" r="3" fill="#1F1D2B" />
+              <path d="M32 48 Q40 56 48 48" stroke="#1F1D2B" stroke-width="2" stroke-linecap="round" fill="none" />
+            </svg>
+          </div>
+          <span class="flow-v-label">Their Agent</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary line -->
+    <p class="flow-summary">
+      Every message signed. Every sender verified. Revoke any agent in seconds without touching the rest.
+    </p>
+
+    <!-- Trust badges -->
+    <div class="trust-badges animate-children">
+      <span class="trust-badge stagger-child">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="7" width="10" height="7" rx="1.5" />
+          <path d="M5 7V5a3 3 0 016 0v2" />
+        </svg>
+        No shared passwords
+      </span>
+      <span class="trust-badge stagger-child">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M1 1l14 14" />
+          <path d="M8.5 3.5A5.5 5.5 0 0114 8" />
+          <path d="M2 8a5.5 5.5 0 018.5-4.5" />
+          <path d="M6 8a2 2 0 013-1.7" />
+        </svg>
+        Works offline
+      </span>
+      <span class="trust-badge stagger-child">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10 1H6L5 5H2l6 10 1.5-5H14L10 1z" />
+        </svg>
+        Open source
+      </span>
+      <span class="trust-badge stagger-child">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M13 2L7.5 7.5" />
+          <path d="M10 2h3v3" />
+          <path d="M3 14l5.5-5.5" />
+          <path d="M6 14H3v-3" />
+        </svg>
+        Instant revocation
+      </span>
     </div>
   </div>
 </section>
 
-<script>
-  document.querySelectorAll('.terminal__copy').forEach(button => {
-    button.addEventListener('click', async () => {
-      const code = button.getAttribute('data-code');
-      if (!code) return;
-      try {
-        await navigator.clipboard.writeText(code);
-        button.classList.add('copied');
-        setTimeout(() => button.classList.remove('copied'), 2000);
-      } catch { /* silently fail */ }
-    });
-  });
-</script>
-
 <style>
-  /* Step layout */
-  .steps-list {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-xl);
-    max-width: 800px;
+  /* ── Flow diagram ── */
+  .flow-diagram {
+    margin-bottom: var(--space-2xl);
   }
 
-  .steps-ruler {
-    position: absolute;
-    left: 1.25rem;
-    top: 3rem;
-    bottom: 3rem;
-    width: 1px;
-    background: var(--cl-rule);
-  }
-
-  .step {
-    display: flex;
-    gap: var(--space-lg);
-    align-items: flex-start;
-  }
-
-  .step-marker {
-    flex-shrink: 0;
-    width: 2.5rem;
-    height: 2.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: var(--cl-surface-2);
-    border: 1px solid var(--cl-border-3);
-    border-radius: 2px;
-    position: relative;
-    z-index: 1;
-  }
-
-  .step-num {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: var(--cl-accent);
-    letter-spacing: 0.04em;
-  }
-
-  .step-body {
-    flex: 1;
-    padding-bottom: var(--space-md);
-  }
-
-  .step-body h3 {
-    font-size: 1.125rem;
-    color: var(--cl-text);
-    margin-bottom: 0.5rem;
-  }
-
-  .step-desc {
-    color: var(--cl-text-2);
-    font-size: 0.9375rem;
-    line-height: 1.7;
-    margin-bottom: var(--space-md);
-  }
-
-  /* Terminal — no macOS dots */
-  .terminal {
-    background: var(--cl-code-bg);
-    border: 1px solid var(--cl-border-2);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .terminal__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.5rem 0.875rem;
-    background: rgba(255, 255, 255, 0.025);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  }
-
-  .terminal__path {
-    font-family: var(--font-mono);
-    font-size: 0.75rem;
-    color: #6B5F55;
-    letter-spacing: 0.03em;
-  }
-
-  .terminal__copy {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    background: transparent;
-    border: none;
-    color: #6B5F55;
-    cursor: pointer;
-    border-radius: 2px;
-    transition: color 0.15s ease;
-  }
-
-  .terminal__copy:hover { color: #A09488; }
-
-  .terminal__copy .check-icon { display: none; }
-  .terminal__copy.copied .check-icon { display: block; color: #6A9955; }
-  .terminal__copy.copied .copy-icon { display: none; }
-
-  .terminal__content {
-    padding: 0.875rem;
-  }
-
-  .command-line {
-    display: flex;
-    align-items: center;
-    gap: 0.625rem;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    margin-bottom: 0.75rem;
-  }
-
-  .prompt {
-    color: var(--cl-accent);
-    font-weight: 600;
-    user-select: none;
-  }
-
-  .command-text {
-    color: #E6EDF3;
-    font-family: var(--font-mono);
-  }
-
-  .output-block {
-    padding-left: 1.25rem;
-  }
-
-  .output-line {
-    color: #6A9955;
-    font-family: var(--font-mono);
-    font-size: 0.8125rem;
-    line-height: 1.7;
-  }
-
-  /* Signing visual */
-  .signing-visual {
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border-2);
-    border-radius: 4px;
-    padding: var(--space-md);
-    overflow-x: auto;
-  }
-
-  .signing-svg {
-    width: 100%;
-    min-width: 440px;
-    height: auto;
+  /* Horizontal flow (desktop + tablet) */
+  .flow-horizontal {
     display: block;
   }
 
+  .flow-svg {
+    width: 100%;
+    max-width: 820px;
+    height: auto;
+    margin: 0 auto;
+    display: block;
+  }
+
+  /* Vertical flow (mobile) — hidden by default */
+  .flow-vertical {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-xs);
+  }
+
+  .flow-v-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .flow-v-icon {
+    width: 64px;
+    height: 64px;
+  }
+
+  .flow-v-icon svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .flow-v-label {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    font-weight: var(--fw-semibold);
+    color: var(--cl-text);
+    text-align: center;
+  }
+
+  .flow-v-arrow {
+    width: 24px;
+    height: 32px;
+    margin: 0.25rem 0;
+  }
+
+  .flow-v-arrow svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ── Summary line ── */
+  .flow-summary {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    color: var(--cl-text-2);
+    line-height: 1.7;
+    text-align: center;
+    max-width: 40rem;
+    margin: 0 auto var(--space-xl);
+  }
+
+  /* ── Trust badges row ── */
+  .trust-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+  }
+
+  .trust-badges .trust-badge svg {
+    flex-shrink: 0;
+  }
+
+  /* ── Responsive ── */
   @media (max-width: 768px) {
-    .step {
-      gap: var(--space-md);
+    .flow-horizontal {
+      display: none;
     }
 
-    .steps-ruler {
-      left: 1.1rem;
+    .flow-vertical {
+      display: flex;
+    }
+
+    .trust-badges {
+      gap: 0.5rem;
+    }
+
+    .flow-summary {
+      text-align: left;
+    }
+  }
+
+  @media (min-width: 769px) and (max-width: 1024px) {
+    .flow-svg {
+      max-width: 100%;
     }
   }
 </style>

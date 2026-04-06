@@ -36,12 +36,18 @@ Rust toolchain is not required for this recommended path; installer scripts down
 | `CLAWDENTITY_INSTALL_DRY_RUN=1` | Print planned actions without installing. |
 | `CLAWDENTITY_NO_VERIFY=1` | Skip checksum verification (not recommended). |
 | `CLAWDENTITY_RELEASE_MANIFEST_URL` | Optional manifest override for CI or private mirrors. |
+| `CLAWDENTITY_SITE_BASE_URL` | Optional skill/site origin override. When set to a non-canonical preview/operator origin and no stricter manifest/download override is provided, the installer keeps manifest + binary downloads on that same origin via `/rust/latest-local.json`. |
 
 ### Example overrides
 
 ```bash
 CLAWDENTITY_VERSION=0.1.2 CLAWDENTITY_INSTALL_DIR="$HOME/.local/bin" \
   curl -fsSL https://clawdentity.com/install.sh | sh
+```
+
+```bash
+curl -fsSL https://<preview-origin>/install.sh | \
+  CLAWDENTITY_SITE_BASE_URL=https://<preview-origin> sh
 ```
 
 ```powershell

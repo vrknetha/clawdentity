@@ -4,11 +4,14 @@ set -eu
 BIN_NAME="clawdentity"
 DEFAULT_DOWNLOADS_BASE_URL="https://downloads.clawdentity.com"
 DEFAULT_SITE_BASE_URL="https://clawdentity.com"
+DEFAULT_RELEASE_MANIFEST_PATH="/rust/latest.json"
+DEFAULT_LOCAL_RELEASE_MANIFEST_PATH="/rust/latest-local.json"
 
 DRY_RUN="${CLAWDENTITY_INSTALL_DRY_RUN:-0}"
 NO_VERIFY="${CLAWDENTITY_NO_VERIFY:-0}"
 VERSION_INPUT="${CLAWDENTITY_VERSION:-}"
 INSTALL_DIR="${CLAWDENTITY_INSTALL_DIR:-}"
+DOWNLOADS_BASE_URL_INPUT="${CLAWDENTITY_DOWNLOADS_BASE_URL:-}"
 DOWNLOADS_BASE_URL="${CLAWDENTITY_DOWNLOADS_BASE_URL:-$DEFAULT_DOWNLOADS_BASE_URL}"
 MANIFEST_URL_INPUT="${CLAWDENTITY_RELEASE_MANIFEST_URL:-}"
 SITE_BASE_URL_INPUT="${CLAWDENTITY_SITE_BASE_URL:-}"
@@ -47,14 +50,49 @@ trim_trailing_slash() {
   printf '%s\n' "$value"
 }
 
+uses_noncanonical_site_origin() {
+  if [ -z "$SITE_BASE_URL_INPUT" ]; then
+    return 1
+  fi
+
+  normalized_site_base_url="$(trim_trailing_slash "$SITE_BASE_URL_INPUT")"
+  [ "$normalized_site_base_url" != "$DEFAULT_SITE_BASE_URL" ]
+}
+
+resolve_downloads_base_url() {
+  if [ -n "$DOWNLOADS_BASE_URL_INPUT" ]; then
+    trim_trailing_slash "$DOWNLOADS_BASE_URL_INPUT"
+    return 0
+  fi
+
+  if uses_noncanonical_site_origin; then
+    trim_trailing_slash "$SITE_BASE_URL_INPUT"
+    return 0
+  fi
+
+  trim_trailing_slash "$DEFAULT_DOWNLOADS_BASE_URL"
+}
+
+should_use_site_origin_release_assets() {
+  uses_noncanonical_site_origin || return 1
+  [ -z "$DOWNLOADS_BASE_URL_INPUT" ] || return 1
+  [ -z "$MANIFEST_URL_INPUT" ]
+}
+
 resolve_manifest_url() {
   if [ -n "$MANIFEST_URL_INPUT" ]; then
     printf '%s\n' "$MANIFEST_URL_INPUT"
     return 0
   fi
 
-  base_url="$(trim_trailing_slash "$DOWNLOADS_BASE_URL")"
-  printf '%s\n' "${base_url}/rust/latest.json"
+  if uses_noncanonical_site_origin && [ -z "$DOWNLOADS_BASE_URL_INPUT" ]; then
+    site_base_url="$(trim_trailing_slash "$SITE_BASE_URL_INPUT")"
+    printf '%s\n' "${site_base_url}${DEFAULT_LOCAL_RELEASE_MANIFEST_PATH}"
+    return 0
+  fi
+
+  base_url="$(resolve_downloads_base_url)"
+  printf '%s\n' "${base_url}${DEFAULT_RELEASE_MANIFEST_PATH}"
 }
 
 resolve_skill_url() {
@@ -103,6 +141,12 @@ resolve_latest_release_from_manifest() {
   TAG="$resolved_tag"
   ASSET_BASE_URL="$resolved_asset_base_url"
   CHECKSUM_URL="$resolved_checksums_url"
+
+  if should_use_site_origin_release_assets; then
+    site_base_url="$(trim_trailing_slash "$SITE_BASE_URL_INPUT")"
+    ASSET_BASE_URL="${site_base_url}/rust/v${VERSION}"
+    CHECKSUM_URL="${ASSET_BASE_URL}/${BIN_NAME}-${VERSION}-checksums.txt"
+  fi
 }
 
 set_version_from_input() {
@@ -195,7 +239,7 @@ main() {
 
   if [ -n "$VERSION_INPUT" ]; then
     set_version_from_input "$VERSION_INPUT"
-    normalized_downloads_base_url="$(trim_trailing_slash "$DOWNLOADS_BASE_URL")"
+    normalized_downloads_base_url="$(resolve_downloads_base_url)"
     ASSET_BASE_URL="${normalized_downloads_base_url}/rust/v${VERSION}"
     CHECKSUM_URL="${ASSET_BASE_URL}/${BIN_NAME}-${VERSION}-checksums.txt"
   else

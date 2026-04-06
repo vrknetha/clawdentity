@@ -5,13 +5,13 @@ description: Get your agent set up with Clawdentity relay in minutes.
 
 import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
 
-This guide gets you from zero to a working Clawdentity relay for supported providers (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`).
+This guide gets you from zero to a working Clawdentity relay for supported providers (`openclaw`, `hermes`, `picoclaw`, `nanobot`, `nanoclaw`).
 
 ## Prerequisites
 
-- A running supported provider runtime (OpenClaw, PicoClaw, NanoBot, or NanoClaw)
+- A running supported provider runtime (OpenClaw, Hermes, PicoClaw, NanoBot, or NanoClaw)
 - A hosted GitHub starter pass (`clw_stp_...`) or an operator-issued invite (`clw_inv_...`)
-- OpenClaw prompt access for agent-assisted onboarding
+- Prompt access for the provider runtime you want to use for onboarding
 
 ## Hosted setup (GitHub-first, recommended)
 
@@ -42,22 +42,22 @@ irm https://clawdentity.com/install.ps1 | iex
 
 2. Finish GitHub sign-in and land on [the GitHub starter-pass page](https://clawdentity.com/getting-started/github/).
 
-3. Copy the generated prompt from that page into OpenClaw. The hosted path does not expose the generic prompt before login.
+3. Copy the generated prompt from that page into the selected provider runtime (for example OpenClaw or Hermes). The hosted path does not expose the generic prompt before login.
 
 4. Let the guided flow complete onboarding. It will execute:
    - `config init`
    - `invite redeem`
    - `agent create`
-   - `install --for openclaw`
-   - `provider setup --for openclaw --agent-name <name>`
+   - `install --for <platform>`
+   - `provider setup --for <platform> --agent-name <name>`
 
 </Steps>
 
 3. Verify readiness:
 
 ```bash
-clawdentity provider doctor --for openclaw
-clawdentity provider relay-test --for openclaw
+clawdentity provider doctor --for <platform>
+clawdentity provider relay-test --for <platform>
 ```
 
 Rust toolchain is not required for this recommended path.
@@ -105,6 +105,13 @@ Use this path for private or self-hosted rollouts, or when you already have an o
 
 Prompt source for the advanced/manual path: [`/skill.md`](/skill.md)
 
+When you use a local/operator-preview skill origin instead of `https://clawdentity.com`, keep installer downloads on that same origin:
+
+```bash
+curl -fsSL https://<preview-origin>/install.sh | \
+  CLAWDENTITY_SITE_BASE_URL=https://<preview-origin> sh
+```
+
 ```bash
 # Install the CLI (Unix)
 curl -fsSL https://clawdentity.com/install.sh | sh
@@ -132,7 +139,7 @@ clawdentity provider doctor --for <platform>
 
 ## What gets created locally
 
-After setup, your local state includes these files (example shown for the `openclaw` provider):
+After setup, your local state includes these files (examples shown for the `openclaw` provider; Hermes follows the same pattern with `hermes-agent-name` and `hermes-relay.json`):
 
 ```
 ~/.clawdentity/
@@ -176,7 +183,7 @@ The agent's local identity record, created by `agent create`:
 | 2 | `invite redeem` | Updates `config.json` with `apiKey`, `humanName`, and registry `proxyUrl` |
 | 3 | `agent create` | `agents/<name>/` directory: `secret.key`, `public.key`, `ait.jwt`, `identity.json`, `registry-auth.json` |
 | 4 | `install --for <platform>` | Provider config hooks + runtime defaults |
-| 5 | `provider setup --for <platform>` | `openclaw-agent-name`, `openclaw-relay.json` (OpenClaw), connector assignment metadata |
+| 5 | `provider setup --for <platform>` | provider marker/runtime files (for example `openclaw-agent-name` + `openclaw-relay.json`, or `hermes-agent-name` + `hermes-relay.json`) and connector assignment metadata |
 
 :::caution
 Never share the `secret.key` file or the `~/.clawdentity/agents/` directory. The private key should never leave the agent's machine.

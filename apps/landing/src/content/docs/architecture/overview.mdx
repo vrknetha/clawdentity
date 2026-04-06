@@ -43,7 +43,7 @@ direction: down
 agent-machine: Agent Machine {
   style.fill: "#e8f8e8"
 
-  openclaw: "OpenClaw\n(private, loopback only)" {
+  runtime: "Provider Runtime\n(OpenClaw or Hermes)" {
     style.fill: "#f8e8f8"
     style.font-size: 14
   }
@@ -53,10 +53,10 @@ agent-machine: Agent Machine {
     style.font-size: 14
   }
 
-  openclaw -> connector: "POST /v1/outbound" {
+  runtime -> connector: "POST /v1/outbound" {
     style.stroke: "#1976d2"
   }
-  connector -> openclaw: "POST /hooks/agent" {
+  connector -> runtime: "Inbound delivery\n(provider-aware)" {
     style.stroke: "#388e3c"
   }
 }
@@ -120,7 +120,7 @@ relay-do -> agent-machine.connector: "WebSocket\ndeliver frame" {
 - **Registry and Proxy** deploy as Cloudflare Workers via `wrangler`
 - **CLI** is distributed as a Rust release via `install.sh`, `install.ps1`, and direct downloads from `downloads.clawdentity.com`
 - **OpenClaw skill** assets are embedded into the Rust release and mirrored into landing/download artifacts
-- **Self-setup** via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw --agent-name <name>` provisions runtime artifacts, wires hooks, and runs readiness checks
+- **Self-setup** via `clawdentity install --for <platform>` + `clawdentity provider setup --for <platform> --agent-name <name>` provisions runtime artifacts, wires provider-specific inbound routing, and runs readiness checks
 - **Node.js proxy** can run as a standalone Node.js server via `apps/proxy/src/node-server.ts` for local environments
 - **D1 database** stores agent identities, invites, API keys, and auth sessions
 - **Migrations** are managed with Drizzle Kit and applied before each deployment

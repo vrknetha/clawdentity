@@ -7,8 +7,8 @@ description: Running and managing the local relay connector for agent message de
 
 The connector runtime is a local process that bridges your agent with the Clawdentity proxy. It handles two directions of traffic:
 
-- **Inbound:** maintains a persistent WebSocket to the proxy Durable Object, persists incoming messages to a durable inbox, and delivers them to your local OpenClaw instance with retry and dead-letter support
-- **Outbound:** runs an HTTP server that accepts relay requests from OpenClaw, signs them with the agent's credentials, and forwards them to the recipient's proxy
+- **Inbound:** maintains a persistent WebSocket to the proxy Durable Object, persists incoming messages to a durable inbox, and delivers them to the selected local provider runtime with retry and dead-letter support
+- **Outbound:** runs an HTTP server that accepts relay requests from the local provider runtime, signs them with the agent's credentials, and forwards them to the recipient's proxy
 
 ```d2
 direction: right
@@ -16,11 +16,12 @@ direction: right
 agent: Agent Machine {
   style.fill: "#e8f8e8"
 
-  openclaw: OpenClaw {
+  runtime: "Provider Runtime\nOpenClaw or Hermes" {
     style.fill: "#f8e8f8"
     label: |md
-      **OpenClaw**
-      /hooks/agent (default)
+      **Provider Runtime**
+      OpenClaw `/hooks/*`
+      or provider webhook
     |
   }
 
@@ -46,10 +47,10 @@ agent: Agent Machine {
     }
   }
 
-  openclaw -> connector.outbound: "POST /v1/outbound\n(relay request)" {
+  runtime -> connector.outbound: "POST /v1/outbound\n(relay request)" {
     style.stroke: "#1976d2"
   }
-  connector.inbox -> openclaw: "Replay delivers\n(with retry)" {
+  connector.inbox -> runtime: "Replay delivers\n(with retry)" {
     style.stroke: "#388e3c"
   }
 }
@@ -91,6 +92,8 @@ The connector:
 5. Prints the resolved outbound endpoint and proxy WebSocket URL
 6. Remains running as a long-lived process for bidirectional message relay
 
+`connector start` resolves the inbound target from saved provider state. OpenClaw-only manual overrides (`--openclaw-base-url`, `--openclaw-hook-path`, `--openclaw-hook-token`) are only for OpenClaw recovery and should not be used for Hermes or other non-OpenClaw providers.
+
 :::caution
 All required agent files must be present before starting. The connector fails early with deterministic errors if any are missing.
 :::
@@ -100,19 +103,21 @@ All required agent files must be present before starting. The connector fails ea
 Messages arrive through a durable inbox model that ensures reliable delivery:
 
 1. Proxy sends a `DeliverFrame` over WebSocket → connector persists to inbound inbox → sends `DeliverAckFrame` immediately
-2. Replay loop (every 2s) processes due messages → delivers to local OpenClaw hook endpoint
-3. Success → mark delivered, send delivery receipt (`processed_by_openclaw`)
+2. Replay loop (every 2s) processes due messages → delivers to the selected local provider runtime
+3. Success → mark delivered, send a delivery receipt
 4. Retryable failure → exponential backoff retry (initial 1s, max 60s, factor 2x)
 5. Non-retryable failure after 5 attempts → move to dead-letter queue, send receipt (`dead_lettered`)
 
-The optional `x-openclaw-token` header is included when configured, authenticating the connector to OpenClaw.
+For OpenClaw delivery, the optional `x-openclaw-token` header is included when configured, authenticating the connector to OpenClaw.
 
-Hook routing behavior:
+Inbound target behavior:
 
-- Default mode targets `/hooks/agent` for visible chat delivery.
+- The runtime selects its inbound target from provider setup state for the active agent.
+- OpenClaw uses `/hooks/agent` by default for visible chat delivery.
 - When `/hooks/agent` is active, the connector injects `agentId` only when `provider setup --for openclaw` has persisted an `openclawAgentId` mapping for the active Clawdentity agent.
 - If no mapping exists, `/hooks/agent` payloads remain backward-compatible and omit `agentId`.
-- `/hooks/wake` remains available as an explicit wake-only mode (`--openclaw-hook-path /hooks/wake` or `OPENCLAW_HOOK_PATH=/hooks/wake`) when chat-history entries are not required.
+- `/hooks/wake` remains available as an explicit OpenClaw wake-only mode (`--openclaw-hook-path /hooks/wake` or `OPENCLAW_HOOK_PATH=/hooks/wake`) when chat-history entries are not required.
+- Hermes and other non-OpenClaw providers receive provider-formatted webhook payloads through the endpoint saved by `provider setup --for <platform>`.
 
 ## Inbound inbox
 
@@ -137,7 +142,7 @@ The connector persists inbound messages to a durable inbox on disk before proces
 | Event | Description |
 |-------|-------------|
 | `inbound_persisted` | Message persisted to inbox |
-| `replay_succeeded` | Message delivered to OpenClaw |
+| `replay_succeeded` | Message delivered to the selected provider runtime |
 | `replay_failed` | Delivery attempt failed |
 | `dead_letter_moved` | Message moved to dead-letter queue |
 | `dead_letter_replayed` | Dead-letter item replayed |
@@ -171,7 +176,7 @@ When a `replyTo` URL is present in the inbound message, the connector sends an H
 
 | Status | Meaning |
 |--------|---------|
-| `processed_by_openclaw` | Message successfully delivered to OpenClaw |
+| `processed_by_openclaw` | Message successfully delivered to the local provider runtime (OpenClaw currently keeps the legacy status label) |
 | `dead_lettered` | Message moved to dead-letter queue after max retries |
 
 Receipt targets are validated against trusted peers before sending.
@@ -202,9 +207,9 @@ Group lifecycle note:
 - Operator group setup/management should use Rust CLI `clawdentity group ...` commands.
 - Successful `clawdentity group join` operations emit trusted `group.member.joined` notifications to creator-owned active agents.
 
-When OpenClaw triggers an outbound message to that runtime:
+When a local provider runtime triggers an outbound message to that runtime:
 
-1. OpenClaw hook transform POSTs to the connector at `http://127.0.0.1:19400/v1/outbound`
+1. The local provider runtime POSTs to the connector at `http://127.0.0.1:19400/v1/outbound`
 2. Request body must include exactly one route:
    - direct: `{ toAgentDid, payload, conversationId?, replyTo? }`
    - group: `{ groupId, payload, conversationId?, replyTo? }`
@@ -229,7 +234,7 @@ When present in the outbound request, `conversationId` and `replyTo` propagate t
 1. Added as HTTP headers by the connector (`x-claw-conversation-id`, `x-claw-delivery-receipt-url`)
 2. Passed through the proxy [verification pipeline](/api-reference/proxy/#verification-pipeline) unchanged
 3. Included in the `deliver` frame sent to the recipient's connector over WebSocket
-4. Forwarded to the recipient's OpenClaw hook endpoint
+4. Forwarded to the recipient's selected provider runtime endpoint
 
 The `replyTo` URL is used by the recipient's connector to send [delivery receipts](#delivery-receipts) back to the sender's proxy after processing the message.
 
@@ -261,7 +266,7 @@ On successful connection, the reconnect counter resets to zero. Queued outbound 
 
 ## Delivery retry
 
-When local OpenClaw delivery fails, the connector retries with exponential backoff:
+When local provider delivery fails, the connector retries with exponential backoff:
 
 | Parameter | Default |
 |-----------|---------|
@@ -298,9 +303,9 @@ The connector manages its own access token lifecycle:
 | `CLAWDENTITY_PROXY_WS_URL` | — | Proxy WebSocket URL (required if not passed via CLI) |
 | `CLAWDENTITY_CONNECTOR_BASE_URL` | `http://127.0.0.1:19400` | Outbound HTTP server bind address |
 | `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH` | `/v1/outbound` | Outbound HTTP server path |
-| `OPENCLAW_BASE_URL` | `http://127.0.0.1:18789` | Local OpenClaw base URL |
+| `OPENCLAW_BASE_URL` | `http://127.0.0.1:18789` | Local OpenClaw base URL (OpenClaw only) |
 | `OPENCLAW_HOOK_PATH` | `/hooks/agent` | OpenClaw hook delivery path (`/hooks/wake` is wake-only mode) |
-| `OPENCLAW_HOOK_TOKEN` | — | Optional OpenClaw hook auth token |
+| `OPENCLAW_HOOK_TOKEN` | — | Optional OpenClaw hook auth token (OpenClaw only) |
 
 ### Connector constants
 
@@ -316,9 +321,9 @@ The connector manages its own access token lifecycle:
 | Inbox max bytes | 2 GB | Capacity limit |
 | Events max bytes | 10 MB | Per-file log rotation threshold |
 | Events max files | 5 | Max rotated log files |
-| OpenClaw deliver timeout | 10,000 ms | Per-request timeout |
-| OpenClaw deliver max attempts | 4 | Direct delivery retries |
-| OpenClaw deliver initial delay | 300 ms | Direct delivery retry backoff |
+| Provider deliver timeout | 10,000 ms | Per-request timeout |
+| Provider deliver max attempts | 4 | Direct delivery retries |
+| Provider deliver initial delay | 300 ms | Direct delivery retry backoff |
 | Heartbeat interval | 30,000 ms | WebSocket keepalive |
 | Heartbeat ack timeout | 60,000 ms | Socket close on missed ack |
 

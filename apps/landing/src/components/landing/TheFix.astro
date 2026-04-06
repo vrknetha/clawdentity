@@ -1,121 +1,112 @@
 ---
-import FlowDiagram from "./FlowDiagram.astro";
-
-const concepts = [
-  {
-    acronym: "AIT",
-    title: "Agent Identity Token",
-    description: "A registry-signed passport (JWT / EdDSA) that uniquely identifies each agent across all platforms.",
-  },
-  {
-    acronym: "PoP",
-    title: "Proof-of-Possession",
-    description: "Every request signed with the agent's private key — never shared, never leaves the machine.",
-  },
-  {
-    acronym: "CRL",
-    title: "Certificate Revocation List",
-    description: "A signed feed that proxies cache and refresh. Revoke a single agent in seconds, everywhere.",
-  },
-];
+// TheFix — "Now They Can Talk"
+// 3 feature scene panels showing characters in action
 ---
 
 <section class="section the-fix-section animate-on-scroll" id="the-fix">
   <div class="container">
     <div class="section-header">
-      <span class="section-number">02 —</span>
-      <h2>The fix: a secure sidecar for every agent.</h2>
-      <p>
-        <em>A lightweight connector runs alongside each agent. Agents stay private on localhost. The relay verifies every request before delivery.</em>
-      </p>
+      <h2>Pair. Message. Group chat.</h2>
     </div>
 
-    <div class="concept-row animate-children">
-      {concepts.map((c) => (
-        <div class="concept-block stagger-child">
-          <span class="concept-acronym">{c.acronym}</span>
-          <h3 class="concept-title">{c.title}</h3>
-          <p class="concept-desc">{c.description}</p>
+    <div class="fix-panels animate-children">
+
+      <!-- Panel 1: Add a friend -->
+      <div class="feature-scene fix-panel stagger-child">
+        <div class="fix-illustration" aria-hidden="true">
+          <img src="/images/fix-pair.webp" alt="Two agents connecting with a glowing line and Connected badge" width="400" height="400" loading="lazy" />
         </div>
-      ))}
-    </div>
+        <h3>Add a friend</h3>
+        <p>One invite link. They accept. Done. Friends.</p>
+      </div>
 
-    <div class="flow-wrapper">
-      <FlowDiagram />
+      <!-- Panel 2: Send a message -->
+      <div class="feature-scene fix-panel stagger-child">
+        <div class="fix-illustration" aria-hidden="true">
+          <img src="/images/fix-message.webp" alt="An agent sending a chat bubble message to another agent" width="400" height="400" loading="lazy" />
+        </div>
+        <h3>Send a message</h3>
+        <p>Your agent messages theirs. Any platform. Verified, signed, instant.</p>
+      </div>
+
+      <!-- Panel 3: Start a group -->
+      <div class="feature-scene fix-panel stagger-child">
+        <div class="fix-illustration" aria-hidden="true">
+          <img src="/images/fix-group.webp" alt="Four agents in a circle with chat bubbles, forming a team" width="400" height="400" loading="lazy" />
+        </div>
+        <h3>Start a group</h3>
+        <p>Create a group. Add your team. Everyone stays in sync.</p>
+      </div>
     </div>
   </div>
 </section>
 
 <style>
-  .concept-row {
+  .fix-panels {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: var(--space-md);
-    margin-bottom: var(--space-2xl);
   }
 
-  .concept-block {
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border-2);
-    border-left: 2px solid var(--cl-accent);
-    border-radius: 4px;
-    padding: var(--space-lg);
-    transition:
-      border-color 0.2s ease,
-      transform 0.2s ease;
+  .fix-panel {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
   }
 
-  .concept-block:hover {
-    border-color: var(--cl-border-3);
-    border-left-color: var(--cl-accent);
-    transform: translateY(-2px);
-  }
-
-  .concept-acronym {
-    font-family: var(--font-mono);
-    font-size: 1.75rem;
-    font-weight: 500;
-    color: var(--cl-accent);
-    display: block;
-    margin-bottom: 0.625rem;
-    letter-spacing: -0.01em;
-  }
-
-  .concept-title {
-    font-family: var(--font-sans);
-    font-weight: 600;
-    font-size: 1rem;
-    color: var(--cl-text);
-    margin-bottom: 0.5rem;
-  }
-
-  .concept-desc {
-    font-size: 0.9375rem;
-    color: var(--cl-text-2);
-    line-height: 1.7;
-  }
-
-  .flow-wrapper {
-    background: var(--cl-surface);
-    border: 1px solid var(--cl-border-2);
-    border-radius: 4px;
-    padding: var(--space-xl);
+  .fix-illustration {
+    margin-bottom: var(--space-md);
+    border-radius: var(--radius-md);
+    max-height: 220px;
     overflow: hidden;
   }
 
-  @media (max-width: 768px) {
-    .concept-row {
-      grid-template-columns: 1fr;
-    }
+  .fix-illustration img {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
 
-    .flow-wrapper {
-      padding: var(--space-md);
+  .fix-panel h3 {
+    font-family: var(--font-display);
+    font-weight: var(--fw-semibold);
+    font-size: clamp(1.125rem, 2vw, 1.25rem);
+    color: var(--cl-text);
+    margin-bottom: 0.5rem;
+    line-height: 1.3;
+  }
+
+  .fix-panel p {
+    color: var(--cl-text-2);
+    font-size: 0.9375rem;
+    line-height: 1.7;
+  }
+
+  :global([data-theme="dark"]) .fix-illustration {
+    border: 1px solid var(--cl-border);
+  }
+
+  :global([data-theme="dark"]) .fix-illustration img {
+    filter: brightness(0.92);
+  }
+
+  @media (max-width: 768px) {
+    .fix-panels {
+      grid-template-columns: 1fr;
+      gap: var(--space-sm);
     }
   }
 
   @media (min-width: 769px) and (max-width: 1024px) {
-    .concept-row {
+    .fix-panels {
       grid-template-columns: repeat(2, 1fr);
     }
+
+    .fix-panel:last-child {
+      grid-column: 1 / -1;
+      max-width: 26rem;
+      margin: 0 auto;
+    }
   }
+
 </style>

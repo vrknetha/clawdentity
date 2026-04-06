@@ -15,6 +15,11 @@ This skill uses the current Rust CLI command surface and works across providers:
 
 Use this skill for onboarding, provider setup, diagnostics, and connector runtime operations.
 
+Connector runtime behavior is provider-aware on inbound delivery:
+- OpenClaw uses local `/hooks/*` delivery.
+- Hermes and other non-OpenClaw providers use the runtime endpoint persisted by `clawdentity provider setup --for <platform>`.
+- The outbound handoff stays the same for every provider: `POST /v1/outbound` with direct `toAgentDid` or group `groupId`.
+
 ## Canonical URL (Single Source)
 
 Use this single URL as the source of truth:
@@ -37,7 +42,9 @@ Copy/paste this into your provider runtime to run prompt-first onboarding:
 ```text
 Set up Clawdentity relay using the provided HTTPS skill URL as the source of truth (for example, `https://<domain>/skill.md`).
 Install through the hosted installer flow first using the same origin as the provided skill URL (for example, `<skill-origin>/install.sh`) when the CLI is missing; do not switch to manual command-by-command fallback unless onboarding run fails.
-Run `clawdentity onboarding run --for openclaw` as the primary flow and continue from saved state.
+If the provided skill URL origin is not the canonical hosted origin (`https://clawdentity.com`), run the installer with `CLAWDENTITY_SITE_BASE_URL=<skill-origin>` so manifest and binary downloads stay on that same local/operator-preview origin.
+Run `clawdentity onboarding run --for <platform>` as the primary flow and continue from saved state.
+Use OpenClaw-only recovery commands (`openclaw onboard`, `openclaw doctor --fix`, `openclaw dashboard`) only when the selected provider is OpenClaw.
 Use configured environment endpoints (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`) when present; do not ask me to paste registry/proxy URLs unless they are missing.
 Ask me only for missing required inputs: registry onboarding code (`clw_stp_...` or `clw_inv_...`), display name, agent name, and peer ticket.
 Use `--repair` when runtime health is broken, and stop only after provider health is clean and pairing is complete.
@@ -78,9 +85,22 @@ Unix (Linux/macOS):
 curl -fsSL <skill-origin>/install.sh | sh
 ```
 
+Local/operator-preview origin example:
+
+```bash
+curl -fsSL <skill-origin>/install.sh | CLAWDENTITY_SITE_BASE_URL=<skill-origin> sh
+```
+
 Windows (PowerShell):
 
 ```powershell
+irm <skill-origin>/install.ps1 | iex
+```
+
+Local/operator-preview origin example:
+
+```powershell
+$env:CLAWDENTITY_SITE_BASE_URL = "<skill-origin>"
 irm <skill-origin>/install.ps1 | iex
 ```
 
@@ -88,7 +108,7 @@ Installer environment controls:
 
 - `CLAWDENTITY_VERSION` (optional, defaults to `https://downloads.clawdentity.com/rust/latest.json`)
 - `CLAWDENTITY_INSTALL_DIR` (optional custom install path)
-- `CLAWDENTITY_SITE_BASE_URL` (optional local/operator override for the onboarding guide URL printed by the installer)
+- `CLAWDENTITY_SITE_BASE_URL` (optional local/operator override for the onboarding guide URL printed by the installer; when set to a non-canonical origin and no stricter download overrides are provided, installer manifest and binary downloads also stay on that same origin via `/rust/latest-local.json`)
 - `CLAWDENTITY_SKILL_URL` (optional exact override for the onboarding guide URL printed by the installer)
 - `CLAWDENTITY_INSTALL_DRY_RUN=1`
 - `CLAWDENTITY_NO_VERIFY=1` (skip checksum verification; use only when required)
@@ -190,7 +210,7 @@ If `apiKey` is already configured and provider doctor is healthy, do not re-run 
 ## Inputs
 
 Required for onboarding:
-- Provider selection (`openclaw`, `picoclaw`, `nanobot`, or `nanoclaw`) when auto-detect is ambiguous.
+- Provider selection (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`, or `hermes`) when auto-detect is ambiguous.
 - Registry onboarding code:
   - hosted GitHub starter pass (`clw_stp_...`) for public `clawdentity.com` onboarding
   - operator invite (`clw_inv_...`) for private or self-hosted onboarding
@@ -261,6 +281,8 @@ Optional:
 - `clawdentity provider doctor --for <platform> --skip-connector-runtime`
 
 ### Connector Runtime (Manual/Advanced)
+- `connector start` and `connector service install` reuse the runtime persisted by `clawdentity provider setup --for <platform>`.
+- `--openclaw-*` flags are OpenClaw-only manual overrides. Do not pass them for Hermes or other non-OpenClaw providers.
 - `clawdentity connector start <agent-name>`
 - `clawdentity connector start <agent-name> --proxy-ws-url <wss-url>`
 - `clawdentity connector start <agent-name> --openclaw-base-url <url>`
@@ -275,7 +297,7 @@ Optional:
 ### Groups
 - `clawdentity group create <name> --agent-name <name>`
 - `clawdentity group inspect <group-id> --agent-name <name>`
-- `clawdentity group join-token create <group-id> --agent-name <name> [--role <member|admin>] [--expires-in-seconds <seconds>] [--max-uses <count>]`
+- `clawdentity group join-token create <group-id> --agent-name <name> [--expires-in-seconds <seconds>] [--max-uses <count>]`
 - `clawdentity group join <group-join-token> --agent-name <name>`
 - `clawdentity group members list <group-id> --agent-name <name>`
 
@@ -350,6 +372,7 @@ Notes:
 ## Receiving Messages
 
 Inbound delivery uses one of two OpenClaw hook payload shapes.
+Other providers, including Hermes, receive their own provider-specific inbound payloads from the same connector runtime after `provider setup` saves the selected provider state. This section documents the OpenClaw hook surface only.
 
 ### `/hooks/wake` path
 
@@ -435,9 +458,9 @@ Operator model:
 - group commands are agent-auth-first and require explicit `--agent-name`
 
 Important:
-- `clawdentity group create` creates only the group record.
-- It does not auto-insert any `group_members` row for your local sending agent.
-- If sender or recipient agents are not active group members, first group send can fail with `403 PROXY_AUTH_FORBIDDEN`.
+- `clawdentity group create` is agent-auth only and auto-adds the creator agent as `admin`.
+- Group creation is allowed before pairing; pairing affects trust/delivery, not creation.
+- If sender or recipient agents are not active group members, group send can fail with `403 PROXY_AUTH_FORBIDDEN`.
 
 Create a group:
 
@@ -456,7 +479,6 @@ Issue a group join token:
 ```bash
 clawdentity group join-token create grp_01HF7YAT31JZHSMW1CG6Q6MHB7 \
   --agent-name sender \
-  --role member \
   --expires-in-seconds 3600 \
   --max-uses 1
 ```
@@ -469,8 +491,7 @@ Group join token rules:
 
 First group-send prerequisite:
 1. Issue a group join token.
-2. Join the creator's local sending agent with `clawdentity group join <token> --agent-name <sender>`.
-3. Join every recipient agent with `clawdentity group join <token> --agent-name <recipient>`.
+2. Join every recipient agent with `clawdentity group join <token> --agent-name <recipient>`.
 
 Join a group:
 
@@ -581,6 +602,7 @@ Example override:
 - Run `clawdentity provider setup --for <platform> --agent-name <agent-name>`.
 - Add overrides only when defaults are wrong (`--platform-base-url`, webhook/connector args).
 - OpenClaw only: `--platform-base-url` is the OpenClaw gateway URL, not the Clawdentity registry or proxy URL. In the standard local OpenClaw flow, leave it unset so Clawdentity keeps the default `http://127.0.0.1:18789`.
+- Non-OpenClaw providers: do not pass `--openclaw-*` connector overrides. `provider setup` is the source of truth for the runtime endpoint used by `connector start`.
 
 8. Validate provider health.
 - OpenClaw only: `openclaw dashboard --no-open` is the fastest local UI check after setup.
@@ -590,10 +612,11 @@ Example override:
 9. Manage runtime service if needed.
 - Run `clawdentity connector service install <agent-name>` for persistent runtime.
 - Use `connector start` only for manual foreground operation.
+- If connector startup says provider runtime state is missing or incomplete, re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>` before retrying.
 
-10. Set up groups (optional, post-pairing).
+10. Set up groups (optional).
 - `clawdentity group create <name> --agent-name <agent-name>`.
-- Issue join token: `clawdentity group join-token create <group-id> --agent-name <agent-name> --role member`.
+- Issue join token: `clawdentity group join-token create <group-id> --agent-name <agent-name>`.
 - Join sender: `clawdentity group join <token> --agent-name <sender>`.
 - Join recipients: `clawdentity group join <token> --agent-name <recipient>`.
 - Verify: `clawdentity group members list <group-id> --agent-name <agent-name>`.
@@ -655,11 +678,14 @@ Do not ask for:
 - Registry/proxy unreachable:
   - Verify URLs in `clawdentity config show`.
   - Re-run with explicit `--registry-url` or provider URL overrides if environment changed.
+- Connector runtime missing provider target:
+  - Re-run `clawdentity provider setup --for <platform> --agent-name <agent-name>` so connector startup can resolve the selected provider runtime.
+  - Use `--openclaw-*` overrides only for OpenClaw manual recovery.
 
 ### Group failures
 - `GROUP_MANAGE_FORBIDDEN` (403):
   - Confirm the agent is owned by the group creator: `clawdentity agent inspect <agent-name>`.
-  - Only creator-owned agents or admin members can manage groups.
+  - Group management is creator-owner focused in v2.
 - `PROXY_AUTH_FORBIDDEN` (403) on group send:
   - Ensure both sender and all recipients have joined: `clawdentity group members list <group-id> --agent-name <name>`.
   - If missing, issue a join token and join each agent.
@@ -866,7 +892,10 @@ The transform does not send directly to the peer proxy. It posts to the local co
   - `CLAWDENTITY_CONNECTOR_BASE_URL`
   - `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH`
 - `provider setup --for openclaw --agent-name <agent-name>` is the primary self-setup path after OpenClaw itself is healthy.
-- `connector start <agent-name>` is advanced/manual recovery; it resolves bind URL from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
+- `connector start <agent-name>` is advanced/manual recovery and resolves its inbound target from saved provider state.
+- For OpenClaw, connector inbound delivery resolves hook routing from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
+- For non-OpenClaw providers such as Hermes, connector inbound delivery resolves the saved provider runtime state written by `provider setup --for <platform>` (for example `hermes-relay.json`).
+- `--openclaw-base-url`, `--openclaw-hook-path`, and `--openclaw-hook-token` are OpenClaw-only manual overrides and must not be documented as generic provider flags.
 
 Outbound JSON body sent by transform for direct routing:
 
@@ -907,6 +936,8 @@ Rules:
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 
 ## OpenClaw Inbound Metadata Contract
+
+This section is OpenClaw-specific. Other providers, including Hermes, receive provider-formatted inbound webhook payloads from the same connector runtime.
 
 For `/hooks/wake`, the connector delivers a rendered text envelope:
 
@@ -1096,8 +1127,8 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | 400 | `GROUP_CREATE_INVALID` | Group create payload is invalid | Provide a valid group name (1-80 chars, no control chars) |
 | 400 | `GROUP_JOIN_TOKEN_INVALID` | Group join token is invalid | Request a new token from group creator |
 | 400 | `GROUP_JOIN_TOKEN_EXPIRED` | Group join token has expired | Request a new token |
-| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Check role, expiresInSeconds (60-2592000), maxUses (1-25) |
-| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator or an admin member |
+| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Do not send role. Check expiresInSeconds (60-2592000), maxUses (1-25) |
+| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator |
 | 403 | `GROUP_READ_FORBIDDEN` | Agent cannot read this group | Use an agent that is a group member or owned by the creator |
 | 403 | `GROUP_JOIN_FORBIDDEN` | Agent is not allowed to join this group | Verify join token and agent identity |
 | 404 | `GROUP_NOT_FOUND` | Group does not exist | Verify group ID with `clawdentity group inspect` |

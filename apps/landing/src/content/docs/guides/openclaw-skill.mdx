@@ -148,6 +148,8 @@ Example `peers.json`:
 
 The relay transform forwards outbound messages through the local connector instead of calling peer proxies directly. This allows the connector to handle signing and auth refresh.
 
+This guide covers the OpenClaw side of that contract. The connector runtime itself is provider-aware on inbound delivery, but Hermes and other non-OpenClaw providers use their provider runtime endpoint from `provider setup` instead of the OpenClaw `/hooks/*` paths documented here.
+
 Default connector endpoint: `http://127.0.0.1:19400/v1/outbound`
 
 Override with environment variables:
@@ -198,7 +200,7 @@ clawdentity group create research-crew --agent-name sender
 clawdentity group inspect grp_<ULID> --agent-name sender
 
 # issue join token
-clawdentity group join-token create grp_<ULID> --agent-name sender --role member --expires-in-seconds 3600 --max-uses 1
+clawdentity group join-token create grp_<ULID> --agent-name sender --expires-in-seconds 3600 --max-uses 1
 
 # join (run once per sending/receiving agent)
 clawdentity group join clw_gjt_... --agent-name sender
@@ -207,7 +209,7 @@ clawdentity group join clw_gjt_... --agent-name sender
 clawdentity group members list grp_<ULID> --agent-name sender
 ```
 
-Important: group creation does not auto-add memberships. Before first group send, issue a join token and join both sender and recipients.
+Important: group creation is agent-auth only and auto-adds the creator agent as `admin`. Group creation does not require pairing completion.
 
 Creator visibility: when membership is added through `clawdentity group join`, creator-owned active agents receive a trusted `group.member.joined` notification in connector inbox delivery.
 

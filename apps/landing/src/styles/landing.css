@@ -1,5 +1,5 @@
 /* ============================================
-   Clawdentity Landing Page — Iron Ledger Design System
+   Clawdentity Landing Page — Friendly Wire Design System
    ============================================ */
 
 @import "./tokens.css";
@@ -19,17 +19,20 @@
   --max-width: 76rem;
   --nav-height: 4rem;
 
-  /* Radii — almost sharp */
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 4px;
+  /* Radii — round & friendly */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
 
   /* Animation easings */
-  --ease-reveal: cubic-bezier(0.25, 0, 0, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out: ease-out;
   --duration-fast: 0.15s;
-  --duration-normal: 0.2s;
+  --duration-normal: 0.25s;
   --duration-reveal: 0.5s;
 }
 
@@ -55,7 +58,8 @@ body {
   font-family: var(--font-sans);
   background: var(--cl-bg);
   color: var(--cl-text);
-  line-height: 1.6;
+  font-size: 1.0625rem;
+  line-height: 1.7;
   overflow-x: hidden;
 }
 
@@ -64,64 +68,52 @@ a {
   text-decoration: none;
 }
 
+a:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 img {
   max-width: 100%;
   display: block;
 }
 
 /* ============================================
-   Typography
+   Typography — Satoshi display, Plus Jakarta body
    ============================================ */
 
 h1,
 h2 {
-  font-family: var(--font-serif);
-  font-weight: 400;
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
   line-height: 1.15;
   letter-spacing: -0.02em;
+  color: var(--cl-text);
 }
 
 h3,
 h4 {
-  font-family: var(--font-sans);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
   line-height: 1.3;
+  color: var(--cl-text);
 }
 
 h1 {
-  font-size: clamp(2.75rem, 6vw, 5rem);
+  font-size: clamp(3rem, 7vw, 5.5rem);
 }
 
 h2 {
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-size: clamp(2rem, 4.5vw, 3rem);
 }
 
 h3 {
-  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  font-size: clamp(1.25rem, 2.5vw, 1.5rem);
 }
 
-/* Section numbers & labels */
-.section-number {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-variant: small-caps;
-  letter-spacing: 0.12em;
-  color: var(--cl-accent);
-  text-transform: uppercase;
-  margin-bottom: 0.5rem;
-  display: block;
-}
-
-.section-label {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-variant: small-caps;
-  letter-spacing: 0.12em;
-  color: var(--cl-text-3);
-  text-transform: uppercase;
-  border: 1px solid var(--cl-border-2);
-  padding: 0.25rem 0.625rem;
-  display: inline-block;
+small {
+  font-size: 0.875rem;
 }
 
 /* ============================================
@@ -142,33 +134,28 @@ h3 {
 .section {
   padding: var(--space-3xl) 0;
   position: relative;
-  border-top: 1px solid var(--cl-rule);
 }
 
-.section:first-of-type {
-  border-top: none;
-}
+/* No dividers between sections — Friendly Wire uses whitespace, not lines */
 
 .section-header {
   margin-bottom: var(--space-2xl);
 }
 
 .section-header h2 {
-  margin-top: 0.5rem;
   margin-bottom: var(--space-sm);
 }
 
 .section-header p {
   color: var(--cl-text-2);
+  font-family: var(--font-sans);
   font-size: 1.0625rem;
   max-width: 40rem;
   line-height: 1.7;
-  font-style: italic;
-  font-family: var(--font-serif);
 }
 
 /* ============================================
-   Buttons — Iron Ledger
+   Buttons — Friendly Wire
    ============================================ */
 
 .btn {
@@ -176,16 +163,27 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  border-radius: var(--radius-md);
+  padding: 0.875rem 1.75rem;
+  border-radius: 10px;
   font-family: var(--font-sans);
-  font-weight: var(--fw-ui);
+  font-weight: var(--fw-semibold);
   font-size: 0.9375rem;
   cursor: pointer;
   border: 1px solid transparent;
   white-space: nowrap;
-  transition: background-color var(--duration-fast) ease;
+  transition:
+    background-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
   text-decoration: none;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: 2px;
+}
+
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn-primary {
@@ -207,147 +205,277 @@ h3 {
 
 .btn-secondary:hover {
   border-color: var(--cl-text-2);
-  background: var(--cl-surface-2);
+  background: var(--cl-surface);
 }
 
 /* ============================================
-   Cards — Sharp, Flat, Copper Border
+   Cards — Rounded, subtle shadow, no copper border
    ============================================ */
 
 .card {
-  background: var(--cl-surface);
-  border: 1px solid var(--cl-border-2);
-  border-left: 2px solid var(--cl-accent);
-  border-radius: var(--radius-md);
+  background: var(--cl-surface-2);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--radius-lg);
   padding: var(--space-lg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
   transition:
-    border-color var(--duration-normal) ease,
+    box-shadow var(--duration-normal) ease,
     transform var(--duration-normal) ease;
 }
 
 .card:hover {
-  border-color: var(--cl-border-3);
-  border-left-color: var(--cl-accent);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
   transform: translateY(-2px);
 }
 
 /* ============================================
-   Code Blocks & Terminal — Iron Ledger
+   Agent Characters — illustrated avatars
    ============================================ */
 
-.code-block {
-  background: var(--cl-code-bg);
-  border: 1px solid var(--cl-border-2);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  overflow: hidden;
-}
-
-.code-block pre {
-  margin: 0;
-  padding: var(--space-md);
-  overflow-x: auto;
-  color: #e6edf3;
-}
-
-/* Terminal — no macOS dots */
-.terminal {
-  background: var(--cl-code-bg);
-  border: 1px solid var(--cl-border-2);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.terminal__header {
-  display: flex;
+.agent-character {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0.625rem 1rem;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: transform var(--duration-normal) var(--ease-bounce);
 }
 
-.terminal__path {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--cl-text-3);
-  letter-spacing: 0.03em;
+.agent-character:hover {
+  transform: scale(1.08);
 }
 
-.terminal__content {
-  padding: var(--space-md);
+/* Color variants */
+.agent-character--coral {
+  background: var(--cl-char-coral);
+  color: #fff;
 }
 
-/* Prompt in copper */
-.code-block .prompt,
-.terminal .prompt {
-  color: var(--cl-accent);
-  font-weight: 600;
-  user-select: none;
+.agent-character--teal {
+  background: var(--cl-char-teal);
+  color: #fff;
 }
 
-/* Output lines in muted green */
-.output-line {
-  color: #6a9955;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.6;
+.agent-character--purple {
+  background: var(--cl-char-purple);
+  color: #fff;
+}
+
+.agent-character--yellow {
+  background: var(--cl-char-yellow);
+  color: #1F1D2B;
+}
+
+.agent-character--blue {
+  background: var(--cl-char-blue);
+  color: #fff;
 }
 
 /* ============================================
-   Ledger Table
+   Platform Island — pedestal with label
    ============================================ */
 
-.ledger-table {
-  width: 100%;
-  border-collapse: collapse;
+.platform-island {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-.ledger-table th,
-.ledger-table td {
-  padding: 1rem 1.25rem;
-  text-align: left;
+.platform-island__base {
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--radius-sm);
+  padding: 0.25rem 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.platform-island__label {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: var(--fw-medium);
+  color: var(--cl-text-2);
+}
+
+/* ============================================
+   Connection Lines — SVG paths
+   ============================================ */
+
+.connection-line {
+  fill: none;
+  stroke: var(--cl-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 8 6;
+  stroke-linecap: round;
+  opacity: 0.35;
+}
+
+:root[data-theme="dark"] .connection-line {
+  stroke: var(--cl-accent);
+  opacity: 0.4;
+}
+
+/* ============================================
+   Feature Scene — illustration panel
+   ============================================ */
+
+.feature-scene {
+  background: var(--cl-surface-2);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+}
+
+/* ============================================
+   Story Card — use case cards with scenes
+   ============================================ */
+
+.story-card {
+  background: var(--cl-surface-2);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  transition:
+    box-shadow var(--duration-normal) ease,
+    transform var(--duration-normal) ease;
+}
+
+.story-card:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
+  transform: translateY(-2px);
+}
+
+/* ============================================
+   Comparison Card — mobile stacked version
+   ============================================ */
+
+.comparison-card {
+  background: var(--cl-surface-2);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+}
+
+.comparison-card__question {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  font-size: 1rem;
+  margin-bottom: var(--space-sm);
+  color: var(--cl-text);
+}
+
+.comparison-card__answer {
+  font-size: 0.9375rem;
+  color: var(--cl-text-2);
+  padding: 0.5rem 0;
   border-bottom: 1px solid var(--cl-rule);
 }
 
-.ledger-table th {
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-variant: small-caps;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--cl-text-3);
-  background: var(--cl-surface);
+.comparison-card__answer:last-child {
+  border-bottom: none;
 }
 
-.ledger-table tr:hover td {
+.comparison-card__answer--highlight {
+  color: var(--cl-accent);
+  font-weight: var(--fw-semibold);
+}
+
+/* ============================================
+   Onboarding Card — elevated, large radius
+   ============================================ */
+
+.onboarding-card {
   background: var(--cl-surface-2);
+  border: 1px solid var(--cl-border);
+  border-radius: var(--radius-2xl);
+  padding: var(--space-2xl);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  transition:
+    box-shadow var(--duration-normal) ease,
+    transform var(--duration-normal) ease;
 }
 
-/* Circle symbols for comparison */
-.sym-yes {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--cl-accent);
-  vertical-align: middle;
+.onboarding-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
 }
 
-.sym-no {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid var(--cl-border-3);
-  vertical-align: middle;
-}
+/* ============================================
+   Trust Badge — small inline pill
+   ============================================ */
 
-.sym-partial {
+.trust-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--radius-full);
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-border);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: var(--fw-medium);
   color: var(--cl-text-2);
-  font-size: 0.875rem;
-  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ============================================
+   Chat Bubbles — messaging UI
+   ============================================ */
+
+.chat-bubble {
+  border-radius: var(--radius-xl);
+  padding: 0.75rem 1rem;
+  max-width: 80%;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.chat-bubble--sent {
+  background: var(--cl-bubble-sent);
+  color: #fff;
+  border-top-right-radius: 4px;
+  margin-left: auto;
+}
+
+.chat-bubble--received {
+  background: var(--cl-bubble-received);
+  color: var(--cl-text);
+  border-top-left-radius: 4px;
+}
+
+/* ============================================
+   Pill — small inline badge
+   ============================================ */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-full);
+  background: var(--cl-surface);
+  border: 1px solid var(--cl-border);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: var(--fw-medium);
+  color: var(--cl-text-2);
+  white-space: nowrap;
+}
+
+.pill--accent {
+  background: var(--cl-accent);
+  border-color: var(--cl-accent);
+  color: #fff;
+}
+
+.pill--success {
+  background: var(--cl-connected);
+  border-color: var(--cl-connected);
+  color: #1F1D2B;
 }
 
 /* ============================================
@@ -358,10 +486,12 @@ h3 {
   width: 1.25rem;
   height: 1.25rem;
 }
+
 .icon-md {
   width: 1.5rem;
   height: 1.5rem;
 }
+
 .icon-lg {
   width: 2rem;
   height: 2rem;
@@ -402,7 +532,23 @@ h3 {
     padding: var(--space-2xl) 0;
   }
 
-  .card:hover {
+  .card:hover,
+  .story-card:hover,
+  .onboarding-card:hover {
     transform: none;
+  }
+
+  h1 {
+    font-size: clamp(2.25rem, 8vw, 3.5rem);
+  }
+}
+
+@media (max-width: 375px) {
+  .container {
+    padding: 0 1rem;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 8vw, 3rem);
   }
 }
