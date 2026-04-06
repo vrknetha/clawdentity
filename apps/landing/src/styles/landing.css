@@ -217,14 +217,18 @@ small {
   border: 1px solid var(--cl-border);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
   transition:
     box-shadow var(--duration-normal) ease,
     transform var(--duration-normal) ease;
 }
 
 .card:hover {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.05);
   transform: translateY(-2px);
 }
 
@@ -263,7 +267,7 @@ small {
 
 .agent-character--yellow {
   background: var(--cl-char-yellow);
-  color: #1F1D2B;
+  color: #1f1d2b;
 }
 
 .agent-character--blue {
@@ -324,7 +328,9 @@ small {
   border: 1px solid var(--cl-border);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
 }
 
 /* ============================================
@@ -336,14 +342,18 @@ small {
   border: 1px solid var(--cl-border);
   border-radius: var(--radius-lg);
   padding: var(--space-md);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.03);
   transition:
     box-shadow var(--duration-normal) ease,
     transform var(--duration-normal) ease;
 }
 
 .story-card:hover {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.05);
   transform: translateY(-2px);
 }
 
@@ -391,14 +401,18 @@ small {
   border: 1px solid var(--cl-border);
   border-radius: var(--radius-2xl);
   padding: var(--space-2xl);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.06);
   transition:
     box-shadow var(--duration-normal) ease,
     transform var(--duration-normal) ease;
 }
 
 .onboarding-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06), 0 16px 40px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.06),
+    0 16px 40px rgba(0, 0, 0, 0.08);
   transform: translateY(-2px);
 }
 
@@ -475,7 +489,7 @@ small {
 .pill--success {
   background: var(--cl-connected);
   border-color: var(--cl-connected);
-  color: #1F1D2B;
+  color: #1f1d2b;
 }
 
 /* ============================================

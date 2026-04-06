@@ -1,4 +1,3 @@
-/* biome-ignore lint/nursery/noExcessiveLinesPerFile: runtime scenarios share setup and assertions intentionally in one suite. */
 import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";

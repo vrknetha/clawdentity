@@ -31,22 +31,50 @@
   transform: translateY(0);
 }
 
-.stagger-child:nth-child(1) { transition-delay: 0ms; }
-.stagger-child:nth-child(2) { transition-delay: 80ms; }
-.stagger-child:nth-child(3) { transition-delay: 160ms; }
-.stagger-child:nth-child(4) { transition-delay: 240ms; }
-.stagger-child:nth-child(5) { transition-delay: 320ms; }
-.stagger-child:nth-child(6) { transition-delay: 400ms; }
-.stagger-child:nth-child(7) { transition-delay: 480ms; }
-.stagger-child:nth-child(8) { transition-delay: 560ms; }
+.stagger-child:nth-child(1) {
+  transition-delay: 0ms;
+}
+.stagger-child:nth-child(2) {
+  transition-delay: 80ms;
+}
+.stagger-child:nth-child(3) {
+  transition-delay: 160ms;
+}
+.stagger-child:nth-child(4) {
+  transition-delay: 240ms;
+}
+.stagger-child:nth-child(5) {
+  transition-delay: 320ms;
+}
+.stagger-child:nth-child(6) {
+  transition-delay: 400ms;
+}
+.stagger-child:nth-child(7) {
+  transition-delay: 480ms;
+}
+.stagger-child:nth-child(8) {
+  transition-delay: 560ms;
+}
 
 /* Manual stagger delays */
-.stagger-1 { transition-delay: 80ms; }
-.stagger-2 { transition-delay: 160ms; }
-.stagger-3 { transition-delay: 240ms; }
-.stagger-4 { transition-delay: 320ms; }
-.stagger-5 { transition-delay: 400ms; }
-.stagger-6 { transition-delay: 480ms; }
+.stagger-1 {
+  transition-delay: 80ms;
+}
+.stagger-2 {
+  transition-delay: 160ms;
+}
+.stagger-3 {
+  transition-delay: 240ms;
+}
+.stagger-4 {
+  transition-delay: 320ms;
+}
+.stagger-5 {
+  transition-delay: 400ms;
+}
+.stagger-6 {
+  transition-delay: 480ms;
+}
 
 /* ── Character entrance — pop in with bounce ── */
 .character-enter {
@@ -63,11 +91,21 @@
 }
 
 /* Staggered character entrance */
-.character-enter:nth-child(1) { transition-delay: 0ms; }
-.character-enter:nth-child(2) { transition-delay: 120ms; }
-.character-enter:nth-child(3) { transition-delay: 240ms; }
-.character-enter:nth-child(4) { transition-delay: 360ms; }
-.character-enter:nth-child(5) { transition-delay: 480ms; }
+.character-enter:nth-child(1) {
+  transition-delay: 0ms;
+}
+.character-enter:nth-child(2) {
+  transition-delay: 120ms;
+}
+.character-enter:nth-child(3) {
+  transition-delay: 240ms;
+}
+.character-enter:nth-child(4) {
+  transition-delay: 360ms;
+}
+.character-enter:nth-child(5) {
+  transition-delay: 480ms;
+}
 
 /* ── Connection line draw ── */
 .svg-draw {
@@ -81,10 +119,18 @@
 }
 
 /* Staggered draw delays */
-.svg-draw-1 { transition-delay: 200ms; }
-.svg-draw-2 { transition-delay: 400ms; }
-.svg-draw-3 { transition-delay: 600ms; }
-.svg-draw-4 { transition-delay: 800ms; }
+.svg-draw-1 {
+  transition-delay: 200ms;
+}
+.svg-draw-2 {
+  transition-delay: 400ms;
+}
+.svg-draw-3 {
+  transition-delay: 600ms;
+}
+.svg-draw-4 {
+  transition-delay: 800ms;
+}
 
 /* ── Chat bubble entrance ── */
 .bubble-enter {
@@ -105,14 +151,24 @@
 }
 
 /* Staggered bubble entrance */
-.bubble-enter:nth-child(1) { transition-delay: 0ms; }
-.bubble-enter:nth-child(2) { transition-delay: 200ms; }
-.bubble-enter:nth-child(3) { transition-delay: 400ms; }
-.bubble-enter:nth-child(4) { transition-delay: 600ms; }
+.bubble-enter:nth-child(1) {
+  transition-delay: 0ms;
+}
+.bubble-enter:nth-child(2) {
+  transition-delay: 200ms;
+}
+.bubble-enter:nth-child(3) {
+  transition-delay: 400ms;
+}
+.bubble-enter:nth-child(4) {
+  transition-delay: 600ms;
+}
 
 /* ── Typing indicator — three dots pulsing ── */
 @keyframes typing-dot {
-  0%, 60%, 100% {
+  0%,
+  60%,
+  100% {
     opacity: 0.3;
     transform: scale(0.8);
   }
@@ -146,7 +202,8 @@
 
 /* ── Character float — gentle hover ── */
 @keyframes character-float {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0);
   }
   50% {

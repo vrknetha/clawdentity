@@ -2,30 +2,30 @@
 
 :root {
   /* Light mode (default) */
-  --cl-bg: #FEFCF9;
-  --cl-surface: #F7F3ED;
-  --cl-surface-2: #FFFFFF;
-  --cl-surface-3: #F0ECE4;
-  --cl-text: #1F1D2B;
-  --cl-text-2: #6E6B7B;
-  --cl-text-3: #A09BA8;
-  --cl-accent: #FF6B4A;
-  --cl-accent-hover: #FF5533;
-  --cl-accent-2: #4ECDC4;
-  --cl-border: #E8E3DA;
-  --cl-border-2: #D4CEC4;
-  --cl-border-3: #B8B2A8;
-  --cl-rule: #E0DBD2;
-  --cl-bubble-sent: #FF6B4A;
-  --cl-bubble-received: #F0ECE4;
-  --cl-connected: #4ADE80;
+  --cl-bg: #fefcf9;
+  --cl-surface: #f7f3ed;
+  --cl-surface-2: #ffffff;
+  --cl-surface-3: #f0ece4;
+  --cl-text: #1f1d2b;
+  --cl-text-2: #6e6b7b;
+  --cl-text-3: #a09ba8;
+  --cl-accent: #ff6b4a;
+  --cl-accent-hover: #ff5533;
+  --cl-accent-2: #4ecdc4;
+  --cl-border: #e8e3da;
+  --cl-border-2: #d4cec4;
+  --cl-border-3: #b8b2a8;
+  --cl-rule: #e0dbd2;
+  --cl-bubble-sent: #ff6b4a;
+  --cl-bubble-received: #f0ece4;
+  --cl-connected: #4ade80;
 
   /* Agent character colors */
-  --cl-char-coral: #FF6B4A;
-  --cl-char-teal: #4ECDC4;
-  --cl-char-purple: #9B8FE8;
-  --cl-char-yellow: #F5C542;
-  --cl-char-blue: #6BA3E8;
+  --cl-char-coral: #ff6b4a;
+  --cl-char-teal: #4ecdc4;
+  --cl-char-purple: #9b8fe8;
+  --cl-char-yellow: #f5c542;
+  --cl-char-blue: #6ba3e8;
 
   /* Typography */
   --font-display: "Satoshi", sans-serif;
@@ -43,23 +43,23 @@
 
 /* Dark mode overrides */
 :root[data-theme="dark"] {
-  --cl-bg: #13121A;
-  --cl-surface: #1C1B26;
+  --cl-bg: #13121a;
+  --cl-surface: #1c1b26;
   --cl-surface-2: #242333;
-  --cl-surface-3: #2D2C3A;
-  --cl-text: #F0ECE6;
-  --cl-text-2: #9B97A8;
-  --cl-text-3: #6B6778;
-  --cl-accent: #FF7A5C;
-  --cl-accent-hover: #FF8F75;
-  --cl-accent-2: #5DE0D6;
-  --cl-border: #2D2C3A;
-  --cl-border-2: #3A394A;
-  --cl-border-3: #4A4960;
-  --cl-rule: #2A2938;
-  --cl-bubble-sent: #FF7A5C;
+  --cl-surface-3: #2d2c3a;
+  --cl-text: #f0ece6;
+  --cl-text-2: #9b97a8;
+  --cl-text-3: #6b6778;
+  --cl-accent: #ff7a5c;
+  --cl-accent-hover: #ff8f75;
+  --cl-accent-2: #5de0d6;
+  --cl-border: #2d2c3a;
+  --cl-border-2: #3a394a;
+  --cl-border-3: #4a4960;
+  --cl-rule: #2a2938;
+  --cl-bubble-sent: #ff7a5c;
   --cl-bubble-received: #242333;
-  --cl-connected: #4ADE80;
+  --cl-connected: #4ade80;
 }
 
 /* Smooth theme transitions */

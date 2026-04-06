@@ -218,7 +218,7 @@ fn resolve_provider_inbound_target(
     input: &StartConnectorInput,
     framework: &str,
 ) -> Result<InboundDeliveryTarget> {
-    let provider_runtime = load_agent_provider_runtime(&options, &input.agent_name)?;
+    let provider_runtime = load_agent_provider_runtime(options, &input.agent_name)?;
     let Some(provider_runtime) = provider_runtime else {
         return Err(anyhow!(
             "agent `{}` uses framework `{framework}`, but no provider runtime is configured; run `clawdentity provider setup --for {framework}` first",

@@ -7,7 +7,7 @@ export const GITHUB_ONBOARDING_START_URL = new URL(
 ).toString();
 
 function shellQuote(value: string): string {
-  return `'${value.replaceAll(`'`, String.raw`'"'"'`)}'`;
+  return `'${value.replaceAll(`'`, `'"'"'`)}'`;
 }
 
 export function buildStarterPassPrompt(input: {
