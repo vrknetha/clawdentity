@@ -86,8 +86,6 @@ fn collect_missing_identity_inputs_requires_onboarding_display_and_agent() {
         display_name: None,
         agent_name: None,
         peer_ticket: None,
-        pair_wait_seconds: 30,
-        pair_poll_interval_seconds: 3,
         repair: false,
         reset: false,
     };
@@ -113,8 +111,6 @@ fn collect_missing_identity_inputs_uses_existing_session_and_config_values() {
         display_name: None,
         agent_name: None,
         peer_ticket: None,
-        pair_wait_seconds: 30,
-        pair_poll_interval_seconds: 3,
         repair: false,
         reset: false,
     };

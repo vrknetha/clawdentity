@@ -34,38 +34,36 @@ function parseRoutingString(input: {
 export function resolveRelayRoute(
   payload: Record<string, unknown>,
 ): RelayRoute | undefined {
+  if (payload.group !== undefined) {
+    throw new Error("group is not supported; use groupId");
+  }
+
   const peerAlias = parseRoutingString({
     payload,
     field: "peer",
     label: "peer",
   });
-  const explicitGroupId = parseRoutingString({
+  const groupId = parseRoutingString({
     payload,
     field: "groupId",
     label: "groupId",
   });
-  const fallbackGroupId = parseRoutingString({
-    payload,
-    field: "group",
-    label: "group",
-  });
-  const rawGroupId = explicitGroupId ?? fallbackGroupId;
 
-  if (peerAlias && rawGroupId) {
-    throw new Error("Provide either peer or groupId/group, not both");
+  if (peerAlias && groupId) {
+    throw new Error("Provide either peer or groupId, not both");
   }
 
-  if (rawGroupId) {
-    let groupId: string;
+  if (groupId) {
+    let normalizedGroupId: string;
     try {
-      groupId = parseProtocolGroupId(rawGroupId);
+      normalizedGroupId = parseProtocolGroupId(groupId);
     } catch {
       throw new Error("groupId must be a valid group ID");
     }
 
     return {
       mode: "group",
-      groupId,
+      groupId: normalizedGroupId,
     };
   }
 

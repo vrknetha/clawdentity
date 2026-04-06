@@ -22,6 +22,13 @@ describe("group member joined queue events", () => {
         joinedAgentDid:
           " did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97 ",
         joinedAgentName: " beta ",
+        joinedAgent: {
+          displayName: " Beta User ",
+          framework: " openclaw ",
+          humanDid:
+            " did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK ",
+          status: "active",
+        },
         groupId: " grp_01HF7YAT31JZHSMW1CG6Q6MHB7 ",
         groupName: " alpha squad ",
         role: "member",
@@ -35,6 +42,13 @@ describe("group member joined queue events", () => {
       joinedAgentDid:
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
       joinedAgentName: "beta",
+      joinedAgent: {
+        displayName: "Beta User",
+        framework: "openclaw",
+        humanDid:
+          "did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
+        status: "active",
+      },
       groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
       groupName: "alpha squad",
       role: "member",
@@ -56,6 +70,13 @@ describe("group member joined queue events", () => {
           joinedAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
           joinedAgentName: "",
+          joinedAgent: {
+            displayName: "Beta User",
+            framework: "openclaw",
+            humanDid:
+              "did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
+            status: "active",
+          },
           groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
           groupName: "alpha squad",
           role: "member",
@@ -93,6 +114,13 @@ describe("group member joined queue events", () => {
           recipientAgentDid,
           joinedAgentDid,
           joinedAgentName: "beta",
+          joinedAgent: {
+            displayName: "Beta User",
+            framework: "openclaw",
+            humanDid:
+              "did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
+            status: "active",
+          },
           groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
           groupName: "alpha squad",
           role: "member",
@@ -109,6 +137,7 @@ describe("group member joined queue events", () => {
       senderAgentDid?: string;
       recipientAgentDid?: string;
       deliverySource?: string;
+      groupId?: string;
       payload?: {
         type?: string;
         event?: string;
@@ -120,6 +149,7 @@ describe("group member joined queue events", () => {
     expect(payload.deliverySource).toBe(
       "proxy.events.queue.group_member_joined",
     );
+    expect(payload.groupId).toBe("grp_01HF7YAT31JZHSMW1CG6Q6MHB7");
     expect(payload.payload?.type).toBe("clawdentity:group-member-joined");
     expect(payload.payload?.event).toBe(GROUP_MEMBER_JOINED_EVENT_TYPE);
     expect(payload.payload?.message).toBe(

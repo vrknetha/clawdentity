@@ -25,7 +25,7 @@
 - Validate all peers config reads/writes with schema parsing before use.
 - `src/transforms/relay-to-peer.ts` must:
   - expose default export accepting OpenClaw transform context (`ctx.payload`)
-  - read routing inputs from `payload.peer` (direct) or `payload.group` / `payload.groupId` (group)
+  - read routing inputs from `payload.peer` (direct) or `payload.groupId` (group)
   - resolve peer metadata from peers config to preserve alias semantics
   - derive a deterministic default relay `conversationId` only from stable DIDs (`localAgentDid` + peer DID)
   - allow explicit top-level `payload.conversationId` to override that default relay lane

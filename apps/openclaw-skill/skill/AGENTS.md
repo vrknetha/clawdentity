@@ -22,9 +22,9 @@
 - Group docs must call out v2 group contracts explicitly:
   - `clawdentity group create ...` requires agent auth and auto-adds the creator agent as `admin`
   - group creation does not require pairing completion
-  - join-token issue is member-only (`clawdentity group join-token create ...` has no role flag)
+  - one reusable active join token exists per group (`current`, `reset`, `revoke` lifecycle)
   - sending/receiving agents must still join via `clawdentity group join <token> --agent-name <name>` before first group relay
-- Group docs must also call out creator visibility: successful member joins emit trusted `group.member.joined` notifications to creator-owned active agents.
+- Group docs must also call out member-wide visibility: successful member joins emit trusted `group.member.joined` notifications to all active group members, including the joiner.
 - Skill group lifecycle guidance must be Rust CLI-first and agent-auth-first:
   - use `clawdentity group ...` commands as the normal operator path
   - keep raw `/v1/groups*` HTTP examples out of operator guidance
@@ -35,7 +35,11 @@
   - OpenClaw uses `/hooks/*`
   - Hermes and other non-OpenClaw providers use the runtime endpoint persisted by `provider setup`
   - `--openclaw-*` flags are OpenClaw-only manual overrides
-- Prompt-first onboarding should prioritize `clawdentity onboarding run --for <platform>` as the default install/setup/pairing/messaging flow, with manual command groups documented as advanced fallback.
+- Keep OpenClaw hook route semantics explicit in docs:
+  - external endpoint is `/hooks/<mapping.match.path>`
+  - mapping `action` (`wake`/`agent`) controls payload behavior only
+  - never document `/hooks/<action>/<path>` route forms (for example `/hooks/wake/send-to-peer`)
+- Prompt-first onboarding should prioritize `clawdentity onboarding run --for <platform>` as the default setup flow, with pairing and messaging actions documented as explicit next steps.
 - Prompt-first onboarding should assume registry/proxy URLs come from environment defaults when available (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`); do not require users to paste those URLs into the prompt for standard local Docker validation.
 - OpenClaw wording must stay OpenClaw-first: OpenClaw owns OpenClaw setup and auth, Clawdentity adds relay setup after OpenClaw is healthy.
 - Keep OpenClaw base URL guidance explicit: `--platform-base-url` / `openclawBaseUrl` refer only to the OpenClaw gateway, never the Clawdentity registry or proxy.
@@ -43,12 +47,15 @@
 - Keep naming contracts separated in docs:
   - pair payloads use `humanName`
   - registry profile lookup and projected relay snapshots use `displayName`
-  - OpenClaw inbound payloads use `senderDisplayName`
+  - OpenClaw inbound webhook metadata uses `metadata.sender.displayName`
 - Keep send contract wording simple and canonical in user-facing skill docs:
   - direct send uses `payload.peer`
   - group send uses `payload.groupId`
   - do not document mixed direct+group routing in one outbound payload
-- Receiving docs must be name-first for runtime metadata: read `senderAgentName`, `senderDisplayName`, and `groupName` first, with DID/group IDs as identity fallback.
+- Receiving docs must be compatibility-first:
+  - visible message text guarantees sender identity (`<sender>: <body>` or `[<group>] <sender>: <body>`)
+  - machine-readable context is in generic `metadata` (`sender`, `group`, `conversation`, `reply`, `trust`, `source`, `payload`)
+  - sender/group label fallback order must stay explicit (sender: display name -> agent name -> DID; group: resolved name -> group ID)
 - Do not present sender-supplied name fields as authoritative; docs should reflect registry/local trusted metadata resolution behavior.
 - Keep local harness/testing instructions out of user-facing documentation; those belong in internal testing skills or operator runbooks, not the published skill/docs.
 - When a command is provider-specific, require explicit `--for <openclaw|picoclaw|nanobot|nanoclaw|hermes>` in docs.
@@ -74,6 +81,7 @@
 
 ## Sync Rules
 - Keep `apps/landing/src/content/docs/guides/openclaw-skill.mdx` aligned with the consolidated `/skill.md` artifact wording while preserving local install artifact paths.
+- When `skill/SKILL.md`, installer wording, or prompt-first onboarding wording changes, treat the landing artifact as part of the same change: regenerate `apps/landing/public/skill.md`, verify the live tunneled `/skill.md` reflects the update, and only then use that URL in local testing prompts.
 - Keep the duplicated skill artifacts aligned whenever connector runtime wording changes:
   - `apps/openclaw-skill/skill/SKILL.md`
   - `apps/landing/public/skill.md`

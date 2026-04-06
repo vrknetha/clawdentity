@@ -5,15 +5,18 @@ import {
 import { createEventEnvelope, type EventBus } from "@clawdentity/sdk";
 import { and, eq } from "drizzle-orm";
 import type { createDb } from "../../db/client.js";
-import { agents } from "../../db/schema.js";
+import { agents, group_members } from "../../db/schema.js";
 import { logger, REGISTRY_SERVICE_EVENT_VERSION } from "../constants.js";
 
 export async function publishGroupMemberJoinedNotifications(input: {
   db: ReturnType<typeof createDb>;
   eventBus?: EventBus;
-  creatorHumanId: string;
   joinedAgentDid: string;
   joinedAgentName: string;
+  joinedAgentDisplayName: string;
+  joinedAgentFramework: string;
+  joinedAgentHumanDid: string;
+  joinedAgentStatus: "active" | "revoked";
   groupId: string;
   groupName: string;
   role: "member" | "admin";
@@ -25,14 +28,15 @@ export async function publishGroupMemberJoinedNotifications(input: {
   }
 
   try {
-    const creatorAgentRows = await input.db
+    const groupMemberRows = await input.db
       .select({
         did: agents.did,
       })
-      .from(agents)
+      .from(group_members)
+      .innerJoin(agents, eq(group_members.agent_id, agents.id))
       .where(
         and(
-          eq(agents.owner_id, input.creatorHumanId),
+          eq(group_members.group_id, input.groupId),
           eq(agents.status, "active"),
         ),
       )
@@ -43,11 +47,7 @@ export async function publishGroupMemberJoinedNotifications(input: {
       groupName: input.groupName,
     });
 
-    for (const creatorAgent of creatorAgentRows) {
-      if (creatorAgent.did === input.joinedAgentDid) {
-        continue;
-      }
-
+    for (const groupMember of groupMemberRows) {
       try {
         await input.eventBus.publish(
           createEventEnvelope({
@@ -56,9 +56,15 @@ export async function publishGroupMemberJoinedNotifications(input: {
             timestampUtc: input.joinedAt,
             initiatedByAccountId: input.initiatedByAccountId ?? null,
             data: {
-              recipientAgentDid: creatorAgent.did,
+              recipientAgentDid: groupMember.did,
               joinedAgentDid: input.joinedAgentDid,
               joinedAgentName: input.joinedAgentName,
+              joinedAgent: {
+                displayName: input.joinedAgentDisplayName,
+                framework: input.joinedAgentFramework,
+                humanDid: input.joinedAgentHumanDid,
+                status: input.joinedAgentStatus,
+              },
               groupId: input.groupId,
               groupName: input.groupName,
               role: input.role,
@@ -71,7 +77,7 @@ export async function publishGroupMemberJoinedNotifications(input: {
         logger.warn("registry.group.member_joined_event_publish_failed", {
           groupId: input.groupId,
           joinedAgentDid: input.joinedAgentDid,
-          recipientAgentDid: creatorAgent.did,
+          recipientAgentDid: groupMember.did,
           errorName: error instanceof Error ? error.name : "unknown",
         });
       }

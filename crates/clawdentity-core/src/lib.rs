@@ -105,10 +105,11 @@ pub use error::{CoreError, Result};
 pub use group::{
     GroupCreateInput, GroupCreateResult, GroupInspectInput, GroupInspectResult, GroupJoinInput,
     GroupJoinResult, GroupJoinTokenCreateInput, GroupJoinTokenCreateResult, GroupJoinTokenRecord,
+    GroupJoinTokenResetInput, GroupJoinTokenRevokeInput, GroupJoinTokenRevokeResult,
     GroupMemberRecord, GroupMembersListGroup, GroupMembersListInput, GroupMembersListResult,
     GroupRecord, GroupRole, create_group, create_group_join_token,
     fetch_group_member_dids_with_agent_auth, fetch_group_name_with_agent_auth, inspect_group,
-    join_group, list_group_members,
+    join_group, list_group_members, reset_group_join_token, revoke_group_join_token,
 };
 pub use identity::{
     LocalIdentity, PublicIdentityView, decode_secret_key, init_identity, read_identity,
@@ -136,7 +137,8 @@ pub use provider::{
     ProviderRelayTestOptions, ProviderRelayTestResult, ProviderRelayTestStatus,
     ProviderSetupOptions, ProviderSetupResult, ProviderSetupStatus, VerifyOptions,
     VerifyResult as ProviderVerifyResult, all_providers, detect_platform, get_provider,
-    load_agent_provider_runtime, save_provider_runtime_config, write_provider_agent_marker,
+    load_agent_provider_runtime, read_provider_agent_marker, resolve_state_dir,
+    save_provider_runtime_config, write_provider_agent_marker,
 };
 pub use provider_openclaw::{
     DoctorCheckStatus, DoctorStatus, OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME,
@@ -168,7 +170,9 @@ pub use runtime_relay::{
 pub use runtime_replay::{
     PurgeResult, ReplayResult, purge_dead_letter_messages, replay_dead_letter_messages,
 };
-pub use runtime_server::{RuntimeServerState, create_runtime_router, run_runtime_server};
+pub use runtime_server::{
+    LocalGroupEchoRequest, RuntimeServerState, create_runtime_router, run_runtime_server,
+};
 pub use runtime_trusted_receipts::TrustedReceiptsStore;
 pub use service::{
     ConnectorServiceInstallInput, ConnectorServiceInstallResult, ConnectorServicePlatform,

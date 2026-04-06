@@ -12,6 +12,10 @@
 - Connector docs must describe inbound delivery as provider-aware:
   - OpenClaw uses local `/hooks/*`
   - Hermes and other non-OpenClaw providers use the runtime endpoint saved by `provider setup`
+- OpenClaw webhook contract docs must be compatibility-first:
+  - visible sender identity is guaranteed in plain `message` text
+  - extra machine context is described under generic `metadata` keys, not Clawdentity-specific top-level fields
+  - upstream OpenClaw metadata support is additive and non-blocking for current Clawdentity behavior
 - OpenClaw-only connector flags (`--openclaw-base-url`, `--openclaw-hook-path`, `--openclaw-hook-token`) must never be described as generic multi-provider runtime flags.
 - Keep proxy identity docs header-first by default: structured headers and connector metadata are canonical, while message-body identity injection is opt-in legacy compatibility only.
 - Keep pair-profile docs and registry-profile docs separate:

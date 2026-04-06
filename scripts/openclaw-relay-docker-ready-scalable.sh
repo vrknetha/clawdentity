@@ -12,8 +12,8 @@ HOST_CODEX_AUTH_FILE="${HOST_CODEX_AUTH_FILE:-$HOME/.codex/auth.json}"
 OPENCLAW_AGENT_IDS="${OPENCLAW_AGENT_IDS:-alpha,beta}"
 OPENCLAW_PERSONALITY_SOURCE_HOME="${OPENCLAW_PERSONALITY_SOURCE_HOME:-$HOME/.openclaw-alpha}"
 OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-openclaw:local}"
-OPENCLAW_MODEL="${OPENCLAW_MODEL:-openrouter/moonshotai/kimi-k2.5}"
-OPENCLAW_FALLBACK_MODEL="${OPENCLAW_FALLBACK_MODEL:-openai-codex/gpt-5.4}"
+OPENCLAW_MODEL="${OPENCLAW_MODEL:-openai-codex/gpt-5.4}"
+OPENCLAW_FALLBACK_MODEL="${OPENCLAW_FALLBACK_MODEL:-openrouter/moonshotai/kimi-k2.5}"
 
 OPENCLAW_UI_PORT_BASE="${OPENCLAW_UI_PORT_BASE:-18789}"
 OPENCLAW_API_PORT_BASE="${OPENCLAW_API_PORT_BASE:-18790}"
@@ -33,6 +33,15 @@ DEVICE_AUTO_APPROVE_SECONDS="${DEVICE_AUTO_APPROVE_SECONDS:-180}"
 CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
 DOCKER_SITE_BASE_URL="${DOCKER_SITE_BASE_URL:-http://host.docker.internal:4321}"
 HOST_SITE_BASE_URL="${HOST_SITE_BASE_URL:-$CLAWDENTITY_SITE_BASE_URL}"
+PUBLIC_SITE_BASE_URL="${PUBLIC_SITE_BASE_URL:-}"
+WEB_FETCH_SKILL_URL="${WEB_FETCH_SKILL_URL:-}"
+if [[ -z "$WEB_FETCH_SKILL_URL" ]]; then
+  if [[ -n "$PUBLIC_SITE_BASE_URL" ]]; then
+    WEB_FETCH_SKILL_URL="${PUBLIC_SITE_BASE_URL%/}/skill.md"
+  else
+    WEB_FETCH_SKILL_URL="${HOST_SITE_BASE_URL%/}/skill.md"
+  fi
+fi
 DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-http://host.docker.internal:8788}"
 DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-http://host.docker.internal:8787}"
 HOST_REGISTRY_URL="${HOST_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://127.0.0.1:8788}}"
@@ -316,6 +325,35 @@ apply_openclaw_profile_defaults() {
     cfg.tools.exec = {
       ...(typeof cfg.tools.exec === "object" && cfg.tools.exec !== null ? cfg.tools.exec : {}),
       ...(policy.tools?.exec || {}),
+    };
+    const normalizeToolEntry = (entry) =>
+      typeof entry === "string" ? entry.trim().toLowerCase() : "";
+    const toToolList = (value) => {
+      if (Array.isArray(value)) {
+        return value.filter((entry) => typeof entry === "string" && entry.trim().length > 0);
+      }
+      if (typeof value === "string" && value.trim().length > 0) {
+        return [value.trim()];
+      }
+      return null;
+    };
+    const blockedEntries = new Set(["web_fetch", "group:web"]);
+    const denyList = toToolList(cfg.tools.deny);
+    if (denyList !== null) {
+      cfg.tools.deny = denyList.filter((entry) => !blockedEntries.has(normalizeToolEntry(entry)));
+    }
+    const allowList = toToolList(cfg.tools.allow);
+    if (allowList !== null) {
+      const hasWebAccess = allowList.some((entry) => blockedEntries.has(normalizeToolEntry(entry)));
+      cfg.tools.allow = hasWebAccess ? allowList : [...allowList, "group:web"];
+    }
+    cfg.tools.web = {
+      ...(typeof cfg.tools.web === "object" && cfg.tools.web !== null ? cfg.tools.web : {}),
+    };
+    cfg.tools.web.fetch = {
+      ...(typeof cfg.tools.web.fetch === "object" && cfg.tools.web.fetch !== null ? cfg.tools.web.fetch : {}),
+      ...(policy.tools?.web?.fetch || {}),
+      enabled: true,
     };
 
     cfg.browser = cfg.browser || {};
@@ -724,6 +762,16 @@ require_http_ok() {
   curl -fsS --max-time 5 "$url" >/dev/null 2>&1 || fail "${label} check failed: ${url}"
 }
 
+validate_public_web_fetch_url() {
+  [[ -n "$PUBLIC_SITE_BASE_URL" ]] || return 0
+
+  local status_code
+  status_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$WEB_FETCH_SKILL_URL" || true)"
+  if [[ ! "$status_code" =~ ^2[0-9][0-9]$ ]]; then
+    fail "PUBLIC_SITE_BASE_URL validation failed for WEB_FETCH_SKILL_URL=${WEB_FETCH_SKILL_URL} (status=${status_code:-unknown}). localtunnel can reject bot fetches with HTTP 400; provide a public /skill.md URL that returns 2xx."
+  fi
+}
+
 require_container_http_ok() {
   local container="$1"
   local url="$2"
@@ -803,6 +851,7 @@ print_summary() {
   echo "cleanup_agent_homes_reset=${#RESET_AGENT_HOMES[@]}"
   echo "model_primary=${OPENCLAW_MODEL}"
   echo "model_fallback=${OPENCLAW_FALLBACK_MODEL}"
+  echo "web_fetch_skill_url=${WEB_FETCH_SKILL_URL}"
   if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
     echo "openrouter_key_configured=1"
   else
@@ -852,6 +901,7 @@ run() {
 
   normalize_agent_ids "$OPENCLAW_AGENT_IDS"
   build_agent_matrix
+  validate_public_web_fetch_url
   verify_host_stack_dependencies
 
   if [[ "$OPENCLAW_SCALER_VALIDATE_ONLY" == "1" ]]; then

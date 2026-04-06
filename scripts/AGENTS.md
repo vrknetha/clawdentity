@@ -38,6 +38,8 @@
 - `openclaw-relay-docker-ready.sh` must resolve one deterministic `CLAWDENTITY_VERSION` per run (manifest latest unless overridden) and mirror that into both profile `.env` files before onboarding.
 - `openclaw-relay-docker-ready.sh` must keep local production-like install mapping deterministic by syncing `apps/landing/public/rust/latest-local.json` to the current workspace CLI version before reset when `SYNC_LOCAL_RELEASE_MANIFEST=1`.
 - `openclaw-relay-docker-ready.sh` must auto-generate missing local release assets for the current workspace Rust version when `AUTO_BUILD_LOCAL_RELEASE=1`, so version bumps do not require manual manifest/file rewiring.
+- When a user asks to “build locally so it can install from skill.md”, the required output is the local release surface under `apps/landing/public/`: rebuilt Linux archives in `rust/v<version>/`, a fresh `rust/latest-local.json`, and a working public URL for both `skill.md` and `install.sh`.
+- When a user asks for a fresh reset plus prompts after CLI, installer, or `skill.md` changes, do not jump straight to `openclaw-relay-docker-ready*.sh`. First rebuild the local release surface, confirm the public tunnel serves the updated `skill.md` and `install.sh`, then run the reset harness, then mint fresh invite codes.
 - The local Docker release builder should default to a fast dev profile for local testing (`LOCAL_RELEASE_PROFILE=dev`), with `release` opt-in only when explicitly required.
 - The local Docker release builder must persist Cargo registry/git caches across runs to avoid repeated cold downloads and keep reset loops fast.
 - The local Docker release builder must auto-retry once with a clean per-platform target cache when a Docker cargo build fails, so stale target artifacts do not block deterministic reset flows.
@@ -54,7 +56,7 @@
 - `openclaw-relay-docker-ready.sh` reset cleanup must remove both workspace-level and profile-home `.clawdentity*` state so prompt-first onboarding session resumes cannot leak across clean resets.
 - `openclaw-relay-docker-ready.sh` version resolution must be outage-tolerant: prefer manifest latest, but fall back to preserved profile `CLAWDENTITY_VERSION` (or local Cargo version) instead of hard-failing clean resets when manifest fetch is unavailable.
 - Keep local Docker OpenClaw policy fixtures in `scripts/openclaw-local-profile/`; the reset script may only inject per-run values like gateway token, UI ports, and local endpoint URLs.
-- When the local Docker harness is meant to behave like a signed-in Codex operator, `openclaw-relay-docker-ready.sh` must copy the host `~/.codex/auth.json` into each profile and set `CODEX_HOME=/home/node/.openclaw/.codex`; model defaults should stay `openrouter/moonshotai/kimi-k2.5` primary with `openai-codex/gpt-5.4` fallback.
+- When the local Docker harness is meant to behave like a signed-in Codex operator, `openclaw-relay-docker-ready.sh` must copy the host `~/.codex/auth.json` into each profile and set `CODEX_HOME=/home/node/.openclaw/.codex`; OpenClaw model defaults should stay `openai-codex/gpt-5.4` primary with `openrouter/moonshotai/kimi-k2.5` fallback unless a run explicitly overrides them.
 - Keep host-facing and container-facing site origins separate when needed: `CLAWDENTITY_SITE_BASE_URL` is the host/default origin, and `DOCKER_SITE_BASE_URL` is the container-side override for profiles running inside Docker.
 - `env/sync-worktree-env.sh` must not bake `ENVIRONMENT` or environment-specific registry/proxy routing into app-level `.env` files; Wrangler env blocks are the source of truth for `local` vs `dev` runtime identity.
 - When preserving profile `.env` files across a reset, keep only secrets and gateway token continuity. Do not carry forward stale `CLAWDENTITY_*` endpoint overrides from previous dev/prod runs into a clean local test reset.
@@ -70,6 +72,13 @@
 - Shell traps in `openclaw-relay-docker-ready.sh` must not depend on `local` variables after the function returns; keep cleanup paths in scope for the `EXIT` trap or route cleanup through a helper so the reset cannot fail on `rm -rf ''`.
 - The dual OpenClaw harness must treat Codex OAuth as the supported fix for local OpenAI quota drift when the host already has working `~/.codex/auth.json`; keep API-key fallbacks only as preserved env state, not as the primary local model path.
 - The dual OpenClaw harness may keep a trusted-network browser SSRF policy in the local OpenClaw fixture, but do not assume that fixes prompt-first `web_fetch` for `host.docker.internal`; production-like onboarding tests should use a public-like HTTPS skill URL when OpenClaw's guarded fetch blocks private-network sources.
+- Both dual and scalable harness scripts must enforce `tools.web.fetch.enabled=true` on managed profiles and must remove `web_fetch`/`group:web` from `tools.deny`; if `tools.allow` is present, they must ensure `group:web` is included so prompt-first fetch flows are not policy-blocked.
+- Keep `web_fetch` security posture aligned with OpenClaw defaults: do not add private-host bypasses for `web_fetch`; treat private/internal URL failures as expected behavior.
+- Harness scripts should support manual public skill URL wiring with `PUBLIC_SITE_BASE_URL`; derive `WEB_FETCH_SKILL_URL` from it (`<public>/skill.md`) and fail fast when that URL is not HTTP 2xx (including localtunnel HTTP 400 cases).
+- For public local testing, prefer tunneling a plain static server rooted at `apps/landing/public` instead of the Astro/Vite dev server; localtunnel can be blocked by host-allow checks on the dev server even when the tunnel itself is healthy.
+- Before generating prompts for OpenClaw agents, verify the real localtunnel URL returns HTTP `200` for `/skill.md`, then mint fresh invite codes with the host CLI and produce ready-to-paste prompts that include the actual tunnel URL and actual invite codes.
+- Do not hand operators placeholder prompt text when the repo can generate the real inputs. If prompts are requested, the default output should be four simple copy-paste prompts for `alpha`, `beta`, `gamma`, and `delta`.
+- Keep those generated prompts minimal. Do not append extra reminder lines about existing `CLAWDENTITY_REGISTRY_URL` / `CLAWDENTITY_PROXY_URL` or `provider doctor` unless the user explicitly asks for verbose prompts.
 - A clean reset must also remove OpenClaw workspace completion markers (`workspace/.openclaw/workspace-state.json`) so prompt-first onboarding starts from a genuinely fresh state.
 - The harness must verify local dependency readiness from host and container paths (`registry` health, `proxy` health, landing `/skill.md`) before reporting ready state.
 - The local OpenClaw/Hermes Docker testing harness must target `apps/registry` + `apps/proxy` runtimes for user-facing local validation; Rust `mock-registry`/`mock-proxy` are integration harness services and must not be treated as the canonical local operator stack.
@@ -77,8 +86,9 @@
 - UI readiness probes in `openclaw-relay-docker-ready.sh` must use the requested profile port for both host and container-local checks; never hardcode alpha-only ports inside shared helpers.
 - `openclaw-onboarding-e2e-check.sh` must stay deterministic and fail-fast:
   - requires explicit onboarding codes for alpha and beta via env vars.
-  - runs `clawdentity onboarding run` as the primary UX path, not manual multi-command pairing steps.
-  - asserts both sides reach `status=ready`, then verifies `provider doctor` and bidirectional `provider relay-test`.
+  - runs `clawdentity onboarding run` as setup-only readiness on both sides, then runs explicit pairing (`pair start` / `pair confirm` / `pair status`).
+  - validate `pair confirm --json` using `paired` (not `confirmed`) before waiting on pair status.
+  - asserts both sides reach onboarding `status=ready` and pairing `status=confirmed`, then verifies `provider doctor` and bidirectional `provider relay-test`.
 - `hermes-webui-docker-ready.sh` is the canonical browser-UI bootstrap for local Hermes testing:
   - run Hermes in Docker with an isolated profile (default `/tmp/clawdentity-hermes-home/.hermes`) and never mutate the operator's real `~/.hermes` in place.
   - seed missing profile files from `~/.hermes`, preserve existing isolated profile state by default, and only wipe when `RESET_HERMES_HOME=1`.
@@ -97,5 +107,5 @@
   - if provider doctor requires a `hermes` binary on PATH, satisfy that with an ephemeral Docker-backed shim inside the script; do not require repo-local Hermes source checkouts.
   - run host-side Hermes connector runtime separately from the Hermes container, and keep it bound to an explicit local port so provider setup/doctor and direct/group smoke checks all use the same saved runtime state.
   - require explicit invite/onboarding inputs for any identity creation step; do not silently mint or reuse stale codes inside the smoke harness.
-  - validate group fan-out with canonical CLI flows only: `group create`, `group join-token create`, `group join`, and `group members list`.
+  - validate group fan-out with canonical CLI flows only: `group create`, `group join-token current`, `group join`, and `group members list` (plus `join-token reset/revoke` when rotation/revoke behavior is under test).
   - prove recipient delivery with deterministic local state signals (for example connector sqlite delivered counts), not with fragile UI scraping.

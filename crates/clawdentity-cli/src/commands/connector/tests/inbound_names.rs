@@ -33,7 +33,7 @@ fn openclaw_wake_payload_headline_prefers_friendly_names() {
         .get("text")
         .and_then(|value| value.as_str())
         .expect("wake text");
-    assert!(text.starts_with("Message in research-crew from alpha (Ravi)"));
+    assert_eq!(text, "[research-crew] Ravi: wake test");
 }
 
 #[test]
@@ -57,14 +57,22 @@ fn openclaw_agent_payload_ignores_sender_supplied_name_metadata() {
     };
 
     let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None, None, None);
+    assert_eq!(
+        payload.get("message").and_then(|value| value.as_str()),
+        Some("did:cdi:test:agent:sender: hello")
+    );
     assert!(
         payload
-            .get("senderAgentName")
+            .get("metadata")
+            .and_then(|value| value.get("sender"))
+            .and_then(|value| value.get("agentName"))
             .is_some_and(|value| value.is_null())
     );
     assert!(
         payload
-            .get("senderDisplayName")
+            .get("metadata")
+            .and_then(|value| value.get("sender"))
+            .and_then(|value| value.get("displayName"))
             .is_some_and(|value| value.is_null())
     );
 }
@@ -90,12 +98,18 @@ fn openclaw_agent_payload_keeps_group_name_missing_when_unresolved() {
 
     let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None, None, None);
     assert_eq!(
-        payload.get("groupId").and_then(|value| value.as_str()),
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("group"))
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str()),
         Some("grp_01J0W8B6M7VWWC0H8G8D2MPH6V")
     );
     assert!(
         payload
-            .get("groupName")
+            .get("metadata")
+            .and_then(|value| value.get("group"))
+            .and_then(|value| value.get("name"))
             .is_some_and(|value| value.is_null())
     );
 }

@@ -12,7 +12,9 @@
 - Group command layout is canonical:
   - `group create <name> --agent-name <name>`
   - `group inspect <group-id> --agent-name <name>`
-  - `group join-token create <group-id> --agent-name <name> [--expires-in-seconds ...] [--max-uses ...]`
+  - `group join-token current <group-id> --agent-name <name>`
+  - `group join-token reset <group-id> --agent-name <name>`
+  - `group join-token revoke <group-id> --agent-name <name>`
   - `group join <group-join-token> --agent-name <name>`
   - `group members list <group-id> --agent-name <name>`
 - Join-token role input is removed. CLI must not expose `--role`; join tokens are member-only by contract.
@@ -23,7 +25,8 @@
 - Connector receipt notifications must also satisfy OpenClaw hook contracts: `/hooks/agent` needs `message`, `/hooks/wake` needs `text`, with structured receipt metadata preserved alongside the summary text.
 - OpenClaw peer-delivery defaults must stay aligned with visible UX: use `/hooks/agent` for inbound relay traffic by default; treat `/hooks/wake` as an explicit wake-only path when chat-history visibility is not required.
 - `onboarding run` is the primary operator UX flow; keep it stateful and resumable via `~/.clawdentity/onboarding-session.json` with stable machine states (`cli_ready`, `identity_ready`, `provider_ready`, `pairing_pending`, `paired`, `messaging_ready`).
-- `onboarding run` must remain idempotent on re-runs and should only ask for missing mandatory inputs (`onboarding_code`, `display_name`, `agent_name`, `peer_ticket`) while auto-repairing provider runtime when `--repair` is used.
+- `onboarding run` invite flow is setup-only by default and must not auto-start pairing. Pairing is explicit (`pair start` / `pair confirm`) unless the operator passes `--peer-ticket`.
+- `onboarding run` must remain idempotent on re-runs and should only ask for missing mandatory setup inputs (`onboarding_code`, `display_name`, `agent_name`) while auto-repairing provider runtime when `--repair` is used.
 - Keep onboarding implementation split by responsibility: `onboarding.rs` owns command/session orchestration and lightweight helpers, while `onboarding/onboarding_flow.rs` owns provider/pairing/messaging execution steps.
 - In `onboarding/onboarding_flow.rs`, run provider `setup`/`doctor`/`relay_test` inside `spawn_blocking` boundaries; these paths use blocking HTTP clients and must never execute directly on async runtime threads.
 - Keep onboarding doctor-failure classification provider-agnostic: treat generic check IDs (`connector.runtime`, `webhook.health`) as connector/runtime repair candidates alongside OpenClaw-specific IDs.

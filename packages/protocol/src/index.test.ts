@@ -161,6 +161,13 @@ describe("protocol", () => {
         joinedAgentDid:
           "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
         joinedAgentName: "beta",
+        joinedAgent: {
+          displayName: "Beta User",
+          framework: "openclaw",
+          humanDid:
+            "did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
+          status: "active",
+        },
         groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
         groupName: "alpha squad",
         role: "member",

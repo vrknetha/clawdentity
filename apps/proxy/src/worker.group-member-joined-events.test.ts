@@ -62,6 +62,13 @@ describe("proxy worker group.member.joined queue routing", () => {
               joinedAgentDid:
                 "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
               joinedAgentName: "beta",
+              joinedAgent: {
+                displayName: "Beta User",
+                framework: "openclaw",
+                humanDid:
+                  "did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
+                status: "active",
+              },
               groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
               groupName: "alpha squad",
               role: "member",
@@ -84,6 +91,7 @@ describe("proxy worker group.member.joined queue routing", () => {
       senderAgentDid?: string;
       recipientAgentDid?: string;
       deliverySource?: string;
+      groupId?: string;
       payload?: {
         type?: string;
         event?: string;
@@ -96,6 +104,7 @@ describe("proxy worker group.member.joined queue routing", () => {
       recipientAgentDid:
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       deliverySource: "proxy.events.queue.group_member_joined",
+      groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
       payload: {
         type: "clawdentity:group-member-joined",
         event: GROUP_MEMBER_JOINED_EVENT_TYPE,
@@ -128,6 +137,13 @@ describe("proxy worker group.member.joined queue routing", () => {
               joinedAgentDid:
                 "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
               joinedAgentName: "",
+              joinedAgent: {
+                displayName: "Beta User",
+                framework: "openclaw",
+                humanDid:
+                  "did:cdi:registry.clawdentity.dev:human:01HF7YAT8M89D8W9DH2S5Y4JQK",
+                status: "active",
+              },
               groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
               groupName: "alpha squad",
               role: "member",

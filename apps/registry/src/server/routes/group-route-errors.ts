@@ -37,24 +37,6 @@ export function groupJoinTokenInvalidError(): AppError {
   });
 }
 
-export function groupJoinTokenExpiredError(): AppError {
-  return new AppError({
-    code: "GROUP_JOIN_TOKEN_EXPIRED",
-    message: "Group join token has expired",
-    status: 400,
-    expose: true,
-  });
-}
-
-export function groupJoinTokenExhaustedError(): AppError {
-  return new AppError({
-    code: "GROUP_JOIN_TOKEN_EXHAUSTED",
-    message: "Group join token has already been used",
-    status: 409,
-    expose: true,
-  });
-}
-
 export function groupMemberLimitReachedError(): AppError {
   return new AppError({
     code: "GROUP_MEMBER_LIMIT_REACHED",
@@ -96,6 +78,16 @@ export function groupJoinForbiddenError(): AppError {
     code: "GROUP_JOIN_FORBIDDEN",
     message: "Agent is not allowed to join this group",
     status: 403,
+    expose: true,
+  });
+}
+
+export function groupJoinTokenSchemaOutdatedError(): AppError {
+  return new AppError({
+    code: "CONFIG_VALIDATION_FAILED",
+    message:
+      "Group join-token schema is outdated. Apply registry migrations (including 0007_group_join_tokens_active_current.sql) before retrying.",
+    status: 500,
     expose: true,
   });
 }

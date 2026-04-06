@@ -223,39 +223,6 @@ describe("relay-to-peer transform", () => {
     }
   });
 
-  it("accepts group field as alias for groupId", async () => {
-    const sandbox = createRelaySandbox();
-    const fetchMock = createHealthyConnectorFetch();
-
-    try {
-      const result = await relayPayloadToPeer(
-        {
-          group: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
-          message: "hello group",
-        },
-        {
-          fetchImpl: fetchMock,
-          runtimeConfigPath: sandbox.runtimeConfigPath,
-          connectorHealthCacheTtlMs: 1,
-        },
-      );
-
-      expect(result).toBeNull();
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      const [, requestInit] = fetchMock.mock.calls[1] as [string, RequestInit];
-      expect(requestInit.body).toBe(
-        JSON.stringify({
-          groupId: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
-          payload: {
-            message: "hello group",
-          },
-        }),
-      );
-    } finally {
-      sandbox.cleanup();
-    }
-  });
-
   it("returns payload unchanged when peer is not set", async () => {
     const fetchMock = vi.fn(async () => new Response("", { status: 202 }));
 
@@ -320,7 +287,7 @@ describe("relay-to-peer transform", () => {
           fetchImpl: createHealthyConnectorFetch(),
         },
       ),
-    ).rejects.toThrow("group must be a non-empty string");
+    ).rejects.toThrow("group is not supported; use groupId");
   });
 
   it("rejects mixed direct and group routing fields", async () => {
@@ -340,7 +307,7 @@ describe("relay-to-peer transform", () => {
             runtimeConfigPath: sandbox.runtimeConfigPath,
           },
         ),
-      ).rejects.toThrow("Provide either peer or groupId/group, not both");
+      ).rejects.toThrow("Provide either peer or groupId, not both");
     } finally {
       sandbox.cleanup();
     }

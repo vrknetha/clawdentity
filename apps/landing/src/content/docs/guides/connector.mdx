@@ -205,7 +205,7 @@ clawdentity connector start <agent-name>
 Group lifecycle note:
 
 - Operator group setup/management should use Rust CLI `clawdentity group ...` commands.
-- Successful `clawdentity group join` operations emit trusted `group.member.joined` notifications to creator-owned active agents.
+- Successful `clawdentity group join` operations emit trusted `group.member.joined` notifications to all active group members, including the joiner.
 
 When a local provider runtime triggers an outbound message to that runtime:
 

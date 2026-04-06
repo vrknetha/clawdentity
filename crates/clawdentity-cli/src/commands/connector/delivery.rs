@@ -12,11 +12,11 @@ use clawdentity_core::db_inbound::{
 use clawdentity_core::http::client as create_http_client;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientSender, ConnectorFrame,
-    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, ReceiptFrame, ReceiptStatus, SqliteStore,
-    new_frame_id, now_iso,
+    DeliverAckFrame, DeliverFrame, EnqueueAckFrame, LocalGroupEchoRequest, ReceiptFrame,
+    ReceiptStatus, SqliteStore, new_frame_id, now_iso,
 };
 use serde_json::json;
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 
 use super::InboundDeliveryTarget;
 use super::headers::{SenderProfileHeaders, build_openclaw_delivery_headers};
@@ -59,6 +59,7 @@ pub(super) struct InboundLoopRuntime {
     pub inbound_target: InboundDeliveryTarget,
     pub outbound_inflight: OutboundInflightMap,
     pub pending_receipt_notifications: PendingReceiptQueueHandle,
+    pub local_group_echo_rx: mpsc::UnboundedReceiver<LocalGroupEchoRequest>,
 }
 
 pub(super) struct InboundRetryRuntime {
@@ -98,7 +99,7 @@ struct InboundRetryContext<'a> {
 
 pub(super) async fn run_inbound_loop(
     mut connector_client: ConnectorClient,
-    runtime: InboundLoopRuntime,
+    mut runtime: InboundLoopRuntime,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let http_client = create_http_client()?;
@@ -132,6 +133,12 @@ pub(super) async fn run_inbound_loop(
                     return Ok(());
                 };
                 handle_connector_frame(frame, &context).await;
+            }
+            local_group_echo = runtime.local_group_echo_rx.recv() => {
+                let Some(local_group_echo) = local_group_echo else {
+                    return Ok(());
+                };
+                handle_local_group_echo(local_group_echo, &context).await;
             }
         }
     }
@@ -236,18 +243,89 @@ fn build_enqueue_rejected_receipt(
 
 #[allow(clippy::too_many_lines)]
 async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: DeliverFrame) {
-    let system_delivery_result = if is_trusted_pair_accepted_delivery(&deliver) {
+    handle_deliver_frame_internal(
+        context,
+        &mut deliver,
+        DeliverProcessingOptions {
+            send_ack: true,
+            emit_receipt: true,
+        },
+    )
+    .await;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DeliverProcessingOptions {
+    send_ack: bool,
+    emit_receipt: bool,
+}
+
+async fn handle_local_group_echo(
+    local_group_echo: LocalGroupEchoRequest,
+    context: &InboundRuntimeContext<'_>,
+) {
+    let mut deliver = DeliverFrame {
+        v: CONNECTOR_FRAME_VERSION,
+        id: local_group_echo.request_id,
+        ts: now_iso(),
+        from_agent_did: local_group_echo.local_agent_did.clone(),
+        to_agent_did: local_group_echo.local_agent_did,
+        payload: local_group_echo.payload,
+        delivery_source: Some("connector.runtime.local_group_echo".to_string()),
+        content_type: Some("application/json".to_string()),
+        group_id: Some(local_group_echo.group_id),
+        conversation_id: local_group_echo.conversation_id,
+        reply_to: local_group_echo.reply_to,
+    };
+    handle_deliver_frame_internal(
+        context,
+        &mut deliver,
+        DeliverProcessingOptions {
+            send_ack: false,
+            emit_receipt: false,
+        },
+    )
+    .await;
+}
+
+async fn handle_deliver_frame_internal(
+    context: &InboundRuntimeContext<'_>,
+    deliver: &mut DeliverFrame,
+    options: DeliverProcessingOptions,
+) {
+    let delivery_result = forward_delivery_with_context(context, deliver).await;
+    let delivery_succeeded = delivery_result.is_ok();
+    let persistence_result =
+        persist_inbound_delivery_result(context.store, deliver, delivery_result.as_ref()).await;
+    log_persist_failure(&deliver.id, persistence_result.as_ref().err());
+
+    let ack_reason = build_deliver_ack_reason(
+        delivery_result.as_ref().err(),
+        persistence_result.as_ref().err(),
+    );
+    let ack_accepted = ack_reason.is_none();
+    if options.send_ack {
+        send_deliver_ack(context.relay_sender, &deliver.id, ack_accepted, ack_reason).await;
+    }
+    log_delivery_failure(context.inbound_target, deliver, delivery_result.err());
+    maybe_emit_delivery_receipt(context, deliver, delivery_succeeded && options.emit_receipt).await;
+}
+
+async fn forward_delivery_with_context(
+    context: &InboundRuntimeContext<'_>,
+    deliver: &mut DeliverFrame,
+) -> anyhow::Result<()> {
+    if is_trusted_pair_accepted_delivery(deliver) {
         apply_pair_accepted_system_delivery(
             context.options,
             context.agent_name,
             context.store,
             context.config_dir,
-            &mut deliver,
+            deliver,
         )
-        .await
-    } else {
-        Ok(false)
-    };
+        .await?;
+    }
+
     let sender_profile = resolve_sender_profile_for_delivery(
         context.options,
         context.agent_name,
@@ -261,44 +339,35 @@ async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: 
         deliver.group_id.as_deref(),
     )
     .await;
-    let delivery_result = match system_delivery_result {
-        Ok(_) => {
-            forward_deliver_to_target(
-                context.http_client,
-                context.inbound_target,
-                &deliver,
-                sender_profile.as_ref(),
-                group_name.as_deref(),
-            )
-            .await
-        }
-        Err(error) => Err(error),
-    };
-    let delivery_succeeded = delivery_result.is_ok();
-    let persistence_result =
-        persist_inbound_delivery_result(context.store, &deliver, delivery_result.as_ref()).await;
-    log_persist_failure(&deliver.id, persistence_result.as_ref().err());
+    forward_deliver_to_target(
+        context.http_client,
+        context.inbound_target,
+        deliver,
+        sender_profile.as_ref(),
+        group_name.as_deref(),
+    )
+    .await
+}
 
-    let ack_reason = build_deliver_ack_reason(
-        delivery_result.as_ref().err(),
-        persistence_result.as_ref().err(),
-    );
-    let ack_accepted = ack_reason.is_none();
-    send_deliver_ack(context.relay_sender, &deliver.id, ack_accepted, ack_reason).await;
-    log_delivery_failure(context.inbound_target, &deliver, delivery_result.err());
-
-    if delivery_succeeded {
-        let _ = context
-            .receipt_outbox
-            .enqueue_and_try_flush(DeliveryReceiptPayload {
-                request_id: deliver.id.clone(),
-                sender_agent_did: deliver.from_agent_did.clone(),
-                recipient_agent_did: deliver.to_agent_did.clone(),
-                status: DeliveryReceiptStatus::ProcessedByOpenclaw,
-                reason: None,
-            })
-            .await;
+async fn maybe_emit_delivery_receipt(
+    context: &InboundRuntimeContext<'_>,
+    deliver: &DeliverFrame,
+    should_emit_receipt: bool,
+) {
+    if !should_emit_receipt {
+        return;
     }
+
+    let _ = context
+        .receipt_outbox
+        .enqueue_and_try_flush(DeliveryReceiptPayload {
+            request_id: deliver.id.clone(),
+            sender_agent_did: deliver.from_agent_did.clone(),
+            recipient_agent_did: deliver.to_agent_did.clone(),
+            status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+            reason: None,
+        })
+        .await;
 }
 
 fn log_persist_failure(request_id: &str, persistence_error: Option<&anyhow::Error>) {

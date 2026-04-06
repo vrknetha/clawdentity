@@ -8,6 +8,7 @@
 - In group mode, resolve members from registry-backed resolver, exclude local sender DID, and enqueue one frame per recipient with shared `groupId`.
 - Group mode queueing must remain durable-first with partial-enqueue protection (rollback on failure) so queue state stays consistent.
 - Keep outbound enqueue path durable-first: persist before relay send, then flush due frames using retry metadata and bounded exponential backoff.
+- Outbound flush after direct/group enqueue should drain the current pending queue depth (not only newly enqueued frame count) so older backlog cannot starve new group recipients and cause partial immediate fan-out.
 - Keep outbound retry policy env-driven (`CONNECTOR_OUTBOUND_RETRY_*`, `CONNECTOR_OUTBOUND_MAX_AGE_MS`) with dead-letter on expiry/exhaustion.
 - Keep public runtime functions documented with `///` comments so structural documentation gates stay green in CI.
 - Enforce outbound queue backpressure via configurable max pending (`CONNECTOR_OUTBOUND_MAX_PENDING`) and return explicit `507` queue-full errors.

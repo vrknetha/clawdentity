@@ -1,6 +1,12 @@
 {
   "agents": {
     "defaults": {
+      "model": {
+        "primary": "openai-codex/gpt-5.4",
+        "fallbacks": [
+          "openrouter/moonshotai/kimi-k2.5"
+        ]
+      },
       "elevatedDefault": "full",
       "sandbox": {
         "mode": "off"
@@ -30,6 +36,11 @@
       "host": "gateway",
       "security": "full",
       "ask": "off"
+    },
+    "web": {
+      "fetch": {
+        "enabled": true
+      }
     }
   },
   "browser": {

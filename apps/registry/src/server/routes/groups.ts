@@ -1,4 +1,7 @@
+// biome-ignore lint/nursery/noExcessiveLinesPerFile: Group route handlers and shared helpers are co-located for now; split into dedicated modules in a follow-up.
 import {
+  decodeBase64url,
+  encodeBase64url,
   GROUP_JOIN_PATH,
   GROUP_MEMBERSHIP_CHECK_PATH,
   GROUPS_PATH,
@@ -6,7 +9,7 @@ import {
   parseAgentDid,
 } from "@clawdentity/protocol";
 import { AppError, nowIso, nowUtcMs } from "@clawdentity/sdk";
-import { and, eq, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { verifyAgentClawRequest } from "../../auth/agent-claw-auth.js";
 import { createApiKeyAuth } from "../../auth/api-key-auth.js";
 import { constantTimeEqual } from "../../auth/api-key-token.js";
@@ -17,6 +20,7 @@ import {
   group_join_tokens,
   group_members,
   groups,
+  humans,
 } from "../../db/schema.js";
 import {
   deriveGroupJoinTokenLookupPrefix,
@@ -29,6 +33,7 @@ import {
   parseGroupJoinTokenIssuePayload,
 } from "../../group-lifecycle.js";
 import type { RegistryRouteDependencies } from "../constants.js";
+import { logger } from "../constants.js";
 import { DB_MUTATION_OPERATION } from "../helpers/db-mutation-operations.js";
 import {
   getMutationRowCount,
@@ -48,13 +53,138 @@ import {
 } from "../helpers/group-route-auth.js";
 import {
   groupCreateInvalidError,
-  groupJoinTokenExhaustedError,
-  groupJoinTokenExpiredError,
   groupJoinTokenInvalidError,
   groupJoinTokenIssueInvalidError,
+  groupJoinTokenSchemaOutdatedError,
   groupMemberLimitReachedError,
   groupMemberNotFoundError,
 } from "./group-route-errors.js";
+
+const GROUP_JOIN_TOKEN_MARKER = "clw_gjt_";
+const GROUP_JOIN_TOKEN_CIPHER_AAD = "clawdentity.group-join-token.v1";
+
+function normalizeStoredGroupJoinToken(token: string): string | null {
+  const trimmed = token.trim();
+  if (
+    !trimmed.startsWith(GROUP_JOIN_TOKEN_MARKER) ||
+    trimmed.length <= GROUP_JOIN_TOKEN_MARKER.length
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+async function deriveGroupJoinTokenCipherKey(
+  bootstrapInternalServiceSecret: string,
+): Promise<CryptoKey> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(
+      `group-join-token:${bootstrapInternalServiceSecret.trim()}`,
+    ),
+  );
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, [
+    "encrypt",
+    "decrypt",
+  ]);
+}
+
+async function encryptGroupJoinTokenForStorage(input: {
+  token: string;
+  bootstrapInternalServiceSecret: string;
+}): Promise<string> {
+  const key = await deriveGroupJoinTokenCipherKey(
+    input.bootstrapInternalServiceSecret,
+  );
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv,
+      additionalData: new TextEncoder().encode(GROUP_JOIN_TOKEN_CIPHER_AAD),
+    },
+    key,
+    new TextEncoder().encode(input.token),
+  );
+  return `${encodeBase64url(iv)}.${encodeBase64url(new Uint8Array(encrypted))}`;
+}
+
+async function decryptGroupJoinTokenFromStorage(input: {
+  ciphertext: string;
+  bootstrapInternalServiceSecret: string;
+}): Promise<string | null> {
+  const [ivPart, cipherPart, ...rest] = input.ciphertext.split(".");
+  if (
+    typeof ivPart !== "string" ||
+    typeof cipherPart !== "string" ||
+    rest.length > 0
+  ) {
+    return null;
+  }
+
+  try {
+    const key = await deriveGroupJoinTokenCipherKey(
+      input.bootstrapInternalServiceSecret,
+    );
+    const decrypted = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: decodeBase64url(ivPart),
+        additionalData: new TextEncoder().encode(GROUP_JOIN_TOKEN_CIPHER_AAD),
+      },
+      key,
+      decodeBase64url(cipherPart),
+    );
+    const token = new TextDecoder().decode(decrypted);
+    return normalizeStoredGroupJoinToken(token);
+  } catch {
+    return null;
+  }
+}
+
+function isGroupJoinTokenSchemaError(error: unknown): boolean {
+  const messages: string[] = [];
+  const collect = (value: unknown): void => {
+    if (value === null || value === undefined) {
+      return;
+    }
+    if (typeof value === "string") {
+      messages.push(value);
+      return;
+    }
+    if (typeof value === "object") {
+      if ("message" in value && typeof value.message === "string") {
+        messages.push(value.message);
+      }
+      if ("cause" in value) {
+        collect(value.cause);
+      }
+    }
+  };
+  collect(error);
+
+  return messages.some((message) => {
+    const lowered = message.toLowerCase();
+    return (
+      lowered.includes("token_ciphertext") &&
+      (lowered.includes("no such column") ||
+        lowered.includes("has no column named"))
+    );
+  });
+}
+
+async function withGroupJoinTokenSchemaGuard<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isGroupJoinTokenSchemaError(error)) {
+      throw groupJoinTokenSchemaOutdatedError();
+    }
+    throw error;
+  }
+}
 
 export function registerGroupRoutes(input: RegistryRouteDependencies): void {
   const { app, getConfig, getEventBus } = input;
@@ -148,33 +278,145 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       invalidError: groupJoinTokenIssueInvalidError,
     });
 
-    const nowMs = nowUtcMs();
-    const parsedPayload = parseGroupJoinTokenIssuePayload({
+    parseGroupJoinTokenIssuePayload({
       payload,
       environment: config.ENVIRONMENT,
-      nowMs,
     });
+
+    const nowMs = nowUtcMs();
+    const issuedAt = nowIso();
+    const activeTokenRows = await withGroupJoinTokenSchemaGuard(() =>
+      db
+        .select({
+          id: group_join_tokens.id,
+          groupId: group_join_tokens.group_id,
+          tokenHash: group_join_tokens.token_hash,
+          tokenPrefix: group_join_tokens.token_prefix,
+          tokenCiphertext: group_join_tokens.token_ciphertext,
+          role: group_join_tokens.role,
+          revokedAt: group_join_tokens.revoked_at,
+          createdAt: group_join_tokens.created_at,
+        })
+        .from(group_join_tokens)
+        .where(
+          and(
+            eq(group_join_tokens.group_id, groupId),
+            isNull(group_join_tokens.revoked_at),
+          ),
+        ),
+    );
+    if (activeTokenRows.length > 0) {
+      const activeTokensByNewest = [...activeTokenRows].sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt),
+      );
+      let selectedActiveToken:
+        | {
+            id: string;
+            groupId: string;
+            role: "member" | "admin";
+            createdAt: string;
+            token: string;
+          }
+        | undefined;
+
+      for (const activeToken of activeTokensByNewest) {
+        const decrypted = await decryptGroupJoinTokenFromStorage({
+          ciphertext: activeToken.tokenCiphertext,
+          bootstrapInternalServiceSecret:
+            config.BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+        });
+        if (!decrypted) {
+          continue;
+        }
+        const [decryptedHash, decryptedPrefix] = await Promise.all([
+          hashGroupJoinToken(decrypted),
+          Promise.resolve(deriveGroupJoinTokenLookupPrefix(decrypted)),
+        ]);
+        if (
+          constantTimeEqual(decryptedHash, activeToken.tokenHash) &&
+          constantTimeEqual(decryptedPrefix, activeToken.tokenPrefix)
+        ) {
+          selectedActiveToken = {
+            id: activeToken.id,
+            groupId: activeToken.groupId,
+            role: activeToken.role,
+            createdAt: activeToken.createdAt,
+            token: decrypted,
+          };
+          break;
+        }
+      }
+
+      if (selectedActiveToken) {
+        if (activeTokenRows.length > 1) {
+          await db
+            .update(group_join_tokens)
+            .set({
+              revoked_at: issuedAt,
+              updated_at: issuedAt,
+            })
+            .where(
+              and(
+                eq(group_join_tokens.group_id, groupId),
+                isNull(group_join_tokens.revoked_at),
+                sql`${group_join_tokens.id} <> ${selectedActiveToken.id}`,
+              ),
+            );
+        }
+
+        return c.json({
+          groupJoinToken: {
+            id: selectedActiveToken.id,
+            token: selectedActiveToken.token,
+            groupId: selectedActiveToken.groupId,
+            role: selectedActiveToken.role,
+            createdAt: selectedActiveToken.createdAt,
+            active: true,
+          },
+        });
+      }
+
+      await db
+        .update(group_join_tokens)
+        .set({
+          revoked_at: issuedAt,
+          updated_at: issuedAt,
+        })
+        .where(
+          and(
+            eq(group_join_tokens.group_id, groupId),
+            isNull(group_join_tokens.revoked_at),
+          ),
+        );
+    }
 
     const token = generateGroupJoinToken();
-    const tokenHash = await hashGroupJoinToken(token);
+    const [tokenHash, tokenCiphertext] = await Promise.all([
+      hashGroupJoinToken(token),
+      encryptGroupJoinTokenForStorage({
+        token,
+        bootstrapInternalServiceSecret:
+          config.BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+      }),
+    ]);
     const tokenPrefix = deriveGroupJoinTokenLookupPrefix(token);
     const tokenId = generateUlid(nowMs);
-    const createdAt = nowIso();
+    const createdAt = issuedAt;
 
-    await db.insert(group_join_tokens).values({
-      id: tokenId,
-      group_id: groupId,
-      token_hash: tokenHash,
-      token_prefix: tokenPrefix,
-      role: "member",
-      max_uses: parsedPayload.maxUses,
-      used_count: 0,
-      expires_at: parsedPayload.expiresAt,
-      revoked_at: null,
-      issued_by: actor.humanId,
-      created_at: createdAt,
-      updated_at: createdAt,
-    });
+    await withGroupJoinTokenSchemaGuard(() =>
+      db.insert(group_join_tokens).values({
+        id: tokenId,
+        group_id: groupId,
+        token_hash: tokenHash,
+        token_prefix: tokenPrefix,
+        token_ciphertext: tokenCiphertext,
+        role: "member",
+        revoked_at: null,
+        issued_by: actor.humanId,
+        created_at: createdAt,
+        updated_at: createdAt,
+      }),
+    );
 
     return c.json(
       {
@@ -183,13 +425,169 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
           token,
           groupId,
           role: "member",
-          maxUses: parsedPayload.maxUses,
-          expiresAt: parsedPayload.expiresAt,
           createdAt,
+          active: true,
         },
       },
       201,
     );
+  });
+
+  app.post(`${GROUPS_PATH}/:id/join-tokens/reset`, async (c) => {
+    const config = getConfig(c.env);
+    const groupId = parseGroupIdPath({
+      id: c.req.param("id"),
+      environment: config.ENVIRONMENT,
+    });
+    const db = createDb(c.env.DB);
+    const bodyBytes = await readRequestBodyBytes(c.req.raw);
+    const actor = await resolveGroupRouteAuthActor({
+      db,
+      config,
+      request: c.req.raw,
+      bodyBytes,
+    });
+    await resolveManageableGroupForActor({ db, groupId, actor });
+
+    const nowMs = nowUtcMs();
+    const now = nowIso();
+    const token = generateGroupJoinToken();
+    const [tokenHash, tokenCiphertext] = await Promise.all([
+      hashGroupJoinToken(token),
+      encryptGroupJoinTokenForStorage({
+        token,
+        bootstrapInternalServiceSecret:
+          config.BOOTSTRAP_INTERNAL_SERVICE_SECRET,
+      }),
+    ]);
+    const tokenPrefix = deriveGroupJoinTokenLookupPrefix(token);
+    const tokenId = generateUlid(nowMs);
+
+    const insertReplacementToken = async (executor: typeof db) => {
+      await withGroupJoinTokenSchemaGuard(() =>
+        executor.insert(group_join_tokens).values({
+          id: tokenId,
+          group_id: groupId,
+          token_hash: tokenHash,
+          token_prefix: tokenPrefix,
+          token_ciphertext: tokenCiphertext,
+          role: "member",
+          revoked_at: null,
+          issued_by: actor.humanId,
+          created_at: now,
+          updated_at: now,
+        }),
+      );
+    };
+
+    const revokePreviousActiveTokens = async (executor: typeof db) => {
+      await executor
+        .update(group_join_tokens)
+        .set({
+          revoked_at: now,
+          updated_at: now,
+        })
+        .where(
+          and(
+            eq(group_join_tokens.group_id, groupId),
+            isNull(group_join_tokens.revoked_at),
+            sql`${group_join_tokens.id} <> ${tokenId}`,
+          ),
+        );
+    };
+
+    const applyResetMutation = async (executor: typeof db) => {
+      await insertReplacementToken(executor);
+      await revokePreviousActiveTokens(executor);
+    };
+
+    try {
+      await db.transaction(async (tx) => {
+        await applyResetMutation(tx as unknown as typeof db);
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+
+      await insertReplacementToken(db);
+      try {
+        await revokePreviousActiveTokens(db);
+      } catch (fallbackError) {
+        const compensationRevokedAt = nowIso();
+        try {
+          await db
+            .update(group_join_tokens)
+            .set({
+              revoked_at: compensationRevokedAt,
+              updated_at: compensationRevokedAt,
+            })
+            .where(
+              and(
+                eq(group_join_tokens.id, tokenId),
+                isNull(group_join_tokens.revoked_at),
+              ),
+            );
+        } catch (compensationError) {
+          logger.error("registry.group_join_token_reset_compensation_failed", {
+            groupId,
+            tokenId,
+            error:
+              compensationError instanceof Error
+                ? compensationError.message
+                : String(compensationError),
+          });
+        }
+        throw fallbackError;
+      }
+    }
+
+    return c.json(
+      {
+        groupJoinToken: {
+          id: tokenId,
+          token,
+          groupId,
+          role: "member",
+          createdAt: now,
+          active: true,
+        },
+      },
+      201,
+    );
+  });
+
+  app.delete(`${GROUPS_PATH}/:id/join-tokens/current`, async (c) => {
+    const config = getConfig(c.env);
+    const groupId = parseGroupIdPath({
+      id: c.req.param("id"),
+      environment: config.ENVIRONMENT,
+    });
+    const db = createDb(c.env.DB);
+    const bodyBytes = await readRequestBodyBytes(c.req.raw);
+    const actor = await resolveGroupRouteAuthActor({
+      db,
+      config,
+      request: c.req.raw,
+      bodyBytes,
+    });
+    await resolveManageableGroupForActor({ db, groupId, actor });
+
+    const now = nowIso();
+    await db
+      .update(group_join_tokens)
+      .set({
+        revoked_at: now,
+        updated_at: now,
+      })
+      .where(
+        and(
+          eq(group_join_tokens.group_id, groupId),
+          isNull(group_join_tokens.revoked_at),
+        ),
+      );
+
+    return c.body(null, 204);
   });
 
   app.post(GROUP_JOIN_PATH, async (c) => {
@@ -234,9 +632,6 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         groupId: group_join_tokens.group_id,
         tokenHash: group_join_tokens.token_hash,
         role: group_join_tokens.role,
-        maxUses: group_join_tokens.max_uses,
-        usedCount: group_join_tokens.used_count,
-        expiresAt: group_join_tokens.expires_at,
         revokedAt: group_join_tokens.revoked_at,
       })
       .from(group_join_tokens)
@@ -249,20 +644,10 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       throw groupJoinTokenInvalidError();
     }
 
-    const expiresAtMs = Date.parse(token.expiresAt);
-    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowUtcMs()) {
-      throw groupJoinTokenExpiredError();
-    }
-
-    if (token.usedCount >= token.maxUses) {
-      throw groupJoinTokenExhaustedError();
-    }
-
     const groupRows = await db
       .select({
         id: groups.id,
         name: groups.name,
-        createdBy: groups.created_by,
       })
       .from(groups)
       .where(eq(groups.id, token.groupId))
@@ -300,7 +685,6 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     const joinedAt = nowIso();
     const applyJoinMutation = async (
       executor: typeof db,
-      options: { rollbackOnFailure: boolean },
     ): Promise<{
       joined: boolean;
       role: "member" | "admin";
@@ -353,42 +737,6 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
         throw groupMemberLimitReachedError();
       }
 
-      try {
-        const tokenUpdateResult = await executor
-          .update(group_join_tokens)
-          .set({
-            used_count: sql`${group_join_tokens.used_count} + 1`,
-            updated_at: joinedAt,
-          })
-          .where(
-            and(
-              eq(group_join_tokens.id, token.id),
-              lt(group_join_tokens.used_count, group_join_tokens.max_uses),
-              isNull(group_join_tokens.revoked_at),
-            ),
-          );
-
-        const updatedRows = getMutationRowCount({
-          result: tokenUpdateResult,
-          operation: DB_MUTATION_OPERATION.GROUP_JOIN_TOKEN_USAGE_UPDATE,
-        });
-        if (updatedRows === 0) {
-          throw groupJoinTokenExhaustedError();
-        }
-      } catch (error) {
-        if (options.rollbackOnFailure) {
-          await executor
-            .delete(group_members)
-            .where(
-              and(
-                eq(group_members.group_id, token.groupId),
-                eq(group_members.agent_id, joiningAgent.id),
-              ),
-            );
-        }
-        throw error;
-      }
-
       return {
         joined: true,
         role: token.role,
@@ -403,18 +751,14 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     };
     try {
       joinResult = await db.transaction(async (tx) => {
-        return applyJoinMutation(tx as unknown as typeof db, {
-          rollbackOnFailure: false,
-        });
+        return applyJoinMutation(tx as unknown as typeof db);
       });
     } catch (error) {
       if (!isUnsupportedLocalTransactionError(error)) {
         throw error;
       }
 
-      joinResult = await applyJoinMutation(db, {
-        rollbackOnFailure: true,
-      });
+      joinResult = await applyJoinMutation(db);
     }
 
     if (!joinResult.joined) {
@@ -427,18 +771,39 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       });
     }
 
-    await publishGroupMemberJoinedNotifications({
-      db,
-      eventBus: getEventBus(c.env),
-      creatorHumanId: group.createdBy,
-      joinedAgentDid: claims.sub,
-      joinedAgentName: joiningAgent.name,
-      groupId: token.groupId,
-      groupName: group.name,
-      role: joinResult.role,
-      joinedAt: joinResult.joinedAt,
-      initiatedByAccountId: joiningAgent.ownerId,
-    });
+    const joinedHumanRows = await db
+      .select({
+        humanDid: humans.did,
+        displayName: humans.display_name,
+      })
+      .from(humans)
+      .where(eq(humans.id, joiningAgent.ownerId))
+      .limit(1);
+    const joinedHuman = joinedHumanRows[0];
+
+    if (joinedHuman) {
+      await publishGroupMemberJoinedNotifications({
+        db,
+        eventBus: getEventBus(c.env),
+        joinedAgentDid: claims.sub,
+        joinedAgentName: joiningAgent.name,
+        joinedAgentDisplayName: joinedHuman.displayName,
+        joinedAgentFramework: joiningAgent.framework ?? "unknown",
+        joinedAgentHumanDid: joinedHuman.humanDid,
+        joinedAgentStatus: joiningAgent.status,
+        groupId: token.groupId,
+        groupName: group.name,
+        role: joinResult.role,
+        joinedAt: joinResult.joinedAt,
+        initiatedByAccountId: joiningAgent.ownerId,
+      });
+    } else {
+      logger.warn("registry.group.member_joined_notification_missing_human", {
+        groupId: token.groupId,
+        joinedAgentDid: claims.sub,
+        ownerId: joiningAgent.ownerId,
+      });
+    }
 
     return c.json(
       {
@@ -471,20 +836,31 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     const memberRows = await db
       .select({
         agentDid: agents.did,
+        agentName: agents.name,
+        displayName: humans.display_name,
+        framework: agents.framework,
+        humanDid: humans.did,
+        status: agents.status,
         role: group_members.role,
         joinedAt: group_members.joined_at,
       })
       .from(group_members)
       .innerJoin(agents, eq(group_members.agent_id, agents.id))
+      .innerJoin(humans, eq(agents.owner_id, humans.id))
       .where(
         and(eq(group_members.group_id, groupId), eq(agents.status, "active")),
       );
+
+    const members = memberRows.map((member) => ({
+      ...member,
+      framework: member.framework ?? "unknown",
+    }));
 
     return c.json({
       group: {
         id: groupId,
       },
-      members: memberRows,
+      members,
     });
   });
 

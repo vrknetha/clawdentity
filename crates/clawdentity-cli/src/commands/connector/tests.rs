@@ -27,6 +27,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 mod expected_agent_name;
 mod fixtures;
 mod inbound_names;
+mod openclaw_payload_contract;
 mod peer_refresh;
 mod provider_runtime;
 
@@ -194,7 +195,23 @@ fn openclaw_hook_payload_uses_message_field() {
     let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None, None, None);
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
-        Some("hello from alpha")
+        Some("did:cdi:test:agent:sender: hello from alpha")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("sender"))
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str()),
+        Some("did:cdi:test:agent:sender")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("conversation"))
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str()),
+        Some("conv-1")
     );
     assert_eq!(
         payload
@@ -225,9 +242,143 @@ fn openclaw_hook_payload_stringifies_non_string_payloads() {
     let payload = build_openclaw_hook_payload("/hooks/agent", &deliver, None, None, None);
     assert_eq!(
         payload.get("message").and_then(|value| value.as_str()),
-        Some("{\"count\":2,\"structured\":true}")
+        Some("did:cdi:test:agent:sender: {\"count\":2,\"structured\":true}")
     );
     assert!(payload.get("agentId").is_none());
+}
+
+#[test]
+fn openclaw_agent_payload_formats_group_message_with_generic_metadata_envelope() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-group-1".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: Some("grp_01HF7YAT31JZHSMW1CG6Q6MHB7".to_string()),
+        payload: json!({
+            "message": "hello group",
+        }),
+        delivery_source: Some("proxy.events.queue.group_member_joined".to_string()),
+        content_type: Some("application/json".to_string()),
+        conversation_id: Some("conv-group-1".to_string()),
+        reply_to: Some("https://proxy.example/v1/relay/delivery-receipts".to_string()),
+    };
+    let sender_profile = SenderProfileHeaders {
+        agent_name: Some("alpha".to_string()),
+        display_name: Some("Ravi".to_string()),
+    };
+
+    let payload = build_openclaw_hook_payload(
+        "/hooks/agent",
+        &deliver,
+        Some(&sender_profile),
+        Some("research-crew"),
+        None,
+    );
+    assert_eq!(
+        payload.get("message").and_then(|value| value.as_str()),
+        Some("[research-crew] Ravi: hello group")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("sender"))
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str()),
+        Some("did:cdi:test:agent:sender")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("group"))
+            .and_then(|value| value.get("id"))
+            .and_then(|value| value.as_str()),
+        Some("grp_01HF7YAT31JZHSMW1CG6Q6MHB7")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("group"))
+            .and_then(|value| value.get("name"))
+            .and_then(|value| value.as_str()),
+        Some("research-crew")
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("trust"))
+            .and_then(|value| value.get("verified"))
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        payload
+            .get("metadata")
+            .and_then(|value| value.get("source"))
+            .and_then(|value| value.get("system"))
+            .and_then(|value| value.as_str()),
+        Some("clawdentity")
+    );
+}
+
+#[test]
+fn openclaw_message_sender_label_fallback_prefers_display_name_then_agent_name_then_did() {
+    let deliver = DeliverFrame {
+        v: 1,
+        id: "req-fallback-1".to_string(),
+        ts: "2026-03-20T05:55:00Z".to_string(),
+        from_agent_did: "did:cdi:test:agent:sender".to_string(),
+        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
+        group_id: None,
+        payload: json!({
+            "message": "hello",
+        }),
+        delivery_source: None,
+        content_type: Some("application/json".to_string()),
+        conversation_id: None,
+        reply_to: None,
+    };
+
+    let with_display = build_openclaw_hook_payload(
+        "/hooks/agent",
+        &deliver,
+        Some(&SenderProfileHeaders {
+            agent_name: Some("alpha".to_string()),
+            display_name: Some("Ravi".to_string()),
+        }),
+        None,
+        None,
+    );
+    assert_eq!(
+        with_display.get("message").and_then(|value| value.as_str()),
+        Some("Ravi: hello")
+    );
+
+    let with_agent_name = build_openclaw_hook_payload(
+        "/hooks/agent",
+        &deliver,
+        Some(&SenderProfileHeaders {
+            agent_name: Some("alpha".to_string()),
+            display_name: None,
+        }),
+        None,
+        None,
+    );
+    assert_eq!(
+        with_agent_name
+            .get("message")
+            .and_then(|value| value.as_str()),
+        Some("alpha: hello")
+    );
+
+    let with_did_fallback = build_openclaw_hook_payload("/hooks/agent", &deliver, None, None, None);
+    assert_eq!(
+        with_did_fallback
+            .get("message")
+            .and_then(|value| value.as_str()),
+        Some("did:cdi:test:agent:sender: hello")
+    );
 }
 #[test]
 fn openclaw_agent_hook_payload_includes_agent_id_when_mapping_exists() {
@@ -310,11 +461,7 @@ fn openclaw_wake_payload_preserves_explicit_session_id() {
         .get("text")
         .and_then(|value| value.as_str())
         .expect("wake text");
-    assert!(text.contains("Message from did:cdi:test:agent:sender"));
-    assert!(text.contains("hello from alpha"));
-    assert!(text.contains("Request ID: req-3"));
-    assert!(text.contains("Conversation ID: conv-1"));
-    assert!(text.contains("Reply To: reply-1"));
+    assert_eq!(text, "did:cdi:test:agent:sender: hello from alpha");
 }
 #[test]
 fn openclaw_wake_payload_omits_default_session_override() {
@@ -342,7 +489,7 @@ fn openclaw_wake_payload_omits_default_session_override() {
     );
     assert_eq!(
         payload.get("text").and_then(|value| value.as_str()),
-        Some("Message from did:cdi:test:agent:sender\n\nplain peer text\n\nRequest ID: req-4")
+        Some("did:cdi:test:agent:sender: plain peer text")
     );
 }
 #[test]
@@ -371,7 +518,7 @@ fn openclaw_wake_payload_prefers_message_field_from_sender_transform() {
     );
     assert_eq!(
         payload.get("text").and_then(|value| value.as_str()),
-        Some("Message from did:cdi:test:agent:sender\n\nplain peer text\n\nRequest ID: req-5")
+        Some("did:cdi:test:agent:sender: plain peer text")
     );
 }
 #[test]
@@ -483,62 +630,6 @@ fn openclaw_receipt_payload_uses_text_for_wake_hooks() {
         Some("processed_by_openclaw")
     );
     assert!(payload.get("agentId").is_none());
-}
-
-#[tokio::test]
-async fn forward_delivery_posts_agent_id_for_agent_hook_path() {
-    let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .and(path("/hooks/agent"))
-        .and(body_json(json!({
-            "message": "hello over relay",
-            "senderDid": "did:cdi:test:agent:sender",
-            "senderAgentName": serde_json::Value::Null,
-            "senderDisplayName": serde_json::Value::Null,
-            "recipientDid": "did:cdi:test:agent:recipient",
-            "groupId": serde_json::Value::Null,
-            "groupName": serde_json::Value::Null,
-            "isGroupMessage": false,
-            "requestId": "req-e2e-1",
-            "agentId": "coder",
-            "metadata": {
-                "conversationId": serde_json::Value::Null,
-                "replyTo": serde_json::Value::Null,
-                "payload": {
-                    "message": "hello over relay"
-                }
-            }
-        })))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let runtime = OpenclawRuntimeConfig {
-        base_url: server.uri(),
-        hook_path: "/hooks/agent".to_string(),
-        hook_token: None,
-        target_agent_id: Some("coder".to_string()),
-    };
-    let deliver = DeliverFrame {
-        v: 1,
-        id: "req-e2e-1".to_string(),
-        ts: "2026-03-20T05:55:00Z".to_string(),
-        from_agent_did: "did:cdi:test:agent:sender".to_string(),
-        to_agent_did: "did:cdi:test:agent:recipient".to_string(),
-        group_id: None,
-        payload: json!({ "message": "hello over relay" }),
-        delivery_source: None,
-        content_type: Some("application/json".to_string()),
-        conversation_id: None,
-        reply_to: None,
-    };
-    let hook_url = runtime.hook_url().expect("hook url");
-    let client = reqwest::Client::new();
-
-    forward_deliver_to_openclaw(&client, &hook_url, &runtime, &deliver, None, None)
-        .await
-        .expect("forward delivery should succeed");
 }
 
 #[test]

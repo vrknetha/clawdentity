@@ -90,6 +90,9 @@
 - Group membership is a separate lifecycle from onboarding: onboarding codes create humans/PATs, while group membership uses group-scoped join credentials only.
 - Use `group join token` as the canonical term in routes, payloads, errors, docs, and tests; do not reintroduce `group invite` naming.
 - Group join flow must be actor-authenticated and agent-scoped (`agentDid` membership); it must not mint PATs, create humans, or trigger onboarding side effects.
+- Group join-token lifecycle is single-active-token per group: current token retrieval, explicit reset rotation, and explicit revoke-without-replacement.
+- Group join tokens are reusable by default (no expiry/usage cap product contract); do not reintroduce `maxUses` or per-token exhaustion behavior.
+- `group.member.joined` notifications must fan out to all active members (including the newly joined member) and include joined-member profile fields, not DID-only payloads.
 - Enforce group-management authorization explicitly: only creator/admin roles can issue group join tokens, group size cap defaults to 25, and internal membership-check routes require internal service scopes including `groups.read`.
 
 ## Public Key Discovery

@@ -9,13 +9,14 @@ use axum::response::IntoResponse;
 use axum::{Json, Router, routing::get, routing::post};
 use serde::Deserialize;
 use serde_json::json;
+use tokio::sync::mpsc;
 
 use crate::connector_client::ConnectorClientSender;
 use crate::db::{SqliteStore, now_utc_ms};
 use crate::db_inbound::{dead_letter_count, list_dead_letter, pending_count};
 use crate::db_outbound::{
-    EnqueueOutboundInput, delete_outbound, enqueue_outbound, outbound_dead_letter_count,
-    outbound_queue_stats,
+    EnqueueOutboundInput, delete_outbound, enqueue_outbound, outbound_count,
+    outbound_dead_letter_count, outbound_queue_stats,
 };
 use crate::did::{parse_agent_did, parse_group_id};
 use crate::error::{CoreError, Result};
@@ -28,6 +29,16 @@ type GroupMembersFuture =
 
 pub type ResolveGroupMembers = Arc<dyn Fn(String) -> GroupMembersFuture + Send + Sync>;
 
+#[derive(Debug, Clone)]
+pub struct LocalGroupEchoRequest {
+    pub request_id: String,
+    pub local_agent_did: String,
+    pub group_id: String,
+    pub payload: serde_json::Value,
+    pub conversation_id: Option<String>,
+    pub reply_to: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct RuntimeServerState {
     pub store: SqliteStore,
@@ -35,6 +46,7 @@ pub struct RuntimeServerState {
     pub outbound_max_pending_override: Option<i64>,
     pub group_members_resolver: Option<ResolveGroupMembers>,
     pub local_agent_did: Option<String>,
+    pub local_group_echo_sender: Option<mpsc::UnboundedSender<LocalGroupEchoRequest>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -270,6 +282,35 @@ fn enqueue_outbound_frame(
     Ok(frame_id)
 }
 
+fn emit_local_group_echo(
+    state: &RuntimeServerState,
+    local_agent_did: &str,
+    group_id: &str,
+    payload: &serde_json::Value,
+    conversation_id: Option<String>,
+    reply_to: Option<String>,
+) {
+    let Some(local_group_echo_sender) = state.local_group_echo_sender.as_ref() else {
+        return;
+    };
+    let _ = local_group_echo_sender.send(LocalGroupEchoRequest {
+        request_id: ulid::Ulid::new().to_string(),
+        local_agent_did: local_agent_did.to_string(),
+        group_id: group_id.to_string(),
+        payload: payload.clone(),
+        conversation_id,
+        reply_to,
+    });
+}
+
+fn resolve_outbound_flush_batch_size(state: &RuntimeServerState, fallback: usize) -> usize {
+    let fallback = fallback.max(1);
+    match outbound_count(&state.store) {
+        Ok(pending) if pending > 0 => usize::try_from(pending).unwrap_or(usize::MAX),
+        _ => fallback,
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 async fn outbound_handler(
     State(state): State<RuntimeServerState>,
@@ -299,7 +340,14 @@ async fn outbound_handler(
             };
 
             if let Some(relay_sender) = &state.relay_sender {
-                let _ = flush_outbound_queue_to_relay(&state.store, relay_sender, 1, None).await;
+                let flush_batch_size = resolve_outbound_flush_batch_size(&state, 1);
+                let _ = flush_outbound_queue_to_relay(
+                    &state.store,
+                    relay_sender,
+                    flush_batch_size,
+                    None,
+                )
+                .await;
             }
 
             (
@@ -377,6 +425,14 @@ async fn outbound_handler(
             }
 
             if recipients.is_empty() {
+                emit_local_group_echo(
+                    &state,
+                    &local_agent_did,
+                    &group_id,
+                    &request.payload,
+                    request.conversation_id.clone(),
+                    request.reply_to.clone(),
+                );
                 return (
                     StatusCode::ACCEPTED,
                     Json(json!({
@@ -427,14 +483,23 @@ async fn outbound_handler(
             }
 
             if let Some(relay_sender) = &state.relay_sender {
+                let flush_batch_size = resolve_outbound_flush_batch_size(&state, frame_ids.len());
                 let _ = flush_outbound_queue_to_relay(
                     &state.store,
                     relay_sender,
-                    frame_ids.len(),
+                    flush_batch_size,
                     None,
                 )
                 .await;
             }
+            emit_local_group_echo(
+                &state,
+                &local_agent_did,
+                &group_id,
+                &request.payload,
+                request.conversation_id.clone(),
+                request.reply_to.clone(),
+            );
             let enqueued_recipients = frame_ids.len();
 
             (

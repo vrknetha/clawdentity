@@ -81,7 +81,23 @@ Use `docs/` as system of record:
 - Keep docs synchronized with implementation changes, especially when changing CLI flows or skill behavior.
 - Keep user onboarding docs prompt-first (`/skill.md` canonical); treat command-by-command and Rust toolchain flows as advanced fallback guidance only.
 
-## 7) Release Automation
+## 7) Local Prompt-First Testing Workflow
+- When the user wants local OpenClaw testing through `skill.md`, build installable local release artifacts first, not just the host debug binary.
+- When the user asks to "reset again and give prompts" after changing the Rust CLI, `apps/landing/public/install.sh`, or any `skill.md` content, first rebuild the local install surface (`apps/landing/public/rust/v<version>/`, `apps/landing/public/rust/latest-local.json`), then verify the real tunneled `/skill.md` before resetting containers and minting invite codes.
+- For container/runtime installs, never copy the macOS host debug binary into Linux containers; use the Linux release archives under `apps/landing/public/rust/v<version>/`.
+- The canonical local install surface for prompt-first testing is:
+  - `apps/landing/public/skill.md`
+  - `apps/landing/public/install.sh`
+  - `apps/landing/public/rust/latest-local.json`
+  - `apps/landing/public/rust/v<version>/clawdentity-<version>-linux-*.tar.gz`
+- Prefer serving `apps/landing/public` with a plain static server for tunnel use (for example `python3 -m http.server 54321 --directory apps/landing/public`) instead of tunneling the Astro/Vite dev server, because host-allow rules can block localtunnel requests.
+- Prefer exposing that static server with localtunnel and verify the real public URL returns HTTP `200` for `/skill.md` before giving prompts to the user.
+- For local operator testing, mint fresh registry invite codes with the host CLI (`crates/target/debug/clawdentity-cli --json invite create`) and use those real codes in prompts.
+- When the user asks for prompts, provide ready-to-paste prompts with the actual tunnel URL and actual invite codes. Do not leave placeholder replacement work unless the user explicitly asks for a template.
+- Keep local prompt instructions simple: use the Clawdentity relay skill URL, tell the agent to set up Clawdentity for OpenClaw, install the CLI from the same origin if missing, and run onboarding with the real invite code, display name, and agent name.
+- Do not add extra prompt lines about reusing existing `CLAWDENTITY_REGISTRY_URL` / `CLAWDENTITY_PROXY_URL` or waiting for `provider doctor` unless the user explicitly asks for that detail.
+
+## 8) Release Automation
 - Keep Rust release automation in `.github/workflows/publish-rust.yml` as the single canonical path for version bump + crates.io publish + tag creation + binary release.
 - Rust crate publish flow must derive the next version from crates metadata via `cargo info`, avoid direct crates.io API endpoint calls, verify the new `rust/vX.Y.Z` tag does not yet exist, and keep `clawdentity-core` / `clawdentity-cli` versions aligned.
 - Rust crate publish order is strict: publish `clawdentity-core` before `clawdentity-cli`.

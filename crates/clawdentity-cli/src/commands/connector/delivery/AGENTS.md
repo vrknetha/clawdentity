@@ -8,7 +8,13 @@
 - Treat sender-provided payload names as untrusted metadata; do not project them as canonical inbound sender names.
 - Keep sender and group friendly-name refresh best-effort only: never reject valid inbound delivery because a lookup failed.
 - If no trustworthy friendly name exists, keep DID/group IDs and leave friendly-name fields missing (`null`) rather than fabricating name fallbacks.
-- Keep `/hooks/wake` summaries friendly-name-first when names are available, with ID fallback only for readability.
+- Keep OpenClaw-visible `message` formatting deterministic and compatibility-first:
+  - DM: `<sender label>: <body>`
+  - Group: `[<group label>] <sender label>: <body>`
+  - sender label fallback: display name -> agent name -> DID
+  - group label fallback: resolved group name -> group ID
+- Keep `/hooks/wake` and `/hooks/agent` visible message text aligned; do not maintain divergent sender-prefix formats between hook actions.
+- Keep extra OpenClaw `/hooks/agent` context inside one generic `metadata` envelope, not Clawdentity-specific top-level identity keys.
 - Keep provider-backed inbound delivery metadata canonical in `provider_forward.rs`; if a provider needs fields like `groupId` or `conversationId`, add them there once instead of re-encoding them in multiple call sites.
 - Provider-backed live delivery must use `PlatformProvider::build_inbound_request(...)` so provider-specific auth/signing stays in the provider implementation, not in connector runtime branches.
 - Hermes-bound deliveries must preserve `sender_did`, `metadata.groupId`, and `metadata.conversationId` when present so bidirectional direct/group replies keep route and thread context.

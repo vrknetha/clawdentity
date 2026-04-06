@@ -7,12 +7,12 @@ use anyhow::{Context, Result, anyhow};
 use clap::Subcommand;
 use clawdentity_core::{
     CliConfig, ConfigPathOptions, CoreError, CreateAgentInput, InviteRedeemInput, PairConfirmInput,
-    PairStatusKind, PairStatusOptions, ProviderDoctorCheck, ProviderDoctorCheckStatus,
-    ProviderDoctorOptions, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestStatus,
-    ProviderSetupOptions, ProviderSetupStatus, SqliteStore, confirm_pairing, create_agent,
-    fetch_registry_metadata, get_config_dir, get_config_root_dir, get_provider, inspect_agent,
-    persist_redeem_config, read_config, redeem_invite, resolve_config, resolve_openclaw_base_url,
-    resolve_openclaw_hook_token, write_config,
+    ProviderDoctorCheck, ProviderDoctorCheckStatus, ProviderDoctorOptions, ProviderDoctorStatus,
+    ProviderRelayTestOptions, ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupStatus,
+    SqliteStore, confirm_pairing, create_agent, fetch_registry_metadata, get_config_dir,
+    get_config_root_dir, get_provider, inspect_agent, persist_redeem_config, read_config,
+    redeem_invite, resolve_config, resolve_openclaw_base_url, resolve_openclaw_hook_token,
+    write_config,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -29,8 +29,6 @@ use onboarding_flow::{
 const ONBOARDING_SESSION_FILE_NAME: &str = "onboarding-session.json";
 const ONBOARDING_SESSION_VERSION: u32 = 1;
 const DEFAULT_PLATFORM: &str = "openclaw";
-const DEFAULT_PAIR_WAIT_SECONDS: u64 = 30;
-const DEFAULT_PAIR_POLL_INTERVAL_SECONDS: u64 = 3;
 const PAIRING_NOTIFICATION_TIMEOUT_SECONDS: u64 = 2;
 
 const FAILURE_CODE_MISSING_REQUIRED_INPUT: &str = "ONBOARDING_REQUIRED_INPUT_MISSING";
@@ -53,10 +51,6 @@ pub enum OnboardingCommand {
         agent_name: Option<String>,
         #[arg(long)]
         peer_ticket: Option<String>,
-        #[arg(long, default_value_t = DEFAULT_PAIR_WAIT_SECONDS)]
-        pair_wait_seconds: u64,
-        #[arg(long, default_value_t = DEFAULT_PAIR_POLL_INTERVAL_SECONDS)]
-        pair_poll_interval_seconds: u64,
         #[arg(long)]
         repair: bool,
         #[arg(long)]
@@ -73,8 +67,6 @@ struct OnboardingRunInput {
     display_name: Option<String>,
     agent_name: Option<String>,
     peer_ticket: Option<String>,
-    pair_wait_seconds: u64,
-    pair_poll_interval_seconds: u64,
     repair: bool,
     reset: bool,
 }
@@ -191,8 +183,6 @@ pub async fn execute_onboarding_command(
             display_name,
             agent_name,
             peer_ticket,
-            pair_wait_seconds,
-            pair_poll_interval_seconds,
             repair,
             reset,
         } => {
@@ -202,8 +192,6 @@ pub async fn execute_onboarding_command(
                 display_name,
                 agent_name,
                 peer_ticket,
-                pair_wait_seconds,
-                pair_poll_interval_seconds,
                 repair,
                 reset,
             };
@@ -398,6 +386,24 @@ async fn run_onboarding_flow(
     ensure_provider_ready(options, input, session, &agent_name).await?;
     session.state = OnboardingState::ProviderReady;
 
+    if normalize_non_empty(input.peer_ticket.as_deref()).is_none() {
+        // Invite onboarding is setup-only. Pairing is now explicit via `pair start`.
+        session.pairing = None;
+        clear_last_error(session);
+        return Ok(OnboardingRunResult {
+            status: OnboardingRunStatus::Ready,
+            state: session.state,
+            message:
+                "Setup complete. Start a DM explicitly with `clawdentity pair start <agent-name>`."
+                    .to_string(),
+            required_inputs: vec![],
+            ticket: None,
+            peer_alias: None,
+            failure_code: None,
+            remediation: None,
+        });
+    }
+
     let pairing_result =
         ensure_pairing_ready(options, input, session, &agent_name, &config).await?;
     if let Some(result) = pairing_result {
@@ -495,7 +501,7 @@ fn classify_doctor_failures(checks: &[ProviderDoctorCheck]) -> (&'static str, St
             "state.peers" => {
                 return (
                     FAILURE_CODE_PEER_MISSING,
-                    "Run onboarding again after peer confirmation, or pass --peer-ticket to confirm pairing."
+                    "Run `clawdentity pair start <agent-name>` and confirm with `clawdentity pair confirm <agent-name> --ticket <ticket>`."
                         .to_string(),
                 );
             }

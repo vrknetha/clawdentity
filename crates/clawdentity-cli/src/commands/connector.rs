@@ -262,6 +262,7 @@ async fn start_connector_runtime(
 
     let runtime = runtime_config::resolve_runtime_config(options, input).await?;
     let store = SqliteStore::open(options)?;
+    let (local_group_echo_tx, local_group_echo_rx) = tokio::sync::mpsc::unbounded_channel();
 
     let header_options = options.clone();
     let header_agent_name = runtime.agent_name.clone();
@@ -309,6 +310,7 @@ async fn start_connector_runtime(
             outbound_max_pending_override: None,
             group_members_resolver: Some(group_members_resolver),
             local_agent_did: Some(runtime.agent_did.clone()),
+            local_group_echo_sender: Some(local_group_echo_tx),
         },
         shutdown_rx.clone(),
     );
@@ -335,6 +337,7 @@ async fn start_connector_runtime(
         inbound_target: runtime.inbound_target.clone(),
         outbound_inflight: outbound_inflight.clone(),
         pending_receipt_notifications: pending_receipt_notifications.clone(),
+        local_group_echo_rx,
     };
     let mut inbound_loop_task =
         spawn_inbound_loop_task(client, inbound_runtime, shutdown_rx.clone());

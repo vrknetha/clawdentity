@@ -20,6 +20,10 @@
 - `CLAWDENTITY_SKILL_URL` is the escape hatch when only the final prompt URL needs to differ.
 - `CLAWDENTITY_INSTALL_DRY_RUN=1` must still resolve the latest manifest metadata when `CLAWDENTITY_VERSION` is unset, so preview mode works without pinning a version.
 - Checksum verification stays default-on and must validate against `clawdentity-<version>-checksums.txt`.
+- `install.sh` must keep PATH setup deterministic for shell installs:
+  - when install dir is missing from current `PATH`, update the operator shell profile idempotently using a managed marker block (not warning-only behavior)
+  - support profile override via `CLAWDENTITY_SHELL_PROFILE` for constrained/local test environments
+  - never duplicate PATH entries across repeated installs
 - Shell cleanup/trap paths must stay explicit `if ...; then ...; fi` blocks under `set -e`; do not rely on `[ ... ] && ...` tests that can flip successful installs into non-zero exits.
 - `skill.md` is generated output; never edit it by hand.
 - Generated `skill.md` must keep connector-runtime wording aligned with the source skill:

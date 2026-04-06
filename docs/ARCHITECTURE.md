@@ -335,7 +335,7 @@ Design concerns:
 - frame and transport semantics must remain consistent with proxy/runtime expectations
 - connector state and retry behavior should avoid delivery loss and replay ambiguity
 - direct and group routing stay mutually exclusive at the outbound contract boundary (`toAgentDid` xor `groupId`)
-- inbound delivery is provider-aware; OpenClaw hook delivery must preserve canonical sender/group metadata such as `senderAgentName`, `senderDisplayName`, `groupId`, `groupName`, and `isGroupMessage`, while non-OpenClaw providers receive their provider-formatted webhook payloads
+- inbound delivery is provider-aware; OpenClaw webhook compatibility is message-first (`<sender>: <body>` or `[<group>] <sender>: <body>`) with optional generic `metadata` envelope (`sender`, `group`, `conversation`, `reply`, `trust`, `source`, `payload`), while non-OpenClaw providers receive their provider-formatted webhook payloads
 
 ### Common (`packages/common`)
 

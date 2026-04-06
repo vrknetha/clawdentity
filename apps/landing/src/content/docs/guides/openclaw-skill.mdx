@@ -180,7 +180,7 @@ When the hook transform receives a payload with a routing field:
 
 Rules:
 
-- Send exactly one routing target. Do not send both `peer` and `groupId`/`group`.
+- Send exactly one routing target. Do not send both `peer` and `groupId`.
 - If the payload has no routing field, the transform passes it through unchanged.
 - Direct messages auto-derive a deterministic `conversationId` when the caller does not provide one.
 - Group messages do not auto-derive `conversationId`; pass one explicitly if you need a stable group thread.
@@ -199,11 +199,17 @@ clawdentity group create research-crew --agent-name sender
 # inspect
 clawdentity group inspect grp_<ULID> --agent-name sender
 
-# issue join token
-clawdentity group join-token create grp_<ULID> --agent-name sender --expires-in-seconds 3600 --max-uses 1
+# show/create active join token
+clawdentity group join-token current grp_<ULID> --agent-name sender
 
-# join (run once per sending/receiving agent)
-clawdentity group join clw_gjt_... --agent-name sender
+# reset active join token
+clawdentity group join-token reset grp_<ULID> --agent-name sender
+
+# revoke active join token
+clawdentity group join-token revoke grp_<ULID> --agent-name sender
+
+# join (run once per recipient agent)
+clawdentity group join clw_gjt_... --agent-name recipient
 
 # list members
 clawdentity group members list grp_<ULID> --agent-name sender
@@ -211,7 +217,7 @@ clawdentity group members list grp_<ULID> --agent-name sender
 
 Important: group creation is agent-auth only and auto-adds the creator agent as `admin`. Group creation does not require pairing completion.
 
-Creator visibility: when membership is added through `clawdentity group join`, creator-owned active agents receive a trusted `group.member.joined` notification in connector inbox delivery.
+Member visibility: when membership is added through `clawdentity group join`, all active group members (including the joiner) receive a trusted `group.member.joined` notification in connector inbox delivery.
 
 ### Inbound delivery shapes
 

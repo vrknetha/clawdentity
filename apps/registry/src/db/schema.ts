@@ -281,12 +281,10 @@ export const group_join_tokens = sqliteTable(
       .references(() => groups.id),
     token_hash: text("token_hash").notNull(),
     token_prefix: text("token_prefix").notNull(),
+    token_ciphertext: text("token_ciphertext").notNull(),
     role: text("role", { enum: ["member", "admin"] })
       .notNull()
       .default("member"),
-    max_uses: integer("max_uses").notNull().default(1),
-    used_count: integer("used_count").notNull().default(0),
-    expires_at: text("expires_at").notNull(),
     revoked_at: text("revoked_at"),
     issued_by: text("issued_by")
       .notNull()
@@ -298,6 +296,6 @@ export const group_join_tokens = sqliteTable(
     uniqueIndex("group_join_tokens_token_hash_unique").on(table.token_hash),
     index("idx_group_join_tokens_prefix").on(table.token_prefix),
     index("idx_group_join_tokens_group").on(table.group_id),
-    index("idx_group_join_tokens_expires").on(table.expires_at),
+    index("idx_group_join_tokens_revoked").on(table.revoked_at),
   ],
 );

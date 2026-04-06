@@ -3,16 +3,12 @@ import {
   AppError,
   type RegistryConfig,
   shouldExposeVerboseErrors,
-  toIso,
 } from "@clawdentity/sdk";
 
 const MAX_GROUP_NAME_LENGTH = 80;
 const GROUP_JOIN_TOKEN_MARKER = "clw_gjt_";
 const GROUP_JOIN_TOKEN_LOOKUP_ENTROPY_LENGTH = 8;
 const GROUP_JOIN_TOKEN_RANDOM_BYTES_LENGTH = 32;
-const DEFAULT_GROUP_JOIN_TOKEN_TTL_SECONDS = 60 * 60;
-const MAX_GROUP_JOIN_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
-const MAX_GROUP_JOIN_TOKEN_MAX_USES = 25;
 
 export const MAX_GROUP_MEMBERS = 25;
 
@@ -20,10 +16,7 @@ export type GroupCreatePayload = {
   name: string;
 };
 
-export type GroupJoinTokenIssuePayload = {
-  expiresAt: string;
-  maxUses: number;
-};
+export type GroupJoinTokenIssuePayload = Record<never, never>;
 
 export type GroupJoinPayload = {
   groupJoinToken: string;
@@ -157,7 +150,6 @@ export function parseGroupCreatePayload(input: {
 export function parseGroupJoinTokenIssuePayload(input: {
   payload: unknown;
   environment: RegistryConfig["ENVIRONMENT"];
-  nowMs: number;
 }): GroupJoinTokenIssuePayload {
   if (
     typeof input.payload !== "object" ||
@@ -178,44 +170,16 @@ export function parseGroupJoinTokenIssuePayload(input: {
   const payload = input.payload as Record<string, unknown>;
   const fieldErrors: Record<string, string[]> = {};
 
-  let expiresAt = toIso(
-    input.nowMs + DEFAULT_GROUP_JOIN_TOKEN_TTL_SECONDS * 1000,
-  );
   if (payload.expiresInSeconds !== undefined) {
-    if (
-      typeof payload.expiresInSeconds !== "number" ||
-      !Number.isInteger(payload.expiresInSeconds)
-    ) {
-      fieldErrors.expiresInSeconds = ["expiresInSeconds must be an integer"];
-    } else if (
-      payload.expiresInSeconds < 60 ||
-      payload.expiresInSeconds > MAX_GROUP_JOIN_TOKEN_TTL_SECONDS
-    ) {
-      fieldErrors.expiresInSeconds = [
-        `expiresInSeconds must be between 60 and ${MAX_GROUP_JOIN_TOKEN_TTL_SECONDS}`,
-      ];
-    } else {
-      expiresAt = toIso(input.nowMs + payload.expiresInSeconds * 1000);
-    }
+    fieldErrors.expiresInSeconds = [
+      "expiresInSeconds is not supported; active group join tokens do not expire",
+    ];
   }
 
-  let maxUses = 1;
   if (payload.maxUses !== undefined) {
-    if (
-      typeof payload.maxUses !== "number" ||
-      !Number.isInteger(payload.maxUses)
-    ) {
-      fieldErrors.maxUses = ["maxUses must be an integer"];
-    } else if (
-      payload.maxUses < 1 ||
-      payload.maxUses > MAX_GROUP_JOIN_TOKEN_MAX_USES
-    ) {
-      fieldErrors.maxUses = [
-        `maxUses must be between 1 and ${MAX_GROUP_JOIN_TOKEN_MAX_USES}`,
-      ];
-    } else {
-      maxUses = payload.maxUses;
-    }
+    fieldErrors.maxUses = [
+      "maxUses is not supported; active group join tokens are reusable",
+    ];
   }
 
   if (payload.role !== undefined) {
@@ -229,10 +193,7 @@ export function parseGroupJoinTokenIssuePayload(input: {
     });
   }
 
-  return {
-    expiresAt,
-    maxUses,
-  };
+  return {};
 }
 
 export function parseGroupJoinPayload(input: {

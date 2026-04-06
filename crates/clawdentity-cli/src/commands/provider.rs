@@ -5,6 +5,7 @@ use anyhow::{Result, anyhow};
 use clawdentity_core::{
     ProviderDoctorOptions, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestStatus,
     ProviderSetupOptions, ProviderSetupStatus, all_providers, detect_platform, get_provider,
+    read_provider_agent_marker, resolve_state_dir,
 };
 
 use crate::commands::ProviderCommand;
@@ -161,6 +162,8 @@ pub(crate) fn execute_provider_command(
                     anyhow!("unknown platform `{platform}`. Available: {available}")
                 })?;
                 let detection = provider.detect();
+                let selected_agent =
+                    resolve_selected_agent_for_provider(home_dir.clone(), provider.name());
                 if json {
                     println!(
                         "{}",
@@ -170,6 +173,7 @@ pub(crate) fn execute_provider_command(
                             "detected": detection.detected,
                             "confidence": detection.confidence,
                             "evidence": detection.evidence,
+                            "selectedAgent": selected_agent,
                             "defaultWebhookHost": provider.default_webhook_host(),
                             "defaultWebhookPort": provider.default_webhook_port(),
                             "configPath": provider.config_path().map(|path| path.to_string_lossy().to_string()),
@@ -191,6 +195,10 @@ pub(crate) fn execute_provider_command(
                         provider.default_webhook_host(),
                         provider.default_webhook_port()
                     );
+                    println!(
+                        "Selected agent: {}",
+                        selected_agent.as_deref().unwrap_or("(none)")
+                    );
                     if let Some(config_path) = provider.config_path() {
                         println!("Config path: {}", config_path.display());
                     }
@@ -204,6 +212,8 @@ pub(crate) fn execute_provider_command(
                 }
             } else if let Some(provider) = detect_platform() {
                 let detection = provider.detect();
+                let selected_agent =
+                    resolve_selected_agent_for_provider(home_dir.clone(), provider.name());
                 if json {
                     println!(
                         "{}",
@@ -212,6 +222,7 @@ pub(crate) fn execute_provider_command(
                             "displayName": provider.display_name(),
                             "confidence": detection.confidence,
                             "evidence": detection.evidence,
+                            "selectedAgent": selected_agent,
                             "defaultWebhookHost": provider.default_webhook_host(),
                             "defaultWebhookPort": provider.default_webhook_port(),
                             "configPath": provider.config_path().map(|path| path.to_string_lossy().to_string()),
@@ -224,6 +235,10 @@ pub(crate) fn execute_provider_command(
                         provider.name()
                     );
                     println!("Confidence: {:.2}", detection.confidence);
+                    println!(
+                        "Selected agent: {}",
+                        selected_agent.as_deref().unwrap_or("(none)")
+                    );
                     for evidence in detection.evidence {
                         println!("- {evidence}");
                     }
@@ -274,5 +289,43 @@ fn prompt_optional(prompt: &str) -> Result<Option<String>> {
         Ok(None)
     } else {
         Ok(Some(value))
+    }
+}
+
+fn resolve_selected_agent_for_provider(
+    home_dir: Option<PathBuf>,
+    provider: &str,
+) -> Option<String> {
+    let state_dir = resolve_state_dir(home_dir).ok()?;
+    read_provider_agent_marker(&state_dir, provider)
+        .ok()
+        .flatten()
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::resolve_selected_agent_for_provider;
+
+    #[test]
+    fn selected_agent_returns_none_when_marker_missing() {
+        let home = tempdir().expect("tempdir");
+        let selected =
+            resolve_selected_agent_for_provider(Some(home.path().to_path_buf()), "openclaw");
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn selected_agent_reads_provider_marker_when_present() {
+        let home = tempdir().expect("tempdir");
+        let state_dir = clawdentity_core::resolve_state_dir(Some(home.path().to_path_buf()))
+            .expect("state dir");
+        clawdentity_core::write_provider_agent_marker(&state_dir, "openclaw", "alpha-local")
+            .expect("write marker");
+
+        let selected =
+            resolve_selected_agent_for_provider(Some(home.path().to_path_buf()), "openclaw");
+        assert_eq!(selected.as_deref(), Some("alpha-local"));
     }
 }

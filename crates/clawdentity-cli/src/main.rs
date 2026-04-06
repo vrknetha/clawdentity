@@ -82,7 +82,7 @@ async fn run(cli: Cli) -> Result<()> {
                     if config.human_name.is_some() || config.api_key.is_some() =>
                 {
                     let human_name = config.human_name.as_deref().unwrap_or("unknown");
-                    let message = "Modern onboarding is complete, but no legacy root identity exists for this state. Use `agent inspect <name>` for agent DID details or run `clawdentity init` if you need a local human identity.";
+                    let message = "Modern onboarding is complete, but no local root identity is initialized for this state. Use `agent inspect <name>` for agent DID details, or run `clawdentity init` only if you explicitly need a local human identity.";
                     if cli.json {
                         println!(
                             "{}",

@@ -64,6 +64,8 @@ export {
 export type { ProtocolParseErrorCode } from "./errors.js";
 export { ProtocolParseError } from "./errors.js";
 export type {
+  GroupMemberJoinedAgent,
+  GroupMemberJoinedAgentStatus,
   GroupMemberJoinedEventData,
   GroupMemberJoinedRole,
 } from "./group-member-joined-events.js";

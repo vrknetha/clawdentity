@@ -29,15 +29,12 @@ describe("group-lifecycle", () => {
   });
 
   it("parses join token issue payload defaults", () => {
-    const nowMs = 1_700_000_000_000;
     const parsed = parseGroupJoinTokenIssuePayload({
       payload: {},
       environment: "local",
-      nowMs,
     });
 
-    expect(parsed.maxUses).toBe(1);
-    expect(typeof parsed.expiresAt).toBe("string");
+    expect(parsed).toEqual({});
   });
 
   it("rejects role in join token issue payload", () => {
@@ -45,7 +42,6 @@ describe("group-lifecycle", () => {
       parseGroupJoinTokenIssuePayload({
         payload: { role: "admin" },
         environment: "local",
-        nowMs: Date.now(),
       });
       throw new Error("Expected parseGroupJoinTokenIssuePayload to throw");
     } catch (error) {
@@ -53,12 +49,11 @@ describe("group-lifecycle", () => {
     }
   });
 
-  it("enforces token maxUses cap aligned to group member limit", () => {
+  it("rejects maxUses in join token issue payload", () => {
     try {
       parseGroupJoinTokenIssuePayload({
         payload: { maxUses: MAX_GROUP_MEMBERS + 1 },
         environment: "local",
-        nowMs: Date.now(),
       });
       throw new Error("Expected parseGroupJoinTokenIssuePayload to throw");
     } catch (error) {

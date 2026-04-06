@@ -89,6 +89,12 @@ function toNotificationPayload(data: GroupMemberJoinedEventData) {
     groupName: data.groupName,
     joinedAgentDid: data.joinedAgentDid,
     joinedAgentName: data.joinedAgentName,
+    joinedAgent: {
+      displayName: data.joinedAgent.displayName,
+      framework: data.joinedAgent.framework,
+      humanDid: data.joinedAgent.humanDid,
+      status: data.joinedAgent.status,
+    },
     role: data.role,
     joinedAt: data.joinedAt,
   };
@@ -108,6 +114,7 @@ export async function handleGroupMemberJoinedQueueEvent(input: {
     senderAgentDid: input.event.data.joinedAgentDid,
     recipientAgentDid: input.event.data.recipientAgentDid,
     deliverySource: GROUP_MEMBER_JOINED_TRUSTED_DELIVERY_SOURCE,
+    groupId: input.event.data.groupId,
     payload: toNotificationPayload(input.event.data),
   });
 }

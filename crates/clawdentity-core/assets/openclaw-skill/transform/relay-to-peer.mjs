@@ -14530,35 +14530,32 @@ function parseRoutingString(input) {
   return trimmed;
 }
 function resolveRelayRoute(payload) {
+  if (payload.group !== void 0) {
+    throw new Error("group is not supported; use groupId");
+  }
   const peerAlias = parseRoutingString({
     payload,
     field: "peer",
     label: "peer"
   });
-  const explicitGroupId = parseRoutingString({
+  const groupId = parseRoutingString({
     payload,
     field: "groupId",
     label: "groupId"
   });
-  const fallbackGroupId = parseRoutingString({
-    payload,
-    field: "group",
-    label: "group"
-  });
-  const rawGroupId = explicitGroupId ?? fallbackGroupId;
-  if (peerAlias && rawGroupId) {
-    throw new Error("Provide either peer or groupId/group, not both");
+  if (peerAlias && groupId) {
+    throw new Error("Provide either peer or groupId, not both");
   }
-  if (rawGroupId) {
-    let groupId;
+  if (groupId) {
+    let normalizedGroupId;
     try {
-      groupId = parseGroupId(rawGroupId);
+      normalizedGroupId = parseGroupId(groupId);
     } catch {
       throw new Error("groupId must be a valid group ID");
     }
     return {
       mode: "group",
-      groupId
+      groupId: normalizedGroupId
     };
   }
   if (peerAlias) {

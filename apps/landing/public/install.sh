@@ -6,6 +6,8 @@ DEFAULT_DOWNLOADS_BASE_URL="https://downloads.clawdentity.com"
 DEFAULT_SITE_BASE_URL="https://clawdentity.com"
 DEFAULT_RELEASE_MANIFEST_PATH="/rust/latest.json"
 DEFAULT_LOCAL_RELEASE_MANIFEST_PATH="/rust/latest-local.json"
+PATH_MARKER_BEGIN="# >>> clawdentity installer PATH >>>"
+PATH_MARKER_END="# <<< clawdentity installer PATH <<<"
 
 DRY_RUN="${CLAWDENTITY_INSTALL_DRY_RUN:-0}"
 NO_VERIFY="${CLAWDENTITY_NO_VERIFY:-0}"
@@ -40,6 +42,104 @@ fail() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+resolve_shell_profile_path() {
+  if [ -n "${CLAWDENTITY_SHELL_PROFILE:-}" ]; then
+    printf '%s\n' "$CLAWDENTITY_SHELL_PROFILE"
+    return 0
+  fi
+
+  if [ -z "${HOME:-}" ]; then
+    return 1
+  fi
+
+  case "${SHELL:-}" in
+    */zsh)
+      if [ -n "${ZDOTDIR:-}" ]; then
+        printf '%s\n' "${ZDOTDIR}/.zshrc"
+      else
+        printf '%s\n' "${HOME}/.zshrc"
+      fi
+      return 0
+      ;;
+    */bash)
+      printf '%s\n' "${HOME}/.bashrc"
+      return 0
+      ;;
+    *)
+      printf '%s\n' "${HOME}/.profile"
+      return 0
+      ;;
+  esac
+}
+
+ensure_install_dir_in_shell_profile() {
+  install_dir="$1"
+  profile_path="$2"
+
+  profile_dir="$(dirname "$profile_path")"
+  mkdir -p "$profile_dir"
+  if [ ! -f "$profile_path" ]; then
+    : > "$profile_path"
+  fi
+
+  tmp_profile="$(mktemp)"
+  if grep -F "$PATH_MARKER_BEGIN" "$profile_path" >/dev/null 2>&1; then
+    awk -v begin="$PATH_MARKER_BEGIN" -v end="$PATH_MARKER_END" '
+      $0 == begin { skip = 1; next }
+      $0 == end { skip = 0; next }
+      skip != 1 { print }
+    ' "$profile_path" > "$tmp_profile"
+  else
+    cat "$profile_path" > "$tmp_profile"
+  fi
+
+  {
+    printf '%s\n' ""
+    printf '%s\n' "$PATH_MARKER_BEGIN"
+    printf '%s\n' "# Added by clawdentity install.sh so clawdentity is available in future shells."
+    printf '%s\n' "if [ -d \"$install_dir\" ]; then"
+    printf '%s\n' "  case \":\$PATH:\" in"
+    printf '%s\n' "    *:\"$install_dir\":*) ;;"
+    printf '%s\n' "    *) export PATH=\"$install_dir:\$PATH\" ;;"
+    printf '%s\n' "  esac"
+    printf '%s\n' "fi"
+    printf '%s\n' "$PATH_MARKER_END"
+  } >> "$tmp_profile"
+
+  mv "$tmp_profile" "$profile_path"
+}
+
+ensure_path_ready() {
+  install_dir="$1"
+  case ":${PATH:-}:" in
+    *":${install_dir}:"*) return 0 ;;
+  esac
+
+  if [ "$DRY_RUN" = "1" ]; then
+    profile_path="$(resolve_shell_profile_path || true)"
+    if [ -n "${profile_path:-}" ]; then
+      info "[dry-run] would ensure ${install_dir} is present in ${profile_path}"
+      info "[dry-run] would warn current shell to run: export PATH=\"${install_dir}:\$PATH\""
+    else
+      info "[dry-run] would warn ${install_dir} is not on PATH"
+    fi
+    return 0
+  fi
+
+  profile_path="$(resolve_shell_profile_path || true)"
+  if [ -z "${profile_path:-}" ]; then
+    warn "${install_dir} is not on PATH; set CLAWDENTITY_SHELL_PROFILE or add it manually"
+    return 0
+  fi
+
+  if ensure_install_dir_in_shell_profile "$install_dir" "$profile_path"; then
+    info "updated ${profile_path} so future shells include ${install_dir}"
+    warn "${install_dir} is not on PATH in this current shell; run: export PATH=\"${install_dir}:\$PATH\""
+  else
+    warn "failed to update ${profile_path}; add ${install_dir} to PATH manually"
+  fi
 }
 
 trim_trailing_slash() {
@@ -226,6 +326,7 @@ main() {
   need_cmd mktemp
   need_cmd awk
   need_cmd find
+  need_cmd grep
 
   detect_platform
 
@@ -330,10 +431,7 @@ main() {
 
   info "installed ${BIN_NAME} to ${target_path}"
   info "next step: use the onboarding prompt in ${skill_url}"
-  case ":${PATH:-}:" in
-    *":${INSTALL_DIR}:"*) ;;
-    *) warn "${INSTALL_DIR} is not on PATH; add it to your shell profile" ;;
-  esac
+  ensure_path_ready "$INSTALL_DIR"
 }
 
 main "$@"

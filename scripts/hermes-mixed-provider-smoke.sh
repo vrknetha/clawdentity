@@ -512,12 +512,11 @@ run() {
 
   join_token_create="$(
     run_container "${ALPHA_CONTAINER}" \
-      "clawdentity --json group join-token create '${group_id}' --agent-name '${ALPHA_AGENT_NAME}' --expires-in-seconds 3600 --max-uses 3"
+      "clawdentity --json group join-token current '${group_id}' --agent-name '${ALPHA_AGENT_NAME}'"
   )"
   join_token="$(printf '%s' "${join_token_create}" | jq -r '.groupJoinToken.token')"
-  [[ "${join_token}" == clw_gjt_* ]] || fail "Group join token create did not return a valid token"
+  [[ "${join_token}" == clw_gjt_* ]] || fail "Group join token current did not return a valid token"
 
-  run_container "${ALPHA_CONTAINER}" "clawdentity --json group join '${join_token}' --agent-name '${ALPHA_AGENT_NAME}'" >/dev/null
   run_container "${BETA_CONTAINER}" "clawdentity --json group join '${join_token}' --agent-name '${BETA_AGENT_NAME}'" >/dev/null
   run_host_json "${clawd_bin}" group join "${join_token}" --agent-name "${HERMES_AGENT_NAME}" >/dev/null
 

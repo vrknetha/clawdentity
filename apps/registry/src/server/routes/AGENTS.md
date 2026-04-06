@@ -19,7 +19,14 @@
 - Agent auth revoke events that proxy consumes must use shared protocol constants/helpers for event name/reason/metadata shape (`agent.auth.revoked`, `agent_revoked`, `metadata.agentDid`) rather than ad-hoc inline literals.
 - Any mutation guarded by row-count checks must call `getMutationRowCount` with an explicit operation identifier and rely on strict D1 `meta.changes` handling; do not add route-local fallback parsing for legacy mutation shapes.
 - Route modules must reference shared mutation-operation constants rather than inline operation strings when calling mutation row-count helpers.
-- Group-join token consumption must stay atomic (`used_count = used_count + 1` with a `used_count < max_uses` guard in the mutation `WHERE` clause); never rely on stale pre-read counters for token usage updates.
+- Group join tokens use one active reusable-token model per group:
+  - `POST /v1/groups/:id/join-tokens` returns the current active token (creating one if missing)
+  - `POST /v1/groups/:id/join-tokens/reset` rotates to a new active token
+  - `DELETE /v1/groups/:id/join-tokens/current` revokes without replacement
+  - keep request validation hash-based, but persist encrypted recoverable token material so "show current token" works after issuance
+  - `POST /v1/groups/:id/join-tokens` must normalize pre-existing multi-active state by revoking all other unrevoked rows and keeping at most one active token row
+  - `POST /v1/groups/:id/join-tokens/reset` must create the replacement token before revoking old active rows, and transaction/fallback logic must prevent a failed replacement insert from leaving the group with zero active tokens
+  - join-token current/reset routes depend on migration `0007_group_join_tokens_active_current.sql`; if `token_ciphertext` is missing, return a controlled `CONFIG_VALIDATION_FAILED` error (never opaque SQL/internal failure)
 - Group member-cap enforcement must run inside the same join mutation unit as the member insert (transaction path or guarded insert), not as a pre-check outside the write path.
 - Route handlers that expect JSON request bodies must treat malformed JSON as client input errors (4xx) and must not silently coerce parse failures into default payloads that trigger mutations.
 - When a route supports both PAT and non-PAT auth (for example PAT-or-agent flows), reuse the shared auth resolver from `src/auth/` instead of re-implementing PAT hash/lookup logic in route modules.
@@ -33,8 +40,8 @@
   - `POST /v1/groups` must write both rows in the create path: `groups` + creator `group_members` row with `role=admin`.
   - Group-create auth must run before payload parsing so unauthenticated requests fail as auth errors, not payload-shape errors.
   - `POST /v1/groups/:id/join-tokens` remains manageable by allowed actors, but join-token issuance is member-only:
-    - reject payloads that include `role`
-    - persist issued tokens with `role=member`
+    - reject payloads that include `role`, `maxUses`, or `expiresInSeconds`
+    - persist tokens as reusable active-member tokens (no expiry/usage-cap semantics)
   - For agent-auth manage actions, allow only creator-owner agents.
   - For agent-auth reads, allow creator-owner agents or active group members.
-- Successful `POST /v1/groups/join` membership inserts should trigger best-effort creator-facing notification fan-out through helper-level event-bus publishing; do not inline queue payload construction in route handlers.
+- Successful `POST /v1/groups/join` membership inserts should trigger best-effort member-wide notification fan-out (all active group members, including the joiner) through helper-level event-bus publishing; do not inline queue payload construction in route handlers.

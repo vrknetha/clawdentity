@@ -493,10 +493,7 @@ describe("POST /v1/groups/:id/join-tokens", () => {
           Authorization: `Bearer ${token}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          expiresInSeconds: 3600,
-          maxUses: 1,
-        }),
+        body: JSON.stringify({}),
       },
       {
         DB: database,
@@ -524,8 +521,7 @@ describe("POST /v1/groups/:id/join-tokens", () => {
       agentDid,
       aitJti,
       body: {
-        expiresInSeconds: 3600,
-        maxUses: 1,
+        // active join-token issue accepts empty payload and returns current token
       },
     });
     const { database } = createFakeDb(
@@ -590,8 +586,7 @@ describe("POST /v1/groups/:id/join-tokens", () => {
       agentDid,
       aitJti,
       body: {
-        expiresInSeconds: 3600,
-        maxUses: 1,
+        // active join-token issue accepts empty payload and returns current token
       },
     });
     const { database } = createFakeDb(
@@ -667,8 +662,6 @@ describe("POST /v1/groups/:id/join-tokens", () => {
         },
         body: JSON.stringify({
           role: "admin",
-          expiresInSeconds: 3600,
-          maxUses: 1,
         }),
       },
       {
@@ -681,5 +674,123 @@ describe("POST /v1/groups/:id/join-tokens", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("GROUP_JOIN_TOKEN_ISSUE_INVALID");
+  });
+
+  it("returns explicit config error when join-token schema migration is missing", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const { database: baseDatabase } = createFakeDb([authRow], [], {
+      groupRows: [
+        {
+          id: groupId,
+          name: "alpha squad",
+          createdBy: authRow.humanId,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const database = {
+      prepare(query: string) {
+        const normalizedQuery = query.toLowerCase();
+        if (
+          normalizedQuery.includes('from "group_join_tokens"') &&
+          normalizedQuery.includes("token_ciphertext")
+        ) {
+          throw new Error("no such column: group_join_tokens.token_ciphertext");
+        }
+        return baseDatabase.prepare(query);
+      },
+    } as D1Database;
+
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/join-tokens`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("CONFIG_VALIDATION_FAILED");
+    expect(body.error.message).toContain(
+      "0007_group_join_tokens_active_current.sql",
+    );
+  });
+});
+
+describe("POST /v1/groups/:id/join-tokens/reset", () => {
+  it("does not revoke active tokens when replacement insert fails", async () => {
+    const { token, authRow } = await makeValidPatContext();
+    const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
+    const { database: baseDatabase } = createFakeDb([authRow], [], {
+      failBeginTransaction: true,
+      groupRows: [
+        {
+          id: groupId,
+          name: "alpha squad",
+          createdBy: authRow.humanId,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    const executedQueries: string[] = [];
+    const database = {
+      prepare(query: string) {
+        const normalizedQuery = query.toLowerCase();
+        executedQueries.push(normalizedQuery);
+        if (
+          normalizedQuery.includes('insert into "group_join_tokens"') ||
+          normalizedQuery.includes("insert into group_join_tokens")
+        ) {
+          throw new Error("group join token insert failed");
+        }
+        return baseDatabase.prepare(query);
+      },
+    } as D1Database;
+
+    const res = await createRegistryApp().request(
+      `/v1/groups/${groupId}/join-tokens/reset`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+      {
+        DB: database,
+        ENVIRONMENT: "local",
+        BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
+        BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
+      },
+    );
+
+    expect(res.status).toBe(500);
+    expect(
+      executedQueries.some(
+        (query) =>
+          (query.includes('update "group_join_tokens"') ||
+            query.includes("update group_join_tokens")) &&
+          query.includes("revoked_at"),
+      ),
+    ).toBe(false);
   });
 });

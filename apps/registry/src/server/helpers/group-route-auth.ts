@@ -10,6 +10,7 @@ export type ActiveGroupRouteAgent = {
   id: string;
   did: string;
   name: string;
+  framework: string | null;
   ownerId: string;
   status: "active";
   currentJti: string | null;
@@ -63,6 +64,7 @@ export async function assertAgentIsActiveCurrent(input: {
       id: agents.id,
       did: agents.did,
       name: agents.name,
+      framework: agents.framework,
       ownerId: agents.owner_id,
       status: agents.status,
       currentJti: agents.current_jti,

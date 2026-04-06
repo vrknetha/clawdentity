@@ -2,8 +2,9 @@ use anyhow::Result;
 use clap::Subcommand;
 use clawdentity_core::{
     ConfigPathOptions, GroupCreateInput, GroupInspectInput, GroupJoinInput,
-    GroupJoinTokenCreateInput, GroupMembersListInput, GroupRole, create_group,
-    create_group_join_token, inspect_group, join_group, list_group_members,
+    GroupJoinTokenCreateInput, GroupJoinTokenResetInput, GroupJoinTokenRevokeInput,
+    GroupMembersListInput, GroupRole, create_group, create_group_join_token, inspect_group,
+    join_group, list_group_members, reset_group_join_token, revoke_group_join_token,
 };
 
 #[derive(Debug, Subcommand)]
@@ -35,14 +36,20 @@ pub enum GroupCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum GroupJoinTokenCommand {
-    Create {
+    Current {
         group_id: String,
         #[arg(long)]
         agent_name: String,
+    },
+    Reset {
+        group_id: String,
         #[arg(long)]
-        expires_in_seconds: Option<u32>,
+        agent_name: String,
+    },
+    Revoke {
+        group_id: String,
         #[arg(long)]
-        max_uses: Option<u32>,
+        agent_name: String,
     },
 }
 
@@ -117,31 +124,95 @@ async fn execute_group_join_token_create(
     input: GroupJoinTokenCommand,
     json: bool,
 ) -> Result<()> {
-    let GroupJoinTokenCommand::Create {
-        group_id,
-        agent_name,
-        expires_in_seconds,
-        max_uses,
-    } = input;
+    match input {
+        GroupJoinTokenCommand::Current {
+            group_id,
+            agent_name,
+        } => execute_group_join_token_current(options, group_id, agent_name, json).await,
+        GroupJoinTokenCommand::Reset {
+            group_id,
+            agent_name,
+        } => execute_group_join_token_reset(options, group_id, agent_name, json).await,
+        GroupJoinTokenCommand::Revoke {
+            group_id,
+            agent_name,
+        } => execute_group_join_token_revoke(options, group_id, agent_name, json).await,
+    }
+}
 
+async fn execute_group_join_token_current(
+    options: &ConfigPathOptions,
+    group_id: String,
+    agent_name: String,
+    json: bool,
+) -> Result<()> {
     let result = create_group_join_token(
         options,
         GroupJoinTokenCreateInput {
             agent_name,
             group_id,
-            expires_in_seconds,
-            max_uses,
         },
     )
     .await
     .map_err(anyhow::Error::from)?;
     print_json_or_human(json, &result, |value| {
-        println!("Group join token created");
+        println!("Current group join token");
         println!("Token: {}", value.group_join_token.token);
         println!("Group ID: {}", value.group_join_token.group_id);
         println!("Role: {}", role_label(value.group_join_token.role));
-        println!("Max Uses: {}", value.group_join_token.max_uses);
-        println!("Expires At: {}", value.group_join_token.expires_at);
+        println!("Created At: {}", value.group_join_token.created_at);
+    })
+}
+
+async fn execute_group_join_token_reset(
+    options: &ConfigPathOptions,
+    group_id: String,
+    agent_name: String,
+    json: bool,
+) -> Result<()> {
+    let result = reset_group_join_token(
+        options,
+        GroupJoinTokenResetInput {
+            agent_name,
+            group_id,
+        },
+    )
+    .await
+    .map_err(anyhow::Error::from)?;
+    print_json_or_human(json, &result, |value| {
+        println!("Group join token reset");
+        println!("Token: {}", value.group_join_token.token);
+        println!("Group ID: {}", value.group_join_token.group_id);
+        println!("Role: {}", role_label(value.group_join_token.role));
+        println!("Created At: {}", value.group_join_token.created_at);
+    })
+}
+
+async fn execute_group_join_token_revoke(
+    options: &ConfigPathOptions,
+    group_id: String,
+    agent_name: String,
+    json: bool,
+) -> Result<()> {
+    let result = revoke_group_join_token(
+        options,
+        GroupJoinTokenRevokeInput {
+            agent_name,
+            group_id,
+        },
+    )
+    .await
+    .map_err(anyhow::Error::from)?;
+    print_json_or_human(json, &result, |value| {
+        println!(
+            "{}",
+            if value.revoked {
+                "Group join token revoked"
+            } else {
+                "No active group join token"
+            }
+        );
+        println!("Group ID: {}", value.group_id);
     })
 }
 
@@ -197,7 +268,17 @@ async fn execute_group_members(
             println!("- none");
         }
         for member in &value.members {
-            println!("- {} ({})", member.agent_did, role_label(member.role));
+            println!(
+                "- {} / {} ({})",
+                member.display_name,
+                member.agent_name,
+                role_label(member.role)
+            );
+            println!("  DID: {}", member.agent_did);
+            println!("  Human DID: {}", member.human_did);
+            println!("  Framework: {}", member.framework);
+            println!("  Status: {}", member.status);
+            println!("  Joined At: {}", member.joined_at);
         }
     })
 }

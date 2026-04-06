@@ -10,8 +10,8 @@ LOCAL_OPENCLAW_POLICY_FILE="${LOCAL_OPENCLAW_POLICY_FILE:-$LOCAL_PROFILE_DIR/ope
 LOCAL_EXEC_APPROVALS_FILE="${LOCAL_EXEC_APPROVALS_FILE:-$LOCAL_PROFILE_DIR/exec-approvals.json}"
 HOST_CODEX_AUTH_FILE="${HOST_CODEX_AUTH_FILE:-$HOME/.codex/auth.json}"
 LOCAL_OPENCLAW_MODEL="${LOCAL_OPENCLAW_MODEL:-}"
-OPENCLAW_PRIMARY_MODEL="${OPENCLAW_PRIMARY_MODEL:-${LOCAL_OPENCLAW_MODEL:-openrouter/moonshotai/kimi-k2.5}}"
-OPENCLAW_FALLBACK_MODEL="${OPENCLAW_FALLBACK_MODEL:-openai-codex/gpt-5.4}"
+OPENCLAW_PRIMARY_MODEL="${OPENCLAW_PRIMARY_MODEL:-${LOCAL_OPENCLAW_MODEL:-openai-codex/gpt-5.4}}"
+OPENCLAW_FALLBACK_MODEL="${OPENCLAW_FALLBACK_MODEL:-openrouter/moonshotai/kimi-k2.5}"
 
 load_dotenv() {
   local env_file="$1"
@@ -46,6 +46,15 @@ BETA_EXPECTED_AGENT_NAME="${BETA_EXPECTED_AGENT_NAME:-beta-local}"
 CLAWDENTITY_SITE_BASE_URL="${CLAWDENTITY_SITE_BASE_URL:-http://localhost:4321}"
 DOCKER_SITE_BASE_URL="${DOCKER_SITE_BASE_URL:-http://host.docker.internal:4321}"
 HOST_SITE_BASE_URL="${HOST_SITE_BASE_URL:-$CLAWDENTITY_SITE_BASE_URL}"
+PUBLIC_SITE_BASE_URL="${PUBLIC_SITE_BASE_URL:-}"
+WEB_FETCH_SKILL_URL="${WEB_FETCH_SKILL_URL:-}"
+if [[ -z "$WEB_FETCH_SKILL_URL" ]]; then
+  if [[ -n "$PUBLIC_SITE_BASE_URL" ]]; then
+    WEB_FETCH_SKILL_URL="${PUBLIC_SITE_BASE_URL%/}/skill.md"
+  else
+    WEB_FETCH_SKILL_URL="${HOST_SITE_BASE_URL%/}/skill.md"
+  fi
+fi
 DOCKER_REGISTRY_URL="${DOCKER_REGISTRY_URL:-http://host.docker.internal:8788}"
 DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-http://host.docker.internal:8787}"
 HOST_REGISTRY_URL="${HOST_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://127.0.0.1:8788}}"
@@ -168,6 +177,16 @@ require_http_ok() {
   local url="$1"
   local label="$2"
   curl -fsS --max-time 5 "$url" >/dev/null 2>&1 || fail "${label} check failed: ${url}"
+}
+
+validate_public_web_fetch_url() {
+  [[ -n "$PUBLIC_SITE_BASE_URL" ]] || return 0
+
+  local status_code
+  status_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$WEB_FETCH_SKILL_URL" || true)"
+  if [[ ! "$status_code" =~ ^2[0-9][0-9]$ ]]; then
+    fail "PUBLIC_SITE_BASE_URL validation failed for WEB_FETCH_SKILL_URL=${WEB_FETCH_SKILL_URL} (status=${status_code:-unknown}). localtunnel can reject bot fetches with HTTP 400; provide a public /skill.md URL that returns 2xx."
+  fi
 }
 
 require_container_http_ok() {
@@ -781,6 +800,37 @@ write_gateway_defaults() {
         ...(typeof cfg.tools.exec === "object" && cfg.tools.exec !== null ? cfg.tools.exec : {}),
         ...(openclawPolicy.tools?.exec || {}),
       };
+      const normalizeToolEntry = (entry) =>
+        typeof entry === "string" ? entry.trim().toLowerCase() : "";
+      const toToolList = (value) => {
+        if (Array.isArray(value)) {
+          return value.filter((entry) => typeof entry === "string" && entry.trim().length > 0);
+        }
+        if (typeof value === "string" && value.trim().length > 0) {
+          return [value.trim()];
+        }
+        return null;
+      };
+      const blockedEntries = new Set(["web_fetch", "group:web"]);
+      const denyList = toToolList(cfg.tools.deny);
+      if (denyList !== null) {
+        cfg.tools.deny = denyList.filter((entry) => !blockedEntries.has(normalizeToolEntry(entry)));
+      }
+      const allowList = toToolList(cfg.tools.allow);
+      if (allowList !== null) {
+        const hasWebAccess = allowList.some((entry) => blockedEntries.has(normalizeToolEntry(entry)));
+        cfg.tools.allow = hasWebAccess ? allowList : [...allowList, "group:web"];
+      }
+      cfg.tools.web = {
+        ...(typeof cfg.tools.web === "object" && cfg.tools.web !== null ? cfg.tools.web : {}),
+      };
+      cfg.tools.web.fetch = {
+        ...(typeof cfg.tools.web.fetch === "object" && cfg.tools.web.fetch !== null
+          ? cfg.tools.web.fetch
+          : {}),
+        ...(openclawPolicy.tools?.web?.fetch || {}),
+        enabled: true,
+      };
       cfg.browser = cfg.browser || {};
       cfg.browser.ssrfPolicy = {
         ...(typeof cfg.browser.ssrfPolicy === "object" && cfg.browser.ssrfPolicy !== null
@@ -1001,6 +1051,7 @@ run() {
   build_local_clawdentity_cli
   sync_local_release_manifest
   resolve_latest_clawdentity_version
+  validate_public_web_fetch_url
   verify_host_stack_dependencies
 
   tmp_dir="$(mktemp -d)"
@@ -1051,6 +1102,7 @@ run() {
   start_device_pairing_autoapprove "$BETA_CONTAINER" "$DEVICE_AUTO_APPROVE_SECONDS"
 
   print_urls
+  echo "web_fetch_skill_url=${WEB_FETCH_SKILL_URL}"
 
   printf 'alpha_sessions=%s\n' "$(find "$OPENCLAW_ALPHA_HOME/agents/main/sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
   printf 'beta_sessions=%s\n' "$(find "$OPENCLAW_BETA_HOME/agents/main/sessions" -type f 2>/dev/null | wc -l | tr -d ' ')"
