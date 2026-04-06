@@ -63,11 +63,15 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     const config = getConfig(c.env);
     const bodyBytes = await readRequestBodyBytes(c.req.raw);
     const db = createDb(c.env.DB);
-    const actor = await resolveGroupRouteAuthActor({
-      db,
+    const claims = await verifyAgentClawRequest({
       config,
       request: c.req.raw,
       bodyBytes,
+    });
+    const creatorAgent = await assertAgentIsActiveCurrent({
+      db,
+      agentDid: claims.sub,
+      aitJti: claims.jti,
     });
 
     const payload = parseJsonBodyFromBytes({
@@ -82,21 +86,40 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
     const nowMs = nowUtcMs();
     const createdAt = nowIso();
     const groupId = `grp_${generateUlid(nowMs)}`;
+    const applyCreateMutation = async (executor: typeof db) => {
+      await executor.insert(groups).values({
+        id: groupId,
+        name: parsedPayload.name,
+        created_by: creatorAgent.ownerId,
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+      await executor.insert(group_members).values({
+        group_id: groupId,
+        agent_id: creatorAgent.id,
+        role: "admin",
+        joined_at: createdAt,
+        updated_at: createdAt,
+      });
+    };
 
-    await db.insert(groups).values({
-      id: groupId,
-      name: parsedPayload.name,
-      created_by: actor.humanId,
-      created_at: createdAt,
-      updated_at: createdAt,
-    });
+    try {
+      await db.transaction(async (tx) => {
+        await applyCreateMutation(tx as unknown as typeof db);
+      });
+    } catch (error) {
+      if (!isUnsupportedLocalTransactionError(error)) {
+        throw error;
+      }
+      await applyCreateMutation(db);
+    }
 
     return c.json(
       {
         group: {
           id: groupId,
           name: parsedPayload.name,
-          createdByHumanId: actor.humanId,
+          createdByHumanId: creatorAgent.ownerId,
           createdAt,
         },
       },
@@ -143,7 +166,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
       group_id: groupId,
       token_hash: tokenHash,
       token_prefix: tokenPrefix,
-      role: parsedPayload.role,
+      role: "member",
       max_uses: parsedPayload.maxUses,
       used_count: 0,
       expires_at: parsedPayload.expiresAt,
@@ -159,7 +182,7 @@ export function registerGroupRoutes(input: RegistryRouteDependencies): void {
           id: tokenId,
           token,
           groupId,
-          role: parsedPayload.role,
+          role: "member",
           maxUses: parsedPayload.maxUses,
           expiresAt: parsedPayload.expiresAt,
           createdAt,

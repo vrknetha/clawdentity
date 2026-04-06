@@ -101,6 +101,10 @@ describe("pair accepted queue events", () => {
         system?: {
           type?: string;
           message?: string;
+          responderProfile?: {
+            displayName?: string;
+            humanName?: string;
+          };
         };
       };
     };
@@ -115,5 +119,7 @@ describe("pair accepted queue events", () => {
     expect(payload.payload?.system?.message).toBe(
       PAIR_ACCEPTED_NOTIFICATION_MESSAGE,
     );
+    expect(payload.payload?.system?.responderProfile?.displayName).toBe("Ira");
+    expect(payload.payload?.system?.responderProfile?.humanName).toBe("Ira");
   });
 });

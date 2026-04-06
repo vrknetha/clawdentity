@@ -15,5 +15,6 @@
   - group IDs via shared DID helpers
   - join tokens with `clw_gjt_` marker
   - join-token issue bounds for `expiresInSeconds` and `maxUses`
+  - do not send join-token `role` input (member-only issue contract)
   - group-name max length enforcement must count Unicode characters, not UTF-8 byte length
 - Group member listing currently relies on the registry's server-side hard limit (`MAX_GROUP_MEMBERS = 25`); treat it as a bounded read until pagination is introduced.

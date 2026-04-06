@@ -41,7 +41,7 @@ use receipts::{ReceiptDispatchRuntime, start_receipt_outbox_worker};
 #[cfg(test)]
 use delivery::{
     build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
-    forward_deliver_to_openclaw, resolve_group_name_for_delivery,
+    forward_deliver_to_openclaw, forward_deliver_to_provider, resolve_group_name_for_delivery,
     resolve_sender_profile_for_delivery, should_dead_letter_after_failure,
 };
 #[cfg(test)]
@@ -102,13 +102,51 @@ pub(super) struct StartConnectorInput {
     bind: IpAddr,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct ProviderInboundRuntime {
+    pub provider: String,
+    pub display_name: String,
+    pub webhook_endpoint: String,
+    pub webhook_token: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) enum InboundDeliveryTarget {
+    Openclaw(OpenclawRuntimeConfig),
+    Provider(ProviderInboundRuntime),
+}
+
+impl InboundDeliveryTarget {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Openclaw(_) => "openclaw",
+            Self::Provider(_) => "provider",
+        }
+    }
+
+    fn platform_name(&self) -> &str {
+        match self {
+            Self::Openclaw(_) => "openclaw",
+            Self::Provider(runtime) => runtime.provider.as_str(),
+        }
+    }
+
+    fn display_name(&self) -> &str {
+        match self {
+            Self::Openclaw(_) => "OpenClaw",
+            Self::Provider(runtime) => runtime.display_name.as_str(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct ConnectorRuntimeConfig {
     agent_name: String,
     agent_did: String,
     config_dir: PathBuf,
     proxy_receipt_url: String,
     proxy_ws_url: String,
-    openclaw_runtime: OpenclawRuntimeConfig,
+    inbound_target: InboundDeliveryTarget,
     port: u16,
     bind: IpAddr,
 }
@@ -294,7 +332,7 @@ async fn start_connector_runtime(
         relay_sender: relay_sender.clone(),
         store: store.clone(),
         config_dir: runtime.config_dir.clone(),
-        openclaw_runtime: runtime.openclaw_runtime.clone(),
+        inbound_target: runtime.inbound_target.clone(),
         outbound_inflight: outbound_inflight.clone(),
         pending_receipt_notifications: pending_receipt_notifications.clone(),
     };
@@ -307,7 +345,7 @@ async fn start_connector_runtime(
         receipt_outbox,
         store: store.clone(),
         config_dir: runtime.config_dir.clone(),
-        openclaw_runtime: runtime.openclaw_runtime.clone(),
+        inbound_target: runtime.inbound_target.clone(),
         pending_receipt_notifications,
         shutdown_rx: shutdown_rx.clone(),
     });
@@ -333,6 +371,11 @@ async fn start_connector_runtime(
                 "agentName": runtime.agent_name,
                 "agentDid": runtime.agent_did,
                 "relay": runtime.proxy_ws_url,
+                "deliveryTarget": {
+                    "kind": runtime.inbound_target.kind(),
+                    "platform": runtime.inbound_target.platform_name(),
+                    "displayName": runtime.inbound_target.display_name(),
+                },
                 "outboundServer": format!("http://{}:{}", runtime.bind, runtime.port),
             }))?
         );
@@ -342,6 +385,11 @@ async fn start_connector_runtime(
             runtime.agent_name, runtime.agent_did
         );
         println!("Relay: {}", runtime.proxy_ws_url);
+        println!(
+            "Inbound delivery target: {} ({})",
+            runtime.inbound_target.display_name(),
+            runtime.inbound_target.platform_name()
+        );
         println!("Outbound server: http://{}:{}", runtime.bind, runtime.port);
     }
 

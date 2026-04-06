@@ -70,6 +70,10 @@
 - For route-limit tests, prefer `createRegistryApp({ rateLimit: ... })` overrides to keep tests deterministic without weakening production defaults.
 - When using fake D1 adapters in route tests, make select responses honor bound parameters, selected-column projection, and join semantics so query-shape regressions are caught.
 - Fake D1 join emulation should drop rows when `innerJoin` targets are missing so tests catch missing/incorrect joins instead of masking them with stubbed values.
+- Group v2 contract must stay strict:
+  - `POST /v1/groups` is agent-auth only
+  - create path auto-adds creator agent membership with `role=admin`
+  - join-token issue payload does not accept `role` (member-only issuance)
 
 ## GET /v1/agents Contract
 - Require PAT auth via `createApiKeyAuth`; only caller-owned agents may be returned.

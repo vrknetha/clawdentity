@@ -110,7 +110,6 @@ pub struct GroupInspectInput {
 pub struct GroupJoinTokenCreateInput {
     pub agent_name: String,
     pub group_id: String,
-    pub role: Option<GroupRole>,
     pub expires_in_seconds: Option<u32>,
     pub max_uses: Option<u32>,
 }
@@ -402,9 +401,6 @@ pub async fn create_group_join_token(
         &format!("{GROUPS_PATH}/{group_id}/join-tokens"),
     )?;
     let mut request_body = serde_json::Map::new();
-    if let Some(role) = input.role {
-        request_body.insert("role".to_string(), serde_json::to_value(role)?);
-    }
     if let Some(seconds) = expires_in_seconds {
         request_body.insert(
             "expiresInSeconds".to_string(),
@@ -651,7 +647,6 @@ mod tests {
             GroupJoinTokenCreateInput {
                 agent_name: "alpha".to_string(),
                 group_id: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7".to_string(),
-                role: Some(GroupRole::Member),
                 expires_in_seconds: Some(59),
                 max_uses: None,
             },
@@ -665,7 +660,6 @@ mod tests {
             GroupJoinTokenCreateInput {
                 agent_name: "alpha".to_string(),
                 group_id: "grp_01HF7YAT31JZHSMW1CG6Q6MHB7".to_string(),
-                role: Some(GroupRole::Member),
                 expires_in_seconds: None,
                 max_uses: Some(26),
             },

@@ -13,12 +13,15 @@ use clawdentity_core::{
     SignHttpRequestInput, build_relay_connect_headers, fetch_group_member_dids_with_agent_auth,
     fetch_group_name_with_agent_auth,
     fetch_registry_agent_profile as fetch_registry_agent_profile_with_agent_auth,
-    fetch_registry_metadata, load_connector_assignments, new_frame_id, parse_agent_did,
-    parse_group_id, refresh_agent_auth, resolve_openclaw_base_url, resolve_openclaw_hook_token,
-    sign_http_request,
+    fetch_registry_metadata, get_provider, load_agent_provider_runtime, load_connector_assignments,
+    new_frame_id, parse_agent_did, parse_group_id, refresh_agent_auth, resolve_openclaw_base_url,
+    resolve_openclaw_hook_token, sign_http_request,
 };
 
-use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
+use super::{
+    ConnectorRuntimeConfig, InboundDeliveryTarget, ProviderInboundRuntime, StartConnectorInput,
+    env_trimmed, normalize_hook_path,
+};
 
 const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
@@ -127,6 +130,7 @@ struct ConnectorRuntimeInputs {
     config_dir: PathBuf,
     agent_auth: AgentAuthRecord,
     agent_did: String,
+    framework: String,
     ait: String,
     secret_key: String,
 }
@@ -145,8 +149,7 @@ pub(super) async fn resolve_runtime_config(
     .await?;
     let proxy_receipt_url = resolve_proxy_receipt_url(&proxy_ws_url)?;
     let config_dir = runtime_inputs.config_dir.clone();
-    let target_agent_id =
-        resolve_openclaw_target_agent_id(&runtime_inputs.config_dir, &input.agent_name)?;
+    let inbound_target = resolve_inbound_delivery_target(options, &runtime_inputs, &input)?;
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
@@ -154,7 +157,34 @@ pub(super) async fn resolve_runtime_config(
         config_dir,
         proxy_receipt_url,
         proxy_ws_url,
-        openclaw_runtime: clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig {
+        inbound_target,
+        port: input.port,
+        bind: input.bind,
+    })
+}
+
+fn resolve_inbound_delivery_target(
+    options: &ConfigPathOptions,
+    runtime_inputs: &ConnectorRuntimeInputs,
+    input: &StartConnectorInput,
+) -> Result<InboundDeliveryTarget> {
+    let framework = runtime_inputs.framework.trim().to_ascii_lowercase();
+    if framework.is_empty() || framework == "openclaw" {
+        return resolve_openclaw_inbound_target(runtime_inputs, input);
+    }
+
+    validate_provider_runtime_overrides(input, &framework)?;
+    resolve_provider_inbound_target(options, input, &framework)
+}
+
+fn resolve_openclaw_inbound_target(
+    runtime_inputs: &ConnectorRuntimeInputs,
+    input: &StartConnectorInput,
+) -> Result<InboundDeliveryTarget> {
+    let target_agent_id =
+        resolve_openclaw_target_agent_id(&runtime_inputs.config_dir, &input.agent_name)?;
+    Ok(InboundDeliveryTarget::Openclaw(
+        clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig {
             base_url: resolve_openclaw_base_url(
                 &runtime_inputs.config_dir,
                 input.openclaw_base_url.as_deref(),
@@ -166,9 +196,49 @@ pub(super) async fn resolve_runtime_config(
             )?,
             target_agent_id,
         },
-        port: input.port,
-        bind: input.bind,
-    })
+    ))
+}
+
+fn validate_provider_runtime_overrides(input: &StartConnectorInput, framework: &str) -> Result<()> {
+    if input.openclaw_base_url.is_none()
+        && input.openclaw_hook_path.is_none()
+        && input.openclaw_hook_token.is_none()
+    {
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "agent `{}` uses framework `{framework}`, so OpenClaw-only connector overrides are not valid here",
+        input.agent_name
+    ))
+}
+
+fn resolve_provider_inbound_target(
+    options: &ConfigPathOptions,
+    input: &StartConnectorInput,
+    framework: &str,
+) -> Result<InboundDeliveryTarget> {
+    let provider_runtime = load_agent_provider_runtime(&options, &input.agent_name)?;
+    let Some(provider_runtime) = provider_runtime else {
+        return Err(anyhow!(
+            "agent `{}` uses framework `{framework}`, but no provider runtime is configured; run `clawdentity provider setup --for {framework}` first",
+            input.agent_name
+        ));
+    };
+    let provider = get_provider(&provider_runtime.provider).ok_or_else(|| {
+        anyhow!(
+            "agent `{}` uses unsupported provider `{}`",
+            input.agent_name,
+            provider_runtime.provider
+        )
+    })?;
+
+    Ok(InboundDeliveryTarget::Provider(ProviderInboundRuntime {
+        provider: provider_runtime.provider,
+        display_name: provider.display_name().to_string(),
+        webhook_endpoint: provider_runtime.webhook_endpoint,
+        webhook_token: provider_runtime.webhook_token,
+    }))
 }
 
 fn expected_agent_name_from_env() -> Option<String> {
@@ -258,6 +328,7 @@ fn resolve_runtime_inputs(
         config_dir: config_dir.clone(),
         agent_auth: load_connector_agent_auth(options, agent_name, &config_dir)?,
         agent_did: inspect.did,
+        framework: inspect.framework,
         ait: read_required_trimmed_file(&agent_dir.join(AIT_FILE_NAME), AIT_FILE_NAME)?,
         secret_key: read_required_trimmed_file(
             &agent_dir.join(SECRET_KEY_FILE_NAME),

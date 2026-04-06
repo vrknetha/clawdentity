@@ -13,6 +13,7 @@
 - Preserve optional `pair.accepted.message` during routing so initiator UX can show proxy-authored static notifications.
 - Treat blank optional `pair.accepted.message` as ignorable UX metadata; do not let cosmetic message issues block trusted relay routing.
 - Queue-routed `pair.accepted` relay deliveries must set trusted delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`) so connector runtimes can reject spoofed payload-only system events.
+- Queue-routed `pair.accepted` system payloads must include `responderProfile.displayName` for connector-side trusted parsing; keep `responderProfile.humanName` mirrored for backward compatibility during rollout.
 - Queue-routed `group.member.joined` relay deliveries must set trusted delivery provenance (`deliverySource=proxy.events.queue.group_member_joined`) so notification origin stays auditable.
 - Pair-accepted structured fields remain mandatory for trusted side effects; queue consumers must not treat `message` as a replacement for those fields.
 - Treat queue events as at-least-once: handlers must be idempotent against duplicate messages.

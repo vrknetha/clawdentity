@@ -96,6 +96,8 @@ export type FakeInviteInsertRow = Record<string, unknown>;
 export type FakeInviteUpdateRow = Record<string, unknown>;
 export type FakeStarterPassInsertRow = Record<string, unknown>;
 export type FakeStarterPassUpdateRow = Record<string, unknown>;
+export type FakeGroupInsertRow = Record<string, unknown>;
+export type FakeGroupMemberInsertRow = Record<string, unknown>;
 export type FakeRevocationRow = {
   id: string;
   jti: string;
@@ -158,6 +160,14 @@ export type FakeGroupRow = {
   updatedAt: string;
 };
 
+export type FakeGroupMemberRow = {
+  groupId: string;
+  agentId: string;
+  role: "member" | "admin";
+  joinedAt: string;
+  updatedAt: string;
+};
+
 export type FakeAgentSelectRow = {
   id: string;
   did: string;
@@ -191,6 +201,7 @@ export type FakeDbOptions = {
   inviteRows?: FakeInviteRow[];
   starterPassRows?: FakeStarterPassRow[];
   groupRows?: FakeGroupRow[];
+  groupMemberRows?: FakeGroupMemberRow[];
   humanRows?: FakeHumanRow[];
   revocationRows?: FakeRevocationRow[];
   registrationChallengeRows?: FakeAgentRegistrationChallengeRow[];
@@ -226,12 +237,15 @@ export type FakeDbState = {
   inviteUpdates: FakeInviteUpdateRow[];
   starterPassInserts: FakeStarterPassInsertRow[];
   starterPassUpdates: FakeStarterPassUpdateRow[];
+  groupInserts: FakeGroupInsertRow[];
+  groupMemberInserts: FakeGroupMemberInsertRow[];
   revocationRows: FakeRevocationRow[];
   registrationChallengeRows: FakeAgentRegistrationChallengeRow[];
   agentAuthSessionRows: FakeAgentAuthSessionRow[];
   inviteRows: FakeInviteRow[];
   starterPassRows: FakeStarterPassRow[];
   groupRows: FakeGroupRow[];
+  groupMemberRows: FakeGroupMemberRow[];
   humanRows: FakeHumanRow[];
   apiKeyRows: FakeApiKeyRow[];
   internalServiceRows: FakeInternalServiceRow[];

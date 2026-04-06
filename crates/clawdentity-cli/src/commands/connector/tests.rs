@@ -1,8 +1,7 @@
 use anyhow::anyhow;
 use chrono::{Duration as ChronoDuration, Utc};
 use clawdentity_core::agent::AgentAuthRecord;
-use clawdentity_core::config::{CliConfig, ConfigPathOptions, get_config_dir, write_config};
-use clawdentity_core::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
+use clawdentity_core::config::get_config_dir;
 use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
 use clawdentity_core::{
     DeliverFrame, ReceiptFrame, ReceiptStatus, SqliteStore, UpsertPeerInput, get_peer_by_did,
@@ -11,8 +10,6 @@ use clawdentity_core::{
 use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::runtime_config::{
     agent_access_requires_refresh, load_receipt_post_headers, normalize_proxy_ws_url,
@@ -28,8 +25,15 @@ use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod expected_agent_name;
+mod fixtures;
 mod inbound_names;
 mod peer_refresh;
+mod provider_runtime;
+
+use fixtures::{
+    receipt_fixture_options, setup_receipt_header_fixture,
+    setup_receipt_header_fixture_with_registry,
+};
 #[test]
 fn normalizes_hook_path_with_leading_slash() {
     assert_eq!(normalize_hook_path("hooks/agent"), "/hooks/agent");
@@ -542,138 +546,6 @@ fn pending_retry_dead_letters_at_max_attempt_threshold() {
     assert!(!should_dead_letter_after_failure(0));
     assert!(!should_dead_letter_after_failure(1));
     assert!(should_dead_letter_after_failure(2));
-}
-
-fn encode_base64url(input: &[u8]) -> String {
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-    let mut output = String::with_capacity((input.len() * 4).div_ceil(3));
-    let mut index = 0usize;
-    while index + 3 <= input.len() {
-        let block = ((input[index] as u32) << 16)
-            | ((input[index + 1] as u32) << 8)
-            | (input[index + 2] as u32);
-        output.push(ALPHABET[((block >> 18) & 0x3f) as usize] as char);
-        output.push(ALPHABET[((block >> 12) & 0x3f) as usize] as char);
-        output.push(ALPHABET[((block >> 6) & 0x3f) as usize] as char);
-        output.push(ALPHABET[(block & 0x3f) as usize] as char);
-        index += 3;
-    }
-
-    match input.len() - index {
-        1 => {
-            let block = (input[index] as u32) << 16;
-            output.push(ALPHABET[((block >> 18) & 0x3f) as usize] as char);
-            output.push(ALPHABET[((block >> 12) & 0x3f) as usize] as char);
-        }
-        2 => {
-            let block = ((input[index] as u32) << 16) | ((input[index + 1] as u32) << 8);
-            output.push(ALPHABET[((block >> 18) & 0x3f) as usize] as char);
-            output.push(ALPHABET[((block >> 12) & 0x3f) as usize] as char);
-            output.push(ALPHABET[((block >> 6) & 0x3f) as usize] as char);
-        }
-        _ => {}
-    }
-
-    output
-}
-
-fn fixture_ait() -> String {
-    let header = r#"{"alg":"EdDSA","kid":"key-1","typ":"JWT"}"#;
-    let payload = r#"{"sub":"did:cdi:test:agent:alpha","ownerDid":"did:cdi:test:human:owner","cnf":{"jwk":{"x":"public-key-x"}},"exp":4102444800,"framework":"openclaw"}"#;
-    format!(
-        "{}.{}.sig",
-        encode_base64url(header.as_bytes()),
-        encode_base64url(payload.as_bytes())
-    )
-}
-
-static RECEIPT_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(1);
-
-fn setup_receipt_header_fixture() -> (ConfigPathOptions, String) {
-    setup_receipt_header_fixture_with_registry("https://registry.example")
-}
-
-fn setup_receipt_header_fixture_with_registry(registry_url: &str) -> (ConfigPathOptions, String) {
-    let options = receipt_fixture_options();
-    write_receipt_fixture_config(&options, registry_url);
-
-    let agent_name = "alpha".to_string();
-    write_receipt_fixture_agent_files(&options, &agent_name);
-    (options, agent_name)
-}
-
-fn receipt_fixture_options() -> ConfigPathOptions {
-    let fixture_id = RECEIPT_FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let root = std::env::temp_dir().join(format!(
-        "clawdentity-connector-tests-{}-{}-{fixture_id}",
-        std::process::id(),
-        Utc::now().timestamp_nanos_opt().unwrap_or(0)
-    ));
-    fs::create_dir_all(&root).expect("create test root");
-
-    ConfigPathOptions {
-        home_dir: Some(root),
-        registry_url_hint: None,
-    }
-}
-
-fn write_receipt_fixture_config(options: &ConfigPathOptions, registry_url: &str) {
-    write_config(
-        &CliConfig {
-            registry_url: registry_url.to_string(),
-            proxy_url: Some("https://proxy.example".to_string()),
-            api_key: None,
-            human_name: Some("Tester".to_string()),
-        },
-        options,
-    )
-    .expect("write config");
-}
-
-fn write_receipt_fixture_agent_files(options: &ConfigPathOptions, agent_name: &str) {
-    let config_dir = get_config_dir(options).expect("resolve config dir");
-    let agent_dir = config_dir.join(AGENTS_DIR).join(agent_name);
-    fs::create_dir_all(&agent_dir).expect("create agent dir");
-
-    write_receipt_fixture_ait(&agent_dir);
-    write_receipt_fixture_secret_key(&agent_dir);
-    write_receipt_fixture_auth(&agent_dir);
-}
-
-fn write_receipt_fixture_ait(agent_dir: &Path) {
-    fs::write(
-        agent_dir.join(AIT_FILE_NAME),
-        format!("{}\n", fixture_ait()),
-    )
-    .expect("write ait");
-}
-
-fn write_receipt_fixture_secret_key(agent_dir: &Path) {
-    fs::write(
-        agent_dir.join(SECRET_KEY_FILE_NAME),
-        format!("{}\n", encode_base64url(&[7_u8; 32])),
-    )
-    .expect("write secret key");
-}
-
-fn write_receipt_fixture_auth(agent_dir: &Path) {
-    fs::write(
-        agent_dir.join("registry-auth.json"),
-        receipt_fixture_registry_auth_json(),
-    )
-    .expect("write registry auth");
-}
-
-fn receipt_fixture_registry_auth_json() -> &'static str {
-    r#"{
-  "tokenType": "Bearer",
-  "accessToken": "clw_agt_access",
-  "accessExpiresAt": "2099-01-01T00:00:00Z",
-  "refreshToken": "clw_agt_refresh",
-  "refreshExpiresAt": "2099-01-08T00:00:00Z"
-}
-"#
 }
 #[test]
 fn receipt_post_headers_nonce_uses_random_url_safe_shape() {

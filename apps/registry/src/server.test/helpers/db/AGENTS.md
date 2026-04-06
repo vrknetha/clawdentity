@@ -13,3 +13,6 @@
 - Avoid embedding clock/random side effects in resolver functions.
 - Keep `all()` and `raw()` result shapes in sync for joined auth queries and new tables, otherwise Drizzle-backed tests can silently miss fields that production routes depend on.
 - Keep targeted fault-injection knobs (for example invalid mutation result shapes) explicit and query-scoped so route-level failure tests stay deterministic.
+- Keep group lifecycle fake-table support current with route contracts:
+  - `groups` inserts should materialize in in-memory rows
+  - `group_members` inserts should materialize so tests can assert creator auto-admin behavior

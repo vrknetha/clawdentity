@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 
 use super::super::headers::SenderProfileHeaders;
 use super::super::normalize_hook_path;
+use super::message_content::extract_message_content;
 
 pub(crate) fn build_openclaw_hook_payload(
     hook_path: &str,
@@ -121,7 +122,7 @@ fn build_openclaw_agent_payload(
     group_name: Option<&str>,
     openclaw_target_agent_id: Option<&str>,
 ) -> Value {
-    let message = extract_content(&deliver.payload);
+    let message = extract_message_content(&deliver.payload);
     let sender_agent_name = resolve_sender_agent_name(sender_profile);
     let sender_display_name = resolve_sender_display_name(sender_profile);
     let group_id = normalize_optional_non_empty(deliver.group_id.as_deref());
@@ -181,7 +182,7 @@ fn render_openclaw_wake_text(
     sender_profile: Option<&SenderProfileHeaders>,
     group_name: Option<&str>,
 ) -> String {
-    let message = extract_content(&deliver.payload);
+    let message = extract_message_content(&deliver.payload);
     let sender_agent_name = resolve_sender_agent_name(sender_profile);
     let sender_display_name = resolve_sender_display_name(sender_profile);
     let sender_label = render_sender_label(
@@ -270,20 +271,4 @@ fn append_optional_line(lines: &mut Vec<String>, value: Option<&str>, label: &st
         }
         lines.push(format!("{label}: {value}"));
     }
-}
-
-fn extract_content(payload: &Value) -> String {
-    if let Some(content) = payload.get("content").and_then(Value::as_str) {
-        return content.to_string();
-    }
-    if let Some(message) = payload.get("message").and_then(Value::as_str) {
-        return message.to_string();
-    }
-    if let Some(text) = payload.get("text").and_then(Value::as_str) {
-        return text.to_string();
-    }
-    if let Some(text) = payload.as_str() {
-        return text.to_string();
-    }
-    payload.to_string()
 }

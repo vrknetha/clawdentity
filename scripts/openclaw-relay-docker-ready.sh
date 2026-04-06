@@ -9,7 +9,9 @@ LOCAL_PROFILE_DIR="${LOCAL_PROFILE_DIR:-$SCRIPT_DIR/openclaw-local-profile}"
 LOCAL_OPENCLAW_POLICY_FILE="${LOCAL_OPENCLAW_POLICY_FILE:-$LOCAL_PROFILE_DIR/openclaw.json}"
 LOCAL_EXEC_APPROVALS_FILE="${LOCAL_EXEC_APPROVALS_FILE:-$LOCAL_PROFILE_DIR/exec-approvals.json}"
 HOST_CODEX_AUTH_FILE="${HOST_CODEX_AUTH_FILE:-$HOME/.codex/auth.json}"
-LOCAL_OPENCLAW_MODEL="${LOCAL_OPENCLAW_MODEL:-openai-codex/gpt-5.4}"
+LOCAL_OPENCLAW_MODEL="${LOCAL_OPENCLAW_MODEL:-}"
+OPENCLAW_PRIMARY_MODEL="${OPENCLAW_PRIMARY_MODEL:-${LOCAL_OPENCLAW_MODEL:-openrouter/moonshotai/kimi-k2.5}}"
+OPENCLAW_FALLBACK_MODEL="${OPENCLAW_FALLBACK_MODEL:-openai-codex/gpt-5.4}"
 
 load_dotenv() {
   local env_file="$1"
@@ -49,6 +51,7 @@ DOCKER_PROXY_URL="${DOCKER_PROXY_URL:-http://host.docker.internal:8787}"
 HOST_REGISTRY_URL="${HOST_REGISTRY_URL:-${CLAWDENTITY_REGISTRY_URL:-http://127.0.0.1:8788}}"
 HOST_PROXY_URL="${HOST_PROXY_URL:-${CLAWDENTITY_PROXY_URL:-http://127.0.0.1:8787}}"
 VERIFY_STACK_DEPENDENCIES="${VERIFY_STACK_DEPENDENCIES:-1}"
+REQUIRE_APP_REGISTRY_GROUPS_ROUTE="${REQUIRE_APP_REGISTRY_GROUPS_ROUTE:-1}"
 SYNC_LOCAL_RELEASE_MANIFEST="${SYNC_LOCAL_RELEASE_MANIFEST:-1}"
 AUTO_BUILD_LOCAL_RELEASE="${AUTO_BUILD_LOCAL_RELEASE:-1}"
 FORCE_REBUILD_LOCAL_RELEASE="${FORCE_REBUILD_LOCAL_RELEASE:-0}"
@@ -81,8 +84,7 @@ copy_preserved_env_values() {
     const sourcePath = process.argv[1];
     const targetPath = process.argv[2];
     const preservedKeys = new Set([
-      "KIMI_API_KEY",
-      "KIMICODE_API_KEY",
+      "OPENROUTER_API_KEY",
       "OPENAI_API_KEY",
       "OPENCLAW_GATEWAY_TOKEN",
     ]);
@@ -173,6 +175,27 @@ require_container_http_ok() {
   local url="$2"
   local label="$3"
   docker exec "$container" sh -lc "curl -fsS --max-time 5 '$url' >/dev/null 2>&1" || fail "${label} check failed in ${container}: ${url}"
+}
+
+require_registry_groups_route_host() {
+  local base_url="$1"
+  local url="${base_url%/}/v1/groups"
+  local status_code
+  status_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -X POST "$url" -H 'content-type: application/json' --data '{}')"
+  if [[ "$status_code" == "404" ]]; then
+    fail "registry groups route check failed: ${url} returned 404 (likely mock-registry). Start apps/registry local runtime on ${base_url}."
+  fi
+}
+
+require_registry_groups_route_container() {
+  local container="$1"
+  local base_url="$2"
+  local url="${base_url%/}/v1/groups"
+  local status_code
+  status_code="$(docker exec "$container" sh -lc "curl -sS -o /dev/null -w '%{http_code}' --max-time 5 -X POST '$url' -H 'content-type: application/json' --data '{}'")"
+  if [[ "$status_code" == "404" ]]; then
+    fail "registry groups route check failed in ${container}: ${url} returned 404 (likely mock-registry). Start apps/registry local runtime on ${base_url}."
+  fi
 }
 
 normalize_clawdentity_version() {
@@ -669,7 +692,9 @@ write_gateway_defaults() {
     const siteBaseUrl = process.argv[9];
     const openclawPolicyPath = process.argv[10];
     const execApprovalsPolicyPath = process.argv[11];
-    const modelRef = process.argv[12];
+    const modelPrimaryRef = process.argv[12];
+    const modelFallbackRef = process.argv[13];
+    const openrouterApiKey = process.argv[14];
 
     const readEnvFile = (envPath) => (fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : "");
 
@@ -721,7 +746,8 @@ write_gateway_defaults() {
         ...(typeof cfg.agents.defaults.model === "object" && cfg.agents.defaults.model !== null
           ? cfg.agents.defaults.model
           : {}),
-        primary: modelRef,
+        primary: modelPrimaryRef,
+        fallbacks: [modelFallbackRef],
       };
       cfg.agents.defaults.sandbox = {
         ...(typeof cfg.agents.defaults.sandbox === "object" && cfg.agents.defaults.sandbox !== null
@@ -786,6 +812,9 @@ write_gateway_defaults() {
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_SITE_BASE_URL", siteBaseUrl);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CLAWDENTITY_EXPECTED_AGENT_NAME", expectedAgentName);
       nextEnvRaw = upsertEnvValue(nextEnvRaw, "CODEX_HOME", "/home/node/.openclaw/.codex");
+      if (typeof openrouterApiKey === "string" && openrouterApiKey.trim().length > 0) {
+        nextEnvRaw = upsertEnvValue(nextEnvRaw, "OPENROUTER_API_KEY", openrouterApiKey.trim());
+      }
       fs.writeFileSync(envPath, nextEnvRaw);
       const approvalsPath = `${profileHome}/exec-approvals.json`;
       let currentApprovals = {};
@@ -821,7 +850,9 @@ write_gateway_defaults() {
     "$DOCKER_SITE_BASE_URL" \
     "$LOCAL_OPENCLAW_POLICY_FILE" \
     "$LOCAL_EXEC_APPROVALS_FILE" \
-    "$LOCAL_OPENCLAW_MODEL"
+    "$OPENCLAW_PRIMARY_MODEL" \
+    "$OPENCLAW_FALLBACK_MODEL" \
+    "${OPENROUTER_API_KEY:-}"
 }
 
 remove_skill_artifacts() {
@@ -891,6 +922,9 @@ verify_host_stack_dependencies() {
   local host_skill_url="${HOST_SITE_BASE_URL%/}/skill.md"
   require_http_ok "${HOST_REGISTRY_URL%/}/health" "registry health"
   require_http_ok "${HOST_PROXY_URL%/}/health" "proxy health"
+  if [[ "$REQUIRE_APP_REGISTRY_GROUPS_ROUTE" == "1" ]]; then
+    require_registry_groups_route_host "${HOST_REGISTRY_URL}"
+  fi
   require_http_ok "$host_skill_url" "landing skill"
   require_http_ok "$HOST_RELEASE_MANIFEST_URL" "landing release manifest"
 }
@@ -902,6 +936,9 @@ verify_container_stack_dependencies() {
   for container in "$ALPHA_CONTAINER" "$BETA_CONTAINER"; do
     require_container_http_ok "$container" "${DOCKER_REGISTRY_URL%/}/health" "registry health"
     require_container_http_ok "$container" "${DOCKER_PROXY_URL%/}/health" "proxy health"
+    if [[ "$REQUIRE_APP_REGISTRY_GROUPS_ROUTE" == "1" ]]; then
+      require_registry_groups_route_container "$container" "${DOCKER_REGISTRY_URL}"
+    fi
     require_container_http_ok "$container" "${DOCKER_SITE_BASE_URL%/}/skill.md" "landing skill"
   done
 }
@@ -909,6 +946,7 @@ verify_container_stack_dependencies() {
 install_host_codex_auth() {
   local profile_path="$1"
   local target_dir="$profile_path/.codex"
+  [[ -f "$HOST_CODEX_AUTH_FILE" ]] || return 0
 
   mkdir -p "$target_dir"
   cp "$HOST_CODEX_AUTH_FILE" "$target_dir/auth.json"
@@ -959,7 +997,6 @@ run() {
   require_file "$DOCKER_COMPOSE_FILE"
   require_file "$LOCAL_OPENCLAW_POLICY_FILE"
   require_file "$LOCAL_EXEC_APPROVALS_FILE"
-  require_file "$HOST_CODEX_AUTH_FILE"
 
   build_local_clawdentity_cli
   sync_local_release_manifest
@@ -1021,6 +1058,13 @@ run() {
   [[ -d "$OPENCLAW_BETA_HOME/skills/clawdentity-openclaw-relay" ]] && echo "beta_skill_present=1" || echo "beta_skill_present=0"
   echo "alpha_expected_agent_name=${ALPHA_EXPECTED_AGENT_NAME}"
   echo "beta_expected_agent_name=${BETA_EXPECTED_AGENT_NAME}"
+  echo "model_primary=${OPENCLAW_PRIMARY_MODEL}"
+  echo "model_fallback=${OPENCLAW_FALLBACK_MODEL}"
+  if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+    echo "openrouter_key_configured=1"
+  else
+    echo "openrouter_key_configured=0"
+  fi
   echo "verify_stack_dependencies=${VERIFY_STACK_DEPENDENCIES}"
   log "Ready state complete"
 }

@@ -264,6 +264,38 @@ async fn pair_accepted_ignores_blank_proxy_message_and_uses_fallback() {
 }
 
 #[tokio::test]
+async fn pair_accepted_accepts_legacy_human_name_profile_field() {
+    let temp = TempDir::new().expect("temp dir");
+    let store =
+        clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
+    let snapshot_path = temp.path().join("relay-peers.json");
+    write_runtime_snapshot_config(temp.path(), &snapshot_path);
+
+    let mut deliver = fixture_deliver_frame();
+    let profile = &mut deliver.payload["system"]["responderProfile"];
+    profile["humanName"] = json!("Ira Legacy");
+    profile
+        .as_object_mut()
+        .expect("responder profile object")
+        .remove("displayName");
+
+    let handled = apply_pair_accepted_system_delivery(
+        &test_options(),
+        "alpha",
+        &store,
+        temp.path(),
+        &mut deliver,
+    )
+    .await
+    .expect("apply");
+    assert!(handled);
+
+    let peers = list_peers(&store).expect("list peers");
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].display_name.as_deref(), Some("Ira Legacy"));
+}
+
+#[tokio::test]
 async fn pair_accepted_updates_stale_onboarding_session_to_messaging_ready() {
     let temp = TempDir::new().expect("temp dir");
     let store =

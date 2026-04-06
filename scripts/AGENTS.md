@@ -11,9 +11,27 @@
 - The file-size guard enforces an 800-line limit for tracked source files under `apps/**` and `packages/**`, excluding `dist`, `.wrangler`, `worker-configuration.d.ts`, `drizzle/meta`, and `node_modules`.
 
 - `openclaw-relay-docker-ready.sh` is the canonical clean-room reset harness for the dual OpenClaw Docker E2E flow.
+- `openclaw-relay-docker-ready-scalable.sh` is the canonical scalable reset harness for `N` OpenClaw Docker agents (default `alpha,beta`; common local group run `alpha,beta,gamma,delta`).
 - `openclaw-relay-docker-ready.sh` must default `DOCKER_COMPOSE_FILE` to a repo-relative sibling path (`$REPO_ROOT/../openclaw/docker-compose.dual.yml`), not a developer-local absolute machine path.
 - `openclaw-relay-docker-ready.sh` must fail fast at startup when `DOCKER_COMPOSE_FILE` is missing (clear `require_file` error) before any Docker lifecycle commands run.
+- `openclaw-relay-docker-ready-scalable.sh` must generate a compose file per run (`DOCKER_COMPOSE_FILE_GENERATED`) instead of requiring manual edits to static compose files.
+- Scalable harness inputs must stay explicit and deterministic: `OPENCLAW_AGENT_IDS`, `OPENCLAW_PERSONALITY_SOURCE_HOME`, `OPENCLAW_UI_PORT_BASE`, `OPENCLAW_API_PORT_BASE`, `OPENCLAW_PORT_STRIDE`.
+- Scalable harness identity contract must stay stable:
+  - container name: `clawdbot-agent-<id>-1`
+  - profile home: `~/.openclaw-<id>`
+  - expected local agent name: `<id>-local`
+- Scalable harness must implement built-in cleanup before startup:
+  - stop old generated stack (`docker compose down --remove-orphans`)
+  - remove orphan managed containers matching `clawdbot-agent-*` not present in current `OPENCLAW_AGENT_IDS`
+  - remove stale generated compose file before regeneration
+- Scalable harness must reset all configured agent homes each run by cloning from `OPENCLAW_PERSONALITY_SOURCE_HOME`, then scrub runtime/session/skill/Clawdentity state just like the dual harness cleanup level.
+- Scalable harness profile cloning must snapshot `OPENCLAW_PERSONALITY_SOURCE_HOME` once per run and clone from that snapshot, so runs that include the source agent id (for example `alpha`) never delete their own source profile mid-reset.
+- Scalable harness may preserve only approved secret env keys (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `OPENCLAW_GATEWAY_TOKEN`) when `PRESERVE_ENV=1`; it must not preserve stale endpoint routing values.
+- Optional orphan home deletion must stay opt-in via `PRUNE_ORPHAN_AGENT_HOMES=1`; default must remain safe (`0`).
+- Orphan-home pruning must only target managed OpenClaw homes (`~/.openclaw-<id>` semantics with an `openclaw.json` file) and must never delete baseline or archive roots such as `~/.openclaw-baselines`.
+- Scalable harness post-start validation must fail fast when unexpected orphan managed containers remain.
 - `openclaw-onboarding-e2e-check.sh` is the canonical post-reset smoke check for prompt-first onboarding (`onboarding run` on both sides, pairing, and first bidirectional relay messages).
+- `hermes-mixed-provider-smoke.sh` is the canonical mixed-provider local smoke harness: it layers one isolated Hermes Docker runtime on top of the dual OpenClaw Docker harness and must validate Hermes `provider setup`, `provider doctor`, `provider relay-test`, plus one direct and one group delivery path.
 - Keep `openclaw-relay-docker-ready.sh` free of npm/package-manager assumptions; it must work with Rust-owned skill installation only.
 - `openclaw-relay-docker-ready.sh` must treat `DOCKER_REGISTRY_URL` / `DOCKER_PROXY_URL` as Docker-runtime source of truth; default them directly to `host.docker.internal` values and never derive container defaults from host `.env` values like `127.0.0.1`.
 - `openclaw-relay-docker-ready.sh` must write a site-base override into the OpenClaw profile `.env` so local OpenClaw skill installs can point at a local landing site without forking the published production skill/install assets.
@@ -36,7 +54,7 @@
 - `openclaw-relay-docker-ready.sh` reset cleanup must remove both workspace-level and profile-home `.clawdentity*` state so prompt-first onboarding session resumes cannot leak across clean resets.
 - `openclaw-relay-docker-ready.sh` version resolution must be outage-tolerant: prefer manifest latest, but fall back to preserved profile `CLAWDENTITY_VERSION` (or local Cargo version) instead of hard-failing clean resets when manifest fetch is unavailable.
 - Keep local Docker OpenClaw policy fixtures in `scripts/openclaw-local-profile/`; the reset script may only inject per-run values like gateway token, UI ports, and local endpoint URLs.
-- When the local Docker harness is meant to behave like a signed-in Codex operator, `openclaw-relay-docker-ready.sh` must copy the host `~/.codex/auth.json` into each profile, set `CODEX_HOME=/home/node/.openclaw/.codex`, and point the default model at `openai-codex/gpt-5.4`; do not re-encode those tokens into custom app config.
+- When the local Docker harness is meant to behave like a signed-in Codex operator, `openclaw-relay-docker-ready.sh` must copy the host `~/.codex/auth.json` into each profile and set `CODEX_HOME=/home/node/.openclaw/.codex`; model defaults should stay `openrouter/moonshotai/kimi-k2.5` primary with `openai-codex/gpt-5.4` fallback.
 - Keep host-facing and container-facing site origins separate when needed: `CLAWDENTITY_SITE_BASE_URL` is the host/default origin, and `DOCKER_SITE_BASE_URL` is the container-side override for profiles running inside Docker.
 - `env/sync-worktree-env.sh` must not bake `ENVIRONMENT` or environment-specific registry/proxy routing into app-level `.env` files; Wrangler env blocks are the source of truth for `local` vs `dev` runtime identity.
 - When preserving profile `.env` files across a reset, keep only secrets and gateway token continuity. Do not carry forward stale `CLAWDENTITY_*` endpoint overrides from previous dev/prod runs into a clean local test reset.
@@ -54,8 +72,30 @@
 - The dual OpenClaw harness may keep a trusted-network browser SSRF policy in the local OpenClaw fixture, but do not assume that fixes prompt-first `web_fetch` for `host.docker.internal`; production-like onboarding tests should use a public-like HTTPS skill URL when OpenClaw's guarded fetch blocks private-network sources.
 - A clean reset must also remove OpenClaw workspace completion markers (`workspace/.openclaw/workspace-state.json`) so prompt-first onboarding starts from a genuinely fresh state.
 - The harness must verify local dependency readiness from host and container paths (`registry` health, `proxy` health, landing `/skill.md`) before reporting ready state.
+- The local OpenClaw/Hermes Docker testing harness must target `apps/registry` + `apps/proxy` runtimes for user-facing local validation; Rust `mock-registry`/`mock-proxy` are integration harness services and must not be treated as the canonical local operator stack.
+- `openclaw-relay-docker-ready.sh` and mixed-provider smoke checks should fail fast when `POST /v1/groups` returns `404` on the configured registry base URL, because that indicates the wrong (mock) registry implementation for group-capable flows.
 - UI readiness probes in `openclaw-relay-docker-ready.sh` must use the requested profile port for both host and container-local checks; never hardcode alpha-only ports inside shared helpers.
 - `openclaw-onboarding-e2e-check.sh` must stay deterministic and fail-fast:
   - requires explicit onboarding codes for alpha and beta via env vars.
   - runs `clawdentity onboarding run` as the primary UX path, not manual multi-command pairing steps.
   - asserts both sides reach `status=ready`, then verifies `provider doctor` and bidirectional `provider relay-test`.
+- `hermes-webui-docker-ready.sh` is the canonical browser-UI bootstrap for local Hermes testing:
+  - run Hermes in Docker with an isolated profile (default `/tmp/clawdentity-hermes-home/.hermes`) and never mutate the operator's real `~/.hermes` in place.
+  - seed missing profile files from `~/.hermes`, preserve existing isolated profile state by default, and only wipe when `RESET_HERMES_HOME=1`.
+  - mirror host Codex auth (`~/.codex/auth.json`) into isolated `.hermes/.codex/auth.json` and run Hermes with `CODEX_HOME=/opt/data/.codex` so local OAuth/subscription context is deterministic.
+  - mirror the same local Clawdentity endpoint contract used by the OpenClaw harness into isolated `.hermes/.env`: `CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`, `CLAWDENTITY_SITE_BASE_URL`, and `CLAWDENTITY_EXPECTED_AGENT_NAME`; do not let Hermes fall back to production defaults during local testing.
+  - enforce API server settings in isolated `.env` (`API_SERVER_ENABLED=true`, explicit host/port, API key) before launching UI clients.
+  - set model defaults non-interactively via `hermes config set model.provider` + `model.default` (default path: `openrouter` + `moonshotai/kimi-k2.5`; fallback path when `OPENROUTER_API_KEY` is absent: `openai-codex` + `gpt-5.4`) to keep local testing aligned with OpenClaw parity expectations.
+  - start Open WebUI in Docker against Hermes `/v1` and keep first-run state deterministic; use `RESET_OPEN_WEBUI_DATA=1` when a clean connection profile is required.
+- `hermes-mixed-provider-smoke.sh` must stay scripts-only and deterministic:
+  - reuse `openclaw-relay-docker-ready.sh` and `openclaw-onboarding-e2e-check.sh` instead of re-implementing the dual OpenClaw setup logic.
+  - use an isolated Hermes home root (default `/tmp/clawdentity-hermes-home`) and never mutate the operator's real `~/.hermes` state in place.
+  - seed the isolated Hermes home from explicit config/env source files, then mount only that isolated `.hermes` directory into Docker at `/opt/data`.
+  - mirror OpenClaw's signed-in local expectation by copying host Codex auth (`HOST_CODEX_AUTH_FILE`, default `~/.codex/auth.json`) into the isolated profile at `.hermes/.codex/auth.json` and fail fast when that file is missing.
+  - run the Hermes container with `CODEX_HOME=/opt/data/.codex` so Codex OAuth import uses the isolated profile instead of host/global paths.
+  - set the isolated Hermes profile model non-interactively with `hermes config set model.provider` and `hermes config set model.default` (default path: `openrouter` + `moonshotai/kimi-k2.5`; fallback path when `OPENROUTER_API_KEY` is absent: `openai-codex` + `gpt-5.4`, overridable via env) before provider setup/doctor checks.
+  - if provider doctor requires a `hermes` binary on PATH, satisfy that with an ephemeral Docker-backed shim inside the script; do not require repo-local Hermes source checkouts.
+  - run host-side Hermes connector runtime separately from the Hermes container, and keep it bound to an explicit local port so provider setup/doctor and direct/group smoke checks all use the same saved runtime state.
+  - require explicit invite/onboarding inputs for any identity creation step; do not silently mint or reuse stale codes inside the smoke harness.
+  - validate group fan-out with canonical CLI flows only: `group create`, `group join-token create`, `group join`, and `group members list`.
+  - prove recipient delivery with deterministic local state signals (for example connector sqlite delivered counts), not with fragile UI scraping.

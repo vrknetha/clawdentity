@@ -19,15 +19,22 @@
 - Keep peer-alias path guidance runtime-accurate:
   - default OpenClaw runtime reads projected `hooks/transforms/clawdentity-peers.json` via `hooks/transforms/clawdentity-relay.json` (`peersConfigPath`)
   - `~/.clawdentity/peers.json` is legacy/manual fallback only, not the default projected path
-- Group docs must call out first-send membership prerequisites explicitly:
-  - `clawdentity group create ...` creates only the group record
-  - sending/receiving agents must join via `clawdentity group join <token> --agent-name <name>` before first group relay
+- Group docs must call out v2 group contracts explicitly:
+  - `clawdentity group create ...` requires agent auth and auto-adds the creator agent as `admin`
+  - group creation does not require pairing completion
+  - join-token issue is member-only (`clawdentity group join-token create ...` has no role flag)
+  - sending/receiving agents must still join via `clawdentity group join <token> --agent-name <name>` before first group relay
 - Group docs must also call out creator visibility: successful member joins emit trusted `group.member.joined` notifications to creator-owned active agents.
 - Skill group lifecycle guidance must be Rust CLI-first and agent-auth-first:
   - use `clawdentity group ...` commands as the normal operator path
   - keep raw `/v1/groups*` HTTP examples out of operator guidance
 - Treat Rust CLI command surfaces as the source of truth for this skill. Do not add npm or TS-only execution steps.
 - Provider workflows must use `clawdentity install` and `clawdentity provider {status|setup|doctor}`.
+- Keep multi-provider connector wording explicit:
+  - `connector start` and `connector service install` are provider-aware on inbound delivery
+  - OpenClaw uses `/hooks/*`
+  - Hermes and other non-OpenClaw providers use the runtime endpoint persisted by `provider setup`
+  - `--openclaw-*` flags are OpenClaw-only manual overrides
 - Prompt-first onboarding should prioritize `clawdentity onboarding run --for <platform>` as the default install/setup/pairing/messaging flow, with manual command groups documented as advanced fallback.
 - Prompt-first onboarding should assume registry/proxy URLs come from environment defaults when available (`CLAWDENTITY_REGISTRY_URL`, `CLAWDENTITY_PROXY_URL`); do not require users to paste those URLs into the prompt for standard local Docker validation.
 - OpenClaw wording must stay OpenClaw-first: OpenClaw owns OpenClaw setup and auth, Clawdentity adds relay setup after OpenClaw is healthy.
@@ -58,6 +65,7 @@
   - primary path: hosted installers `https://clawdentity.com/install.sh` and `https://clawdentity.com/install.ps1`
   - do not state or imply Rust toolchain is required for the recommended install path
   - installer env contract must stay documented: `CLAWDENTITY_VERSION`, `CLAWDENTITY_DOWNLOADS_BASE_URL`, `CLAWDENTITY_RELEASE_MANIFEST_URL`, `CLAWDENTITY_SITE_BASE_URL`, `CLAWDENTITY_SKILL_URL`, `CLAWDENTITY_INSTALL_DIR`, `CLAWDENTITY_INSTALL_DRY_RUN=1`, `CLAWDENTITY_NO_VERIFY=1`
+  - local/operator-preview prompt guidance must state that `CLAWDENTITY_SITE_BASE_URL=<skill-origin>` keeps installer manifest + binary downloads on that same origin when stricter download overrides are absent
   - installer checksum verification is default; bypass only when `CLAWDENTITY_NO_VERIFY=1`
   - fallback path: `rustup` + `cargo install --locked clawdentity-cli`
   - optional deterministic pin: `cargo install --locked --version <version> clawdentity-cli`
@@ -66,6 +74,10 @@
 
 ## Sync Rules
 - Keep `apps/landing/src/content/docs/guides/openclaw-skill.mdx` aligned with the consolidated `/skill.md` artifact wording while preserving local install artifact paths.
+- Keep the duplicated skill artifacts aligned whenever connector runtime wording changes:
+  - `apps/openclaw-skill/skill/SKILL.md`
+  - `apps/landing/public/skill.md`
+  - `crates/clawdentity-core/assets/openclaw-skill/skill/SKILL.md`
 - Keep `apps/landing/src/content/docs/getting-started/installation.mdx` aligned with installer defaults and fallback ordering.
 - Keep `apps/landing/src/content/docs/getting-started/quickstart.mdx` prompt-first and aligned with the canonical quick prompt text from `SKILL.md`.
 - Keep `apps/landing/src/pages/getting-started/github.astro` aligned with the hosted starter-pass prompt contract and manual fallback command.

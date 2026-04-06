@@ -130,6 +130,24 @@ impl PlatformProvider for HermesProvider {
         }
     }
 
+    fn authorize_inbound_request(
+        &self,
+        request: &mut InboundRequest,
+        body_bytes: &[u8],
+        webhook_token: Option<&str>,
+    ) -> Result<()> {
+        if let Some(secret) = webhook_token
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request.headers.insert(
+                "x-webhook-signature".to_string(),
+                Self::hmac_sha256_hex(secret, body_bytes),
+            );
+        }
+        Ok(())
+    }
+
     fn default_webhook_port(&self) -> u16 {
         8644
     }

@@ -12,9 +12,10 @@
 - Group command layout is canonical:
   - `group create <name> --agent-name <name>`
   - `group inspect <group-id> --agent-name <name>`
-  - `group join-token create <group-id> --agent-name <name> [--role ...] [--expires-in-seconds ...] [--max-uses ...]`
+  - `group join-token create <group-id> --agent-name <name> [--expires-in-seconds ...] [--max-uses ...]`
   - `group join <group-join-token> --agent-name <name>`
   - `group members list <group-id> --agent-name <name>`
+- Join-token role input is removed. CLI must not expose `--role`; join tokens are member-only by contract.
 - Keep command JSON output stable and machine-readable.
 - Any command that mixes blocking filesystem or blocking HTTP with async runtime must isolate the blocking work with `spawn_blocking` or an equivalent boundary.
 - Connector startup must refresh websocket auth headers on reconnect instead of caching one signed timestamp for the life of the process.

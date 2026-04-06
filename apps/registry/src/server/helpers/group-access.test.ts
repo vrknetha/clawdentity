@@ -20,7 +20,7 @@ function createSequentialLimitDb(resultSets: Array<unknown[]>) {
 }
 
 describe("resolveManageableGroupForAgent", () => {
-  it("allows admin members even when they are not the group creator", async () => {
+  it("rejects non-creators for group management", async () => {
     const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
     const agentId = "agent-admin";
     const db = createSequentialLimitDb([
@@ -29,11 +29,6 @@ describe("resolveManageableGroupForAgent", () => {
           id: groupId,
           name: "alpha squad",
           createdBy: "human-owner",
-        },
-      ],
-      [
-        {
-          agentId,
         },
       ],
     ]);
@@ -45,9 +40,6 @@ describe("resolveManageableGroupForAgent", () => {
         humanId: "human-admin",
         agentId,
       }),
-    ).resolves.toEqual({
-      id: groupId,
-      name: "alpha squad",
-    });
+    ).rejects.toMatchObject({ code: "GROUP_MANAGE_FORBIDDEN" });
   });
 });

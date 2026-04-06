@@ -37,8 +37,20 @@ describe("group-lifecycle", () => {
     });
 
     expect(parsed.maxUses).toBe(1);
-    expect(parsed.role).toBe("member");
     expect(typeof parsed.expiresAt).toBe("string");
+  });
+
+  it("rejects role in join token issue payload", () => {
+    try {
+      parseGroupJoinTokenIssuePayload({
+        payload: { role: "admin" },
+        environment: "local",
+        nowMs: Date.now(),
+      });
+      throw new Error("Expected parseGroupJoinTokenIssuePayload to throw");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "GROUP_JOIN_TOKEN_ISSUE_INVALID" });
+    }
   });
 
   it("enforces token maxUses cap aligned to group member limit", () => {

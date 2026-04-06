@@ -335,7 +335,7 @@ Design concerns:
 - frame and transport semantics must remain consistent with proxy/runtime expectations
 - connector state and retry behavior should avoid delivery loss and replay ambiguity
 - direct and group routing stay mutually exclusive at the outbound contract boundary (`toAgentDid` xor `groupId`)
-- OpenClaw-facing inbound delivery must preserve canonical sender/group metadata such as `senderAgentName`, `senderDisplayName`, `groupId`, `groupName`, and `isGroupMessage`
+- inbound delivery is provider-aware; OpenClaw hook delivery must preserve canonical sender/group metadata such as `senderAgentName`, `senderDisplayName`, `groupId`, `groupName`, and `isGroupMessage`, while non-OpenClaw providers receive their provider-formatted webhook payloads
 
 ### Common (`packages/common`)
 
@@ -456,7 +456,8 @@ Inbound path:
 
 ```text
 websocket Deliver frame
- -> connector forwards to provider hook with canonical sender/group metadata
+ -> connector resolves selected provider runtime from saved local state
+ -> connector forwards to provider-specific inbound endpoint with canonical sender/group metadata
  -> success: append delivered event
  -> failure: persist inbound_pending + negative ack
 ```
@@ -466,17 +467,22 @@ Connector lifecycle:
 ```text
 connector start
  -> resolve agent material + proxy URL + signed headers
+ -> resolve inbound provider target from saved provider runtime state
  -> spawn websocket client (heartbeat + reconnect)
  -> run runtime HTTP server (/v1/status, /v1/outbound, dead-letter APIs)
  -> inbound loop + outbound flush loop
  -> graceful shutdown on signal
 ```
 
+`connector start` is provider-aware on inbound delivery. OpenClaw-specific overrides stay OpenClaw-only (`--openclaw-base-url`, `--openclaw-hook-path`, `--openclaw-hook-token`).
+
 For OpenClaw specifically, `connector start` is the manual/advanced runtime path. The normal recovery order is:
 - `openclaw onboard` if OpenClaw has not been initialized yet
 - `openclaw doctor --fix` if `openclaw.json` or device/auth state is broken
 - `clawdentity install --for openclaw` and `clawdentity provider setup --for openclaw --agent-name <agent-name>` once OpenClaw itself is healthy
 - `openclaw dashboard` for a quick local UI check
+
+For Hermes and other non-OpenClaw providers, `provider setup --for <platform> --agent-name <agent-name>` is the required step that persists the inbound runtime target used later by `connector start` and `connector service install`.
 
 ### Rust Types, Storage, and Security
 

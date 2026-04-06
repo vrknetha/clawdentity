@@ -130,12 +130,13 @@ pub use peers::{
     persist_peer, resolve_peer_alias, sync_openclaw_relay_peers_snapshot,
 };
 pub use provider::{
-    DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
-    PlatformProvider, ProviderDoctorCheck, ProviderDoctorCheckStatus, ProviderDoctorOptions,
-    ProviderDoctorResult, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
-    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, ProviderSetupStatus,
-    VerifyOptions, VerifyResult as ProviderVerifyResult, all_providers, detect_platform,
-    get_provider,
+    AgentProviderRuntime, DetectionResult, InboundMessage, InboundRequest, InstallOptions,
+    InstallResult, PlatformProvider, ProviderDoctorCheck, ProviderDoctorCheckStatus,
+    ProviderDoctorOptions, ProviderDoctorResult, ProviderDoctorStatus, ProviderRelayRuntimeConfig,
+    ProviderRelayTestOptions, ProviderRelayTestResult, ProviderRelayTestStatus,
+    ProviderSetupOptions, ProviderSetupResult, ProviderSetupStatus, VerifyOptions,
+    VerifyResult as ProviderVerifyResult, all_providers, detect_platform, get_provider,
+    load_agent_provider_runtime, save_provider_runtime_config, write_provider_agent_marker,
 };
 pub use provider_openclaw::{
     DoctorCheckStatus, DoctorStatus, OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME,

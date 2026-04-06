@@ -1,85 +1,13 @@
-import {
-  encodeBase64url,
-  generateUlid,
-  makeAgentDid,
-  makeHumanDid,
-} from "@clawdentity/protocol";
-import {
-  generateEd25519Keypair,
-  signAIT,
-  signHttpRequest,
-} from "@clawdentity/sdk";
+import { generateUlid, makeAgentDid } from "@clawdentity/protocol";
 import { describe, expect, it } from "vitest";
 import { createRegistryApp } from "../server.js";
+import {
+  AGENT_AUTHORITY,
+  buildSignedAgentGroupRequest,
+} from "./helpers/group-agent-auth.js";
 import { createFakeDb, makeValidPatContext } from "./helpers.js";
 
 const DID_AUTHORITY = "dev.registry.clawdentity.com";
-const AGENT_AUTHORITY = "127.0.0.1";
-
-async function buildSignedAgentGroupRequest(options: {
-  method?: "GET" | "POST";
-  path: string;
-  agentDid: string;
-  aitJti: string;
-  body?: Record<string, unknown>;
-}) {
-  const signer = await generateEd25519Keypair();
-  const agentKeypair = await generateEd25519Keypair();
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  const timestamp = String(nowSeconds);
-  const nonce = `nonce-${options.method ?? "GET"}-${Date.now()}`;
-  const bodyJson = options.body ? JSON.stringify(options.body) : "";
-  const bodyBytes = new TextEncoder().encode(bodyJson);
-  const ait = await signAIT({
-    claims: {
-      iss: "http://127.0.0.1:8788",
-      sub: options.agentDid,
-      ownerDid: makeHumanDid(AGENT_AUTHORITY, generateUlid(Date.now() + 10)),
-      name: "group-reader",
-      framework: "openclaw",
-      cnf: {
-        jwk: {
-          kty: "OKP",
-          crv: "Ed25519",
-          x: encodeBase64url(agentKeypair.publicKey),
-        },
-      },
-      iat: nowSeconds - 10,
-      nbf: nowSeconds - 10,
-      exp: nowSeconds + 3600,
-      jti: options.aitJti,
-    },
-    signerKid: "reg-key-1",
-    signerKeypair: signer,
-  });
-  const signed = await signHttpRequest({
-    method: options.method ?? "GET",
-    pathWithQuery: options.path,
-    timestamp,
-    nonce,
-    body: bodyBytes,
-    secretKey: agentKeypair.secretKey,
-  });
-
-  return {
-    body: bodyJson,
-    headers: {
-      authorization: `Claw ${ait}`,
-      ...(bodyJson.length > 0 ? { "content-type": "application/json" } : {}),
-      ...signed.headers,
-    },
-    registrySigningKey: encodeBase64url(signer.secretKey),
-    registrySigningKeys: JSON.stringify([
-      {
-        kid: "reg-key-1",
-        alg: "EdDSA",
-        crv: "Ed25519",
-        x: encodeBase64url(signer.publicKey),
-        status: "active",
-      },
-    ]),
-  };
-}
 
 describe("GET /v1/agents/profile", () => {
   it("requires authentication", async () => {
@@ -416,7 +344,7 @@ describe("POST /v1/groups", () => {
     expect(body.error.code).toBe("AGENT_AUTH_REFRESH_UNAUTHORIZED");
   });
 
-  it("keeps PAT create behavior", async () => {
+  it("rejects PAT create and requires agent auth", async () => {
     const { token, authRow } = await makeValidPatContext();
     const { database } = createFakeDb([authRow], []);
     const res = await createRegistryApp().request(
@@ -438,12 +366,9 @@ describe("POST /v1/groups", () => {
         BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
       },
     );
-    expect(res.status).toBe(201);
-    const body = (await res.json()) as {
-      group: { id: string; name: string; createdByHumanId: string };
-    };
-    expect(body.group.name).toBe("research-crew");
-    expect(body.group.createdByHumanId).toBe(authRow.humanId);
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("AGENT_AUTH_REFRESH_UNAUTHORIZED");
   });
 
   it("supports agent-auth create and stamps creator to agent owner human", async () => {
@@ -459,7 +384,7 @@ describe("POST /v1/groups", () => {
         name: "research-crew",
       },
     });
-    const { database } = createFakeDb(
+    const { database, groupRows, groupMemberRows } = createFakeDb(
       [],
       [
         {
@@ -494,10 +419,31 @@ describe("POST /v1/groups", () => {
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
-      group: { id: string; name: string; createdByHumanId: string };
+      group: {
+        id: string;
+        name: string;
+        createdByHumanId: string;
+        createdAt: string;
+      };
     };
     expect(body.group.name).toBe("research-crew");
     expect(body.group.createdByHumanId).toBe("human-1");
+    expect(groupRows).toHaveLength(1);
+    expect(groupRows[0]).toMatchObject({
+      id: body.group.id,
+      name: "research-crew",
+      createdBy: "human-1",
+      createdAt: body.group.createdAt,
+      updatedAt: body.group.createdAt,
+    });
+    expect(groupMemberRows).toHaveLength(1);
+    expect(groupMemberRows[0]).toEqual({
+      groupId: body.group.id,
+      agentId,
+      role: "admin",
+      joinedAt: body.group.createdAt,
+      updatedAt: body.group.createdAt,
+    });
   });
 });
 
@@ -548,7 +494,6 @@ describe("POST /v1/groups/:id/join-tokens", () => {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          role: "member",
           expiresInSeconds: 3600,
           maxUses: 1,
         }),
@@ -579,7 +524,6 @@ describe("POST /v1/groups/:id/join-tokens", () => {
       agentDid,
       aitJti,
       body: {
-        role: "member",
         expiresInSeconds: 3600,
         maxUses: 1,
       },
@@ -646,7 +590,6 @@ describe("POST /v1/groups/:id/join-tokens", () => {
       agentDid,
       aitJti,
       body: {
-        role: "member",
         expiresInSeconds: 3600,
         maxUses: 1,
       },
@@ -699,68 +642,44 @@ describe("POST /v1/groups/:id/join-tokens", () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe("GROUP_MANAGE_FORBIDDEN");
   });
-});
 
-describe("GET /v1/groups/:id/members", () => {
-  it("supports agent-auth members list for creator-owner without member row", async () => {
+  it("rejects join-token issue payload when role is present", async () => {
+    const { token, authRow } = await makeValidPatContext();
     const groupId = "grp_01HF7YAT31JZHSMW1CG6Q6MHB7";
-    const agentId = generateUlid(Date.now());
-    const agentDid = makeAgentDid(AGENT_AUTHORITY, agentId);
-    const aitJti = generateUlid(Date.now() + 1);
-    const request = await buildSignedAgentGroupRequest({
-      path: `/v1/groups/${groupId}/members`,
-      agentDid,
-      aitJti,
-    });
-    const { database } = createFakeDb(
-      [],
-      [
+    const { database } = createFakeDb([authRow], [], {
+      groupRows: [
         {
-          id: agentId,
-          did: agentDid,
-          ownerId: "human-1",
-          name: "group-reader",
-          framework: "openclaw",
-          publicKey: "unused-in-this-test",
-          status: "active",
-          expiresAt: null,
-          currentJti: aitJti,
+          id: groupId,
+          name: "alpha squad",
+          createdBy: authRow.humanId,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
         },
       ],
-      {
-        groupRows: [
-          {
-            id: groupId,
-            name: "alpha squad",
-            createdBy: "human-1",
-            createdAt: "2026-03-01T00:00:00.000Z",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-        ],
-      },
-    );
-
+    });
     const res = await createRegistryApp().request(
-      `/v1/groups/${groupId}/members`,
+      `/v1/groups/${groupId}/join-tokens`,
       {
-        method: "GET",
-        headers: request.headers,
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          role: "admin",
+          expiresInSeconds: 3600,
+          maxUses: 1,
+        }),
       },
       {
         DB: database,
         ENVIRONMENT: "local",
         BOOTSTRAP_INTERNAL_SERVICE_ID: "proxy-pairing",
         BOOTSTRAP_INTERNAL_SERVICE_SECRET: "bootstrap-test-secret",
-        REGISTRY_SIGNING_KEY: request.registrySigningKey,
-        REGISTRY_SIGNING_KEYS: request.registrySigningKeys,
       },
     );
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      group: { id: string };
-      members: Array<{ agentDid: string }>;
-    };
-    expect(body.group.id).toBe(groupId);
-    expect(Array.isArray(body.members)).toBe(true);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("GROUP_JOIN_TOKEN_ISSUE_INVALID");
   });
 });

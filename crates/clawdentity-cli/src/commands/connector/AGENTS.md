@@ -2,9 +2,14 @@
 
 ## Purpose
 - Keep connector runtime helpers split by concern so structural rules stay green.
+- Keep live inbound delivery provider-aware while preserving OpenClaw behavior unchanged.
 
 ## Rules
 - Put inbound relay delivery, retry persistence, and OpenClaw hook payload shaping in focused helper modules instead of growing `connector.rs`.
+- Resolve inbound delivery target from saved agent framework + provider runtime state; do not add parallel Hermes-only startup commands.
+- `connector start <agent>` and `connector service install <agent>` must infer non-OpenClaw provider runtime details from shared provider state files instead of hardcoding OpenClaw-only assumptions.
+- Treat `--openclaw-base-url`, `--openclaw-hook-path`, and `--openclaw-hook-token` as OpenClaw-only overrides; fail fast when those flags are passed for a non-OpenClaw agent.
+- Provider-backed inbound delivery must flow through the selected provider formatter/runtime contract, not through duplicated ad hoc HTTP payload builders inside connector code.
 - If inbound delivery is persisted for local retry, ACK the relay as accepted so the retry path stays single-source.
 - Wake payloads must only include `sessionId` when the inbound payload explicitly carries one.
 - `/hooks/agent` is the default path for visible peer delivery in current OpenClaw runtimes; use `/hooks/wake` only for explicit wake-only workflows.
@@ -15,6 +20,7 @@
 - Connector startup must enforce `CLAWDENTITY_EXPECTED_AGENT_NAME` when present and fail fast on mismatched agent selection; this prevents cross-container identity inversion in local dual-agent harnesses.
 - Connector runtime tests must cover expected-agent-name bypass behavior (`None`/blank expected value) in addition to match/mismatch failures so env-unset paths remain intentional and stable.
 - Keep connector test files under structural limits by grouping focused cases into submodules (for example `tests/expected_agent_name.rs`) instead of growing a single monolithic `tests.rs`.
+- Keep provider-runtime and mixed-provider tests in focused submodules/helpers (for example `tests/provider_runtime.rs`, `tests/fixtures.rs`) so connector test coverage can grow without breaking structural limits.
 - Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.
 - Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-display-name`) when local peer metadata exists.
 - Inbound sender name metadata must be resolved name-first from trusted local peer metadata, with registry profile refresh (`GET /v1/agents/profile?did=...`) when local names are missing or stale; never treat sender-supplied payload names as authoritative.

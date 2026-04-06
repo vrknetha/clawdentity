@@ -28,11 +28,13 @@
 - `GET /v1/groups/:id` must remain lightweight and return only `group.id` + `group.name`; keep membership/authorization checks in route-layer helpers and avoid embedding rendering logic.
 - `GET /v1/groups/:id` PAT access must be authorized against that specific group (owner or active-member ownership), not just token validity.
 - For `GET /v1/groups/:id`, resolve group existence before access checks across both PAT and agent-auth branches so missing groups return `GROUP_NOT_FOUND` (404) and permission failures return `GROUP_READ_FORBIDDEN` (403).
-- Group management parity rules are mandatory for operator CLI compatibility:
-  - `POST /v1/groups` and `POST /v1/groups/:id/join-tokens` must accept valid active agent-auth in addition to PAT.
-  - Keep PAT behavior for these routes additive in this phase; do not remove PAT support.
-  - For these PAT-or-agent mutation routes, resolve auth actor before JSON payload parsing so malformed bodies from unauthenticated callers still return auth failures (401/403) instead of payload-shape errors.
-  - For agent-auth create, persist `groups.created_by` as the authenticated agent owner's human ID.
-  - For agent-auth manage actions, allow only creator-owner agents or active `admin` group members.
+- Group management contract rules are mandatory for operator CLI compatibility:
+  - `POST /v1/groups` is agent-auth only; PAT/human auth is unauthorized for this route.
+  - `POST /v1/groups` must write both rows in the create path: `groups` + creator `group_members` row with `role=admin`.
+  - Group-create auth must run before payload parsing so unauthenticated requests fail as auth errors, not payload-shape errors.
+  - `POST /v1/groups/:id/join-tokens` remains manageable by allowed actors, but join-token issuance is member-only:
+    - reject payloads that include `role`
+    - persist issued tokens with `role=member`
+  - For agent-auth manage actions, allow only creator-owner agents.
   - For agent-auth reads, allow creator-owner agents or active group members.
 - Successful `POST /v1/groups/join` membership inserts should trigger best-effort creator-facing notification fan-out through helper-level event-bus publishing; do not inline queue payload construction in route handlers.

@@ -117,6 +117,7 @@ fn reconcile_onboarding_session_pairing_state(config_dir: &Path, peer_alias: &st
 #[serde(rename_all = "camelCase")]
 struct PairAcceptedSystemProfile {
     agent_name: String,
+    #[serde(alias = "humanName")]
     display_name: String,
     proxy_origin: String,
 }

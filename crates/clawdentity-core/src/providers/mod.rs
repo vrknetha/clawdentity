@@ -3,12 +3,18 @@ pub mod nanobot;
 pub mod nanoclaw;
 pub mod openclaw;
 pub mod picoclaw;
+mod runtime_state;
 
 pub use hermes::HermesProvider;
 pub use nanobot::NanobotProvider;
 pub use nanoclaw::NanoclawProvider;
 pub use openclaw::OpenclawProvider;
 pub use picoclaw::PicoclawProvider;
+pub use runtime_state::{
+    AgentProviderRuntime, ProviderRelayRuntimeConfig, load_agent_provider_runtime,
+    load_provider_runtime_config, now_iso, read_provider_agent_marker, resolve_state_dir,
+    save_provider_runtime_config, write_provider_agent_marker,
+};
 
 use std::collections::HashMap;
 use std::env;
@@ -19,7 +25,6 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::config::{ConfigPathOptions, get_config_dir};
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 
@@ -35,6 +40,32 @@ pub trait PlatformProvider {
 
     /// Format an inbound message for this platform's webhook
     fn format_inbound(&self, message: &InboundMessage) -> InboundRequest;
+
+    /// Apply provider-specific authorization or signing to an inbound webhook request.
+    fn authorize_inbound_request(
+        &self,
+        _request: &mut InboundRequest,
+        _body: &[u8],
+        _webhook_token: Option<&str>,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    /// Build the final inbound request for live delivery.
+    ///
+    /// Most providers only need the formatted payload. Providers that require
+    /// runtime auth headers (for example signed webhook requests) can override
+    /// this and use the saved webhook token.
+    fn build_inbound_request(
+        &self,
+        message: &InboundMessage,
+        webhook_token: Option<&str>,
+    ) -> Result<InboundRequest> {
+        let mut request = self.format_inbound(message);
+        let body = serde_json::to_vec(&request.body)?;
+        self.authorize_inbound_request(&mut request, &body, webhook_token)?;
+        Ok(request)
+    }
 
     /// Get the platform's default webhook port
     fn default_webhook_port(&self) -> u16;
@@ -579,109 +610,6 @@ pub(crate) fn upsert_marked_block(contents: &str, start: &str, end: &str, block:
     output.push_str(block.trim_end_matches('\n'));
     output.push('\n');
     output
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ProviderRelayRuntimeConfig {
-    pub webhook_endpoint: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub connector_base_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub webhook_token: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub platform_base_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relay_transform_peers_path: Option<String>,
-    pub updated_at: String,
-}
-
-pub(crate) fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339()
-}
-
-pub(crate) fn resolve_state_dir(home_dir: Option<PathBuf>) -> Result<PathBuf> {
-    let options = ConfigPathOptions {
-        home_dir,
-        registry_url_hint: None,
-    };
-    get_config_dir(&options)
-}
-
-pub(crate) fn provider_agent_marker_path(state_dir: &Path, provider: &str) -> PathBuf {
-    state_dir.join(format!("{provider}-agent-name"))
-}
-
-pub(crate) fn provider_runtime_path(state_dir: &Path, provider: &str) -> PathBuf {
-    state_dir.join(format!("{provider}-relay.json"))
-}
-
-pub(crate) fn write_provider_agent_marker(
-    state_dir: &Path,
-    provider: &str,
-    agent_name: &str,
-) -> Result<PathBuf> {
-    let agent_name = agent_name.trim();
-    if agent_name.is_empty() {
-        return Err(CoreError::InvalidInput(
-            "agent name cannot be empty".to_string(),
-        ));
-    }
-    let path = provider_agent_marker_path(state_dir, provider);
-    write_text(&path, &format!("{agent_name}\n"))?;
-    Ok(path)
-}
-
-pub(crate) fn read_provider_agent_marker(
-    state_dir: &Path,
-    provider: &str,
-) -> Result<Option<String>> {
-    let path = provider_agent_marker_path(state_dir, provider);
-    let value = read_text(&path)?;
-    Ok(value.and_then(|value| {
-        let trimmed = value.trim().to_string();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    }))
-}
-
-pub(crate) fn save_provider_runtime_config(
-    state_dir: &Path,
-    provider: &str,
-    config: ProviderRelayRuntimeConfig,
-) -> Result<PathBuf> {
-    let path = provider_runtime_path(state_dir, provider);
-    let mut value = serde_json::to_value(&config)?;
-    if !value.is_object() {
-        value = Value::Object(Map::new());
-    }
-    write_json(&path, &value)?;
-    Ok(path)
-}
-
-pub(crate) fn load_provider_runtime_config(
-    state_dir: &Path,
-    provider: &str,
-) -> Result<Option<ProviderRelayRuntimeConfig>> {
-    let path = provider_runtime_path(state_dir, provider);
-    let value = match read_text(&path)? {
-        Some(raw) => {
-            if raw.trim().is_empty() {
-                return Ok(None);
-            }
-            serde_json::from_str::<ProviderRelayRuntimeConfig>(&raw).map_err(|source| {
-                CoreError::JsonParse {
-                    path: path.clone(),
-                    source,
-                }
-            })?
-        }
-        None => return Ok(None),
-    };
-    Ok(Some(value))
 }
 
 pub(crate) fn push_doctor_check(

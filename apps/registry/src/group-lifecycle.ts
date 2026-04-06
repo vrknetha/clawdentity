@@ -16,8 +16,6 @@ const MAX_GROUP_JOIN_TOKEN_MAX_USES = 25;
 
 export const MAX_GROUP_MEMBERS = 25;
 
-export type GroupJoinRole = "member" | "admin";
-
 export type GroupCreatePayload = {
   name: string;
 };
@@ -25,7 +23,6 @@ export type GroupCreatePayload = {
 export type GroupJoinTokenIssuePayload = {
   expiresAt: string;
   maxUses: number;
-  role: GroupJoinRole;
 };
 
 export type GroupJoinPayload = {
@@ -221,13 +218,8 @@ export function parseGroupJoinTokenIssuePayload(input: {
     }
   }
 
-  let role: GroupJoinRole = "member";
   if (payload.role !== undefined) {
-    if (payload.role === "member" || payload.role === "admin") {
-      role = payload.role;
-    } else {
-      fieldErrors.role = ["role must be one of: member, admin"];
-    }
+    fieldErrors.role = ["role is not supported"];
   }
 
   if (Object.keys(fieldErrors).length > 0) {
@@ -240,7 +232,6 @@ export function parseGroupJoinTokenIssuePayload(input: {
   return {
     expiresAt,
     maxUses,
-    role,
   };
 }
 

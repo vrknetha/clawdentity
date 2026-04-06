@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::{Subcommand, ValueEnum};
+use clap::Subcommand;
 use clawdentity_core::{
     ConfigPathOptions, GroupCreateInput, GroupInspectInput, GroupJoinInput,
     GroupJoinTokenCreateInput, GroupMembersListInput, GroupRole, create_group,
@@ -40,8 +40,6 @@ pub enum GroupJoinTokenCommand {
         #[arg(long)]
         agent_name: String,
         #[arg(long)]
-        role: Option<CliGroupRole>,
-        #[arg(long)]
         expires_in_seconds: Option<u32>,
         #[arg(long)]
         max_uses: Option<u32>,
@@ -55,21 +53,6 @@ pub enum GroupMembersCommand {
         #[arg(long)]
         agent_name: String,
     },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum CliGroupRole {
-    Member,
-    Admin,
-}
-
-impl From<CliGroupRole> for GroupRole {
-    fn from(value: CliGroupRole) -> Self {
-        match value {
-            CliGroupRole::Member => Self::Member,
-            CliGroupRole::Admin => Self::Admin,
-        }
-    }
 }
 
 fn role_label(role: GroupRole) -> &'static str {
@@ -137,7 +120,6 @@ async fn execute_group_join_token_create(
     let GroupJoinTokenCommand::Create {
         group_id,
         agent_name,
-        role,
         expires_in_seconds,
         max_uses,
     } = input;
@@ -147,7 +129,6 @@ async fn execute_group_join_token_create(
         GroupJoinTokenCreateInput {
             agent_name,
             group_id,
-            role: role.map(GroupRole::from),
             expires_in_seconds,
             max_uses,
         },

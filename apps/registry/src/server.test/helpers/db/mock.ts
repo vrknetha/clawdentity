@@ -36,6 +36,8 @@ import type {
   FakeD1Row,
   FakeDbOptions,
   FakeDbState,
+  FakeGroupInsertRow,
+  FakeGroupMemberInsertRow,
   FakeHumanInsertRow,
   FakeHumanRow,
   FakeInternalServiceInsertRow,
@@ -70,6 +72,8 @@ export function createFakeDb(
   const inviteUpdates: FakeInviteUpdateRow[] = [];
   const starterPassInserts: FakeStarterPassInsertRow[] = [];
   const starterPassUpdates: FakeStarterPassUpdateRow[] = [];
+  const groupInserts: FakeGroupInsertRow[] = [];
+  const groupMemberInserts: FakeGroupMemberInsertRow[] = [];
   const revocationRows = [...(options.revocationRows ?? [])];
   const registrationChallengeRows = [
     ...(options.registrationChallengeRows ?? []),
@@ -111,6 +115,7 @@ export function createFakeDb(
   ];
   const starterPassRows = [...(options.starterPassRows ?? [])];
   const groupRows = [...(options.groupRows ?? [])];
+  const groupMemberRows = [...(options.groupMemberRows ?? [])];
   const state: FakeDbState = {
     authRows: rows,
     agentRows,
@@ -131,12 +136,15 @@ export function createFakeDb(
     inviteUpdates,
     starterPassInserts,
     starterPassUpdates,
+    groupInserts,
+    groupMemberInserts,
     revocationRows,
     registrationChallengeRows,
     agentAuthSessionRows,
     inviteRows,
     starterPassRows,
     groupRows,
+    groupMemberRows,
     humanRows,
     apiKeyRows,
     internalServiceRows,
@@ -711,6 +719,9 @@ export function createFakeDb(
     starterPassUpdates,
     starterPassRows,
     groupRows,
+    groupInserts,
+    groupMemberInserts,
+    groupMemberRows,
     revocationInserts,
     registrationChallengeRows,
   };

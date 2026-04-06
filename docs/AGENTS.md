@@ -9,6 +9,10 @@
 - Do not imply `clawdentity provider setup --for openclaw` repairs broken OpenClaw auth or replaces `openclaw onboard` / `openclaw doctor --fix`.
 - Use `openclaw dashboard` or `openclaw dashboard --no-open` as the first visual recovery step when device approvals or local UI state are involved.
 - Keep `clawdentity connector start` documented as advanced/manual foreground recovery, not the default OpenClaw onboarding path.
+- Connector docs must describe inbound delivery as provider-aware:
+  - OpenClaw uses local `/hooks/*`
+  - Hermes and other non-OpenClaw providers use the runtime endpoint saved by `provider setup`
+- OpenClaw-only connector flags (`--openclaw-base-url`, `--openclaw-hook-path`, `--openclaw-hook-token`) must never be described as generic multi-provider runtime flags.
 - Keep proxy identity docs header-first by default: structured headers and connector metadata are canonical, while message-body identity injection is opt-in legacy compatibility only.
 - Keep pair-profile docs and registry-profile docs separate:
   - pair payloads still use `humanName`

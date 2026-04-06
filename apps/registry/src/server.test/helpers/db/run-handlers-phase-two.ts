@@ -23,6 +23,10 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
     inviteUpdates,
     starterPassInserts,
     starterPassRows,
+    groupInserts,
+    groupRows,
+    groupMemberInserts,
+    groupMemberRows,
     humanRows,
     apiKeyRows,
     internalServiceRows,
@@ -109,6 +113,70 @@ export function applyRunHandlersPhaseTwo(input: RunHandlerPhaseInput): number {
           typeof row.redeemed_at === "string" ? row.redeemed_at : null,
         expiresAt: row.expires_at,
         status: row.status,
+      });
+    }
+
+    changes = 1;
+  }
+  if (
+    normalizedQuery.includes('insert into "groups"') ||
+    normalizedQuery.includes("insert into groups")
+  ) {
+    const columns = parseInsertColumns(query, "groups");
+    const row = columns.reduce<Record<string, unknown>>(
+      (acc, column, index) => {
+        acc[column] = params[index];
+        return acc;
+      },
+      {},
+    );
+    groupInserts.push(row);
+
+    if (
+      typeof row.id === "string" &&
+      typeof row.name === "string" &&
+      typeof row.created_by === "string" &&
+      typeof row.created_at === "string" &&
+      typeof row.updated_at === "string"
+    ) {
+      groupRows.push({
+        id: row.id,
+        name: row.name,
+        createdBy: row.created_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+
+    changes = 1;
+  }
+  if (
+    normalizedQuery.includes('insert into "group_members"') ||
+    normalizedQuery.includes("insert into group_members")
+  ) {
+    const columns = parseInsertColumns(query, "group_members");
+    const row = columns.reduce<Record<string, unknown>>(
+      (acc, column, index) => {
+        acc[column] = params[index];
+        return acc;
+      },
+      {},
+    );
+    groupMemberInserts.push(row);
+
+    if (
+      typeof row.group_id === "string" &&
+      typeof row.agent_id === "string" &&
+      (row.role === "member" || row.role === "admin") &&
+      typeof row.joined_at === "string" &&
+      typeof row.updated_at === "string"
+    ) {
+      groupMemberRows.push({
+        groupId: row.group_id,
+        agentId: row.agent_id,
+        role: row.role,
+        joinedAt: row.joined_at,
+        updatedAt: row.updated_at,
       });
     }
 

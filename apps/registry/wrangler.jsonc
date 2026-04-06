@@ -15,6 +15,14 @@
   "env": {
     "local": {
       "name": "clawdentity-registry-local",
+      "queues": {
+        "producers": [
+          {
+            "binding": "EVENT_BUS_QUEUE",
+            "queue": "clawdentity-events-local"
+          }
+        ]
+      },
       "d1_databases": [
         {
           "binding": "DB",
@@ -28,7 +36,7 @@
         "PROXY_URL": "http://127.0.0.1:8787",
         "REGISTRY_ISSUER_URL": "http://127.0.0.1:8788",
         "LANDING_URL": "http://localhost:4321",
-        "EVENT_BUS_BACKEND": "memory"
+        "EVENT_BUS_BACKEND": "queue"
       }
     },
     "dev": {

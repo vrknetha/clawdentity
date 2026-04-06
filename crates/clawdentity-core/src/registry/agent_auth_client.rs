@@ -5,6 +5,7 @@ use chrono::Utc;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
+use super::agent_name::parse_agent_name;
 use crate::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::did::{parse_agent_did, parse_human_did};
@@ -14,7 +15,6 @@ use crate::identity::decode_secret_key;
 use crate::new_frame_id;
 use crate::registry::agent::{AgentAuthRecord, inspect_agent};
 use crate::signing::{SignHttpRequestInput, sign_http_request};
-use super::agent_name::parse_agent_name;
 
 const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 

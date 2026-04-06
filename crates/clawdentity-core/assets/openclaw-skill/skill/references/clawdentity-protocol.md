@@ -178,7 +178,10 @@ The transform does not send directly to the peer proxy. It posts to the local co
   - `CLAWDENTITY_CONNECTOR_BASE_URL`
   - `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH`
 - `provider setup --for openclaw --agent-name <agent-name>` is the primary self-setup path after OpenClaw itself is healthy.
-- `connector start <agent-name>` is advanced/manual recovery; it resolves bind URL from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
+- `connector start <agent-name>` is advanced/manual recovery and resolves its inbound target from saved provider state.
+- For OpenClaw, connector inbound delivery resolves hook routing from `~/.clawdentity/openclaw-connectors.json` when explicit env override is absent.
+- For non-OpenClaw providers such as Hermes, connector inbound delivery resolves the saved provider runtime state written by `provider setup --for <platform>` (for example `hermes-relay.json`).
+- `--openclaw-base-url`, `--openclaw-hook-path`, and `--openclaw-hook-token` are OpenClaw-only manual overrides and must not be documented as generic provider flags.
 
 Outbound JSON body sent by transform for direct routing:
 
@@ -219,6 +222,8 @@ Rules:
 - Connector runtime is responsible for Clawdentity auth headers and request signing when calling peer proxy.
 
 ## OpenClaw Inbound Metadata Contract
+
+This section is OpenClaw-specific. Other providers, including Hermes, receive provider-formatted inbound webhook payloads from the same connector runtime.
 
 For `/hooks/wake`, the connector delivers a rendered text envelope:
 
@@ -408,8 +413,8 @@ The connector `deliver` frame includes `fromAgentDid` as a top-level field. Inbo
 | 400 | `GROUP_CREATE_INVALID` | Group create payload is invalid | Provide a valid group name (1-80 chars, no control chars) |
 | 400 | `GROUP_JOIN_TOKEN_INVALID` | Group join token is invalid | Request a new token from group creator |
 | 400 | `GROUP_JOIN_TOKEN_EXPIRED` | Group join token has expired | Request a new token |
-| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Check role, expiresInSeconds (60-2592000), maxUses (1-25) |
-| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator or an admin member |
+| 400 | `GROUP_JOIN_TOKEN_ISSUE_INVALID` | Join token issue payload is invalid | Do not send role. Check expiresInSeconds (60-2592000), maxUses (1-25) |
+| 403 | `GROUP_MANAGE_FORBIDDEN` | Agent cannot manage this group | Use an agent owned by the group creator |
 | 403 | `GROUP_READ_FORBIDDEN` | Agent cannot read this group | Use an agent that is a group member or owned by the creator |
 | 403 | `GROUP_JOIN_FORBIDDEN` | Agent is not allowed to join this group | Verify join token and agent identity |
 | 404 | `GROUP_NOT_FOUND` | Group does not exist | Verify group ID with `clawdentity group inspect` |

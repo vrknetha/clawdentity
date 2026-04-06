@@ -12,5 +12,5 @@
 - `tools.elevated` may be enabled only for internal `webchat` here, and wildcard access is acceptable only because this fixture is local-harness-only.
 - If `agents.defaults.elevatedDefault` is set here, it must be justified by removing local approval loops in Docker WebChat; do not copy that default into public docs or general user profiles.
 - The fixture itself should stay auth-format-agnostic; Codex subscription reuse belongs in the reset harness by copying host `~/.codex/auth.json` into each Docker profile and exporting `CODEX_HOME=/home/node/.openclaw/.codex`, not by embedding OAuth material in this fixture.
-- Local Docker profiles that reuse host Codex auth should default to `openai-codex/gpt-5.4`; do not point the harness back to `openai/*` unless you intentionally want API-key billing for that run.
+- Local Docker profiles should default to `openrouter/moonshotai/kimi-k2.5` with `openai-codex/gpt-5.4` fallback; keep host Codex auth wiring available so fallback remains deterministic when `OPENROUTER_API_KEY` is not set.
 - Keep private-network allowances limited to local test hosts (`host.docker.internal`, `localhost`, `127.0.0.1`) unless the harness requirements change.

@@ -446,6 +446,10 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
         system?: {
           type?: string;
           message?: string;
+          responderProfile?: {
+            displayName?: string;
+            humanName?: string;
+          };
         };
       };
     };
@@ -459,6 +463,12 @@ describe(`POST ${PAIR_CONFIRM_PATH}`, () => {
         },
       },
     });
+    expect(relayPayload.payload?.system?.responderProfile?.displayName).toBe(
+      RESPONDER_PROFILE_WITH_PROXY_ORIGIN.humanName,
+    );
+    expect(relayPayload.payload?.system?.responderProfile?.humanName).toBe(
+      RESPONDER_PROFILE_WITH_PROXY_ORIGIN.humanName,
+    );
   });
 
   it("keeps confirm successful when pair.accepted queue publish fails", async () => {

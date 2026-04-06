@@ -36,8 +36,8 @@
 - Keep `.dev.vars` and `.env.example` synchronized when adding/changing runtime config fields (`APP_VERSION`, `BOOTSTRAP_SECRET`, `REGISTRY_SIGNING_KEY`, `REGISTRY_SIGNING_KEYS`).
 - Generate local `apps/registry/.env` via `pnpm env:sync` (source `~/.clawdentity/worktree.env`) instead of manual edits.
 - Generated `apps/registry/.env` must carry shared secrets/overrides only; keep `ENVIRONMENT`, public registry/proxy URLs, landing URL, and event-bus mode in Wrangler env blocks so `dev` and `local` do not override each other.
-- Use memory event bus only for local-only development sessions (`wrangler dev` with local `.env` / `.dev.vars`) where no cross-instance delivery is expected.
-- Keep every deployed environment queue-backed, including remote `dev` and `production` (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`).
+- Keep queue-backed event bus as the default for `local`, `dev`, and `production` (`EVENT_BUS_BACKEND=queue` + `EVENT_BUS_QUEUE`) so cross-worker notifications (for example `group.member.joined`) reach proxy consumers.
+- Use memory event bus only for explicitly isolated single-worker debugging sessions where cross-service delivery is intentionally disabled.
 - Keep queue-backed event bus validation fail-fast in production-like runtime paths; do not silently fallback to memory when `EVENT_BUS_QUEUE` is missing.
 
 ## Validation

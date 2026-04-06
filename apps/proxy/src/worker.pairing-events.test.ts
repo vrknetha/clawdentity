@@ -84,6 +84,10 @@ describe("proxy worker pair.accepted queue routing", () => {
         system?: {
           type?: string;
           message?: string;
+          responderProfile?: {
+            displayName?: string;
+            humanName?: string;
+          };
         };
       };
     };
@@ -100,6 +104,8 @@ describe("proxy worker pair.accepted queue routing", () => {
         },
       },
     });
+    expect(body.payload?.system?.responderProfile?.displayName).toBe("Ira");
+    expect(body.payload?.system?.responderProfile?.humanName).toBe("Ira");
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
   });

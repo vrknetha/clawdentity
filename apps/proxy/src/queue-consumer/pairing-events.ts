@@ -40,14 +40,34 @@ function resolveInitiatorRelaySession(input: {
 }
 
 function toSystemPayload(event: PairAcceptedQueueEvent): {
-  system: PairAcceptedQueueEvent;
+  system: {
+    type: PairAcceptedQueueEvent["type"];
+    initiatorAgentDid: string;
+    responderAgentDid: string;
+    responderProfile: {
+      agentName: string;
+      displayName: string;
+      humanName: string;
+      proxyOrigin: string;
+    };
+    issuerProxyOrigin: string;
+    eventTimestampUtc: string;
+    message?: string;
+  };
 } {
   return {
     system: {
       type: PAIR_ACCEPTED_EVENT_TYPE,
       initiatorAgentDid: event.initiatorAgentDid,
       responderAgentDid: event.responderAgentDid,
-      responderProfile: event.responderProfile,
+      responderProfile: {
+        agentName: event.responderProfile.agentName,
+        // Connector trusted handling expects `displayName`; keep `humanName`
+        // for backward compatibility with older consumers.
+        displayName: event.responderProfile.humanName,
+        humanName: event.responderProfile.humanName,
+        proxyOrigin: event.responderProfile.proxyOrigin,
+      },
       issuerProxyOrigin: event.issuerProxyOrigin,
       eventTimestampUtc: event.eventTimestampUtc,
       message: event.message,

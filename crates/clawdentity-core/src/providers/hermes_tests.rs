@@ -102,6 +102,77 @@ fn format_inbound_includes_sender_message_and_session_key() {
 }
 
 #[test]
+fn format_inbound_includes_group_metadata_and_group_session_key() {
+    let provider = HermesProvider::default();
+    let mut metadata = HashMap::new();
+    metadata.insert(
+        "groupId".to_string(),
+        "grp_01HF7YAT31JZHSMW1CG6Q6MHB7".to_string(),
+    );
+    metadata.insert("conversationId".to_string(), "group-thread".to_string());
+    metadata.insert("groupName".to_string(), "Project Room".to_string());
+
+    let request = provider.format_inbound(&InboundMessage {
+        sender_did: "did:cdi:test:agent:sender".to_string(),
+        recipient_did: "did:cdi:test:agent:receiver".to_string(),
+        content: "hello group".to_string(),
+        request_id: Some("req-group-1".to_string()),
+        metadata,
+    });
+
+    assert_eq!(
+        request
+            .body
+            .get("metadata")
+            .and_then(|value| value.get("groupId"))
+            .and_then(|value| value.as_str()),
+        Some("grp_01HF7YAT31JZHSMW1CG6Q6MHB7")
+    );
+    assert_eq!(
+        request
+            .body
+            .get("metadata")
+            .and_then(|value| value.get("conversationId"))
+            .and_then(|value| value.as_str()),
+        Some("group-thread")
+    );
+    assert_eq!(
+        request
+            .body
+            .get("session_key")
+            .and_then(|value| value.as_str()),
+        Some("group:grp_01HF7YAT31JZHSMW1CG6Q6MHB7:group-thread")
+    );
+}
+
+#[test]
+fn authorize_inbound_request_adds_signature_header() {
+    let provider = HermesProvider::default();
+    let request = provider.format_inbound(&InboundMessage {
+        sender_did: "did:cdi:test:agent:sender".to_string(),
+        recipient_did: "did:cdi:test:agent:receiver".to_string(),
+        content: "hello".to_string(),
+        request_id: Some("req-sign-1".to_string()),
+        metadata: HashMap::new(),
+    });
+    let mut request = request;
+    let body = serde_json::to_vec(&request.body).expect("body");
+
+    provider
+        .authorize_inbound_request(&mut request, &body, Some("relay-secret"))
+        .expect("authorize");
+    let expected = HermesProvider::hmac_sha256_hex("relay-secret", &body);
+
+    assert_eq!(
+        request
+            .headers
+            .get("x-webhook-signature")
+            .map(String::as_str),
+        Some(expected.as_str())
+    );
+}
+
+#[test]
 fn install_upserts_clawdentity_route_into_yaml() {
     let home = TempDir::new().expect("temp home");
     let config_dir = home.path().join(HERMES_DIR_NAME);

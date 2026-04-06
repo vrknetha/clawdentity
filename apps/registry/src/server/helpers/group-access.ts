@@ -75,28 +75,7 @@ export async function resolveManageableGroupForHuman(input: {
   if (group.createdBy === input.humanId) {
     return { id: group.id, name: group.name };
   }
-
-  const adminMembershipRows = await input.db
-    .select({
-      agentId: agents.id,
-    })
-    .from(group_members)
-    .innerJoin(agents, eq(group_members.agent_id, agents.id))
-    .where(
-      and(
-        eq(group_members.group_id, input.groupId),
-        eq(group_members.role, "admin"),
-        eq(agents.owner_id, input.humanId),
-        eq(agents.status, "active"),
-      ),
-    )
-    .limit(1);
-
-  if (!adminMembershipRows[0]) {
-    throw groupManageForbiddenError();
-  }
-
-  return { id: group.id, name: group.name };
+  throw groupManageForbiddenError();
 }
 
 export async function resolveReadableGroupForAgent(input: {
@@ -166,26 +145,7 @@ export async function resolveManageableGroupForAgent(input: {
   if (group.createdBy === input.humanId) {
     return { id: group.id, name: group.name };
   }
-
-  const adminMembershipRows = await input.db
-    .select({
-      agentId: group_members.agent_id,
-    })
-    .from(group_members)
-    .where(
-      and(
-        eq(group_members.group_id, input.groupId),
-        eq(group_members.agent_id, input.agentId),
-        eq(group_members.role, "admin"),
-      ),
-    )
-    .limit(1);
-
-  if (!adminMembershipRows[0]) {
-    throw groupManageForbiddenError();
-  }
-
-  return { id: group.id, name: group.name };
+  throw groupManageForbiddenError();
 }
 
 export async function resolveReadableGroupForActor(input: {
