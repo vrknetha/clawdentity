@@ -382,7 +382,7 @@ fn write_delivery_config_file(path: &Path, body: &str) -> Result<()> {
             .with_context(|| format!("failed to write connector delivery config {}", path.display()))?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .with_context(|| format!("failed to secure connector delivery config {}", path.display()))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(unix))]
