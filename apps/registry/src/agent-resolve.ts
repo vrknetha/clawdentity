@@ -5,7 +5,7 @@ import {
   shouldExposeVerboseErrors,
 } from "@clawdentity/sdk";
 
-const DEFAULT_RESOLVED_FRAMEWORK = "openclaw";
+const DEFAULT_RESOLVED_FRAMEWORK = "generic";
 
 type AgentStatus = "active" | "revoked";
 

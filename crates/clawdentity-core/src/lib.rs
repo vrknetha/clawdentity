@@ -7,7 +7,6 @@ pub mod error;
 pub mod http;
 pub mod identity;
 pub mod pairing;
-pub mod providers;
 pub mod registry;
 pub mod runtime;
 pub mod verify;
@@ -25,11 +24,6 @@ pub use identity::did;
 pub use identity::signing;
 pub use pairing::peers;
 pub use pairing::qr;
-pub use providers as provider;
-pub use providers::nanobot as provider_nanobot;
-pub use providers::nanoclaw as provider_nanoclaw;
-pub use providers::openclaw as provider_openclaw;
-pub use providers::picoclaw as provider_picoclaw;
 pub use registry::admin;
 pub use registry::agent;
 pub use registry::api_key;
@@ -37,11 +31,11 @@ pub use registry::crl;
 pub use registry::group;
 pub use registry::invite;
 pub use runtime::auth as runtime_auth;
-pub use runtime::openclaw as runtime_openclaw;
 pub use runtime::relay as runtime_relay;
 pub use runtime::replay as runtime_replay;
 pub use runtime::server as runtime_server;
 pub use runtime::trusted_receipts as runtime_trusted_receipts;
+pub use runtime::webhook as runtime_webhook;
 
 pub use admin::{
     AdminApiKey, AdminBootstrapInput, AdminBootstrapResult, AdminHuman, AdminInternalService,
@@ -126,27 +120,7 @@ pub use pairing::{
 };
 pub use peers::{
     PeerEntry, PeersConfig, PersistPeerInput, derive_peer_alias_base, load_peers_config,
-    persist_peer, resolve_peer_alias, sync_openclaw_relay_peers_snapshot,
-};
-pub use provider::{
-    DetectionResult, InboundMessage, InboundRequest, InstallOptions, InstallResult,
-    PlatformProvider, ProviderDoctorCheck, ProviderDoctorCheckStatus, ProviderDoctorOptions,
-    ProviderDoctorResult, ProviderDoctorStatus, ProviderRelayTestOptions, ProviderRelayTestResult,
-    ProviderRelayTestStatus, ProviderSetupOptions, ProviderSetupResult, ProviderSetupStatus,
-    VerifyOptions, VerifyResult as ProviderVerifyResult, all_providers, detect_platform,
-    get_provider,
-};
-pub use provider_openclaw::{
-    DoctorCheckStatus, DoctorStatus, OPENCLAW_AGENT_FILE_NAME, OPENCLAW_CONNECTORS_FILE_NAME,
-    OPENCLAW_DEFAULT_BASE_URL, OPENCLAW_RELAY_RUNTIME_FILE_NAME, OpenclawConnectorAssignment,
-    OpenclawConnectorsConfig, OpenclawDoctorCheck, OpenclawDoctorOptions, OpenclawDoctorResult,
-    OpenclawRelayRuntimeConfig, OpenclawRelayTestOptions, OpenclawRelayTestResult,
-    OpenclawRelayWebsocketTestOptions, OpenclawRelayWebsocketTestResult, RelayCheckStatus,
-    load_connector_assignments, load_relay_runtime_config, openclaw_agent_name_path,
-    openclaw_connectors_path, openclaw_relay_runtime_path, read_selected_openclaw_agent,
-    resolve_connector_base_url, resolve_openclaw_base_url, resolve_openclaw_hook_token,
-    run_openclaw_doctor, run_openclaw_relay_test, run_openclaw_relay_websocket_test,
-    save_connector_assignment, save_relay_runtime_config, write_selected_openclaw_agent,
+    persist_peer, resolve_peer_alias,
 };
 pub use qr::{
     PAIRING_QR_DIR_NAME, PAIRING_QR_MAX_AGE_SECONDS, decode_ticket_from_png, encode_ticket_qr_png,
@@ -157,7 +131,6 @@ pub use registry::{
     fetch_registry_metadata, register_identity,
 };
 pub use runtime_auth::{RelayConnectHeaders, build_relay_connect_headers};
-pub use runtime_openclaw::{OpenclawRuntimeConfig, check_openclaw_gateway_health};
 pub use runtime_relay::{
     FlushOutboundResult, OutboundRetryPolicy, OutboundSendObservation, SentOutboundFrame,
     flush_outbound_queue_to_relay, flush_outbound_queue_to_relay_with_send_observer,
@@ -168,6 +141,7 @@ pub use runtime_replay::{
 };
 pub use runtime_server::{RuntimeServerState, create_runtime_router, run_runtime_server};
 pub use runtime_trusted_receipts::TrustedReceiptsStore;
+pub use runtime_webhook::{DeliveryWebhookRuntimeConfig, check_delivery_webhook_health};
 pub use service::{
     ConnectorServiceInstallInput, ConnectorServiceInstallResult, ConnectorServicePlatform,
     ConnectorServiceUninstallInput, ConnectorServiceUninstallResult, install_connector_service,

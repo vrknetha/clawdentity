@@ -11,7 +11,7 @@ From REVIEW.md — must land before PR #180 merges.
 | 1 | CRITICAL | ACK sent even when inbound persistence fails → silent data loss | connector.rs:457 |
 | 2 | HIGH | `install` returns exit 0 when verification is unhealthy | install.rs:103 |
 | 3 | HIGH | Heartbeat ACK timeout bypassed by tick ordering | client.rs:303 |
-| 4 | HIGH | providers/openclaw.rs is 2095 lines — must split | openclaw.rs |
+| 4 | HIGH | Runtime adapter module exceeds line budget — split by responsibility | adapter module |
 | 5 | MEDIUM | `config init` swallows registry metadata failures | main.rs:175 |
 | 6 | MEDIUM | `config get --json` emits plain text, not JSON | main.rs:203 |
 | 7 | MEDIUM | Malformed outbound payloads dropped silently | relay.rs:32 |
@@ -53,16 +53,16 @@ docs/
 ```rust
 // crates/clawdentity-core/tests/structural.rs
 #[test] fn no_file_exceeds_800_lines() { ... }
-#[test] fn providers_cannot_import_runtime() { ... }
-#[test] fn connector_cannot_import_providers() { ... }
+#[test] fn adapter_layer_cannot_import_runtime() { ... }
+#[test] fn connector_cannot_import_adapter_layer() { ... }
 #[test] fn no_unwrap_outside_tests() { ... }
 #[test] fn all_public_functions_documented() { ... }
 ```
 
 Error messages include remediation hints:
 ```
-FAIL: providers/openclaw.rs is 2095 lines (limit: 800).
-FIX: Split into openclaw/mod.rs + openclaw/doctor.rs + openclaw/setup.rs + openclaw/relay_test.rs
+FAIL: runtime_adapter.rs is 2095 lines (limit: 800).
+FIX: Split adapter logic by config, setup, health checks, and delivery tests.
 ```
 
 ### 3.2 Dependency direction rules
@@ -72,7 +72,7 @@ registry/ → identity/
 db/ → (nothing)
 connector/ → db/, identity/
 runtime/ → connector/, db/
-providers/ → identity/, db/, connector/ (NOT runtime/)
+adapter/ → identity/, db/, connector/ (NOT runtime/)
 pairing/ → identity/, db/
 ```
 
@@ -114,7 +114,7 @@ cargo test
 - Opens fix-up PRs
 
 ### 5.2 Code quality sweep (weekly cron)
-- Scans for duplicated patterns (registry error parsing, provider presentation)
+- Scans for duplicated patterns (registry error parsing, adapter presentation)
 - Checks for files approaching 800-line limit (warn at 600)
 - Flags test coverage gaps in critical paths
 - Opens refactoring PRs

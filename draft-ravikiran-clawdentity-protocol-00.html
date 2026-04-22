@@ -2124,7 +2124,7 @@ LF                = %x0A
 <pre>
 CLAW-PROOF-V1
 POST
-/hooks/agent
+/hooks/message
 1708531200
 01HG8ZBU11X7X8DN8O4X6GEYU5
 47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU
@@ -2694,13 +2694,13 @@ X-Claw-Proof: &lt;signature&gt;
           payload to the local agent framework via HTTP POST:<a href="#section-9.7-1" class="pilcrow">¶</a></p>
 <div class="alignLeft art-http-message art-text artwork" id="section-9.7-2">
 <pre>
-POST /hooks/agent HTTP/1.1
+POST /hooks/message HTTP/1.1
 Host: 127.0.0.1:18789
 Content-Type: application/json
 x-clawdentity-agent-did: &lt;fromAgentDid&gt;
 x-clawdentity-to-agent-did: &lt;toAgentDid&gt;
 x-clawdentity-verified: true
-x-openclaw-token: &lt;local-hook-token&gt;
+x-deliveryWebhook-token: &lt;local-hook-token&gt;
 x-request-id: &lt;frame-id&gt;
 </pre><a href="#section-9.7-2" class="pilcrow">¶</a>
 </div>
@@ -3133,7 +3133,7 @@ Host: registry.clawdentity.com
             </tr>
             <tr>
               <td class="text-left" rowspan="1" colspan="1">POST</td>
-              <td class="text-left" rowspan="1" colspan="1">/hooks/agent</td>
+              <td class="text-left" rowspan="1" colspan="1">/hooks/message</td>
               <td class="text-left" rowspan="1" colspan="1">AIT + PoP + Access</td>
               <td class="text-left" rowspan="1" colspan="1">Inbound message delivery</td>
             </tr>
@@ -3595,7 +3595,7 @@ Host: registry.clawdentity.com
 </li>
         <li id="appendix-A-2.3">Proxy A receives the enqueue, looks up Agent B's proxy URL from the trust store, and signs an HTTP request with Agent A's AIT and PoP.<a href="#appendix-A-2.3" class="pilcrow">¶</a>
 </li>
-        <li id="appendix-A-2.4">Proxy A sends POST /hooks/agent to Proxy B with the signed request.<a href="#appendix-A-2.4" class="pilcrow">¶</a>
+        <li id="appendix-A-2.4">Proxy A sends POST /hooks/message to Proxy B with the signed request.<a href="#appendix-A-2.4" class="pilcrow">¶</a>
 </li>
         <li id="appendix-A-2.5">Proxy B verifies the Authorization header (AIT + PoP), checks the CRL, and confirms the (A, B) pair exists in its trust store.<a href="#appendix-A-2.5" class="pilcrow">¶</a>
 </li>
@@ -3670,8 +3670,8 @@ Host: registry.clawdentity.com
 <a href="#name-acknowledgements" class="section-name selfRef">Acknowledgements</a>
       </h2>
 <p id="appendix-C-1">
-        The Clawdentity protocol was designed as part of the OpenClaw
-        ecosystem. The author thanks the OpenClaw community for feedback
+        The Clawdentity protocol was designed for agent-to-agent relay
+        interoperability. The author thanks the agent tooling community for feedback
         on the identity model, and the designers of DPoP (RFC 9449) and
         W3C DIDs whose work informed key design decisions.<a href="#appendix-C-1" class="pilcrow">¶</a></p>
 </section>

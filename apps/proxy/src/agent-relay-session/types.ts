@@ -25,7 +25,7 @@ export type RelayDeliveryInput = {
 export type RelayDeliveryState =
   | "delivered"
   | "queued"
-  | "processed_by_openclaw"
+  | "delivered_to_webhook"
   | "dead_lettered";
 
 export type RelayDeliveryResult = {
@@ -42,7 +42,7 @@ export type RelayReceiptRecordInput = {
   recipientAgentDid: string;
   requestId: string;
   senderAgentDid: string;
-  status: "processed_by_openclaw" | "dead_lettered";
+  status: "delivered_to_webhook" | "dead_lettered";
 };
 
 export type RelayReceiptLookupInput = {

@@ -14,11 +14,11 @@ describe("receipt queue events", () => {
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
       recipientAgentDid:
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-      status: "processed_by_openclaw",
+      status: "delivered_to_webhook",
     });
 
     expect(event.type).toBe("delivery_receipt");
-    expect(event.status).toBe("processed_by_openclaw");
+    expect(event.status).toBe("delivered_to_webhook");
   });
 
   it("rejects invalid delivery receipt status", () => {

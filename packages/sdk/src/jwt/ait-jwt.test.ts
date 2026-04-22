@@ -20,7 +20,7 @@ function makeClaims(overrides: Partial<AitClaims> = {}): AitClaims {
     sub: makeAgentDid(authority, agentUlid),
     ownerDid: makeHumanDid(authority, ownerUlid),
     name: "agent-jwt-01",
-    framework: "openclaw",
+    framework: "generic",
     description: "AIT JWT test payload",
     cnf: {
       jwk: {

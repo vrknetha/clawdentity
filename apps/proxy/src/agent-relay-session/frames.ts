@@ -84,7 +84,7 @@ export function toEnqueueAckFrame(input: {
 export function toReceiptFramePayload(input: {
   originalFrameId: string;
   toAgentDid: string;
-  status: "processed_by_openclaw" | "dead_lettered";
+  status: "delivered_to_webhook" | "dead_lettered";
   reason?: string;
   nowMs: number;
 }): string {

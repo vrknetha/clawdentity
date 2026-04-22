@@ -1,10 +1,10 @@
+import type { DeliveryWebhookSenderProfile } from "../deliveryWebhook-headers.js";
 import type {
   ConnectorFrame,
   DeliverFrame,
   EnqueueFrame,
   ReceiptFrame,
 } from "../frames.js";
-import type { OpenclawSenderProfile } from "../openclaw-headers.js";
 
 export type ConnectorWebSocketEventType =
   | "open"
@@ -82,9 +82,9 @@ export type ConnectorClientOptions = {
   connectionHeadersProvider?:
     | (() => Record<string, string> | Promise<Record<string, string>>)
     | undefined;
-  openclawBaseUrl: string;
-  openclawHookToken?: string;
-  openclawHookPath?: string;
+  deliveryWebhookBaseUrl: string;
+  deliveryWebhookToken?: string;
+  deliveryWebhookPath?: string;
   connectTimeoutMs?: number;
   heartbeatIntervalMs?: number;
   heartbeatAckTimeoutMs?: number;
@@ -92,12 +92,12 @@ export type ConnectorClientOptions = {
   reconnectMaxDelayMs?: number;
   reconnectBackoffFactor?: number;
   reconnectJitterRatio?: number;
-  openclawDeliverTimeoutMs?: number;
-  openclawDeliverMaxAttempts?: number;
-  openclawDeliverRetryInitialDelayMs?: number;
-  openclawDeliverRetryMaxDelayMs?: number;
-  openclawDeliverRetryBackoffFactor?: number;
-  openclawDeliverRetryBudgetMs?: number;
+  deliveryWebhookDeliverTimeoutMs?: number;
+  deliveryWebhookDeliverMaxAttempts?: number;
+  deliveryWebhookDeliverRetryInitialDelayMs?: number;
+  deliveryWebhookDeliverRetryMaxDelayMs?: number;
+  deliveryWebhookDeliverRetryBackoffFactor?: number;
+  deliveryWebhookDeliverRetryBudgetMs?: number;
   webSocketFactory?: (
     url: string,
     headers: Record<string, string>,
@@ -113,8 +113,8 @@ export type ConnectorClientOptions = {
     | ((
         fromAgentDid: string,
       ) =>
-        | OpenclawSenderProfile
-        | Promise<OpenclawSenderProfile | undefined>
+        | DeliveryWebhookSenderProfile
+        | Promise<DeliveryWebhookSenderProfile | undefined>
         | undefined)
     | undefined;
   now?: () => number;

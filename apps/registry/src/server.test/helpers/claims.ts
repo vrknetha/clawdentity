@@ -10,7 +10,7 @@ export function makeAitClaims(publicKey: Uint8Array) {
     nbfSkewSeconds: 5,
     seedMs: 1_700_100_000_000,
     name: "agent-registry-01",
-    framework: "openclaw",
+    framework: "generic",
     description: "registry key publishing verification path",
   });
 }

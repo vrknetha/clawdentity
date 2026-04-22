@@ -61,7 +61,7 @@ export function normalizeReceipts(
       !(
         receipt.state === "queued" ||
         receipt.state === "delivered" ||
-        receipt.state === "processed_by_openclaw" ||
+        receipt.state === "delivered_to_webhook" ||
         receipt.state === "dead_lettered"
       )
     ) {

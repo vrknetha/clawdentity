@@ -339,7 +339,7 @@ async fn fetch_registry_profile(
             agent_did: event.responder_agent_did.clone(),
             agent_name: event.responder_profile.agent_name.clone(),
             display_name: event.responder_profile.display_name.clone(),
-            framework: Some("openclaw".to_string()),
+            framework: Some("generic".to_string()),
             status: "active".to_string(),
             human_did: "did:cdi:registry.clawdentity.dev:human:01HF7YAT31JZHSMW1CG6Q6MHB7"
                 .to_string(),

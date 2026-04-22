@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import type { ProxyConfigLoadOptions } from "./defaults.js";
@@ -7,10 +6,8 @@ import {
   type RuntimeEnvInput,
   resolveDefaultCwd,
 } from "./env-normalization.js";
-import { toConfigValidationError } from "./errors.js";
 
 const CLAWDENTITY_CONFIG_DIR = ".clawdentity";
-const OPENCLAW_RELAY_CONFIG_FILENAME = "openclaw-relay.json";
 
 export function resolvePathWithHome(
   inputPath: string,
@@ -50,100 +47,11 @@ export function resolveStateDir(
 ): string {
   const cwd = options.cwd ?? resolveDefaultCwd();
   const home = resolveHomeDir(env, options.homeDir);
-  const stateDirOverride = firstNonEmptyString(env, ["OPENCLAW_STATE_DIR"]);
+  const stateDirOverride = firstNonEmptyString(env, ["DELIVERY_STATE_DIR"]);
 
   if (stateDirOverride !== undefined) {
     return resolvePathWithHome(stateDirOverride, cwd, home);
   }
 
-  return join(home, ".openclaw");
-}
-
-export function resolveOpenclawRelayConfigPath(
-  env: RuntimeEnvInput,
-  options: ProxyConfigLoadOptions,
-): string {
-  const home = resolveHomeDir(env, options.homeDir);
-  return join(home, CLAWDENTITY_CONFIG_DIR, OPENCLAW_RELAY_CONFIG_FILENAME);
-}
-
-export function resolveBaseUrlFromRelayConfig(
-  env: RuntimeEnvInput,
-  options: ProxyConfigLoadOptions,
-): string | undefined {
-  const configPath = resolveOpenclawRelayConfigPath(env, options);
-  if (!existsSync(configPath)) {
-    return undefined;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(configPath, "utf8"));
-  } catch (error) {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_RELAY_CONFIG_PATH: [
-          `Unable to parse relay config at ${configPath}`,
-        ],
-      },
-      formErrors: [
-        error instanceof Error ? error.message : "Unknown relay parse error",
-      ],
-    });
-  }
-
-  if (typeof parsed !== "object" || parsed === null) {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_RELAY_CONFIG_PATH: ["Relay config root must be a JSON object"],
-      },
-      formErrors: [],
-    });
-  }
-
-  const baseUrlValue = (parsed as Record<string, unknown>).openclawBaseUrl;
-  if (typeof baseUrlValue !== "string" || baseUrlValue.trim().length === 0) {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_RELAY_CONFIG_PATH: [
-          "openclawBaseUrl must be a non-empty string",
-        ],
-      },
-      formErrors: [],
-    });
-  }
-
-  const trimmed = baseUrlValue.trim();
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(trimmed);
-  } catch {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_RELAY_CONFIG_PATH: [
-          "openclawBaseUrl must be a valid absolute URL",
-        ],
-      },
-      formErrors: [],
-    });
-  }
-
-  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    throw toConfigValidationError({
-      fieldErrors: {
-        OPENCLAW_RELAY_CONFIG_PATH: ["openclawBaseUrl must use http or https"],
-      },
-      formErrors: [],
-    });
-  }
-
-  if (
-    parsedUrl.pathname === "/" &&
-    parsedUrl.search.length === 0 &&
-    parsedUrl.hash.length === 0
-  ) {
-    return parsedUrl.origin;
-  }
-
-  return parsedUrl.toString();
+  return join(home, CLAWDENTITY_CONFIG_DIR);
 }

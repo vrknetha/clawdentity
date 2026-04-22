@@ -44,24 +44,11 @@ fn fixture_deliver_frame() -> clawdentity_core::DeliverFrame {
     }
 }
 
-fn write_runtime_snapshot_config(config_dir: &std::path::Path, snapshot_path: &std::path::Path) {
-    std::fs::write(
-        config_dir.join("openclaw-relay.json"),
-        format!(
-            "{{\"relayTransformPeersPath\":\"{}\"}}",
-            snapshot_path.display()
-        ),
-    )
-    .expect("write relay runtime config");
-}
-
 #[tokio::test]
 async fn pair_accepted_event_persists_peer_and_updates_notification_payload() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     let mut deliver = fixture_deliver_frame();
     let handled = apply_pair_accepted_system_delivery(
@@ -81,7 +68,6 @@ async fn pair_accepted_event_persists_peer_and_updates_notification_payload() {
         peers[0].did,
         "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97"
     );
-    assert!(snapshot_path.exists());
 
     assert_eq!(
         deliver
@@ -103,8 +89,6 @@ async fn duplicate_pair_accepted_events_are_idempotent_for_peer_state() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     let mut first = fixture_deliver_frame();
     apply_pair_accepted_system_delivery(&test_options(), "alpha", &store, temp.path(), &mut first)
@@ -177,8 +161,6 @@ async fn pair_accepted_event_normalizes_timestamp_to_utc_rfc3339() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     let mut deliver = fixture_deliver_frame();
     deliver.payload["system"]["eventTimestampUtc"] = json!("2026-03-28T05:30:00.000+05:30");
@@ -208,8 +190,6 @@ async fn pair_accepted_notification_prefers_proxy_message_when_present() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     let mut deliver = fixture_deliver_frame();
     deliver.payload["system"]["message"] =
@@ -239,8 +219,6 @@ async fn pair_accepted_ignores_blank_proxy_message_and_uses_fallback() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     let mut deliver = fixture_deliver_frame();
     deliver.payload["system"]["message"] = json!("   ");
@@ -268,15 +246,13 @@ async fn pair_accepted_updates_stale_onboarding_session_to_messaging_ready() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     std::fs::write(
         temp.path().join("onboarding-session.json"),
         serde_json::to_string_pretty(&json!({
             "version": 1,
             "state": "pairing_pending",
-            "platform": "openclaw",
+            "platform": "generic",
             "agentName": "alpha-local",
             "displayName": "Alpha Local",
             "pairing": {
@@ -334,8 +310,6 @@ async fn pair_accepted_does_not_fail_when_onboarding_session_is_invalid_json() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     std::fs::write(temp.path().join("onboarding-session.json"), "{not-json")
         .expect("write invalid onboarding session");
@@ -361,8 +335,6 @@ async fn pair_accepted_persists_peer_when_registry_lookup_is_unavailable() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     let mut deliver = fixture_deliver_frame();
     deliver.payload["system"]["responderProfile"]["agentName"] =
@@ -394,15 +366,13 @@ async fn pair_accepted_does_not_override_non_pairing_onboarding_state() {
     let temp = TempDir::new().expect("temp dir");
     let store =
         clawdentity_core::SqliteStore::open_path(temp.path().join("db.sqlite3")).expect("open db");
-    let snapshot_path = temp.path().join("relay-peers.json");
-    write_runtime_snapshot_config(temp.path(), &snapshot_path);
 
     std::fs::write(
         temp.path().join("onboarding-session.json"),
         serde_json::to_string_pretty(&json!({
             "version": 1,
             "state": "custom_terminal_state",
-            "platform": "openclaw",
+            "platform": "generic",
             "agentName": "alpha-local",
             "displayName": "Alpha Local",
             "pairing": {

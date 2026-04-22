@@ -410,7 +410,7 @@ export function createProxyAuthMiddleware(options: ProxyAuthMiddlewareOptions) {
       }
 
       if (
-        c.req.path === "/hooks/agent" ||
+        c.req.path === "/hooks/message" ||
         c.req.path === RELAY_CONNECT_PATH ||
         c.req.path === RELAY_DELIVERY_RECEIPTS_PATH
       ) {

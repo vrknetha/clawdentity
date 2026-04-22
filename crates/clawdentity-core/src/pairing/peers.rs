@@ -1,6 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -8,9 +6,6 @@ use crate::db::SqliteStore;
 use crate::db_peers::{PeerRecord, UpsertPeerInput, list_peers, upsert_peer};
 use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
-
-const OPENCLAW_RELAY_RUNTIME_FILE_NAME: &str = "openclaw-relay.json";
-const FILE_MODE: u32 = 0o600;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -135,75 +130,13 @@ pub fn persist_peer(store: &SqliteStore, input: PersistPeerInput) -> Result<Peer
     )
 }
 
-fn set_secure_permissions(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(FILE_MODE)).map_err(|source| {
-            CoreError::Io {
-                path: path.to_path_buf(),
-                source,
-            }
-        })?;
-    }
-    Ok(())
-}
-
-fn parse_snapshot_path_from_runtime_config(raw: &str) -> Option<PathBuf> {
-    let parsed = serde_json::from_str::<serde_json::Value>(raw).ok()?;
-    let path = parsed
-        .get("relayTransformPeersPath")
-        .and_then(|value| value.as_str())?
-        .trim();
-    if path.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(path))
-    }
-}
-
-/// TODO(clawdentity): document `sync_openclaw_relay_peers_snapshot`.
-pub fn sync_openclaw_relay_peers_snapshot(config_dir: &Path, peers: &PeersConfig) -> Result<()> {
-    let runtime_config_path = config_dir.join(OPENCLAW_RELAY_RUNTIME_FILE_NAME);
-    let runtime_raw = match fs::read_to_string(&runtime_config_path) {
-        Ok(raw) => raw,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(source) => {
-            return Err(CoreError::Io {
-                path: runtime_config_path,
-                source,
-            });
-        }
-    };
-
-    let Some(snapshot_path) = parse_snapshot_path_from_runtime_config(&runtime_raw) else {
-        return Ok(());
-    };
-    if let Some(parent) = snapshot_path.parent() {
-        fs::create_dir_all(parent).map_err(|source| CoreError::Io {
-            path: parent.to_path_buf(),
-            source,
-        })?;
-    }
-
-    let body = serde_json::to_string_pretty(peers)?;
-    fs::write(&snapshot_path, format!("{body}\n")).map_err(|source| CoreError::Io {
-        path: snapshot_path.clone(),
-        source,
-    })?;
-    set_secure_permissions(&snapshot_path)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
 
     use crate::db::SqliteStore;
 
-    use super::{
-        PersistPeerInput, load_peers_config, persist_peer, sync_openclaw_relay_peers_snapshot,
-    };
+    use super::{PersistPeerInput, load_peers_config, persist_peer};
 
     #[test]
     fn persist_peer_generates_alias_and_loads_config() {
@@ -216,10 +149,10 @@ mod tests {
                 alias: None,
                 did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
                     .to_string(),
-                proxy_url: "https://proxy.example/hooks/agent".to_string(),
+                proxy_url: "https://proxy.example/hooks/message".to_string(),
                 agent_name: Some("Alpha".to_string()),
                 display_name: Some("Alice".to_string()),
-                framework: Some("openclaw".to_string()),
+                framework: Some("generic".to_string()),
                 description: Some("test peer".to_string()),
                 last_synced_at_ms: Some(123),
             },
@@ -229,39 +162,5 @@ mod tests {
 
         let loaded = load_peers_config(&store).expect("load");
         assert_eq!(loaded.peers.len(), 1);
-    }
-
-    #[test]
-    fn sync_writes_peer_snapshot_when_runtime_config_references_path() {
-        let temp = TempDir::new().expect("temp dir");
-        let snapshot_path = temp.path().join("relay-peers.json");
-        std::fs::write(
-            temp.path().join("openclaw-relay.json"),
-            format!(
-                "{{\"relayTransformPeersPath\":\"{}\"}}",
-                snapshot_path.display()
-            ),
-        )
-        .expect("runtime config");
-
-        let peers = super::PeersConfig {
-            peers: [(
-                "alpha".to_string(),
-                super::PeerEntry {
-                    did: "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"
-                        .to_string(),
-                    proxy_url: "https://proxy.example/hooks/agent".to_string(),
-                    agent_name: None,
-                    display_name: None,
-                    framework: None,
-                    description: None,
-                    last_synced_at_ms: None,
-                },
-            )]
-            .into_iter()
-            .collect(),
-        };
-        sync_openclaw_relay_peers_snapshot(temp.path(), &peers).expect("sync");
-        assert!(snapshot_path.exists());
     }
 }

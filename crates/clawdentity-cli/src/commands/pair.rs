@@ -552,7 +552,7 @@ mod tests {
 
     #[test]
     fn proxy_origin_keeps_only_origin() {
-        let origin = proxy_origin("https://proxy.clawdentity.com/hooks/agent").expect("origin");
+        let origin = proxy_origin("https://proxy.clawdentity.com/hooks/message").expect("origin");
         assert_eq!(origin, "https://proxy.clawdentity.com");
     }
 }

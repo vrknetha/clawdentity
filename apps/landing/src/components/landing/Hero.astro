@@ -1,6 +1,6 @@
 ---
 // Hero — Iron Ledger design
-// Two-machine diagram: OpenClaw (localhost) <-> Relay <-> NanoClaw (localhost)
+// Two-machine diagram: runtime A (localhost) <-> Relay <-> runtime B (localhost)
 import {
   GITHUB_ONBOARDING_START_URL,
 } from "./onboarding";
@@ -16,7 +16,7 @@ import {
         <em>Clawdentity</em> makes it safe.
       </h1>
       <p class="hero-subtitle">
-        Four platforms. Every agent behind localhost. Every request signed. Revoke one without touching the rest.
+        Any runtime that implements the Clawdentity webhook contract can join. Every request is signed. Revoke one without touching the rest.
       </p>
       <p class="hero-flow">
         Hosted onboarding starts with GitHub sign-in. After the redirect, your starter-pass page
@@ -32,14 +32,12 @@ import {
           Quick Start
         </a>
       </div>
-      <div class="platform-row" aria-label="Supported platforms">
-        <span class="platform-label">OpenClaw</span>
+      <div class="platform-row" aria-label="Relay contract coverage">
+        <span class="platform-label">Any Runtime</span>
         <span class="platform-sep">·</span>
-        <span class="platform-label">PicoClaw</span>
+        <span class="platform-label">Webhook Inbound</span>
         <span class="platform-sep">·</span>
-        <span class="platform-label">NanoBot</span>
-        <span class="platform-sep">·</span>
-        <span class="platform-label">NanoClaw</span>
+        <span class="platform-label">POST /v1/outbound</span>
       </div>
     </div>
 
@@ -52,7 +50,7 @@ import {
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden="true"
       >
-        <!-- Left machine: OpenClaw -->
+        <!-- Left machine: Runtime A -->
         <rect x="8" y="60" width="140" height="104" rx="3" ry="3"
           fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
         <!-- localhost label -->
@@ -64,7 +62,7 @@ import {
         <!-- Platform name -->
         <text x="78" y="110" text-anchor="middle"
           font-family="'Instrument Serif', serif" font-size="15" font-style="italic"
-          fill="var(--cl-text)">OpenClaw</text>
+          fill="var(--cl-text)">Runtime A</text>
         <text x="78" y="130" text-anchor="middle"
           font-family="'JetBrains Mono', monospace" font-size="10"
           fill="var(--cl-text-3)">my-agent</text>
@@ -75,7 +73,7 @@ import {
           font-family="'JetBrains Mono', monospace" font-size="9"
           fill="var(--cl-text-3)" letter-spacing="0.2">connector :19400</text>
 
-        <!-- Right machine: NanoClaw -->
+        <!-- Right machine: Runtime B -->
         <rect x="332" y="60" width="140" height="104" rx="3" ry="3"
           fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
         <text x="402" y="78" text-anchor="middle"
@@ -84,7 +82,7 @@ import {
         <line x1="332" y1="85" x2="472" y2="85" stroke="var(--cl-border-2)" stroke-width="0.5"/>
         <text x="402" y="110" text-anchor="middle"
           font-family="'Instrument Serif', serif" font-size="15" font-style="italic"
-          fill="var(--cl-text)">NanoClaw</text>
+          fill="var(--cl-text)">Runtime B</text>
         <text x="402" y="130" text-anchor="middle"
           font-family="'JetBrains Mono', monospace" font-size="10"
           fill="var(--cl-text-3)">bob-agent</text>
@@ -111,7 +109,7 @@ import {
           font-family="'JetBrains Mono', monospace" font-size="9"
           fill="var(--cl-text-3)">CRL check</text>
 
-        <!-- Connection: OpenClaw connector -> relay -->
+        <!-- Connection: runtime A connector -> relay -->
         <path class="svg-draw svg-draw-1"
           d="M 78 159 L 78 234 L 168 234"
           stroke="var(--cl-text-3)" stroke-width="1" stroke-dasharray="220" stroke-dashoffset="220">
@@ -124,7 +122,7 @@ import {
           font-family="'JetBrains Mono', monospace" font-size="9"
           fill="var(--cl-text-3)">WebSocket</text>
 
-        <!-- Connection: relay -> NanoClaw connector -->
+        <!-- Connection: relay -> runtime B connector -->
         <path class="svg-draw svg-draw-2"
           d="M 312 234 L 402 234 L 402 159"
           stroke="var(--cl-text-3)" stroke-width="1" stroke-dasharray="220" stroke-dashoffset="220">

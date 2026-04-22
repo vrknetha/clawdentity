@@ -1,7 +1,7 @@
 import { sanitizeErrorReason as sanitizeReason } from "@clawdentity/common";
 import { AppError } from "@clawdentity/sdk";
 
-export class LocalOpenclawDeliveryError extends Error {
+export class LocalDeliveryWebhookDeliveryError extends Error {
   readonly code?: "HOOK_AUTH_REJECTED" | "RUNTIME_STOPPING";
   readonly retryable: boolean;
 
@@ -11,7 +11,7 @@ export class LocalOpenclawDeliveryError extends Error {
     retryable: boolean;
   }) {
     super(input.message);
-    this.name = "LocalOpenclawDeliveryError";
+    this.name = "LocalDeliveryWebhookDeliveryError";
     this.code = input.code;
     this.retryable = input.retryable;
   }
@@ -27,7 +27,7 @@ export function sanitizeErrorReason(error: unknown): string {
 export function isRetryableRelayAuthError(error: unknown): boolean {
   return (
     error instanceof AppError &&
-    error.code === "OPENCLAW_RELAY_AGENT_AUTH_REJECTED" &&
+    error.code === "DELIVERY_WEBHOOK_RELAY_AGENT_AUTH_REJECTED" &&
     error.status === 401
   );
 }

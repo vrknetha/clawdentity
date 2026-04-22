@@ -3,7 +3,7 @@ import { toConfigValidationError } from "./errors.js";
 export type RuntimeEnvInput = {
   LISTEN_PORT?: unknown;
   PORT?: unknown;
-  OPENCLAW_BASE_URL?: unknown;
+  DELIVERY_WEBHOOK_BASE_URL?: unknown;
   REGISTRY_URL?: unknown;
   CLAWDENTITY_REGISTRY_URL?: unknown;
   BOOTSTRAP_INTERNAL_SERVICE_ID?: unknown;
@@ -26,7 +26,7 @@ export type RuntimeEnvInput = {
   RELAY_RETRY_JITTER_RATIO?: unknown;
   RELAY_MAX_IN_FLIGHT_DELIVERIES?: unknown;
   RELAY_MAX_FRAME_BYTES?: unknown;
-  OPENCLAW_STATE_DIR?: unknown;
+  DELIVERY_STATE_DIR?: unknown;
   HOME?: unknown;
   USERPROFILE?: unknown;
 };
@@ -95,7 +95,9 @@ export function normalizeRuntimeEnv(input: unknown): Record<string, unknown> {
 
   return {
     LISTEN_PORT: firstNonEmpty(env, ["LISTEN_PORT", "PORT"]),
-    OPENCLAW_BASE_URL: firstNonEmpty(env, ["OPENCLAW_BASE_URL"]),
+    DELIVERY_WEBHOOK_BASE_URL: firstNonEmpty(env, [
+      "DELIVERY_WEBHOOK_BASE_URL",
+    ]),
     REGISTRY_URL: firstNonEmpty(env, [
       "REGISTRY_URL",
       "CLAWDENTITY_REGISTRY_URL",

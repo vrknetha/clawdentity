@@ -200,7 +200,7 @@ async fn outbound_endpoint_rejects_legacy_peer_did_payload() {
                 .uri("/v1/outbound")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    "{\"peer\":\"beta\",\"peerDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"peerProxyUrl\":\"https://example.test/hooks/agent\",\"payload\":{\"hello\":\"world\"}}",
+                    "{\"peer\":\"beta\",\"peerDid\":\"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4\",\"peerProxyUrl\":\"https://example.test/hooks/message\",\"payload\":{\"hello\":\"world\"}}",
                 ))
                 .expect("request"),
         )

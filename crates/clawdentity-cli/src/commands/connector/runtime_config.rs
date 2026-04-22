@@ -13,12 +13,21 @@ use clawdentity_core::{
     SignHttpRequestInput, build_relay_connect_headers, fetch_group_member_dids_with_agent_auth,
     fetch_group_name_with_agent_auth,
     fetch_registry_agent_profile as fetch_registry_agent_profile_with_agent_auth,
-    fetch_registry_metadata, load_connector_assignments, new_frame_id, parse_agent_did,
-    parse_group_id, refresh_agent_auth, resolve_openclaw_base_url, resolve_openclaw_hook_token,
+    fetch_registry_metadata, new_frame_id, parse_agent_did, parse_group_id, refresh_agent_auth,
     sign_http_request,
 };
 
-use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed, normalize_hook_path};
+use super::{ConnectorRuntimeConfig, StartConnectorInput, env_trimmed};
+
+mod delivery_config;
+
+pub(super) use delivery_config::{
+    AgentDeliveryConfig, run_connector_doctor, save_agent_delivery_config,
+};
+use delivery_config::{
+    load_agent_delivery_config_from_dir, normalize_and_validate_delivery_webhook_url,
+    normalize_optional_delivery_health_url, parse_delivery_webhook_headers,
+};
 
 const REGISTRY_AUTH_FILE_NAME: &str = "registry-auth.json";
 const ACCESS_TOKEN_REFRESH_LEEWAY_SECONDS: i64 = 60;
@@ -131,6 +140,7 @@ struct ConnectorRuntimeInputs {
     secret_key: String,
 }
 
+#[allow(clippy::too_many_lines)]
 pub(super) async fn resolve_runtime_config(
     options: &ConfigPathOptions,
     input: StartConnectorInput,
@@ -145,8 +155,43 @@ pub(super) async fn resolve_runtime_config(
     .await?;
     let proxy_receipt_url = resolve_proxy_receipt_url(&proxy_ws_url)?;
     let config_dir = runtime_inputs.config_dir.clone();
-    let target_agent_id =
-        resolve_openclaw_target_agent_id(&runtime_inputs.config_dir, &input.agent_name)?;
+    let saved_delivery_config =
+        load_agent_delivery_config_from_dir(&config_dir, &input.agent_name)?;
+    let delivery_webhook_url = input
+        .delivery_webhook_url
+        .clone()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            saved_delivery_config
+                .as_ref()
+                .map(|config| config.delivery_webhook_url.trim().to_string())
+                .filter(|value| !value.is_empty())
+        })
+        .ok_or_else(|| {
+            anyhow!(
+                "delivery webhook URL is required. Run `clawdentity connector configure {}` first or pass --delivery-webhook-url.",
+                input.agent_name
+            )
+        })?;
+    let delivery_webhook_url = normalize_and_validate_delivery_webhook_url(&delivery_webhook_url)?;
+    let delivery_webhook_headers = if input.delivery_webhook_headers.is_empty() {
+        saved_delivery_config
+            .as_ref()
+            .map(|config| config.delivery_webhook_headers.clone())
+            .unwrap_or_default()
+    } else {
+        input.delivery_webhook_headers.clone()
+    };
+    let parsed_delivery_webhook_headers =
+        parse_delivery_webhook_headers(&delivery_webhook_headers)?;
+    let delivery_health_url = input.delivery_health_url.clone().or_else(|| {
+        saved_delivery_config
+            .as_ref()
+            .and_then(|config| config.delivery_health_url.clone())
+    });
+    let delivery_health_url =
+        normalize_optional_delivery_health_url(delivery_health_url.as_deref())?;
 
     Ok(ConnectorRuntimeConfig {
         agent_name: input.agent_name,
@@ -154,17 +199,10 @@ pub(super) async fn resolve_runtime_config(
         config_dir,
         proxy_receipt_url,
         proxy_ws_url,
-        openclaw_runtime: clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig {
-            base_url: resolve_openclaw_base_url(
-                &runtime_inputs.config_dir,
-                input.openclaw_base_url.as_deref(),
-            )?,
-            hook_path: resolve_openclaw_hook_path(input.openclaw_hook_path.as_deref()),
-            hook_token: resolve_openclaw_hook_token(
-                &runtime_inputs.config_dir,
-                input.openclaw_hook_token.as_deref(),
-            )?,
-            target_agent_id,
+        delivery_webhook_runtime: clawdentity_core::runtime_webhook::DeliveryWebhookRuntimeConfig {
+            webhook_url: delivery_webhook_url,
+            health_url: delivery_health_url,
+            webhook_headers: parsed_delivery_webhook_headers,
         },
         port: input.port,
         bind: input.bind,
@@ -198,20 +236,6 @@ pub(super) fn validate_expected_agent_name(
 
 fn enforce_expected_agent_name(agent_name: &str) -> Result<()> {
     validate_expected_agent_name(agent_name, expected_agent_name_from_env().as_deref())
-}
-
-pub(super) fn resolve_openclaw_target_agent_id(
-    config_dir: &Path,
-    agent_name: &str,
-) -> Result<Option<String>> {
-    let assignments = load_connector_assignments(config_dir)?;
-    Ok(assignments
-        .agents
-        .get(agent_name)
-        .and_then(|assignment| assignment.openclaw_agent_id.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned))
 }
 
 pub(super) fn load_connector_headers(
@@ -338,15 +362,6 @@ fn read_required_trimmed_file(path: &Path, label: &str) -> Result<String> {
         return Err(anyhow!("{label} is empty at {}", path.display()));
     }
     Ok(trimmed.to_string())
-}
-
-fn resolve_openclaw_hook_path(explicit: Option<&str>) -> String {
-    explicit
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(normalize_hook_path)
-        .or_else(|| env_trimmed("OPENCLAW_HOOK_PATH").map(|value| normalize_hook_path(&value)))
-        .unwrap_or_else(|| normalize_hook_path(super::DEFAULT_OPENCLAW_HOOK_PATH))
 }
 
 async fn resolve_proxy_ws_url(

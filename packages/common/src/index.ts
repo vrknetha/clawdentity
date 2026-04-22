@@ -20,7 +20,10 @@ export function sanitizeErrorReason(
   return message.slice(0, maxLength) || fallback;
 }
 
-export function toOpenclawHookUrl(baseUrl: string, hookPath: string): string {
+export function toDeliveryWebhookHookUrl(
+  baseUrl: string,
+  hookPath: string,
+): string {
   const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const normalizedHookPath = hookPath.startsWith("/")
     ? hookPath.slice(1)

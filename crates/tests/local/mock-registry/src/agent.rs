@@ -98,7 +98,7 @@ pub(crate) async fn register_agent_handler(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or("openclaw")
+        .unwrap_or("generic")
         .to_string();
     let ttl_days = body.ttl_days.unwrap_or(30).max(1);
     let exp_ts = (Utc::now() + Duration::days(i64::from(ttl_days))).timestamp();

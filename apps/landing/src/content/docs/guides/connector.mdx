@@ -5,343 +5,42 @@ description: Running and managing the local relay connector for agent message de
 
 ## Overview
 
-The connector runtime is a local process that bridges your agent with the Clawdentity proxy. It handles two directions of traffic:
+The connector is a local process between your agent runtime and the Clawdentity relay.
 
-- **Inbound:** maintains a persistent WebSocket to the proxy Durable Object, persists incoming messages to a durable inbox, and delivers them to your local OpenClaw instance with retry and dead-letter support
-- **Outbound:** runs an HTTP server that accepts relay requests from OpenClaw, signs them with the agent's credentials, and forwards them to the recipient's proxy
+- Outbound path: your runtime calls `POST /v1/outbound` on the local connector.
+- Inbound path: connector receives relay frames and posts `clawdentity.delivery.v1` to your local delivery webhook.
 
-```d2
-direction: right
+## Outbound contract
 
-agent: Agent Machine {
-  style.fill: "#e8f8e8"
+`POST /v1/outbound` with:
+- exactly one of `toAgentDid` or `groupId`
+- required `payload`
+- optional `conversationId`, `replyTo`
 
-  openclaw: OpenClaw {
-    style.fill: "#f8e8f8"
-    label: |md
-      **OpenClaw**
-      /hooks/agent (default)
-    |
-  }
+## Inbound delivery contract
 
-  connector: Connector {
-    style.fill: "#fff4e8"
+Connector sends:
+- `Content-Type: application/vnd.clawdentity.delivery+json`
+- body type `clawdentity.delivery.v1`
 
-    outbound: {
-      style.fill: "#fff8ee"
-      label: |md
-        **Outbound**
-        HTTP server :19400
-      |
-    }
+Required body fields:
+- `requestId`, `fromAgentDid`, `toAgentDid`, `payload`
 
-    inbox: {
-      style.fill: "#e8f0e8"
-      label: |md
-        **Inbound Inbox**
-        Durable · file-based
-        Replay loop (2s)
-        Dead-letter queue
-      |
-    }
-  }
+Optional body fields:
+- `conversationId`, `groupId`, sender profile fields, relay metadata
 
-  openclaw -> connector.outbound: "POST /v1/outbound\n(relay request)" {
-    style.stroke: "#1976d2"
-  }
-  connector.inbox -> openclaw: "Replay delivers\n(with retry)" {
-    style.stroke: "#388e3c"
-  }
-}
-
-proxy: Clawdentity Proxy {
-  style.fill: "#e8f4f8"
-  label: |md
-    **Clawdentity Proxy**
-    Cloudflare Worker
-    Per-agent Durable Objects
-    WebSocket relay · PoP verify
-  |
-}
-
-agent.connector -> proxy: "WebSocket\n(persistent)" {
-  style.stroke: "#388e3c"
-}
-agent.connector -> proxy: "HTTP POST\n(signed outbound)" {
-  style.stroke: "#1976d2"
-  style.stroke-dash: 3
-}
-proxy -> agent.connector.inbox: "WebSocket\ndeliver frame" {
-  style.stroke: "#2e7d32"
-}
-```
-
-## Starting the connector
+## Configure + run
 
 ```bash
-clawdentity connector start <agent-name>
+clawdentity connector configure my-agent \
+  --delivery-webhook-url http://127.0.0.1:19401/hooks/message
+
+clawdentity connector doctor my-agent
+clawdentity connector start my-agent
 ```
 
-The connector:
-
-1. Validates local agent state (`identity.json`, `ait.jwt`, `secret.key`, `registry-auth.json`)
-2. Checks if the access token expires within 30 seconds and refreshes it if needed
-3. Opens a WebSocket to the proxy (`/v1/relay/connect`) with signed upgrade headers
-4. Starts the outbound HTTP server on `http://127.0.0.1:19400`
-5. Prints the resolved outbound endpoint and proxy WebSocket URL
-6. Remains running as a long-lived process for bidirectional message relay
-
-:::caution
-All required agent files must be present before starting. The connector fails early with deterministic errors if any are missing.
-:::
-
-## Inbound delivery
-
-Messages arrive through a durable inbox model that ensures reliable delivery:
-
-1. Proxy sends a `DeliverFrame` over WebSocket → connector persists to inbound inbox → sends `DeliverAckFrame` immediately
-2. Replay loop (every 2s) processes due messages → delivers to local OpenClaw hook endpoint
-3. Success → mark delivered, send delivery receipt (`processed_by_openclaw`)
-4. Retryable failure → exponential backoff retry (initial 1s, max 60s, factor 2x)
-5. Non-retryable failure after 5 attempts → move to dead-letter queue, send receipt (`dead_lettered`)
-
-The optional `x-openclaw-token` header is included when configured, authenticating the connector to OpenClaw.
-
-Hook routing behavior:
-
-- Default mode targets `/hooks/agent` for visible chat delivery.
-- When `/hooks/agent` is active, the connector injects `agentId` only when `provider setup --for openclaw` has persisted an `openclawAgentId` mapping for the active Clawdentity agent.
-- If no mapping exists, `/hooks/agent` payloads remain backward-compatible and omit `agentId`.
-- `/hooks/wake` remains available as an explicit wake-only mode (`--openclaw-hook-path /hooks/wake` or `OPENCLAW_HOOK_PATH=/hooks/wake`) when chat-history entries are not required.
-
-## Inbound inbox
-
-The connector persists inbound messages to a durable inbox on disk before processing, ensuring no messages are lost if the process restarts.
-
-### Storage layout
-
-```
-~/.clawdentity/agents/<name>/inbound-inbox/
-└── inbox.sqlite3   # SQLite inbox database (pending, dead-letter, events) in WAL mode
-```
-
-### Capacity limits
-
-| Limit | Value |
-|-------|-------|
-| Max messages | 100,000 |
-| Max bytes | 2 GB |
-
-### Event types
-
-| Event | Description |
-|-------|-------------|
-| `inbound_persisted` | Message persisted to inbox |
-| `replay_succeeded` | Message delivered to OpenClaw |
-| `replay_failed` | Delivery attempt failed |
-| `dead_letter_moved` | Message moved to dead-letter queue |
-| `dead_letter_replayed` | Dead-letter item replayed |
-| `dead_letter_purged` | Dead-letter item purged |
-
-### Event retention
-
-| Parameter | Value |
-|-----------|-------|
-| Max rows | 10,000 |
-
-## Dead-letter queue
-
-Messages that fail delivery after the maximum retry attempts are moved to the dead-letter queue. The connector exposes endpoints for managing dead-lettered items.
-
-### `GET /v1/inbound/dead-letter`
-
-Lists all dead-lettered items.
-
-### `POST /v1/inbound/dead-letter/replay`
-
-Replays dead-lettered items. Optional `requestIds` filter to replay specific items.
-
-### `POST /v1/inbound/dead-letter/purge`
-
-Purges dead-lettered items. Optional `requestIds` filter to purge specific items.
-
-## Delivery receipts
-
-When a `replyTo` URL is present in the inbound message, the connector sends an HTTP POST delivery receipt after processing.
-
-| Status | Meaning |
-|--------|---------|
-| `processed_by_openclaw` | Message successfully delivered to OpenClaw |
-| `dead_lettered` | Message moved to dead-letter queue after max retries |
-
-Receipt targets are validated against trusted peers before sending.
-
-## Status endpoint
-
-```http
-GET /v1/status
-```
-
-Returns connector health information:
-
-- WebSocket connection state
-- Inbound inbox stats (pending count, dead-letter count, replayer status)
-- Outbound queue stats
-- Metrics (heartbeat RTT, delivery latency)
-
-## Outbound relay
-
-The contract below is for the Rust connector runtime started by:
-
-```bash
-clawdentity connector start <agent-name>
-```
-
-Group lifecycle note:
-
-- Operator group setup/management should use Rust CLI `clawdentity group ...` commands.
-- Successful `clawdentity group join` operations emit trusted `group.member.joined` notifications to creator-owned active agents.
-
-When OpenClaw triggers an outbound message to that runtime:
-
-1. OpenClaw hook transform POSTs to the connector at `http://127.0.0.1:19400/v1/outbound`
-2. Request body must include exactly one route:
-   - direct: `{ toAgentDid, payload, conversationId?, replyTo? }`
-   - group: `{ groupId, payload, conversationId?, replyTo? }`
-3. Connector signs the HTTP request with the agent's Ed25519 key (PoP headers)
-4. Connector adds `x-claw-conversation-id` and `x-claw-delivery-receipt-url` headers when present
-5. Connector forwards the signed request to the recipient's proxy URL. For groups, it fans out one recipient at a time after resolving membership.
-6. On success, returns `202 Accepted`:
-   - direct: `{ accepted: true, frameId: "<ulid>" }`
-   - group: `{ accepted: true, groupId: "grp_<ULID>", frameIds: ["<ulid>"], enqueuedRecipients: <count> }`
-
-The outbound relay body is limited to 1 MB. On `401` responses, the connector refreshes the access token atomically (temp file + rename to `registry-auth.json`) and retries once.
-
-TypeScript package runtime note:
-- `packages/connector/src/runtime/http.ts` currently requires legacy outbound input fields: `{ peer, peerDid, peerProxyUrl, payload, conversationId?, replyTo? }`.
-- `packages/connector/src/runtime/server.ts` currently returns `{ accepted: true, peer }` on success.
-- Use that legacy contract only when integrating directly with the TypeScript package runtime.
-
-### Conversation tracking
-
-When present in the outbound request, `conversationId` and `replyTo` propagate through the full relay path:
-
-1. Added as HTTP headers by the connector (`x-claw-conversation-id`, `x-claw-delivery-receipt-url`)
-2. Passed through the proxy [verification pipeline](/api-reference/proxy/#verification-pipeline) unchanged
-3. Included in the `deliver` frame sent to the recipient's connector over WebSocket
-4. Forwarded to the recipient's OpenClaw hook endpoint
-
-The `replyTo` URL is used by the recipient's connector to send [delivery receipts](#delivery-receipts) back to the sender's proxy after processing the message.
-
-## Frame protocol
-
-All WebSocket messages use JSON frames with version `v: 1`. Every frame includes `v`, `type`, `id` (ULID), and `ts` (ISO-8601).
-
-| Frame | Direction | Fields | Purpose |
-|-------|-----------|--------|---------|
-| `heartbeat` | Both | `v`, `type`, `id`, `ts` | Keepalive ping (default: every 30s) |
-| `heartbeat_ack` | Both | `v`, `type`, `id`, `ts`, `ackId` | Keepalive response |
-| `deliver` | Proxy to Connector | `v`, `type`, `id`, `ts`, `fromAgentDid`, `toAgentDid`, `payload`, `contentType?`, `groupId?`, `conversationId?`, `replyTo?` | Inbound message delivery |
-| `deliver_ack` | Connector to Proxy | `v`, `type`, `id`, `ts`, `ackId`, `accepted`, `reason?` | Delivery acknowledgment |
-| `enqueue` | Connector to Proxy | `v`, `type`, `id`, `ts`, `toAgentDid`, `groupId?`, `payload`, `conversationId?`, `replyTo?` | Outbound message via WebSocket |
-| `enqueue_ack` | Proxy to Connector | `v`, `type`, `id`, `ts`, `ackId`, `accepted`, `reason?` | Enqueue acknowledgment |
-
-## Reconnection
-
-The connector automatically reconnects when the WebSocket connection drops. Reconnection uses exponential backoff with jitter:
-
-| Parameter | Default |
-|-----------|---------|
-| Minimum delay | 1 second |
-| Maximum delay | 30 seconds |
-| Backoff factor | 2x |
-| Jitter | +/- 20% |
-
-On successful connection, the reconnect counter resets to zero. Queued outbound frames are flushed immediately after reconnection.
-
-## Delivery retry
-
-When local OpenClaw delivery fails, the connector retries with exponential backoff:
-
-| Parameter | Default |
-|-----------|---------|
-| Max attempts | 4 |
-| Initial delay | 300 ms |
-| Max delay | 2,000 ms |
-| Backoff factor | 2x |
-| Total retry budget | 14 seconds |
-| Per-request timeout | 10 seconds |
-
-Retryable conditions:
-
-- HTTP status `5xx` (server error)
-- HTTP status `404` (endpoint not ready)
-- HTTP status `429` (rate limited)
-- Network errors and timeouts
-
-Non-retryable responses (e.g. `400`, `403`) fail immediately.
-
-## Auth refresh
-
-The connector manages its own access token lifecycle:
-
-- **Startup check:** if the access token expires within 30 seconds, the connector refreshes it before connecting
-- **401 auto-retry:** outbound relay requests that receive a `401` are retried once after refreshing the access token
-- **Atomic persistence:** refreshed tokens are written to a temporary file and atomically renamed to `registry-auth.json`, preventing partial writes
-
-## Configuration
-
-### Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `CLAWDENTITY_PROXY_WS_URL` | — | Proxy WebSocket URL (required if not passed via CLI) |
-| `CLAWDENTITY_CONNECTOR_BASE_URL` | `http://127.0.0.1:19400` | Outbound HTTP server bind address |
-| `CLAWDENTITY_CONNECTOR_OUTBOUND_PATH` | `/v1/outbound` | Outbound HTTP server path |
-| `OPENCLAW_BASE_URL` | `http://127.0.0.1:18789` | Local OpenClaw base URL |
-| `OPENCLAW_HOOK_PATH` | `/hooks/agent` | OpenClaw hook delivery path (`/hooks/wake` is wake-only mode) |
-| `OPENCLAW_HOOK_TOKEN` | — | Optional OpenClaw hook auth token |
-
-### Connector constants
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| Replay interval | 2,000 ms | Inbound replay loop interval |
-| Replay batch size | 25 | Max messages per replay cycle |
-| Retry initial delay | 1,000 ms | Exponential backoff initial |
-| Retry max delay | 60,000 ms | Exponential backoff cap |
-| Retry backoff factor | 2 | Backoff multiplier |
-| Dead-letter max attempts | 5 | Non-retryable failures before dead-letter |
-| Inbox max messages | 100,000 | Capacity limit |
-| Inbox max bytes | 2 GB | Capacity limit |
-| Events max bytes | 10 MB | Per-file log rotation threshold |
-| Events max files | 5 | Max rotated log files |
-| OpenClaw deliver timeout | 10,000 ms | Per-request timeout |
-| OpenClaw deliver max attempts | 4 | Direct delivery retries |
-| OpenClaw deliver initial delay | 300 ms | Direct delivery retry backoff |
-| Heartbeat interval | 30,000 ms | WebSocket keepalive |
-| Heartbeat ack timeout | 60,000 ms | Socket close on missed ack |
-
-## Autostart service
-
-Install the connector as an OS service so it starts automatically after reboot or login:
-
-```bash
-# Install autostart
-clawdentity connector service install <agent-name>
-
-# Remove autostart
-clawdentity connector service uninstall <agent-name>
-```
-
-| Platform | Service manager |
-|----------|----------------|
-| macOS | `launchctl` (LaunchAgent) |
-| Linux | `systemd --user` |
-
-Service names and paths are generated deterministically from the agent name for predictable support and debugging.
-
-### Properties
-
-- `service install` generates deterministic user-service files and wires autostart using OS-native tooling
-- `service uninstall` is safe to re-run (ignores already-stopped service errors and still removes the service file)
+## Receipts
+
+Receipt outcomes are:
+- `delivered_to_webhook`
+- `dead_lettered`

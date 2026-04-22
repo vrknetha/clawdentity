@@ -15,10 +15,7 @@
         "production",
         "^production",
         "{projectRoot}/scripts/build-skill-md.mjs",
-        "{workspaceRoot}/apps/openclaw-skill/skill/SKILL.md",
-        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-protocol.md",
-        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-registry.md",
-        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-environment.md"
+        "{workspaceRoot}/apps/agent-skill/skill/SKILL.md"
       ],
       "outputs": ["{projectRoot}/dist"]
     },
@@ -48,10 +45,7 @@
         "default",
         "^default",
         "{projectRoot}/scripts/build-skill-md.mjs",
-        "{workspaceRoot}/apps/openclaw-skill/skill/SKILL.md",
-        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-protocol.md",
-        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-registry.md",
-        "{workspaceRoot}/apps/openclaw-skill/skill/references/clawdentity-environment.md"
+        "{workspaceRoot}/apps/agent-skill/skill/SKILL.md"
       ]
     }
   },

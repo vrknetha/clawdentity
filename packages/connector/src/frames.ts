@@ -128,7 +128,7 @@ export const enqueueAckFrameSchema = frameBaseSchema
   })
   .strict();
 
-const receiptStatusSchema = z.enum(["processed_by_openclaw", "dead_lettered"]);
+const receiptStatusSchema = z.enum(["delivered_to_webhook", "dead_lettered"]);
 
 export const receiptFrameSchema = frameBaseSchema
   .extend({

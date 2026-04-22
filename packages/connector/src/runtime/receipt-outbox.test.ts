@@ -155,7 +155,7 @@ describe("delivery receipt outbox", () => {
     await outbox.enqueue(
       createReceiptInput({
         requestId: "req-2",
-        status: "processed_by_openclaw",
+        status: "delivered_to_webhook",
       }),
     );
 
@@ -166,7 +166,7 @@ describe("delivery receipt outbox", () => {
       .map((call) => call[0] as DeliveryReceiptInput)
       .map((receipt) => receipt.status)
       .sort();
-    expect(sentStatuses).toEqual(["dead_lettered", "processed_by_openclaw"]);
+    expect(sentStatuses).toEqual(["dead_lettered", "delivered_to_webhook"]);
   });
 
   it("retries only after backoff and dequeues after success", async () => {
@@ -191,7 +191,7 @@ describe("delivery receipt outbox", () => {
       await outbox.enqueue(
         createReceiptInput({
           requestId: "req-3",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       );
 
@@ -228,7 +228,7 @@ describe("delivery receipt outbox", () => {
     await initial.enqueue(
       createReceiptInput({
         requestId: "req-4",
-        status: "processed_by_openclaw",
+        status: "delivered_to_webhook",
       }),
     );
 
@@ -244,7 +244,7 @@ describe("delivery receipt outbox", () => {
     expect(sendReceipt).toHaveBeenCalledTimes(1);
     expect(sendReceipt.mock.calls[0]?.at(0)).toMatchObject({
       requestId: "req-4",
-      status: "processed_by_openclaw",
+      status: "delivered_to_webhook",
     });
   });
 });

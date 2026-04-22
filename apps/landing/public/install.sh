@@ -69,7 +69,7 @@ resolve_skill_url() {
   fi
 
   base_url="$(trim_trailing_slash "$base_url")"
-  printf '%s\n' "${base_url}/skill.md"
+  printf '%s\n' "${base_url}/agent-skill.md"
 }
 
 extract_manifest_string() {

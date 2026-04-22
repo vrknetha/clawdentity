@@ -1,19 +1,13 @@
-use std::path::PathBuf;
-
 use clap::Subcommand;
 
 pub mod connector;
 pub mod group;
-pub mod install;
-pub mod onboarding;
 pub mod pair;
 pub mod peer;
-pub mod provider;
 pub mod verify;
 
 use crate::commands::connector::ConnectorCommand;
 use crate::commands::group::GroupCommand;
-use crate::commands::onboarding::OnboardingCommand;
 use crate::commands::pair::PairCommand;
 use crate::commands::peer::PeerCommand;
 
@@ -63,28 +57,6 @@ pub enum Commands {
     Group {
         #[command(subcommand)]
         command: GroupCommand,
-    },
-    Onboarding {
-        #[command(subcommand)]
-        command: OnboardingCommand,
-    },
-    Provider {
-        #[command(subcommand)]
-        command: ProviderCommand,
-    },
-    Install {
-        /// Target platform (auto-detect if not specified)
-        #[arg(long = "for", alias = "platform")]
-        platform: Option<String>,
-        /// Webhook port override
-        #[arg(long)]
-        port: Option<u16>,
-        /// Webhook auth token
-        #[arg(long)]
-        token: Option<String>,
-        /// List available platforms
-        #[arg(long)]
-        list: bool,
     },
     Verify {
         token_or_file: String,
@@ -180,67 +152,5 @@ pub enum AdminCommand {
         api_key_name: Option<String>,
         #[arg(long)]
         registry_url: Option<String>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum ProviderCommand {
-    Doctor {
-        #[arg(long = "for")]
-        platform: Option<String>,
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        platform_state_dir: Option<PathBuf>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        skip_connector_runtime: bool,
-    },
-    Setup {
-        #[arg(long = "for")]
-        platform: Option<String>,
-        #[arg(long)]
-        agent_name: Option<String>,
-        #[arg(long)]
-        openclaw_agent_id: Option<String>,
-        #[arg(long)]
-        platform_base_url: Option<String>,
-        #[arg(long)]
-        webhook_host: Option<String>,
-        #[arg(long)]
-        webhook_port: Option<u16>,
-        #[arg(long)]
-        webhook_token: Option<String>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        connector_url: Option<String>,
-        #[arg(long)]
-        relay_transform_peers_path: Option<String>,
-    },
-    RelayTest {
-        #[arg(long = "for")]
-        platform: Option<String>,
-        #[arg(long)]
-        peer: Option<String>,
-        #[arg(long)]
-        platform_state_dir: Option<PathBuf>,
-        #[arg(long)]
-        platform_base_url: Option<String>,
-        #[arg(long)]
-        webhook_token: Option<String>,
-        #[arg(long)]
-        connector_base_url: Option<String>,
-        #[arg(long)]
-        message: Option<String>,
-        #[arg(long)]
-        session_id: Option<String>,
-        #[arg(long)]
-        no_preflight: bool,
-    },
-    Status {
-        #[arg(long = "for")]
-        platform: Option<String>,
     },
 }

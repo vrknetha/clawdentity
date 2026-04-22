@@ -1,5 +1,5 @@
 import {
-  toOpenclawHookUrl as buildOpenclawHookUrl,
+  toDeliveryWebhookHookUrl as buildDeliveryWebhookHookUrl,
   sanitizeErrorReason as sanitizeReason,
 } from "@clawdentity/common";
 import type { ConnectorClientOptions, ConnectorWebSocket } from "./types.js";
@@ -32,8 +32,11 @@ export function resolveWebSocketFactory(
   };
 }
 
-export function toOpenclawHookUrl(baseUrl: string, hookPath: string): string {
-  return buildOpenclawHookUrl(baseUrl, hookPath);
+export function toDeliveryWebhookHookUrl(
+  baseUrl: string,
+  hookPath: string,
+): string {
+  return buildDeliveryWebhookHookUrl(baseUrl, hookPath);
 }
 
 export function sanitizeErrorReason(error: unknown): string {

@@ -149,7 +149,7 @@ export function registerAgentRoutes(input: RegistryRouteDependencies): void {
       agentDid: row.did,
       agentName: row.name,
       displayName: row.ownerDisplayName,
-      framework: row.framework ?? "openclaw",
+      framework: row.framework ?? "generic",
       status: row.status,
       humanDid: row.ownerDid,
     });

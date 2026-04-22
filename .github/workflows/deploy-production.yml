@@ -8,7 +8,7 @@ on:
       - "apps/registry/**"
       - "apps/proxy/**"
       - "apps/landing/**"
-      - "apps/openclaw-skill/skill/**"
+      - "apps/agent-skill/skill/**"
       - "packages/sdk/**"
       - ".github/workflows/deploy-production.yml"
       - ".github/workflows/deploy-landing.yml"
@@ -319,6 +319,7 @@ jobs:
       - name: Assert landing artifacts exist
         run: |
           set -euo pipefail
+          test -f apps/landing/dist/agent-skill.md
           test -f apps/landing/dist/skill.md
           test -f apps/landing/dist/install.sh
           test -f apps/landing/dist/install.ps1
@@ -333,6 +334,11 @@ jobs:
       - name: Mirror latest onboarding assets to R2
         run: |
           set -euo pipefail
+
+          pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/skill/latest/agent-skill.md" \
+            --remote \
+            --file apps/landing/dist/agent-skill.md \
+            --content-type "text/markdown; charset=utf-8"
 
           pnpm dlx wrangler@4 r2 object put "${R2_ARTIFACTS_BUCKET}/skill/latest/skill.md" \
             --remote \
@@ -356,6 +362,7 @@ jobs:
 
           urls = [
               "https://clawdentity.com/",
+              "https://clawdentity.com/agent-skill.md",
               "https://clawdentity.com/skill.md",
               "https://clawdentity.com/install.sh",
               "https://clawdentity.com/install.ps1",

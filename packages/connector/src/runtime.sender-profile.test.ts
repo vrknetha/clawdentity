@@ -14,6 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { parseFrame, serializeFrame } from "./frames.js";
 import { startConnectorRuntime } from "./runtime.js";
+import {
+  isDeliveryReceiptPost,
+  waitForDeliveryReceiptPostFlush,
+} from "./runtime.test/helpers.js";
 
 type Sandbox = {
   cleanup: () => void;
@@ -35,8 +39,8 @@ type WsHarness = {
 const DID_AUTHORITY = "registry.example.test";
 const ENV_KEYS = [
   "CONNECTOR_INBOUND_REPLAY_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS",
 ] as const;
 
 function createSandbox(): Sandbox {
@@ -46,7 +50,12 @@ function createSandbox(): Sandbox {
   return {
     rootDir,
     cleanup: () => {
-      rmSync(rootDir, { force: true, recursive: true });
+      rmSync(rootDir, {
+        force: true,
+        recursive: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     },
   };
 }
@@ -163,7 +172,7 @@ function createRuntimeAitToken(input: {
     sub: input.agentDid,
     ownerDid: input.ownerDid,
     name: "alpha",
-    framework: "openclaw",
+    framework: "deliveryWebhook",
     cnf: {
       jwk: {
         kty: "OKP" as const,
@@ -214,7 +223,7 @@ async function writeRelayRuntimeConfig(input: {
   relayTransformPeersPath: string;
 }): Promise<void> {
   await writeFile(
-    join(input.configDir, "openclaw-relay.json"),
+    join(input.configDir, "deliveryWebhook-relay.json"),
     `${JSON.stringify(
       { relayTransformPeersPath: input.relayTransformPeersPath },
       null,
@@ -262,8 +271,8 @@ afterEach(() => {
 describe("startConnectorRuntime sender profile headers", () => {
   it("adds sender profile headers from relay peers snapshot during replay delivery", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const senderDid = makeAgentDid(DID_AUTHORITY, generateUlid(300));
@@ -272,7 +281,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       peers: {
         ravi: {
           did: senderDid,
-          proxyUrl: "https://proxy.example.test/hooks/wake",
+          proxyUrl: "https://proxy.example.test/hooks/message",
           agentName: "ravi-assistant",
           displayName: "Ravi Kiran",
         },
@@ -286,20 +295,24 @@ describe("startConnectorRuntime sender profile headers", () => {
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39109";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39109";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookHeaders: Headers[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookHeaders.push(new Headers(init?.headers));
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -311,7 +324,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -338,6 +351,10 @@ describe("startConnectorRuntime sender profile headers", () => {
       expect(hookHeaders[0]?.get("x-clawdentity-display-name")).toBe(
         "Ravi Kiran",
       );
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -347,8 +364,8 @@ describe("startConnectorRuntime sender profile headers", () => {
 
   it("omits sender profile headers when relay peers snapshot has no matching sender", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     await writeRelayTransformPeersSnapshot({
@@ -356,7 +373,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       peers: {
         other: {
           did: makeAgentDid(DID_AUTHORITY, generateUlid(400)),
-          proxyUrl: "https://proxy.example.test/hooks/wake",
+          proxyUrl: "https://proxy.example.test/hooks/message",
           agentName: "other-assistant",
           displayName: "Other Human",
         },
@@ -370,20 +387,24 @@ describe("startConnectorRuntime sender profile headers", () => {
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39110";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39110";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookHeaders: Headers[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookHeaders.push(new Headers(init?.headers));
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -395,7 +416,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -418,6 +439,10 @@ describe("startConnectorRuntime sender profile headers", () => {
       expect(hookHeaders).toHaveLength(1);
       expect(hookHeaders[0]?.get("x-clawdentity-agent-name")).toBeNull();
       expect(hookHeaders[0]?.get("x-clawdentity-display-name")).toBeNull();
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -427,15 +452,15 @@ describe("startConnectorRuntime sender profile headers", () => {
 
   it("aborts in-flight hook delivery when runtime stops", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39104";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39104";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let hookPostStartedResolve: (() => void) | undefined;
     const hookPostStarted = new Promise<void>((resolve) => {
       hookPostStartedResolve = resolve;
@@ -445,11 +470,11 @@ describe("startConnectorRuntime sender profile headers", () => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostStartedResolve?.();
         const signal = init?.signal;
         return await new Promise<Response>((_resolve, reject) => {
@@ -463,6 +488,10 @@ describe("startConnectorRuntime sender profile headers", () => {
         });
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -471,7 +500,7 @@ describe("startConnectorRuntime sender profile headers", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });

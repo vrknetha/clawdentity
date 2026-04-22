@@ -88,7 +88,7 @@ export function parseReceiptRecordInput(
   }
 
   if (
-    input.status !== "processed_by_openclaw" &&
+    input.status !== "delivered_to_webhook" &&
     input.status !== "dead_lettered"
   ) {
     throw new TypeError("Relay receipt input is invalid");

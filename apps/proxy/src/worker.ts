@@ -39,7 +39,7 @@ import { resolveWorkerTrustStore } from "./trust-store-backend.js";
 export type ProxyWorkerBindings = {
   LISTEN_PORT?: string;
   PORT?: string;
-  OPENCLAW_BASE_URL?: string;
+  DELIVERY_WEBHOOK_BASE_URL?: string;
   AGENT_RELAY_SESSION?: AgentRelaySessionNamespace;
   PROXY_TRUST_STATE?: ProxyTrustStateNamespace;
   REGISTRY_URL?: string;
@@ -64,6 +64,7 @@ export type ProxyWorkerBindings = {
   RELAY_RETRY_JITTER_RATIO?: string;
   RELAY_MAX_IN_FLIGHT_DELIVERIES?: string;
   RELAY_MAX_FRAME_BYTES?: string;
+  DELIVERY_STATE_DIR?: string;
   APP_VERSION?: string;
   PROXY_VERSION?: string;
   RECEIPT_QUEUE?: Queue<string>;
@@ -103,7 +104,7 @@ class MissingQueueBindingError extends NonRetryableQueueError {
 
 function toCacheKey(env: ProxyWorkerBindings): string {
   const keyParts = [
-    env.OPENCLAW_BASE_URL,
+    env.DELIVERY_WEBHOOK_BASE_URL,
     env.PROXY_TRUST_STATE === undefined ? "no-trust-do" : "has-trust-do",
     env.REGISTRY_URL,
     env.CLAWDENTITY_REGISTRY_URL,

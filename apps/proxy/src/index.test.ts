@@ -24,20 +24,22 @@ describe("proxy", () => {
 
   it("fails startup when config is invalid", () => {
     expect(() =>
-      initializeProxyRuntime({ OPENCLAW_BASE_URL: "bad-url" }),
+      initializeProxyRuntime({ DELIVERY_WEBHOOK_BASE_URL: "bad-url" }),
     ).toThrow(ProxyConfigError);
   });
 
-  it("supports relay runtime startup without OpenClaw vars", () => {
+  it("supports relay runtime startup without runtime-specific vars", () => {
     const tempHomeDir = mkdtempSync(join(tmpdir(), "clawdentity-proxy-"));
     try {
       const runtime = initializeProxyRuntime({
         HOME: tempHomeDir,
-        OPENCLAW_STATE_DIR: `${tempHomeDir}/.openclaw`,
+        DELIVERY_STATE_DIR: `${tempHomeDir}/.clawdentity`,
       });
 
       expect(runtime.version).toBe(PROXY_VERSION);
-      expect(runtime.config.openclawBaseUrl).toBe("http://127.0.0.1:18789");
+      expect(runtime.config.deliveryWebhookBaseUrl).toBe(
+        "http://127.0.0.1:18789",
+      );
     } finally {
       rmSync(tempHomeDir, { recursive: true, force: true });
     }

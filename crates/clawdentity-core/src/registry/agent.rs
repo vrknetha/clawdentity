@@ -9,13 +9,13 @@ use getrandom::fill as getrandom_fill;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
 
+use super::agent_name::parse_agent_name;
 use crate::config::{ConfigPathOptions, get_config_dir, resolve_config};
 use crate::constants::{AGENTS_DIR, AIT_FILE_NAME, SECRET_KEY_FILE_NAME};
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 use crate::identity::decode_secret_key;
 use crate::signing::{SignHttpRequestInput, sign_http_request};
-use super::agent_name::parse_agent_name;
 
 const FILE_MODE: u32 = 0o600;
 const IDENTITY_FILE: &str = "identity.json";
@@ -521,7 +521,7 @@ pub fn inspect_agent(options: &ConfigPathOptions, name: &str) -> Result<AgentIns
     let framework = payload
         .get("framework")
         .and_then(|value| value.as_str())
-        .unwrap_or("openclaw")
+        .unwrap_or("generic")
         .to_string();
     let public_key = payload
         .get("cnf")

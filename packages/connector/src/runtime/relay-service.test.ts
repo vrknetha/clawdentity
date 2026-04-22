@@ -60,7 +60,7 @@ describe("createRelayService", () => {
       requestId: "req-1",
       senderAgentDid: "did:cdi:registry.example.test:agent:sender",
       recipientAgentDid: "did:cdi:registry.example.test:agent:recipient",
-      status: "processed_by_openclaw",
+      status: "delivered_to_webhook",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);

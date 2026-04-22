@@ -6,8 +6,10 @@ import {
   createSandbox,
   createWsHarness,
   findAvailablePort,
+  isDeliveryReceiptPost,
   readConnectorStatus,
   resetRuntimeTestEnv,
+  waitForDeliveryReceiptPostFlush,
   writeRelayRuntimeConfig,
 } from "./runtime.test/helpers.js";
 
@@ -18,34 +20,38 @@ afterEach(() => {
 describe("startConnectorRuntime auth behavior", () => {
   it("refreshes hook token from relay runtime config after hook 401", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     await writeRelayRuntimeConfig(sandbox.rootDir, "token-a");
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39102";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39102";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const postTokens: string[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         const headers = new Headers(init?.headers);
-        const token = headers.get("x-openclaw-token") ?? "";
+        const token = headers.get("x-deliveryWebhook-token") ?? "";
         postTokens.push(token);
         if (postTokens.length === 1) {
           await writeRelayRuntimeConfig(sandbox.rootDir, "token-b");
           return new Response("unauthorized", { status: 401 });
         }
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -57,7 +63,7 @@ describe("startConnectorRuntime auth behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -77,6 +83,10 @@ describe("startConnectorRuntime auth behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(postTokens).toEqual(["token-a", "token-b"]);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -89,7 +99,7 @@ describe("startConnectorRuntime auth behavior", () => {
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39106";
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39106";
     const issuerFromAit = "https://registry.example.test/base";
     const expectedRefreshUrl =
       "https://registry.example.test/v1/agents/auth/refresh";
@@ -99,7 +109,7 @@ describe("startConnectorRuntime auth behavior", () => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
@@ -122,6 +132,10 @@ describe("startConnectorRuntime auth behavior", () => {
         );
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -136,7 +150,7 @@ describe("startConnectorRuntime auth behavior", () => {
       configDir: sandbox.rootDir,
       credentials,
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -152,29 +166,33 @@ describe("startConnectorRuntime auth behavior", () => {
 
   it("preserves explicit hook token over relay runtime config token", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     await writeRelayRuntimeConfig(sandbox.rootDir, "token-from-relay-config");
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39105";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39105";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const postTokens: string[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         const headers = new Headers(init?.headers);
-        postTokens.push(headers.get("x-openclaw-token") ?? "");
+        postTokens.push(headers.get("x-deliveryWebhook-token") ?? "");
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -186,8 +204,8 @@ describe("startConnectorRuntime auth behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookToken: "token-from-cli",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookToken: "token-from-cli",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -207,6 +225,10 @@ describe("startConnectorRuntime auth behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(postTokens).toEqual(["token-from-cli"]);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();

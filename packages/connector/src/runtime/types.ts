@@ -18,9 +18,9 @@ export type StartConnectorRuntimeInput = {
   credentials: ConnectorRuntimeCredentials;
   fetchImpl?: typeof fetch;
   logger?: Logger;
-  openclawBaseUrl?: string;
-  openclawHookPath?: string;
-  openclawHookToken?: string;
+  deliveryWebhookBaseUrl?: string;
+  deliveryWebhookPath?: string;
+  deliveryWebhookToken?: string;
   outboundBaseUrl?: string;
   outboundPath?: string;
   proxyWebsocketUrl?: string;
@@ -43,7 +43,7 @@ export type OutboundRelayRequest = {
 };
 
 export type OutboundDeliveryReceiptStatus =
-  | "processed_by_openclaw"
+  | "delivered_to_webhook"
   | "dead_lettered";
 
 export type TrustedReceiptTargets = {
@@ -67,7 +67,7 @@ export type InboundReplayPolicy = {
   runtimeReplayRetryMaxDelayMs: number;
 };
 
-export type OpenclawProbePolicy = {
+export type DeliveryWebhookProbePolicy = {
   intervalMs: number;
   timeoutMs: number;
 };
@@ -85,21 +85,21 @@ export type InboundReplayView = {
   lastReplayError?: string;
   snapshot: ConnectorInboundInboxSnapshot;
   replayerActive: boolean;
-  openclawGateway: {
+  deliveryWebhookGateway: {
     lastCheckedAt?: string;
     lastFailureReason?: string;
     lastSuccessAt?: string;
     reachable: boolean;
     url: string;
   };
-  openclawHook: {
+  deliveryWebhookHook: {
     lastAttemptAt?: string;
     lastAttemptStatus?: "ok" | "failed";
     url: string;
   };
 };
 
-export type OpenclawGatewayProbeStatus = {
+export type DeliveryWebhookGatewayProbeStatus = {
   lastCheckedAt?: string;
   lastFailureReason?: string;
   lastSuccessAt?: string;

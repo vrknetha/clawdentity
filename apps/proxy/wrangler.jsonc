@@ -88,7 +88,7 @@
       "vars": {
         "ENVIRONMENT": "local",
         "REGISTRY_URL": "http://127.0.0.1:8788",
-        "OPENCLAW_BASE_URL": "http://127.0.0.1:18789",
+        "DELIVERY_WEBHOOK_BASE_URL": "http://127.0.0.1:18789",
         "INJECT_IDENTITY_INTO_MESSAGE": "true",
         "RELAY_QUEUE_MAX_MESSAGES_PER_AGENT": "500",
         "RELAY_QUEUE_TTL_SECONDS": "3600",

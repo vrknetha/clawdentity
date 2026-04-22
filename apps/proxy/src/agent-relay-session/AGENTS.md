@@ -22,4 +22,4 @@
 - Prefer extracting concrete collaborators (queue management, connector delivery transport, and RPC wiring) so `core.ts` stays a high-level orchestrator with well-defined dependencies.
 - When adding new helpers, document the exported signatures and the direction of dependencies (e.g., `core.ts` → `queue-manager` → `queue-state`, `core.ts` → `rpc-handlers` → `parsers`).
 - Preserve the existing request/queue/workflow contracts; refactors should not change how RPC paths, receipt state, or delivery retries behave.
-- Receipt persistence must support sender-notification flows: recording a `processed_by_openclaw`/`dead_lettered` receipt may create a new receipt row (sender DO) and should emit websocket `receipt` frames to active sockets.
+- Receipt persistence must support sender-notification flows: recording a `delivered_to_webhook`/`dead_lettered` receipt may create a new receipt row (sender DO) and should emit websocket `receipt` frames to active sockets.

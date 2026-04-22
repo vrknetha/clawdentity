@@ -16,7 +16,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       webSocketFactory,
     });
@@ -50,7 +50,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     client.disconnect();
   });
 
-  it("forwards deliver frames to local openclaw and acks success", async () => {
+  it("forwards deliver frames to local deliveryWebhook and acks success", async () => {
     const { sockets, webSocketFactory } = createMockWebSocketFactory();
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -58,8 +58,8 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
-      openclawHookToken: "hook-secret",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookToken: "hook-secret",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
       webSocketFactory,
@@ -89,10 +89,10 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     });
 
     const [url, requestInit] = fetchMock.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:18789/hooks/agent");
+    expect(url).toBe("http://127.0.0.1:18789/hooks/message");
     expect(requestInit?.method).toBe("POST");
     expect(requestInit?.headers).toMatchObject({
-      "content-type": "application/json",
+      "content-type": "application/vnd.clawdentity.delivery+json",
       "x-clawdentity-agent-did": expect.stringMatching(
         /^did:cdi:registry.clawdentity.com:agent:/,
       ),
@@ -100,7 +100,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
         /^did:cdi:registry.clawdentity.com:agent:/,
       ),
       "x-clawdentity-verified": "true",
-      "x-openclaw-token": "hook-secret",
+      "x-deliveryWebhook-token": "hook-secret",
       "x-request-id": deliverId,
     });
     expect(
@@ -114,6 +114,25 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
       ],
     ).toBeUndefined();
 
+    const body = JSON.parse(String(requestInit?.body ?? "{}")) as {
+      type?: string;
+      requestId?: string;
+      fromAgentDid?: string;
+      toAgentDid?: string;
+      payload?: { message?: string };
+      relayMetadata?: { timestamp?: string };
+    };
+    expect(body.type).toBe("clawdentity.delivery.v1");
+    expect(body.requestId).toBe(deliverId);
+    expect(body.fromAgentDid).toMatch(
+      /^did:cdi:registry\.clawdentity\.com:agent:/,
+    );
+    expect(body.toAgentDid).toMatch(
+      /^did:cdi:registry\.clawdentity\.com:agent:/,
+    );
+    expect(body.payload?.message).toBe("hello from connector");
+    expect(body.relayMetadata?.timestamp).toBe("2026-01-01T00:00:00.000Z");
+
     const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);
     expect(ack.type).toBe("deliver_ack");
     if (ack.type !== "deliver_ack") {
@@ -125,7 +144,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     client.disconnect();
   });
 
-  it("preserves wake sessionId when forwarding to /hooks/wake", async () => {
+  it("keeps original payload nested under typed delivery payload", async () => {
     const { sockets, webSocketFactory } = createMockWebSocketFactory();
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -133,8 +152,8 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
-      openclawHookPath: "/hooks/wake",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookPath: "/hooks/message",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
       webSocketFactory,
@@ -152,10 +171,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
         ts: "2026-01-01T00:00:00.000Z",
         fromAgentDid: createAgentDid(1700000000101),
         toAgentDid: createAgentDid(1700000000201),
-        payload: {
-          message: "wake message",
-          sessionId: "thread-alpha",
-        },
+        payload: { message: "wake message", sessionId: "thread-alpha" },
       }),
     );
 
@@ -164,11 +180,14 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
       expect(sockets[0].sent.length).toBeGreaterThan(0);
     });
 
-    const [, requestInit] = fetchMock.mock.calls[0];
+    const [url, requestInit] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:18789/hooks/message");
     const body = JSON.parse(String(requestInit?.body ?? "{}")) as {
-      sessionId?: string;
+      type?: string;
+      payload?: { sessionId?: string };
     };
-    expect(body.sessionId).toBe("thread-alpha");
+    expect(body.type).toBe("clawdentity.delivery.v1");
+    expect(body.payload?.sessionId).toBe("thread-alpha");
 
     const ack = parseFrame(sockets[0].sent[sockets[0].sent.length - 1]);
     expect(ack.type).toBe("deliver_ack");
@@ -189,7 +208,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
       resolveInboundSenderProfile: async () => ({
@@ -239,7 +258,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     client.disconnect();
   });
 
-  it("acks delivery failure when local openclaw rejects", async () => {
+  it("acks delivery failure when local deliveryWebhook rejects", async () => {
     const { sockets, webSocketFactory } = createMockWebSocketFactory();
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -247,7 +266,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
       webSocketFactory,
@@ -294,7 +313,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
       inboundDeliverHandler,
@@ -334,7 +353,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     client.disconnect();
   });
 
-  it("retries transient local openclaw failures and eventually acks success", async () => {
+  it("retries transient local deliveryWebhook failures and eventually acks success", async () => {
     const { sockets, webSocketFactory } = createMockWebSocketFactory();
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -344,13 +363,13 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
-      openclawDeliverTimeoutMs: 100,
-      openclawDeliverRetryInitialDelayMs: 1,
-      openclawDeliverRetryMaxDelayMs: 2,
-      openclawDeliverRetryBudgetMs: 500,
+      deliveryWebhookDeliverTimeoutMs: 100,
+      deliveryWebhookDeliverRetryInitialDelayMs: 1,
+      deliveryWebhookDeliverRetryMaxDelayMs: 2,
+      deliveryWebhookDeliverRetryBudgetMs: 500,
       webSocketFactory,
     });
 
@@ -388,7 +407,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
     client.disconnect();
   });
 
-  it("retries when local openclaw hook auth rejects with 401", async () => {
+  it("retries when local deliveryWebhook hook auth rejects with 401", async () => {
     const { sockets, webSocketFactory } = createMockWebSocketFactory();
     const fetchMock = vi
       .fn<typeof fetch>()
@@ -397,13 +416,13 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       fetchImpl: fetchMock,
-      openclawDeliverTimeoutMs: 100,
-      openclawDeliverRetryInitialDelayMs: 1,
-      openclawDeliverRetryMaxDelayMs: 2,
-      openclawDeliverRetryBudgetMs: 500,
+      deliveryWebhookDeliverTimeoutMs: 100,
+      deliveryWebhookDeliverRetryInitialDelayMs: 1,
+      deliveryWebhookDeliverRetryMaxDelayMs: 2,
+      deliveryWebhookDeliverRetryBudgetMs: 500,
       webSocketFactory,
     });
 
@@ -447,7 +466,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       hooks: {
         onReceipt,
@@ -468,7 +487,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
         ts: "2026-01-01T00:00:00.000Z",
         originalFrameId,
         toAgentDid: createAgentDid(1700000000200),
-        status: "processed_by_openclaw",
+        status: "delivered_to_webhook",
       }),
     );
 
@@ -480,7 +499,7 @@ describe("ConnectorClient delivery and heartbeat frames", () => {
       type: "receipt",
       id: receiptId,
       originalFrameId,
-      status: "processed_by_openclaw",
+      status: "delivered_to_webhook",
     });
 
     client.disconnect();

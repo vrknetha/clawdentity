@@ -15,7 +15,7 @@ describe("ConnectorClient outbound queue", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       webSocketFactory,
     });

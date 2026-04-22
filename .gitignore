@@ -31,3 +31,5 @@ apps/landing/public/rust/v*/
 **/*_FORMATS.md
 **/EXECUTION_PLAN.md
 **/WEBHOOK_PR_PLAN.md
+# CocoIndex Code (ccc)
+/.cocoindex_code/

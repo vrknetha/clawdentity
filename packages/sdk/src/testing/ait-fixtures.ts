@@ -21,7 +21,7 @@ export type BuildTestAitClaimsInput = {
 const DEFAULT_SEED_MS = 1_700_000_000_000;
 const DEFAULT_ISSUER = "https://registry.clawdentity.com";
 const DEFAULT_NAME = "Proxy Agent";
-const DEFAULT_FRAMEWORK = "openclaw";
+const DEFAULT_FRAMEWORK = "generic";
 const DEFAULT_DESCRIPTION = "test agent";
 const DEFAULT_TTL_SECONDS = 600;
 

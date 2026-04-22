@@ -1,22 +1,28 @@
 import type { Logger } from "@clawdentity/sdk";
 import { nowIso, nowUtcMs, toIso } from "@clawdentity/sdk";
+import type { DeliveryWebhookSenderProfile } from "../deliveryWebhook-headers.js";
 import type {
   ConnectorInboundInbox,
   ConnectorInboundInboxItem,
   ConnectorInboundInboxSnapshot,
 } from "../inbound-inbox.js";
-import type { OpenclawSenderProfile } from "../openclaw-headers.js";
-import { LocalOpenclawDeliveryError, sanitizeErrorReason } from "./errors.js";
-import { deliverToOpenclawHook, waitWithAbort } from "./openclaw.js";
+import {
+  deliverToDeliveryWebhookHook,
+  waitWithAbort,
+} from "./deliveryWebhook.js";
+import {
+  LocalDeliveryWebhookDeliveryError,
+  sanitizeErrorReason,
+} from "./errors.js";
 import {
   computeReplayDelayMs,
   computeRuntimeReplayRetryDelayMs,
 } from "./policy.js";
 import type {
+  DeliveryWebhookGatewayProbeStatus,
   InboundReplayPolicy,
   InboundReplayStatus,
   InboundReplayView,
-  OpenclawGatewayProbeStatus,
 } from "./types.js";
 
 type DeliveryReceiptInput = {
@@ -24,8 +30,25 @@ type DeliveryReceiptInput = {
   recipientAgentDid: string;
   requestId: string;
   senderAgentDid: string;
-  status: "processed_by_openclaw" | "dead_lettered";
+  status: "delivered_to_webhook" | "dead_lettered";
 };
+
+function sanitizeStatusUrl(url: string): string {
+  const trimmed = url.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  try {
+    const parsed = new URL(trimmed);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return trimmed;
+  }
+}
 
 function groupDueItemsByLane(
   dueItems: ConnectorInboundInboxItem[],
@@ -50,18 +73,22 @@ function groupDueItemsByLane(
 
 export function createInboundReplayController(input: {
   fetchImpl: typeof fetch;
-  getCurrentOpenclawHookToken: () => string | undefined;
+  getCurrentDeliveryWebhookHookToken: () => string | undefined;
   inboundInbox: ConnectorInboundInbox;
   inboundReplayPolicy: InboundReplayPolicy;
   isRuntimeStopping: () => boolean;
-  loadSenderProfilesByDid: () => Promise<Map<string, OpenclawSenderProfile>>;
+  loadSenderProfilesByDid: () => Promise<
+    Map<string, DeliveryWebhookSenderProfile>
+  >;
   logger: Logger;
-  openclawGatewayProbeStatus: OpenclawGatewayProbeStatus;
-  openclawHookUrl: string;
-  openclawProbeUrl: string;
+  deliveryWebhookGatewayProbeStatus: DeliveryWebhookGatewayProbeStatus;
+  deliveryWebhookHookUrl: string;
+  deliveryWebhookProbeUrl: string;
   postDeliveryReceipt: (inputReceipt: DeliveryReceiptInput) => Promise<void>;
   runtimeShutdownSignal: AbortSignal;
-  syncOpenclawHookToken: (reason: "auth_rejected" | "batch") => Promise<void>;
+  syncDeliveryWebhookHookToken: (
+    reason: "auth_rejected" | "batch",
+  ) => Promise<void>;
 }): {
   readInboundReplayView: () => Promise<InboundReplayView>;
   replayPendingInboundMessages: () => Promise<void>;
@@ -71,27 +98,33 @@ export function createInboundReplayController(input: {
   };
 
   let replayInFlight = false;
+  const sanitizedDeliveryWebhookProbeUrl = sanitizeStatusUrl(
+    input.deliveryWebhookProbeUrl,
+  );
+  const sanitizedDeliveryWebhookHookUrl = sanitizeStatusUrl(
+    input.deliveryWebhookHookUrl,
+  );
 
-  const deliverToOpenclawHookWithRetry = async (inputReplay: {
+  const deliverToDeliveryWebhookHookWithRetry = async (inputReplay: {
     conversationId?: string;
     fromAgentDid: string;
     groupId?: string;
     payload: unknown;
     replyTo?: string;
     requestId: string;
-    senderProfile?: OpenclawSenderProfile;
+    senderProfile?: DeliveryWebhookSenderProfile;
     toAgentDid: string;
   }): Promise<void> => {
     let attempt = 1;
 
     while (true) {
       try {
-        await deliverToOpenclawHook({
+        await deliverToDeliveryWebhookHook({
           fetchImpl: input.fetchImpl,
           fromAgentDid: inputReplay.fromAgentDid,
           groupId: inputReplay.groupId,
-          openclawHookUrl: input.openclawHookUrl,
-          openclawHookToken: input.getCurrentOpenclawHookToken(),
+          deliveryWebhookHookUrl: input.deliveryWebhookHookUrl,
+          deliveryWebhookToken: input.getCurrentDeliveryWebhookHookToken(),
           payload: inputReplay.payload,
           conversationId: inputReplay.conversationId,
           replyTo: inputReplay.replyTo,
@@ -103,23 +136,25 @@ export function createInboundReplayController(input: {
         return;
       } catch (error) {
         if (
-          error instanceof LocalOpenclawDeliveryError &&
+          error instanceof LocalDeliveryWebhookDeliveryError &&
           error.code === "RUNTIME_STOPPING"
         ) {
           throw error;
         }
 
         const retryable =
-          error instanceof LocalOpenclawDeliveryError ? error.retryable : true;
+          error instanceof LocalDeliveryWebhookDeliveryError
+            ? error.retryable
+            : true;
         const authRejected =
-          error instanceof LocalOpenclawDeliveryError &&
+          error instanceof LocalDeliveryWebhookDeliveryError &&
           error.code === "HOOK_AUTH_REJECTED";
 
         if (authRejected) {
-          const previousToken = input.getCurrentOpenclawHookToken();
-          await input.syncOpenclawHookToken("auth_rejected");
+          const previousToken = input.getCurrentDeliveryWebhookHookToken();
+          await input.syncDeliveryWebhookHookToken("auth_rejected");
           const tokenChanged =
-            input.getCurrentOpenclawHookToken() !== previousToken;
+            input.getCurrentDeliveryWebhookHookToken() !== previousToken;
           const attemptsRemaining =
             attempt < input.inboundReplayPolicy.runtimeReplayMaxAttempts;
           if (tokenChanged && !input.isRuntimeStopping() && attemptsRemaining) {
@@ -168,15 +203,16 @@ export function createInboundReplayController(input: {
       replayerActive: inboundReplayStatus.replayerActive || replayInFlight,
       lastReplayAt: inboundReplayStatus.lastReplayAt,
       lastReplayError: inboundReplayStatus.lastReplayError,
-      openclawGateway: {
-        url: input.openclawProbeUrl,
-        reachable: input.openclawGatewayProbeStatus.reachable,
-        lastCheckedAt: input.openclawGatewayProbeStatus.lastCheckedAt,
-        lastSuccessAt: input.openclawGatewayProbeStatus.lastSuccessAt,
-        lastFailureReason: input.openclawGatewayProbeStatus.lastFailureReason,
+      deliveryWebhookGateway: {
+        url: sanitizedDeliveryWebhookProbeUrl,
+        reachable: input.deliveryWebhookGatewayProbeStatus.reachable,
+        lastCheckedAt: input.deliveryWebhookGatewayProbeStatus.lastCheckedAt,
+        lastSuccessAt: input.deliveryWebhookGatewayProbeStatus.lastSuccessAt,
+        lastFailureReason:
+          input.deliveryWebhookGatewayProbeStatus.lastFailureReason,
       },
-      openclawHook: {
-        url: input.openclawHookUrl,
+      deliveryWebhookHook: {
+        url: sanitizedDeliveryWebhookHookUrl,
         lastAttemptAt: inboundReplayStatus.lastAttemptAt,
         lastAttemptStatus: inboundReplayStatus.lastAttemptStatus,
       },
@@ -200,15 +236,15 @@ export function createInboundReplayController(input: {
         return;
       }
 
-      await input.syncOpenclawHookToken("batch");
-      if (!input.openclawGatewayProbeStatus.reachable) {
+      await input.syncDeliveryWebhookHookToken("batch");
+      if (!input.deliveryWebhookGatewayProbeStatus.reachable) {
         input.logger.info(
           "connector.inbound.replay_skipped_gateway_unreachable",
           {
             pendingCount: dueItems.length,
-            openclawBaseUrl: input.openclawProbeUrl,
+            deliveryWebhookBaseUrl: input.deliveryWebhookProbeUrl,
             lastFailureReason:
-              input.openclawGatewayProbeStatus.lastFailureReason,
+              input.deliveryWebhookGatewayProbeStatus.lastFailureReason,
           },
         );
         return;
@@ -221,7 +257,7 @@ export function createInboundReplayController(input: {
           for (const pending of lane) {
             inboundReplayStatus.lastAttemptAt = nowIso();
             try {
-              await deliverToOpenclawHookWithRetry({
+              await deliverToDeliveryWebhookHookWithRetry({
                 fromAgentDid: pending.fromAgentDid,
                 groupId: pending.groupId,
                 requestId: pending.requestId,
@@ -246,18 +282,18 @@ export function createInboundReplayController(input: {
                   requestId: pending.requestId,
                   senderAgentDid: pending.fromAgentDid,
                   recipientAgentDid: pending.toAgentDid,
-                  status: "processed_by_openclaw",
+                  status: "delivered_to_webhook",
                 });
               } catch (error) {
                 input.logger.warn("connector.inbound.delivery_receipt_failed", {
                   requestId: pending.requestId,
                   reason: sanitizeErrorReason(error),
-                  status: "processed_by_openclaw",
+                  status: "delivered_to_webhook",
                 });
               }
             } catch (error) {
               if (
-                error instanceof LocalOpenclawDeliveryError &&
+                error instanceof LocalDeliveryWebhookDeliveryError &&
                 error.code === "RUNTIME_STOPPING"
               ) {
                 input.logger.info("connector.inbound.replay_stopped", {
@@ -268,7 +304,7 @@ export function createInboundReplayController(input: {
 
               const reason = sanitizeErrorReason(error);
               const retryable =
-                error instanceof LocalOpenclawDeliveryError
+                error instanceof LocalDeliveryWebhookDeliveryError
                   ? error.retryable
                   : true;
               const nextAttemptAt = toIso(

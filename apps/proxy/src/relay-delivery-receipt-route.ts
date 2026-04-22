@@ -48,7 +48,7 @@ function parseRecordInput(payload: unknown): RelayReceiptRecordInput {
     typeof input.requestId !== "string" ||
     typeof input.senderAgentDid !== "string" ||
     typeof input.recipientAgentDid !== "string" ||
-    (input.status !== "processed_by_openclaw" &&
+    (input.status !== "delivered_to_webhook" &&
       input.status !== "dead_lettered")
   ) {
     throw createRelayReceiptInvalidInputError();

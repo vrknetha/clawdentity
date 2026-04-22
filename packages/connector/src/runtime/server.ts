@@ -35,9 +35,44 @@ type RuntimeRequestHandlerInput = {
   wsUrl: string;
 };
 
+export function isLoopbackRemoteAddress(
+  remoteAddress: string | undefined,
+): boolean {
+  const normalized = remoteAddress?.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized === "::1" ||
+    normalized === "127.0.0.1" ||
+    normalized.startsWith("127.") ||
+    normalized.startsWith("::ffff:127.")
+  );
+}
+
+function sanitizeStatusUrl(url: string): string {
+  const trimmed = url.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  try {
+    const parsed = new URL(trimmed);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
 export function createRuntimeRequestHandler(
   input: RuntimeRequestHandlerInput,
 ): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  const sanitizedOutboundUrl = sanitizeStatusUrl(input.outboundUrl);
+  const sanitizedWebsocketUrl = sanitizeStatusUrl(input.wsUrl);
+
   return async (req, res) => {
     const requestPath = req.url
       ? new URL(req.url, input.outboundBaseUrl).pathname
@@ -64,8 +99,8 @@ export function createRuntimeRequestHandler(
             code: "CONNECTOR_INBOUND_INBOX_UNAVAILABLE",
             message: "Connector inbound inbox status is unavailable",
           },
-          outboundUrl: input.outboundUrl,
-          websocketUrl: input.wsUrl,
+          outboundUrl: sanitizedOutboundUrl,
+          websocketUrl: sanitizedWebsocketUrl,
           websocket: {
             connected: input.connectorClient.isConnected(),
           },
@@ -75,8 +110,8 @@ export function createRuntimeRequestHandler(
       const clientMetrics = input.connectorClient.getMetricsSnapshot();
       writeJson(res, 200, {
         status: "ok",
-        outboundUrl: input.outboundUrl,
-        websocketUrl: input.wsUrl,
+        outboundUrl: sanitizedOutboundUrl,
+        websocketUrl: sanitizedWebsocketUrl,
         websocket: {
           ...clientMetrics.connection,
         },
@@ -88,8 +123,8 @@ export function createRuntimeRequestHandler(
             lastReplayAt: inboundReplayView.lastReplayAt,
             lastReplayError: inboundReplayView.lastReplayError,
           },
-          openclawGateway: inboundReplayView.openclawGateway,
-          openclawHook: inboundReplayView.openclawHook,
+          deliveryWebhookGateway: inboundReplayView.deliveryWebhookGateway,
+          deliveryWebhookHook: inboundReplayView.deliveryWebhookHook,
         },
         outbound: {
           queue: {
@@ -112,6 +147,16 @@ export function createRuntimeRequestHandler(
         writeJson(res, 405, { error: "Method Not Allowed" });
         return;
       }
+      if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {
+        writeJson(res, 403, {
+          error: {
+            code: "CONNECTOR_ADMIN_FORBIDDEN",
+            message:
+              "Dead-letter admin endpoints are restricted to loopback clients",
+          },
+        });
+        return;
+      }
 
       const deadLetterItems = await input.inboundInbox.listDeadLetter();
       writeJson(res, 200, {
@@ -127,6 +172,16 @@ export function createRuntimeRequestHandler(
         res.statusCode = 405;
         res.setHeader("allow", "POST");
         writeJson(res, 405, { error: "Method Not Allowed" });
+        return;
+      }
+      if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {
+        writeJson(res, 403, {
+          error: {
+            code: "CONNECTOR_ADMIN_FORBIDDEN",
+            message:
+              "Dead-letter admin endpoints are restricted to loopback clients",
+          },
+        });
         return;
       }
 
@@ -150,6 +205,16 @@ export function createRuntimeRequestHandler(
         res.statusCode = 405;
         res.setHeader("allow", "POST");
         writeJson(res, 405, { error: "Method Not Allowed" });
+        return;
+      }
+      if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {
+        writeJson(res, 403, {
+          error: {
+            code: "CONNECTOR_ADMIN_FORBIDDEN",
+            message:
+              "Dead-letter admin endpoints are restricted to loopback clients",
+          },
+        });
         return;
       }
 

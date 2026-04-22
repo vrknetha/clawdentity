@@ -6,7 +6,7 @@ import type {
   HeartbeatAckFrame,
   ReceiptFrame,
 } from "../frames.js";
-import type { LocalOpenclawDeliveryClient } from "./delivery.js";
+import type { LocalDeliveryWebhookDeliveryClient } from "./delivery.js";
 import type { ConnectorHeartbeatManager } from "./heartbeat.js";
 import { handleIncomingConnectorMessage } from "./inbound.js";
 import { handleInboundDeliverFrame } from "./inbound-delivery.js";
@@ -20,7 +20,7 @@ export async function routeConnectorInboundMessage(options: {
   inboundDeliverHandler:
     | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
     | undefined;
-  localOpenclawDelivery: LocalOpenclawDeliveryClient;
+  localDeliveryWebhookDelivery: LocalDeliveryWebhookDeliveryClient;
   isStarted: () => boolean;
   makeFrameId: () => string;
   makeTimestamp: () => string;
@@ -51,7 +51,7 @@ export async function routeConnectorInboundMessage(options: {
         await handleInboundDeliverFrame({
           frame,
           inboundDeliverHandler: options.inboundDeliverHandler,
-          localOpenclawDelivery: options.localOpenclawDelivery,
+          localDeliveryWebhookDelivery: options.localDeliveryWebhookDelivery,
           isStarted: options.isStarted,
           hooks: options.hooks,
           now: options.now,

@@ -19,7 +19,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       connectTimeoutMs: 0,
       heartbeatIntervalMs: 10,
       heartbeatAckTimeoutMs: 25,
@@ -58,7 +58,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       connectTimeoutMs: 0,
       heartbeatIntervalMs: 100,
       heartbeatAckTimeoutMs: 40,
@@ -106,7 +106,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       connectTimeoutMs: 30,
       heartbeatIntervalMs: 0,
       reconnectMinDelayMs: 20,
@@ -139,7 +139,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       connectTimeoutMs: 0,
       heartbeatIntervalMs: 0,
       reconnectMinDelayMs: 40,
@@ -174,7 +174,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       connectTimeoutMs: 0,
       heartbeatIntervalMs: 0,
       reconnectMinDelayMs: 100,
@@ -219,7 +219,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       reconnectMinDelayMs: 100,
       reconnectMaxDelayMs: 100,
@@ -249,7 +249,7 @@ describe("ConnectorClient reconnect behavior", () => {
 
     const client = new ConnectorClient({
       connectorUrl: "wss://connector.example.com/agent",
-      openclawBaseUrl: "http://127.0.0.1:18789",
+      deliveryWebhookBaseUrl: "http://127.0.0.1:18789",
       heartbeatIntervalMs: 0,
       reconnectMinDelayMs: 0,
       reconnectMaxDelayMs: 0,

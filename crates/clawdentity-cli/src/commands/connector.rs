@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -8,20 +8,19 @@ use anyhow::{Result, anyhow};
 use clap::Subcommand;
 use clawdentity_core::config::ConfigPathOptions;
 use clawdentity_core::http::client as create_http_client;
-use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
+use clawdentity_core::runtime_webhook::DeliveryWebhookRuntimeConfig;
 use clawdentity_core::{
     ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
     ConnectorServiceUninstallInput, CoreError, OutboundSendObservation, RuntimeServerState,
     SqliteStore, UpsertPeerInput, flush_outbound_queue_to_relay_with_send_observer,
-    install_connector_service, list_peers, load_peers_config, now_utc_ms, spawn_connector_client,
-    sync_openclaw_relay_peers_snapshot, uninstall_connector_service, upsert_peer,
+    install_connector_service, list_peers, now_utc_ms, spawn_connector_client,
+    uninstall_connector_service, upsert_peer,
 };
 use serde_json::json;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
 const DEFAULT_CONNECTOR_PORT: u16 = 19400;
-const DEFAULT_OPENCLAW_HOOK_PATH: &str = "/hooks/agent";
 const OUTBOUND_FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 const OUTBOUND_FLUSH_BATCH_SIZE: usize = 50;
 const PEER_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60 * 24);
@@ -40,25 +39,36 @@ use receipts::{ReceiptDispatchRuntime, start_receipt_outbox_worker};
 
 #[cfg(test)]
 use delivery::{
-    build_deliver_ack_reason, build_openclaw_hook_payload, build_openclaw_receipt_payload,
-    forward_deliver_to_openclaw, resolve_group_name_for_delivery,
-    resolve_sender_profile_for_delivery, should_dead_letter_after_failure,
+    build_deliver_ack_reason, build_delivery_receipt_payload, build_delivery_webhook_payload,
+    forward_deliver_to_webhook,
 };
 #[cfg(test)]
-use headers::{SenderProfileHeaders, build_openclaw_delivery_headers};
+use headers::{SenderProfileHeaders, build_delivery_headers};
 
 #[derive(Debug, Subcommand)]
 pub enum ConnectorCommand {
+    Configure {
+        name: String,
+        #[arg(long)]
+        delivery_webhook_url: String,
+        #[arg(long = "delivery-webhook-header")]
+        delivery_webhook_headers: Vec<String>,
+        #[arg(long)]
+        delivery_health_url: Option<String>,
+    },
+    Doctor {
+        name: String,
+    },
     Start {
         name: String,
         #[arg(long)]
         proxy_ws_url: Option<String>,
         #[arg(long)]
-        openclaw_base_url: Option<String>,
+        delivery_webhook_url: Option<String>,
+        #[arg(long = "delivery-webhook-header")]
+        delivery_webhook_headers: Vec<String>,
         #[arg(long)]
-        openclaw_hook_path: Option<String>,
-        #[arg(long)]
-        openclaw_hook_token: Option<String>,
+        delivery_health_url: Option<String>,
         #[arg(long, default_value_t = DEFAULT_CONNECTOR_PORT)]
         port: u16,
         #[arg(long, default_value = "127.0.0.1")]
@@ -79,11 +89,11 @@ pub enum ConnectorServiceCommand {
         #[arg(long)]
         proxy_ws_url: Option<String>,
         #[arg(long)]
-        openclaw_base_url: Option<String>,
+        delivery_webhook_url: Option<String>,
+        #[arg(long = "delivery-webhook-header")]
+        delivery_webhook_headers: Vec<String>,
         #[arg(long)]
-        openclaw_hook_path: Option<String>,
-        #[arg(long)]
-        openclaw_hook_token: Option<String>,
+        delivery_health_url: Option<String>,
     },
     Uninstall {
         name: String,
@@ -95,9 +105,9 @@ pub enum ConnectorServiceCommand {
 pub(super) struct StartConnectorInput {
     agent_name: String,
     proxy_ws_url: Option<String>,
-    openclaw_base_url: Option<String>,
-    openclaw_hook_path: Option<String>,
-    openclaw_hook_token: Option<String>,
+    delivery_webhook_url: Option<String>,
+    delivery_webhook_headers: Vec<String>,
+    delivery_health_url: Option<String>,
     port: u16,
     bind: IpAddr,
 }
@@ -108,23 +118,42 @@ pub(super) struct ConnectorRuntimeConfig {
     config_dir: PathBuf,
     proxy_receipt_url: String,
     proxy_ws_url: String,
-    openclaw_runtime: OpenclawRuntimeConfig,
+    delivery_webhook_runtime: DeliveryWebhookRuntimeConfig,
     port: u16,
     bind: IpAddr,
 }
 /// TODO(clawdentity): document `execute_connector_command`.
+#[allow(clippy::too_many_lines)]
 pub async fn execute_connector_command(
     options: &ConfigPathOptions,
     command: ConnectorCommand,
     json: bool,
 ) -> Result<()> {
     match command {
+        ConnectorCommand::Configure {
+            name,
+            delivery_webhook_url,
+            delivery_webhook_headers,
+            delivery_health_url,
+        } => runtime_config::save_agent_delivery_config(
+            options,
+            &name,
+            &runtime_config::AgentDeliveryConfig {
+                delivery_webhook_url,
+                delivery_webhook_headers,
+                delivery_health_url,
+            },
+            json,
+        ),
+        ConnectorCommand::Doctor { name } => {
+            runtime_config::run_connector_doctor(options, &name, json).await
+        }
         ConnectorCommand::Start {
             name,
             proxy_ws_url,
-            openclaw_base_url,
-            openclaw_hook_path,
-            openclaw_hook_token,
+            delivery_webhook_url,
+            delivery_webhook_headers,
+            delivery_health_url,
             port,
             bind,
         } => {
@@ -133,9 +162,9 @@ pub async fn execute_connector_command(
                 StartConnectorInput {
                     agent_name: name,
                     proxy_ws_url,
-                    openclaw_base_url,
-                    openclaw_hook_path,
-                    openclaw_hook_token,
+                    delivery_webhook_url,
+                    delivery_webhook_headers,
+                    delivery_health_url,
                     port,
                     bind,
                 },
@@ -159,9 +188,9 @@ fn execute_connector_service_command(
             name,
             platform,
             proxy_ws_url,
-            openclaw_base_url,
-            openclaw_hook_path,
-            openclaw_hook_token,
+            delivery_webhook_url,
+            delivery_webhook_headers,
+            delivery_health_url,
         } => {
             let result = install_connector_service(
                 options,
@@ -169,9 +198,9 @@ fn execute_connector_service_command(
                     agent_name: name,
                     platform,
                     proxy_ws_url,
-                    openclaw_base_url,
-                    openclaw_hook_path,
-                    openclaw_hook_token,
+                    delivery_webhook_url,
+                    delivery_webhook_headers,
+                    delivery_health_url,
                     executable_path: None,
                 },
             )?;
@@ -294,7 +323,7 @@ async fn start_connector_runtime(
         relay_sender: relay_sender.clone(),
         store: store.clone(),
         config_dir: runtime.config_dir.clone(),
-        openclaw_runtime: runtime.openclaw_runtime.clone(),
+        delivery_webhook_runtime: runtime.delivery_webhook_runtime.clone(),
         outbound_inflight: outbound_inflight.clone(),
         pending_receipt_notifications: pending_receipt_notifications.clone(),
     };
@@ -307,7 +336,7 @@ async fn start_connector_runtime(
         receipt_outbox,
         store: store.clone(),
         config_dir: runtime.config_dir.clone(),
-        openclaw_runtime: runtime.openclaw_runtime.clone(),
+        delivery_webhook_runtime: runtime.delivery_webhook_runtime.clone(),
         pending_receipt_notifications,
         shutdown_rx: shutdown_rx.clone(),
     });
@@ -321,7 +350,6 @@ async fn start_connector_runtime(
     let mut peer_refresh_task = spawn_peer_refresh_task(
         options.clone(),
         runtime.agent_name.clone(),
-        runtime.config_dir.clone(),
         store.clone(),
         shutdown_rx.clone(),
     );
@@ -423,13 +451,12 @@ fn spawn_inbound_retry_task(runtime: InboundRetryRuntime) -> JoinHandle<Result<(
 fn spawn_peer_refresh_task(
     options: ConfigPathOptions,
     agent_name: String,
-    config_dir: PathBuf,
     store: SqliteStore,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move {
-        run_peer_refresh_loop(options, &agent_name, config_dir, store, shutdown_rx).await
-    })
+    tokio::spawn(
+        async move { run_peer_refresh_loop(options, &agent_name, store, shutdown_rx).await },
+    )
 }
 
 async fn run_outbound_flush_loop(
@@ -486,19 +513,10 @@ async fn run_outbound_flush_loop(
 async fn run_peer_refresh_loop(
     options: ConfigPathOptions,
     agent_name: &str,
-    config_dir: PathBuf,
     store: SqliteStore,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    if refresh_peer_profiles_once(
-        &options,
-        agent_name,
-        config_dir.as_path(),
-        &store,
-        &mut shutdown_rx,
-    )
-    .await
-    {
+    if refresh_peer_profiles_once(&options, agent_name, &store, &mut shutdown_rx).await {
         return Ok(());
     }
     let mut interval = tokio::time::interval(PEER_REFRESH_INTERVAL);
@@ -515,7 +533,6 @@ async fn run_peer_refresh_loop(
                 if refresh_peer_profiles_once(
                     &options,
                     agent_name,
-                    config_dir.as_path(),
                     &store,
                     &mut shutdown_rx,
                 )
@@ -532,7 +549,6 @@ async fn run_peer_refresh_loop(
 async fn refresh_peer_profiles_once(
     options: &ConfigPathOptions,
     agent_name: &str,
-    config_dir: &Path,
     store: &SqliteStore,
     shutdown_rx: &mut watch::Receiver<bool>,
 ) -> bool {
@@ -551,7 +567,6 @@ async fn refresh_peer_profiles_once(
         return false;
     }
 
-    let mut refreshed_any = false;
     for peer in peers {
         if *shutdown_rx.borrow() {
             return true;
@@ -585,8 +600,6 @@ async fn refresh_peer_profiles_once(
                         alias = %peer.alias,
                         "failed to persist periodic peer profile refresh"
                     );
-                } else {
-                    refreshed_any = true;
                 }
             }
             Err(error) => {
@@ -601,17 +614,6 @@ async fn refresh_peer_profiles_once(
         }
     }
 
-    if refreshed_any && !*shutdown_rx.borrow() {
-        match load_peers_config(store)
-            .and_then(|peers_config| sync_openclaw_relay_peers_snapshot(config_dir, &peers_config))
-        {
-            Ok(()) => {}
-            Err(error) => {
-                tracing::warn!(error = %error, "failed to sync relay peer snapshot after periodic refresh");
-            }
-        }
-    }
-
     false
 }
 
@@ -622,6 +624,7 @@ pub(super) fn env_trimmed(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+#[cfg(test)]
 pub(super) fn normalize_hook_path(value: &str) -> String {
     if value.starts_with('/') {
         value.to_string()

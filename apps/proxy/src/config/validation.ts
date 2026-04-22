@@ -9,10 +9,7 @@ import {
   resolveDefaultEnv,
 } from "./env-normalization.js";
 import { toConfigValidationError } from "./errors.js";
-import {
-  loadEnvWithDotEnvFallback,
-  loadOpenclawBaseUrlFromFallback,
-} from "./files.js";
+import { loadEnvWithDotEnvFallback } from "./files.js";
 import {
   type ProxyConfig,
   proxyConfigSchema,
@@ -45,7 +42,7 @@ export function parseProxyConfig(
 
   const candidateConfig: Record<string, unknown> = {
     listenPort: parsedRuntimeEnv.data.LISTEN_PORT,
-    openclawBaseUrl: parsedRuntimeEnv.data.OPENCLAW_BASE_URL,
+    deliveryWebhookBaseUrl: parsedRuntimeEnv.data.DELIVERY_WEBHOOK_BASE_URL,
     registryUrl:
       parsedRuntimeEnv.data.REGISTRY_URL ??
       resolveDefaultRegistryUrl(parsedRuntimeEnv.data.ENVIRONMENT),
@@ -126,6 +123,5 @@ export function loadProxyConfig(
   options: ProxyConfigLoadOptions & ParseProxyConfigOptions = {},
 ): ProxyConfig {
   const mergedEnv = loadEnvWithDotEnvFallback(env, options);
-  loadOpenclawBaseUrlFromFallback(mergedEnv, options);
   return parseProxyConfig(mergedEnv, options);
 }

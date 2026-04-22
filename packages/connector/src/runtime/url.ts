@@ -1,10 +1,10 @@
-import { toOpenclawHookUrl as toResolvedOpenclawHookUrl } from "@clawdentity/common";
+import { toDeliveryWebhookHookUrl as toResolvedDeliveryWebhookHookUrl } from "@clawdentity/common";
 import { RELAY_CONNECT_PATH } from "@clawdentity/protocol";
 import {
   DEFAULT_CONNECTOR_BASE_URL,
   DEFAULT_CONNECTOR_OUTBOUND_PATH,
-  DEFAULT_OPENCLAW_BASE_URL,
-  DEFAULT_OPENCLAW_HOOK_PATH,
+  DEFAULT_DELIVERY_WEBHOOK_BASE_URL,
+  DEFAULT_DELIVERY_WEBHOOK_HOOK_PATH,
 } from "../constants.js";
 
 export function toPathWithQuery(url: URL): string {
@@ -65,24 +65,27 @@ export function normalizeWebSocketUrl(urlInput: string | undefined): string {
   return parsed.toString();
 }
 
-export function resolveOpenclawBaseUrl(input?: string): string {
+export function resolveDeliveryWebhookBaseUrl(input?: string): string {
   return (
     input?.trim() ||
-    process.env.OPENCLAW_BASE_URL?.trim() ||
-    DEFAULT_OPENCLAW_BASE_URL
+    process.env.DELIVERY_WEBHOOK_BASE_URL?.trim() ||
+    DEFAULT_DELIVERY_WEBHOOK_BASE_URL
   );
 }
 
-export function resolveOpenclawHookPath(input?: string): string {
+export function resolveDeliveryWebhookHookPath(input?: string): string {
   const value =
     input?.trim() ||
-    process.env.OPENCLAW_HOOK_PATH?.trim() ||
-    DEFAULT_OPENCLAW_HOOK_PATH;
+    process.env.DELIVERY_WEBHOOK_HOOK_PATH?.trim() ||
+    DEFAULT_DELIVERY_WEBHOOK_HOOK_PATH;
   return value.startsWith("/") ? value : `/${value}`;
 }
 
-export function resolveOpenclawHookToken(input?: string): string | undefined {
-  const value = input?.trim() || process.env.OPENCLAW_HOOK_TOKEN?.trim();
+export function resolveDeliveryWebhookHookToken(
+  input?: string,
+): string | undefined {
+  const value =
+    input?.trim() || process.env.DELIVERY_WEBHOOK_HOOK_TOKEN?.trim();
   if (!value) {
     return undefined;
   }
@@ -90,8 +93,11 @@ export function resolveOpenclawHookToken(input?: string): string | undefined {
   return value;
 }
 
-export function toOpenclawHookUrl(baseUrl: string, hookPath: string): string {
-  return toResolvedOpenclawHookUrl(baseUrl, hookPath);
+export function toDeliveryWebhookHookUrl(
+  baseUrl: string,
+  hookPath: string,
+): string {
+  return toResolvedDeliveryWebhookHookUrl(baseUrl, hookPath);
 }
 
 export function toHttpOriginFromWebSocketUrl(value: URL): string {

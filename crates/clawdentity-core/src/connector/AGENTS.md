@@ -1,16 +1,11 @@
 # AGENTS.md (crates/clawdentity-core/src/connector)
 
 ## Purpose
-- Guard the Rust connector service/runtime integration points.
+- Guard Rust connector service/runtime behavior for the generic relay contract.
 
 ## Rules
-- Generated service definitions must pass explicit state roots (`--home-dir`) for isolated-home runs.
-- OpenClaw provider setup may best-effort spawn `clawdentity connector start` for loopback targets, so connector startup paths must keep working without service managers in local Docker/container flows and must report action-required when runtime health still does not come up.
 - Service install/uninstall must stay idempotent across macOS launchd and Linux systemd.
-- Connector websocket reconnects must rebuild signed auth headers on every dial attempt; never reuse stale `X-Claw-Timestamp` / nonce material across reconnects.
-- OpenClaw inbound relay delivery must preserve user-visible chat behavior: prefer `/hooks/agent` for default peer-message ingress, and use `/hooks/wake` only for explicit wake-only workflows.
-- Keep Rust connector frame contracts aligned with TypeScript: when adding frame variants (for example `receipt`), update serde tags, validation, exports, and tests in the same change.
-- Deliver-frame metadata (`deliverySource`) is a transport-level provenance signal, not user payload content; preserve it through parse/validation for trusted system side-effect gating.
-- Keep connector helpers `clippy -D warnings` clean, especially `format!` calls that can use inline named arguments.
-- Keep connector runtime contracts backward compatible with published OpenClaw relay transform payloads unless a coordinated release updates both sides.
-- Keep websocket client dependencies compiled with TLS support; production proxy connectivity requires `wss://` and must never rely on plaintext-only websocket builds.
+- Generated service definitions must pass explicit state roots (`--home-dir`) for isolated-home runs.
+- Connector websocket reconnects must rebuild signed auth headers on every dial attempt.
+- Keep Rust connector frame contracts aligned with TypeScript in the same change.
+- Keep delivery webhook behavior runtime-agnostic; do not add runtime-specific branching.

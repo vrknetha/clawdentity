@@ -3,14 +3,13 @@ import { join } from "node:path";
 import dotenv from "dotenv";
 import type { ProxyConfigLoadOptions } from "./defaults.js";
 import {
-  firstNonEmpty,
   isRuntimeEnvInput,
   type MutableEnv,
   type RuntimeEnvInput,
   resolveDefaultCwd,
 } from "./env-normalization.js";
 import { toConfigValidationError } from "./errors.js";
-import { resolveBaseUrlFromRelayConfig, resolveStateDir } from "./paths.js";
+import { resolveStateDir } from "./paths.js";
 
 function mergeMissingEnvValues(
   target: MutableEnv,
@@ -66,23 +65,4 @@ export function loadEnvWithDotEnvFallback(
   }
 
   return mergedEnv;
-}
-
-export function loadOpenclawBaseUrlFromFallback(
-  env: MutableEnv,
-  options: ProxyConfigLoadOptions,
-): void {
-  if (
-    firstNonEmpty(env as RuntimeEnvInput, ["OPENCLAW_BASE_URL"]) !== undefined
-  ) {
-    return;
-  }
-
-  const openclawBaseUrl = resolveBaseUrlFromRelayConfig(
-    env as RuntimeEnvInput,
-    options,
-  );
-  if (openclawBaseUrl !== undefined) {
-    env.OPENCLAW_BASE_URL = openclawBaseUrl;
-  }
 }

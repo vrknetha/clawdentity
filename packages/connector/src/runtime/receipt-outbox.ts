@@ -18,7 +18,7 @@ export type DeliveryReceiptOutboxItem = {
   recipientAgentDid: string;
   requestId: string;
   senderAgentDid: string;
-  status: "processed_by_openclaw" | "dead_lettered";
+  status: "delivered_to_webhook" | "dead_lettered";
   attemptCount: number;
 };
 
@@ -27,7 +27,7 @@ export type DeliveryReceiptInput = {
   recipientAgentDid: string;
   requestId: string;
   senderAgentDid: string;
-  status: "processed_by_openclaw" | "dead_lettered";
+  status: "delivered_to_webhook" | "dead_lettered";
 };
 
 function resolveReceiptOutboxPath(input: {
@@ -59,7 +59,7 @@ function isOutboxItem(
     typeof value.requestId === "string" &&
     typeof value.senderAgentDid === "string" &&
     typeof value.recipientAgentDid === "string" &&
-    (value.status === "processed_by_openclaw" ||
+    (value.status === "delivered_to_webhook" ||
       value.status === "dead_lettered") &&
     typeof value.createdAtMs === "number" &&
     Number.isFinite(value.createdAtMs) &&

@@ -119,8 +119,8 @@ scenario_3_config_init_show() {
 scenario_4_agent_create_inspect() {
   local create_a create_b inspect_a inspect_b
 
-  create_a="$(run_cli "$HOME_A" --json agent create alpha --framework openclaw)"
-  create_b="$(run_cli "$HOME_B" --json agent create beta --framework openclaw)"
+  create_a="$(run_cli "$HOME_A" --json agent create alpha --framework generic)"
+  create_b="$(run_cli "$HOME_B" --json agent create beta --framework generic)"
   AGENT_A_DID="$(jq -r '.did' <<<"$create_a")"
   AGENT_B_DID="$(jq -r '.did' <<<"$create_b")"
   [[ -n "$AGENT_A_DID" && "$AGENT_A_DID" != "null" ]]
@@ -182,12 +182,9 @@ scenario_5_pairing_flow() {
   jq -e --arg did "$AGENT_B_DID" '.responderAgentDid == $did' >/dev/null <<<"$status_resp"
 }
 
-scenario_6_doctor_check() {
-  local doctor_a doctor_b
-  doctor_a="$(run_cli "$HOME_A" --json openclaw doctor --skip-connector-runtime)"
-  doctor_b="$(run_cli "$HOME_B" --json openclaw doctor --skip-connector-runtime)"
-  jq -e '.status == "healthy" or .status == "unhealthy"' >/dev/null <<<"$doctor_a"
-  jq -e '.status == "healthy" or .status == "unhealthy"' >/dev/null <<<"$doctor_b"
+scenario_6_connector_surface_check() {
+  run_cli "$HOME_A" connector --help >/dev/null
+  run_cli "$HOME_B" connector --help >/dev/null
 }
 
 scenario_7_api_key_lifecycle() {
@@ -232,7 +229,7 @@ run_scenario "Scenario 2: Register (both agents)" scenario_2_register_both
 run_scenario "Scenario 3: Config init + show" scenario_3_config_init_show
 run_scenario "Scenario 4: Agent create + inspect" scenario_4_agent_create_inspect
 run_scenario "Scenario 5: Pairing (A starts, B confirms, verify peers)" scenario_5_pairing_flow
-run_scenario "Scenario 6: Doctor check" scenario_6_doctor_check
+run_scenario "Scenario 6: Connector command surface check" scenario_6_connector_surface_check
 run_scenario "Scenario 7: API key create + list + revoke" scenario_7_api_key_lifecycle
 run_scenario "Scenario 8: Invite create + redeem" scenario_8_invite_create_redeem
 

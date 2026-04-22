@@ -12,7 +12,7 @@ export type ProxyConfigLoadOptions = {
 };
 
 export const DEFAULT_PROXY_LISTEN_PORT = 4000;
-export const DEFAULT_OPENCLAW_BASE_URL = "http://127.0.0.1:18789";
+export const DEFAULT_DELIVERY_WEBHOOK_BASE_URL = "http://127.0.0.1:18789";
 export const DEFAULT_PRODUCTION_REGISTRY_URL =
   "https://registry.clawdentity.com";
 export const DEFAULT_NON_PRODUCTION_REGISTRY_URL =

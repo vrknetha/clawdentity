@@ -271,7 +271,7 @@ describe("protocol", () => {
       sub: makeAgentDid(authority, agentUlid),
       ownerDid: makeHumanDid(authority, ownerUlid),
       name: "agent_01",
-      framework: "openclaw",
+      framework: "generic",
       cnf: {
         jwk: {
           kty: "OKP",

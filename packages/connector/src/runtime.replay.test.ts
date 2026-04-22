@@ -6,8 +6,10 @@ import {
   createSandbox,
   createWsHarness,
   findAvailablePort,
+  isDeliveryReceiptPost,
   readConnectorStatus,
   resetRuntimeTestEnv,
+  waitForDeliveryReceiptPostFlush,
 } from "./runtime.test/helpers.js";
 
 afterEach(() => {
@@ -17,16 +19,16 @@ afterEach(() => {
 describe("startConnectorRuntime replay behavior", () => {
   it("replays sqlite-persisted pending messages after a runtime restart", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
     const restartedOutboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39107";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39107";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let probeReachable = false;
     let hookPostCount = 0;
 
@@ -34,15 +36,19 @@ describe("startConnectorRuntime replay behavior", () => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         if (!probeReachable) {
           throw new Error("connect ECONNREFUSED");
         }
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -54,7 +60,7 @@ describe("startConnectorRuntime replay behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -70,11 +76,11 @@ describe("startConnectorRuntime replay behavior", () => {
       await vi.waitFor(async () => {
         const status = (await readConnectorStatus(runtime.outboundUrl)) as {
           inbound?: {
-            openclawGateway?: { reachable?: boolean };
+            deliveryWebhookGateway?: { reachable?: boolean };
             pending?: { pendingCount?: number };
           };
         };
-        expect(status.inbound?.openclawGateway?.reachable).toBe(false);
+        expect(status.inbound?.deliveryWebhookGateway?.reachable).toBe(false);
         expect(status.inbound?.pending?.pendingCount).toBe(1);
       });
       expect(hookPostCount).toBe(0);
@@ -89,7 +95,7 @@ describe("startConnectorRuntime replay behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${restartedOutboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -100,14 +106,18 @@ describe("startConnectorRuntime replay behavior", () => {
           restartedRuntime.outboundUrl,
         )) as {
           inbound?: {
-            openclawGateway?: { reachable?: boolean };
+            deliveryWebhookGateway?: { reachable?: boolean };
             pending?: { pendingCount?: number };
           };
         };
-        expect(status.inbound?.openclawGateway?.reachable).toBe(true);
+        expect(status.inbound?.deliveryWebhookGateway?.reachable).toBe(true);
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(1);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await restartedRuntime.stop();
       await wsHarness.cleanup();
@@ -118,30 +128,34 @@ describe("startConnectorRuntime replay behavior", () => {
   it("reports sqlite-backed pending and dead-letter counts through runtime status", async () => {
     process.env.CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS = "1";
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39108";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39108";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let probeReachable = false;
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         if (!probeReachable) {
           throw new Error("connect ECONNREFUSED");
         }
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         return new Response("bad request", { status: 400 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
       }
 
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
@@ -152,7 +166,7 @@ describe("startConnectorRuntime replay behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -192,6 +206,10 @@ describe("startConnectorRuntime replay behavior", () => {
         expect(status.inbound?.deadLetter?.deadLetterCount).toBe(1);
         expect(status.inbound?.deadLetter?.oldestDeadLetterAt).toBeTruthy();
       });
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -201,15 +219,15 @@ describe("startConnectorRuntime replay behavior", () => {
 
   it("skips replay while gateway probe is down and resumes after recovery", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39101";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39101";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let probeReachable = false;
     let hookPostCount = 0;
 
@@ -217,15 +235,19 @@ describe("startConnectorRuntime replay behavior", () => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         if (!probeReachable) {
           throw new Error("connect ECONNREFUSED");
         }
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -237,7 +259,7 @@ describe("startConnectorRuntime replay behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -253,11 +275,11 @@ describe("startConnectorRuntime replay behavior", () => {
       await vi.waitFor(async () => {
         const status = (await readConnectorStatus(runtime.outboundUrl)) as {
           inbound?: {
-            openclawGateway?: { reachable?: boolean };
+            deliveryWebhookGateway?: { reachable?: boolean };
             pending?: { pendingCount?: number };
           };
         };
-        expect(status.inbound?.openclawGateway?.reachable).toBe(false);
+        expect(status.inbound?.deliveryWebhookGateway?.reachable).toBe(false);
         expect(status.inbound?.pending?.pendingCount).toBe(1);
       });
 
@@ -267,14 +289,18 @@ describe("startConnectorRuntime replay behavior", () => {
       await vi.waitFor(async () => {
         const status = (await readConnectorStatus(runtime.outboundUrl)) as {
           inbound?: {
-            openclawGateway?: { reachable?: boolean };
+            deliveryWebhookGateway?: { reachable?: boolean };
             pending?: { pendingCount?: number };
           };
         };
-        expect(status.inbound?.openclawGateway?.reachable).toBe(true);
+        expect(status.inbound?.deliveryWebhookGateway?.reachable).toBe(true);
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(1);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -282,29 +308,33 @@ describe("startConnectorRuntime replay behavior", () => {
     }
   });
 
-  it("preserves wake sessionId for runtime /hooks/wake delivery", async () => {
+  it("keeps original payload nested under typed delivery payload during replay", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39111";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/wake`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39111";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookBodies: unknown[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -316,8 +346,8 @@ describe("startConnectorRuntime replay behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookPath: "/hooks/wake",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookPath: "/hooks/message",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -336,8 +366,16 @@ describe("startConnectorRuntime replay behavior", () => {
       await vi.waitFor(() => {
         expect(hookBodies).toHaveLength(1);
       });
-      const payload = hookBodies[0] as { sessionId?: string };
-      expect(payload.sessionId).toBe("thread-beta");
+      const payload = hookBodies[0] as {
+        type?: string;
+        payload?: { sessionId?: string };
+      };
+      expect(payload.type).toBe("clawdentity.delivery.v1");
+      expect(payload.payload?.sessionId).toBe("thread-beta");
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -347,8 +385,8 @@ describe("startConnectorRuntime replay behavior", () => {
 
   it("retries replay delivery for transient hook failures", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
     process.env.CONNECTOR_RUNTIME_REPLAY_MAX_ATTEMPTS = "3";
     process.env.CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS = "5";
     process.env.CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS = "5";
@@ -357,23 +395,27 @@ describe("startConnectorRuntime replay behavior", () => {
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39103";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39103";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let hookPostCount = 0;
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
         if (hookPostCount < 3) {
           return new Response("temporary failure", { status: 500 });
         }
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -385,7 +427,7 @@ describe("startConnectorRuntime replay behavior", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -405,6 +447,10 @@ describe("startConnectorRuntime replay behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(3);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();

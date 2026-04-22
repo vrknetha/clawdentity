@@ -210,7 +210,7 @@ mod tests {
                 proxy_url: "https://proxy.example".to_string(),
                 agent_name: Some("Alpha".to_string()),
                 display_name: Some("Alice".to_string()),
-                framework: Some("openclaw".to_string()),
+                framework: Some("generic".to_string()),
                 description: Some("test peer".to_string()),
                 last_synced_at_ms: Some(123),
             },
@@ -252,7 +252,7 @@ mod tests {
                 proxy_url: "https://proxy.example".to_string(),
                 agent_name: Some("Alpha".to_string()),
                 display_name: Some("Alice".to_string()),
-                framework: Some("openclaw".to_string()),
+                framework: Some("generic".to_string()),
                 description: Some("test peer".to_string()),
                 last_synced_at_ms: Some(123),
             },
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(by_did.alias, "alpha");
         assert_eq!(by_did.agent_name.as_deref(), Some("Alpha"));
         assert_eq!(by_did.display_name.as_deref(), Some("Alice"));
-        assert_eq!(by_did.framework.as_deref(), Some("openclaw"));
+        assert_eq!(by_did.framework.as_deref(), Some("generic"));
         assert_eq!(by_did.description.as_deref(), Some("test peer"));
         assert_eq!(by_did.last_synced_at_ms, Some(123));
     }

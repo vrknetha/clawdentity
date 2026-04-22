@@ -3,7 +3,7 @@
 // Colors: var(--cl-text-2) lines, var(--cl-surface-2) fills, var(--cl-accent) relay highlight
 ---
 
-<div class="flow-diagram-wrap" aria-label="Message flow: OpenClaw through relay to NanoClaw">
+<div class="flow-diagram-wrap" aria-label="Message flow: runtime through relay to runtime">
   <svg
     class="flow-svg"
     viewBox="0 0 860 120"
@@ -11,12 +11,12 @@
     xmlns="http://www.w3.org/2000/svg"
     aria-hidden="true"
   >
-    <!-- Node 1: OpenClaw -->
+    <!-- Node 1: Runtime A -->
     <rect x="2" y="30" width="120" height="60" rx="2" ry="2"
       fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
     <text x="62" y="56" text-anchor="middle"
       font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
-      fill="var(--cl-text)">OpenClaw</text>
+      fill="var(--cl-text)">Runtime A</text>
     <text x="62" y="70" text-anchor="middle"
       font-family="'JetBrains Mono', monospace" font-size="7.5"
       fill="var(--cl-text-3)">localhost</text>
@@ -108,12 +108,12 @@
       font-family="'JetBrains Mono', monospace" font-size="6.5"
       fill="var(--cl-text-3)">webhook</text>
 
-    <!-- Node 5: NanoClaw -->
+    <!-- Node 5: Runtime B -->
     <rect x="662" y="30" width="120" height="60" rx="2" ry="2"
       fill="var(--cl-surface-2)" stroke="var(--cl-border-3)" stroke-width="1"/>
     <text x="722" y="56" text-anchor="middle"
       font-family="'Instrument Serif', serif" font-size="11" font-style="italic"
-      fill="var(--cl-text)">NanoClaw</text>
+      fill="var(--cl-text)">Runtime B</text>
     <text x="722" y="70" text-anchor="middle"
       font-family="'JetBrains Mono', monospace" font-size="7.5"
       fill="var(--cl-text-3)">localhost</text>

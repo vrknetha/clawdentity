@@ -10,52 +10,16 @@ const landingRoot = path.resolve(scriptDir, "..");
 const skillSourcePath = path.resolve(
   repoRoot,
   "apps",
-  "openclaw-skill",
+  "agent-skill",
   "skill",
   "SKILL.md",
 );
-
-const references = [
-  {
-    title: "Clawdentity Protocol Reference",
-    sourceLabel: "apps/openclaw-skill/skill/references/clawdentity-protocol.md",
-    path: path.resolve(
-      repoRoot,
-      "apps",
-      "openclaw-skill",
-      "skill",
-      "references",
-      "clawdentity-protocol.md",
-    ),
-  },
-  {
-    title: "Clawdentity Registry Reference",
-    sourceLabel: "apps/openclaw-skill/skill/references/clawdentity-registry.md",
-    path: path.resolve(
-      repoRoot,
-      "apps",
-      "openclaw-skill",
-      "skill",
-      "references",
-      "clawdentity-registry.md",
-    ),
-  },
-  {
-    title: "Clawdentity Environment Reference",
-    sourceLabel:
-      "apps/openclaw-skill/skill/references/clawdentity-environment.md",
-    path: path.resolve(
-      repoRoot,
-      "apps",
-      "openclaw-skill",
-      "skill",
-      "references",
-      "clawdentity-environment.md",
-    ),
-  },
-];
-
-const outputPath = path.resolve(landingRoot, "public", "skill.md");
+const outputAgentSkillPath = path.resolve(
+  landingRoot,
+  "public",
+  "agent-skill.md",
+);
+const outputCompatSkillPath = path.resolve(landingRoot, "public", "skill.md");
 const defaultSiteBaseUrl = "https://clawdentity.com";
 
 function withTrailingNewline(content) {
@@ -76,7 +40,7 @@ function resolveSiteBaseUrl() {
 
 function renderSkillContent(baseSkill, siteBaseUrl) {
   const replacements = [
-    ["https://clawdentity.com/skill.md", `${siteBaseUrl}/skill.md`],
+    ["https://clawdentity.com/agent-skill.md", `${siteBaseUrl}/agent-skill.md`],
     ["https://clawdentity.com/install.sh", `${siteBaseUrl}/install.sh`],
     ["https://clawdentity.com/install.ps1", `${siteBaseUrl}/install.ps1`],
   ];
@@ -93,40 +57,23 @@ async function readUtf8(filePath) {
 
 async function buildSkillMarkdown() {
   const siteBaseUrl = resolveSiteBaseUrl();
-  const baseSkill = renderSkillContent(
+  const mergedContent = renderSkillContent(
     await readUtf8(skillSourcePath),
     siteBaseUrl,
   );
-
-  const referenceBlocks = [];
-  for (const reference of references) {
-    const referenceContent = withTrailingNewline(
-      await readUtf8(reference.path),
-    );
-    const section = [
-      "---",
-      "",
-      `## ${reference.title}`,
-      "",
-      `Source: \`${reference.sourceLabel}\``,
-      "",
-      referenceContent,
-    ].join("\n");
-    referenceBlocks.push(section);
-  }
-
-  const mergedContent = [
-    withTrailingNewline(baseSkill),
-    "---",
-    "",
-    "# Appended References",
-    "",
-    referenceBlocks.join("\n"),
-  ].join("\n");
-
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  await fs.writeFile(outputPath, mergedContent, "utf8");
-  process.stdout.write(`Generated ${outputPath}\n`);
+  await fs.mkdir(path.dirname(outputAgentSkillPath), { recursive: true });
+  await fs.writeFile(
+    outputAgentSkillPath,
+    withTrailingNewline(mergedContent),
+    "utf8",
+  );
+  await fs.writeFile(
+    outputCompatSkillPath,
+    withTrailingNewline(mergedContent),
+    "utf8",
+  );
+  process.stdout.write(`Generated ${outputAgentSkillPath}\n`);
+  process.stdout.write(`Generated ${outputCompatSkillPath}\n`);
 }
 
 buildSkillMarkdown().catch((error) => {
