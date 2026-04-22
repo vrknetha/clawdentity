@@ -50,8 +50,13 @@ pub async fn check_delivery_webhook_health(
             "delivery webhook url is required".to_string(),
         ));
     }
+    let context = if using_explicit_health_url {
+        "deliveryHealthUrl"
+    } else {
+        "deliveryWebhookUrl"
+    };
     let parsed = url::Url::parse(url).map_err(|_| CoreError::InvalidUrl {
-        context: "deliveryHealthUrl",
+        context,
         value: url.to_string(),
     })?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
@@ -64,15 +69,14 @@ pub async fn check_delivery_webhook_health(
         .send()
         .await
         .map_err(|error| CoreError::Http(error.to_string()))?;
-    if using_explicit_health_url {
-        return Ok(response.status().is_success());
-    }
-    Ok(true)
+    Ok(response.status().is_success())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::DeliveryWebhookRuntimeConfig;
+    use super::{DeliveryWebhookRuntimeConfig, check_delivery_webhook_health};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn validates_delivery_webhook_url() {
@@ -83,5 +87,56 @@ mod tests {
         };
         let url = config.validated_webhook_url().expect("webhook url");
         assert_eq!(url, "http://127.0.0.1:19400/hooks/message");
+    }
+
+    #[tokio::test]
+    async fn default_webhook_health_requires_success_status() {
+        let server = MockServer::start().await;
+        let webhook_url = format!("{}/hooks/message", server.uri());
+
+        let missing_endpoint_is_unhealthy = check_delivery_webhook_health(&webhook_url, None)
+            .await
+            .expect("health check");
+        assert!(!missing_endpoint_is_unhealthy);
+
+        Mock::given(method("GET"))
+            .and(path("/hooks/message"))
+            .respond_with(ResponseTemplate::new(204))
+            .mount(&server)
+            .await;
+
+        let healthy = check_delivery_webhook_health(&webhook_url, None)
+            .await
+            .expect("health check");
+        assert!(healthy);
+    }
+
+    #[tokio::test]
+    async fn explicit_health_url_requires_success_status() {
+        let server = MockServer::start().await;
+        let webhook_url = format!("{}/hooks/message", server.uri());
+        let unhealthy_health_url = format!("{}/health/unhealthy", server.uri());
+        let healthy_health_url = format!("{}/health/healthy", server.uri());
+
+        Mock::given(method("GET"))
+            .and(path("/health/unhealthy"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/health/healthy"))
+            .respond_with(ResponseTemplate::new(200))
+            .mount(&server)
+            .await;
+
+        let unhealthy = check_delivery_webhook_health(&webhook_url, Some(&unhealthy_health_url))
+            .await
+            .expect("health check");
+        assert!(!unhealthy);
+
+        let healthy = check_delivery_webhook_health(&webhook_url, Some(&healthy_health_url))
+            .await
+            .expect("health check");
+        assert!(healthy);
     }
 }

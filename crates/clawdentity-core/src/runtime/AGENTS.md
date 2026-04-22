@@ -14,3 +14,4 @@
 - Keep runtime state testable without process-global env mutation; use state-level queue-limit overrides in tests instead of shared `set_var/remove_var`.
 - Keep status and dead-letter endpoints machine-readable and stable for doctor/relay-test automation.
 - `/v1/status` outbound queue payload must include pending, retrying, dead-letter, oldest-age, and next-retry visibility for operator troubleshooting.
+- Delivery webhook health checks must treat every non-2xx HTTP response as unhealthy, whether probing an explicit health URL or the fallback webhook URL.
