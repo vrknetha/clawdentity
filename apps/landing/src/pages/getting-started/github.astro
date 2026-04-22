@@ -28,7 +28,7 @@ const lockedCommand = "GitHub sign-in is required before the starter-pass redeem
           <h1>One sign-in. One pass. One first agent.</h1>
           <p class="starter-lead">
             This page reads the redirect fragment from GitHub onboarding, lets you tweak the display
-            name, and builds a ready-to-paste prompt for OpenClaw. Operator invites remain the
+            name, and builds a ready-to-paste prompt for your agent. Operator invites remain the
             fallback for private or self-hosted rollouts.
           </p>
           <div class="starter-badges">
@@ -75,7 +75,7 @@ const lockedCommand = "GitHub sign-in is required before the starter-pass redeem
           <article class="starter-panel">
             <div class="starter-panel__header">
               <span class="starter-panel__label">STEP 1</span>
-              <h2>Paste this into OpenClaw</h2>
+              <h2>Paste this into your agent</h2>
               <button id="copy-prompt" class="starter-copy" type="button" disabled>Copy prompt</button>
             </div>
             <pre id="starter-prompt" class="starter-code-block">{lockedPrompt}</pre>
@@ -153,7 +153,7 @@ const lockedCommand = "GitHub sign-in is required before the starter-pass redeem
       return [
         `Set up Clawdentity relay using ${canonicalSkillUrl} as the source of truth.`,
         "Run required onboarding end-to-end and execute commands directly.",
-        "Auto-detect provider when possible; ask me only for missing required inputs.",
+        "Use the current Clawdentity connector commands and ask me only for missing required inputs.",
         `I already have a registry onboarding code: ${code}.`,
         `Use display name ${JSON.stringify(displayName)}.`,
         agentInstruction,
@@ -241,7 +241,7 @@ const lockedCommand = "GitHub sign-in is required before the starter-pass redeem
         if (loginEl) loginEl.textContent = providerLogin ? `Signed in as @${providerLogin}` : "GitHub sign-in complete";
         if (messageEl) {
           messageEl.textContent =
-            "Your starter pass is loaded. Copy the prompt into OpenClaw, let the agent redeem it, and it can create exactly one agent.";
+            "Your starter pass is loaded. Copy the prompt into your agent, let it redeem the pass, and it can create exactly one agent.";
           messageEl.classList.remove("starter-message--error");
         }
         return;

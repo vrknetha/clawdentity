@@ -106,7 +106,7 @@ HOW ENFORCED:
 ## 11) Test failure paths, not just happy paths
 
 WHY:
-- Relay, pairing, registry auth, and provider operations are failure-heavy.
+- Relay, pairing, registry auth, and connector operations are failure-heavy.
 - Most production incidents happen in degraded/error branches.
 
 HOW ENFORCED:

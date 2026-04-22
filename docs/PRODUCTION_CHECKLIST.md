@@ -4,7 +4,7 @@
 
 Must publish:
 - `https://clawdentity.com/agent-skill.md` (canonical)
-- `https://clawdentity.com/skill.md` (compatibility alias)
+- `https://clawdentity.com/skill.md` (alternate URL)
 - `https://clawdentity.com/install.sh`
 - `https://clawdentity.com/install.ps1`
 

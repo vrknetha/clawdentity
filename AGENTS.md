@@ -44,7 +44,7 @@ Run from `crates/`:
 - `apps/registry` - Cloudflare Worker HTTP API for humans, agents, invites, API keys, and revocation data.
 - `apps/proxy` - Cloudflare Worker relay/proxy that verifies Clawdentity auth headers and enforces trust policy.
 - `apps/agent-skill` - Generic runtime-agnostic agent adapter instructions.
-- `apps/landing` - Public docs/site and generated `/agent-skill.md` + `/skill.md` compatibility artifact.
+- `apps/landing` - Public docs/site and generated `/agent-skill.md` + `/skill.md` adapter artifacts.
 
 ### Packages (shared libraries)
 - `packages/protocol` - Canonical protocol models and signing/verification wire-contract definitions.
@@ -80,7 +80,7 @@ Use `docs/` as system of record:
 - Favor actionable errors and stable machine-readable outputs.
 - Run relevant TypeScript and Rust checks before commit (`pnpm build` and `cargo check` are baseline gates).
 - Keep docs synchronized with implementation changes, especially when changing CLI flows or skill behavior.
-- Keep user onboarding docs prompt-first (`/agent-skill.md` canonical, `/skill.md` compatibility alias); treat command-by-command and Rust toolchain flows as advanced fallback guidance only.
+- Keep user onboarding docs prompt-first (`/agent-skill.md` canonical, `/skill.md` alternate URL); treat command-by-command and Rust toolchain flows as advanced fallback guidance only.
 
 ## 7) Release Automation
 - Keep Rust release automation in `.github/workflows/publish-rust.yml` as the single canonical path for version bump + crates.io publish + tag creation + binary release.

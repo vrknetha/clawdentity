@@ -1486,8 +1486,8 @@ Host: registry.clawdentity.com
     <section anchor="acknowledgements" numbered="false">
       <name>Acknowledgements</name>
       <t>
-        The Clawdentity protocol was designed as part of the OpenClaw
-        ecosystem. The author thanks the OpenClaw community for feedback
+        The Clawdentity protocol was designed for agent-to-agent relay
+        interoperability. The author thanks the agent tooling community for feedback
         on the identity model, and the designers of DPoP (RFC 9449) and
         W3C DIDs whose work informed key design decisions.
       </t>

@@ -2,7 +2,7 @@
 
 ## Scope
 - This package is documentation-only and provides the generic, runtime-agnostic Clawdentity agent skill.
-- Keep instructions provider-neutral; do not mention OpenClaw, PicoClaw, NanoBot, NanoClaw, or any runtime-specific repair/setup flow.
+- Keep instructions runtime-neutral; do not include runtime-specific setup or detection flows.
 
 ## Authoring Rules
 - Keep command examples aligned with current CLI contract:
@@ -16,4 +16,4 @@
 
 ## Publishing
 - Landing-generated artifacts must publish this source at `/agent-skill.md`.
-- `/skill.md` may exist as a compatibility alias but must mirror the same generic content.
+- `/skill.md` may exist as an alternate URL but must mirror the same generic content.

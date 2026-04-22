@@ -6,5 +6,5 @@
 ## Rules
 - Keep proxy trust verification and queue handling deterministic and testable.
 - Keep receipt event contracts aligned with connector/runtime status values.
-- Keep config parsing backward-compatible when practical, but avoid adding new provider-specific assumptions.
+- Keep config parsing explicit and avoid adding runtime-specific assumptions.
 - Do not couple proxy runtime behavior to any single agent runtime brand.

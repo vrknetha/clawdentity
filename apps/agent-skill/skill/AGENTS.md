@@ -2,7 +2,7 @@
 
 ## Scope
 - Keep this skill generic and portable across any agent runtime.
-- Do not include provider detection/setup/doctor/repair flows.
+- Do not include runtime detection, setup, or repair flows.
 
 ## Contract Rules
 - Outbound local API examples must use `POST /v1/outbound` with XOR routing (`toAgentDid` or `groupId`).

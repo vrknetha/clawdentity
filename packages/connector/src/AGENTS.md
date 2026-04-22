@@ -7,7 +7,7 @@
 
 ## Contract Rules
 - Use generic delivery-webhook naming in public types/options.
-- Do not reintroduce provider-specific naming in public connector APIs.
+- Do not add runtime-specific naming in public connector APIs.
 - Keep receipt status values limited to `delivered_to_webhook` and `dead_lettered`.
 - Keep `/v1/outbound` route-xor semantics (exactly one of `toAgentDid` or `groupId`) aligned with Rust runtime.
 

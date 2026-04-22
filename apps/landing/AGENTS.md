@@ -11,9 +11,9 @@
 
 ## Messaging Rules
 - Position Clawdentity as a runtime-agnostic relay contract.
-- Do not publish provider support claims or provider setup/doctor/install commands.
+- Do not publish runtime-specific setup or detection flows.
 - Keep docs/examples aligned to current CLI (`connector configure|doctor|start|service install`).
-- Keep `/agent-skill.md` canonical and `/skill.md` compatibility-only.
+- Keep `/agent-skill.md` canonical and `/skill.md` as an alternate URL.
 
 ## Installer Rules
 - Keep installer behavior and docs in sync with release artifacts.

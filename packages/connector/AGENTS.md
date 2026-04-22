@@ -11,4 +11,4 @@
 - Keep inbound delivery durable: ack relay only after local inbox persistence.
 - Keep replay retry/backoff bounded and configurable.
 - Keep auth refresh + header regeneration explicit on reconnect.
-- Do not reintroduce provider-specific runtime assumptions or naming.
+- Do not add runtime-specific delivery branches or public naming.

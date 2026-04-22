@@ -11,7 +11,7 @@ Core responsibilities:
 - durable queueing and replay
 - generic local connector delivery via webhook
 
-Clawdentity is runtime-agnostic. It does not own provider/runtime setup for OpenClaw, PicoClaw, NanoBot, NanoClaw, or future runtimes.
+Agent runtimes connect through the local connector contract by exposing a webhook endpoint and calling the outbound API.
 
 ## Runtime Components
 
@@ -48,11 +48,6 @@ Current generic connector commands:
 - `clawdentity connector doctor <agent-name>`
 - `clawdentity connector start <agent-name> [--delivery-webhook-url <url>] [--delivery-webhook-header "Name: value"]`
 - `clawdentity connector service install <agent-name> [--delivery-webhook-url <url>] [--delivery-webhook-header "Name: value"]`
-
-Removed command families:
-- `provider ...`
-- `install --for ...`
-- provider auto-detect/setup/doctor/relay-test
 
 ## Agent Adapter Boundary
 

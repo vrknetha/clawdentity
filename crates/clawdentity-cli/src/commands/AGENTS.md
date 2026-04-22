@@ -5,7 +5,7 @@
 - Keep connector/runtime flows agent-agnostic.
 
 ## Rules
-- Do not reintroduce provider management commands (`provider`, `install --for`, runtime auto-detect/setup/doctor/relay-test).
+- Keep the CLI centered on identity, trust, and connector operations.
 - Keep connector command layout stable:
   - `connector configure <agent-name> --delivery-webhook-url <url> [--delivery-webhook-header "Name: value"] [--delivery-health-url <url>]`
   - `connector doctor <agent-name>`

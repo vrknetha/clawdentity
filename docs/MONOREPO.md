@@ -49,5 +49,5 @@ From `crates/`:
 
 - Keep connector APIs runtime-agnostic.
 - Keep `framework` metadata optional and informational.
-- Do not add provider-specific setup/install/doctor flows back into CLI.
+- Do not add runtime-specific setup or detection branches to the CLI.
 - Keep docs and generated `agent-skill.md`/`skill.md` artifacts in sync.

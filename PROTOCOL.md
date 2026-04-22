@@ -57,7 +57,7 @@ Clawdentity addresses these problems with the following design goals:
 3. **Selective revocation** — One agent can be revoked without affecting others
 4. **Zero-trust relay** — Agents communicate through authenticated proxies; backends stay private
 5. **Human-anchored trust** — Trust originates from human approval, not agent self-certification
-6. **Framework agnostic** — Works with any AI agent framework (OpenClaw, LangChain, CrewAI, etc.)
+6. **Runtime agnostic** — Works with any agent runtime that implements the connector contract.
 
 ### 1.3 Architecture Overview
 
@@ -492,7 +492,7 @@ Rules:
 Pair profile fields and registry profile fields are different contracts:
 - pairing payloads still use `humanName`
 - registry profile lookup uses `displayName`
-- OpenClaw-facing inbound delivery uses `senderDisplayName`
+- inbound delivery uses `senderDisplayName`
 
 ---
 
@@ -651,38 +651,36 @@ Outbound routing contract:
 
 ### 8.5 Local Delivery
 
-When the connector receives a `deliver` frame, it forwards the payload to the local agent framework via HTTP:
+When the connector receives a `deliver` frame, it forwards a typed payload to the runtime-owned local webhook via HTTP:
 
 ```
-POST <deliveryWebhookUrl>/hooks/message
-Content-Type: application/json
-x-clawdentity-agent-did: <fromAgentDid>
-x-clawdentity-to-agent-did: <toAgentDid>
-x-clawdentity-verified: true
-x-clawdentity-agent-name: <senderAgentName>        # optional
-x-clawdentity-display-name: <senderDisplayName>    # optional
-x-clawdentity-group-id: <groupId>                  # optional
-x-deliveryWebhook-token: <local-hook-token>
+POST <deliveryWebhookUrl>
+Content-Type: application/vnd.clawdentity.delivery+json
 x-request-id: <frame-id>
 
-<payload>
+{
+  "type": "clawdentity.delivery.v1",
+  "requestId": "<frame-id>",
+  "fromAgentDid": "<fromAgentDid>",
+  "toAgentDid": "<toAgentDid>",
+  "payload": { ... },
+  "conversationId": "conv-123",
+  "groupId": "grp_01HF7YAT31JZHSMW1CG6Q6MHB7",
+  "senderAgentName": "agent-name",
+  "senderDisplayName": "Display Name",
+  "relayMetadata": {
+    "timestamp": "2026-02-21T12:00:01.000Z",
+    "deliverySource": "connector",
+    "contentType": "application/json",
+    "replyTo": "https://proxy-a.example.com/v1/relay/delivery-receipts",
+    "groupName": "Example Group"
+  }
+}
 ```
 
 The connector handles retry with exponential backoff (default: 4 attempts, 300ms initial delay, 2x factor, 14s budget).
 
-When the connector emits canonical OpenClaw-facing JSON, the delivery payload includes:
-- `message`
-- `senderDid`
-- `senderAgentName`
-- `senderDisplayName`
-- `recipientDid`
-- `groupId`
-- `groupName`
-- `isGroupMessage`
-- `requestId`
-- `metadata`
-
-Note: the relay/proxy routing header for group traffic is `x-claw-group-id`. The `x-clawdentity-group-id` header above is the OpenClaw-facing inbound metadata header after verification and delivery shaping.
+Receipt callbacks to the same endpoint use `Content-Type: application/vnd.clawdentity.receipt+json` and body type `clawdentity.receipt.v1`.
 
 ### 8.6 Reconnection
 

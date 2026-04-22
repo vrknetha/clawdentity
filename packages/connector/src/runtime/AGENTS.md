@@ -11,5 +11,5 @@
 - Keep durable receipt retry/dequeue mechanics in `receipt-outbox.ts`.
 - Keep runtime startup/shutdown responsible for outbox lifecycle and resource cleanup.
 - Reuse shared payload builders in `../deliveryWebhook-payload.ts`.
-- Do not reintroduce provider-specific naming or logic.
+- Do not add runtime-specific naming or delivery logic.
 - Keep dead-letter admin endpoints (`/v1/inbound/dead-letter*`) loopback-only unless explicit auth is introduced.

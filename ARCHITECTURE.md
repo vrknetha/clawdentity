@@ -12,8 +12,6 @@ Clawdentity is a runtime-agnostic identity + relay system for agent-to-agent mes
 
 ## Product Boundary
 
-Clawdentity does **not** install, patch, detect, or repair runtime providers (OpenClaw, PicoClaw, NanoBot, NanoClaw, etc).
-
 Runtime owners must:
 - run their own runtime process
 - expose a local inbound webhook endpoint
@@ -46,10 +44,6 @@ Runtime owners must:
 - `connector doctor <agent-name>`
 - `connector start <agent-name> ...`
 - `connector service install <agent-name> ...`
-
-Removed command families:
-- `provider ...`
-- `install --for ...`
 
 ## Repository Map
 

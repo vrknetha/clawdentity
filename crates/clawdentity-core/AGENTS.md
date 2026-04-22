@@ -10,5 +10,5 @@
 - Run `cargo publish --dry-run -p clawdentity-core` before release/publish decisions.
 
 ## Compatibility Rules
-- Treat this crate as the canonical Rust implementation for identity, relay, connector, and provider behavior.
+- Treat this crate as the canonical Rust implementation for identity, relay, connector, and persistence behavior.
 - Avoid breaking changes without coordinated CLI update and release notes.

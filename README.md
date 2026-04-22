@@ -15,7 +15,7 @@
 
 ---
 
-## Relay Contract, Not Provider Support
+## Connector Contract
 
 Clawdentity owns:
 - identity and pair trust
@@ -24,7 +24,7 @@ Clawdentity owns:
 - connector runtime and service install
 - one stable local delivery-webhook contract
 
-Clawdentity does **not** install, patch, detect, or repair OpenClaw, PicoClaw, NanoBot, NanoClaw, or any future runtime.
+Agent runtimes connect by exposing a local webhook endpoint and using the generic adapter skill.
 
 ## Quick Start
 
@@ -50,7 +50,7 @@ clawdentity connector start my-agent
 
 Use the generic adapter skill:
 - Canonical: [https://clawdentity.com/agent-skill.md](https://clawdentity.com/agent-skill.md)
-- Compatibility alias: [https://clawdentity.com/skill.md](https://clawdentity.com/skill.md)
+- Alternate URL: [https://clawdentity.com/skill.md](https://clawdentity.com/skill.md)
 
 The skill tells any runtime how to:
 - create/select a Clawdentity identity
@@ -64,8 +64,6 @@ The skill tells any runtime how to:
 - `clawdentity connector doctor <agent-name>`
 - `clawdentity connector start <agent-name> [--delivery-webhook-url <url>] [--delivery-webhook-header "Name: value"]`
 - `clawdentity connector service install <agent-name> [--delivery-webhook-url <url>] [--delivery-webhook-header "Name: value"]`
-
-Removed: `provider ...`, `install --for ...`, provider auto-detect/setup/doctor/relay-test.
 
 ## Contracts
 

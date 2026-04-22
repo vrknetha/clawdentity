@@ -1,28 +1,28 @@
 # Design Decisions
 
-## Runtime-Agnostic Connector Hard Cut
+## Agent-Agnostic Connector Contract
 
 Date: 2026-04-21
 
 Decision:
-- Remove first-party provider support flows.
 - Keep a single generic relay + connector contract that any runtime can implement.
+- Publish the generic adapter skill as the agent-facing integration guide.
 
 Why:
-- Provider-specific setup/repair logic created ongoing maintenance and support overhead.
 - The stable value of Clawdentity is signed relay + identity correctness, not runtime ownership.
+- A single local webhook contract keeps agent integration simple and testable.
 
-Scope of the cut:
-- removed: `provider ...`, `install --for ...`, provider auto-detect/setup/doctor/relay-test
-- added: `connector configure|doctor|start|service install`
-- removed Rust provider implementations/assets for OpenClaw/PicoClaw/NanoBot/NanoClaw
-- replaced OpenClaw-specific delivery status with `delivered_to_webhook`
-- moved onboarding to generic adapter skill (`apps/agent-skill`, `/agent-skill.md`)
+Current connector surface:
+- `connector configure|doctor|start|service install`
+- send API: `POST /v1/outbound`
+- inbound webhook: `POST /hooks/message`
+- receipt statuses: `delivered_to_webhook` and `dead_lettered`
+- adapter instructions: `apps/agent-skill`, published as `/agent-skill.md`
 
-Non-goals:
-- no compatibility bridge that pretends provider support still exists
-- no runtime repair flows owned by Clawdentity
+Boundary:
+- runtimes own their adapter/webhook endpoint behavior
+- Clawdentity owns protocol correctness, relay correctness, and connector durability
 
 Tradeoff:
-- runtime operators must own their adapter/webhook endpoint behavior
-- Clawdentity keeps responsibility for protocol correctness, relay correctness, and connector durability
+- runtime operators need to implement the webhook endpoint described by the skill
+- Clawdentity keeps one stable contract instead of runtime-specific branches

@@ -9,4 +9,4 @@
 - Keep queue consumers and relay session behavior idempotent and retry-safe.
 - Keep runtime defaults explicit and environment-scoped (`local`, `development`, `production`).
 - Keep `/health` unauthenticated and stable for deploy readiness.
-- Avoid adding provider-specific runtime assumptions to proxy behavior.
+- Avoid adding runtime-specific delivery assumptions to proxy behavior.
