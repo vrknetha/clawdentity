@@ -14,6 +14,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { parseFrame, serializeFrame } from "./frames.js";
 import { startConnectorRuntime } from "./runtime.js";
+import {
+  isDeliveryReceiptPost,
+  waitForDeliveryReceiptPostFlush,
+} from "./runtime.test/helpers.js";
 
 type Sandbox = {
   cleanup: () => void;
@@ -46,7 +50,12 @@ function createSandbox(): Sandbox {
   return {
     rootDir,
     cleanup: () => {
-      rmSync(rootDir, { force: true, recursive: true });
+      rmSync(rootDir, {
+        force: true,
+        recursive: true,
+        maxRetries: 5,
+        retryDelay: 20,
+      });
     },
   };
 }
@@ -303,6 +312,10 @@ describe("startConnectorRuntime sender profile headers", () => {
         return new Response("ok", { status: 200 });
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -338,6 +351,10 @@ describe("startConnectorRuntime sender profile headers", () => {
       expect(hookHeaders[0]?.get("x-clawdentity-display-name")).toBe(
         "Ravi Kiran",
       );
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -387,6 +404,10 @@ describe("startConnectorRuntime sender profile headers", () => {
         return new Response("ok", { status: 200 });
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -418,6 +439,10 @@ describe("startConnectorRuntime sender profile headers", () => {
       expect(hookHeaders).toHaveLength(1);
       expect(hookHeaders[0]?.get("x-clawdentity-agent-name")).toBeNull();
       expect(hookHeaders[0]?.get("x-clawdentity-display-name")).toBeNull();
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -461,6 +486,10 @@ describe("startConnectorRuntime sender profile headers", () => {
             { once: true },
           );
         });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
       }
 
       throw new Error(`Unexpected fetch call: ${method} ${url}`);

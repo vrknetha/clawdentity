@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,10 +9,16 @@ import {
   generateUlid,
   makeAgentDid,
   makeHumanDid,
+  RELAY_DELIVERY_RECEIPTS_PATH,
 } from "@clawdentity/protocol";
 import { expect, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { parseFrame, serializeFrame } from "../frames.js";
+import {
+  AGENTS_DIR_NAME,
+  RECEIPT_OUTBOX_DIR_NAME,
+  RECEIPT_OUTBOX_FILENAME,
+} from "../runtime/constants.js";
 
 export type Sandbox = {
   cleanup: () => void;
@@ -42,6 +48,58 @@ export const RUNTIME_ENV_KEYS = [
   "CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS",
   "CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS",
 ] as const;
+
+export function isDeliveryReceiptPost(url: string, method: string): boolean {
+  if (method !== "POST") {
+    return false;
+  }
+
+  try {
+    return new URL(url).pathname === RELAY_DELIVERY_RECEIPTS_PATH;
+  } catch {
+    return false;
+  }
+}
+
+type FetchMock = {
+  mock: {
+    calls: Array<Parameters<typeof fetch>>;
+  };
+};
+
+function countDeliveryReceiptPosts(fetchMock: FetchMock): number {
+  return fetchMock.mock.calls.filter(([input, init]) => {
+    const url = input instanceof URL ? input.toString() : String(input);
+    const method = init?.method ?? "GET";
+    return isDeliveryReceiptPost(url, method);
+  }).length;
+}
+
+export async function waitForDeliveryReceiptPostFlush(input: {
+  agentName?: string;
+  configDir: string;
+  expectedCount?: number;
+  fetchMock: FetchMock;
+}): Promise<void> {
+  const expectedCount = input.expectedCount ?? 1;
+  await vi.waitFor(() => {
+    expect(countDeliveryReceiptPosts(input.fetchMock)).toBeGreaterThanOrEqual(
+      expectedCount,
+    );
+  });
+
+  const outboxPath = join(
+    input.configDir,
+    AGENTS_DIR_NAME,
+    input.agentName ?? "alpha",
+    RECEIPT_OUTBOX_DIR_NAME,
+    RECEIPT_OUTBOX_FILENAME,
+  );
+  await vi.waitFor(async () => {
+    const raw = await readFile(outboxPath, "utf8");
+    expect(JSON.parse(raw)).toEqual([]);
+  });
+}
 
 export function createSandbox(): Sandbox {
   const rootDir = mkdtempSync(join(tmpdir(), "clawdentity-connector-runtime-"));

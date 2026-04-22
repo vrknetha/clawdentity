@@ -6,8 +6,10 @@ import {
   createSandbox,
   createWsHarness,
   findAvailablePort,
+  isDeliveryReceiptPost,
   readConnectorStatus,
   resetRuntimeTestEnv,
+  waitForDeliveryReceiptPostFlush,
   writeRelayRuntimeConfig,
 } from "./runtime.test/helpers.js";
 
@@ -49,6 +51,10 @@ describe("startConnectorRuntime auth behavior", () => {
         return new Response("ok", { status: 200 });
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -77,6 +83,10 @@ describe("startConnectorRuntime auth behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(postTokens).toEqual(["token-a", "token-b"]);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -120,6 +130,10 @@ describe("startConnectorRuntime auth behavior", () => {
             },
           },
         );
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
       }
 
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
@@ -178,6 +192,10 @@ describe("startConnectorRuntime auth behavior", () => {
         return new Response("ok", { status: 200 });
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -207,6 +225,10 @@ describe("startConnectorRuntime auth behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(postTokens).toEqual(["token-from-cli"]);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();

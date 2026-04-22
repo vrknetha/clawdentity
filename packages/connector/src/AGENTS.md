@@ -15,3 +15,7 @@
 - Keep replay/probe policies env-driven and bounded.
 - Keep signed receipt callback posting and retry/outbox behavior deterministic and idempotent.
 - Keep websocket reconnect/heartbeat behavior centralized in client modules.
+
+## Test Rules
+- Keep runtime tests split by behavior (`runtime.auth`, `runtime.replay`, `runtime.receipt`, `runtime.shutdown`) instead of recreating a broad duplicate suite.
+- When runtime tests mock `fetch`, explicitly handle relay delivery receipt POSTs and wait for the receipt outbox to drain before deleting test sandboxes.

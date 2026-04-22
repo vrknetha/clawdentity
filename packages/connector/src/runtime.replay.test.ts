@@ -6,8 +6,10 @@ import {
   createSandbox,
   createWsHarness,
   findAvailablePort,
+  isDeliveryReceiptPost,
   readConnectorStatus,
   resetRuntimeTestEnv,
+  waitForDeliveryReceiptPostFlush,
 } from "./runtime.test/helpers.js";
 
 afterEach(() => {
@@ -43,6 +45,10 @@ describe("startConnectorRuntime replay behavior", () => {
 
       if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -108,6 +114,10 @@ describe("startConnectorRuntime replay behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(1);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await restartedRuntime.stop();
       await wsHarness.cleanup();
@@ -142,6 +152,10 @@ describe("startConnectorRuntime replay behavior", () => {
 
       if (method === "POST" && url === deliveryWebhookHookUrl) {
         return new Response("bad request", { status: 400 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
       }
 
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
@@ -192,6 +206,10 @@ describe("startConnectorRuntime replay behavior", () => {
         expect(status.inbound?.deadLetter?.deadLetterCount).toBe(1);
         expect(status.inbound?.deadLetter?.oldestDeadLetterAt).toBeTruthy();
       });
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -226,6 +244,10 @@ describe("startConnectorRuntime replay behavior", () => {
 
       if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -275,6 +297,10 @@ describe("startConnectorRuntime replay behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(1);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -305,6 +331,10 @@ describe("startConnectorRuntime replay behavior", () => {
 
       if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response("ok", { status: 200 });
+      }
+
+      if (isDeliveryReceiptPost(url, method)) {
         return new Response("ok", { status: 200 });
       }
 
@@ -342,6 +372,10 @@ describe("startConnectorRuntime replay behavior", () => {
       };
       expect(payload.type).toBe("clawdentity.delivery.v1");
       expect(payload.payload?.sessionId).toBe("thread-beta");
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -381,6 +415,10 @@ describe("startConnectorRuntime replay behavior", () => {
         return new Response("ok", { status: 200 });
       }
 
+      if (isDeliveryReceiptPost(url, method)) {
+        return new Response("ok", { status: 200 });
+      }
+
       throw new Error(`Unexpected fetch call: ${method} ${url}`);
     });
 
@@ -409,6 +447,10 @@ describe("startConnectorRuntime replay behavior", () => {
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(3);
+      await waitForDeliveryReceiptPostFlush({
+        configDir: sandbox.rootDir,
+        fetchMock,
+      });
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
