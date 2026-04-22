@@ -70,7 +70,10 @@ pub(super) fn build_delivery_headers(
 
     if let Some(profile) = sender_profile {
         if let Some(agent_name) = profile.agent_name.as_deref() {
-            headers.push(("x-clawdentity-agent-name".to_string(), agent_name.to_string()));
+            headers.push((
+                "x-clawdentity-agent-name".to_string(),
+                agent_name.to_string(),
+            ));
         }
         if let Some(display_name) = profile.display_name.as_deref() {
             headers.push((

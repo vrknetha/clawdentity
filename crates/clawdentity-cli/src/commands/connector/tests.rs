@@ -46,17 +46,15 @@ fn delivery_headers_include_profile_and_custom_headers() {
         Some(&sender_profile),
         &[("authorization".to_string(), "Bearer test".to_string())],
     );
-    let as_map = headers.into_iter().collect::<std::collections::HashMap<_, _>>();
+    let as_map = headers
+        .into_iter()
+        .collect::<std::collections::HashMap<_, _>>();
     assert_eq!(
-        as_map
-            .get("content-type")
-            .map(std::string::String::as_str),
+        as_map.get("content-type").map(std::string::String::as_str),
         Some("application/vnd.clawdentity.delivery+json")
     );
     assert_eq!(
-        as_map
-            .get("authorization")
-            .map(std::string::String::as_str),
+        as_map.get("authorization").map(std::string::String::as_str),
         Some("Bearer test")
     );
     assert_eq!(
@@ -207,6 +205,8 @@ fn deliver_ack_reason_contract_is_unchanged() {
     let reason = build_deliver_ack_reason(Some(&delivery_error), Some(&persistence_error));
     assert_eq!(
         reason.as_deref(),
-        Some("delivery webhook returned HTTP 500; failed to persist inbound delivery result: sqlite unavailable")
+        Some(
+            "delivery webhook returned HTTP 500; failed to persist inbound delivery result: sqlite unavailable"
+        )
     );
 }

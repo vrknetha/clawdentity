@@ -22,27 +22,25 @@ use tokio::sync::watch;
 
 use super::headers::SenderProfileHeaders;
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
-pub(super) use webhook_payload::{build_delivery_webhook_payload, build_delivery_receipt_payload};
 use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
 use receipt_forward_queue::{
     PendingReceiptNotification, PendingReceiptQueue, enqueue_pending_receipt_notification,
     flush_pending_receipt_notifications,
 };
 use sender_profile::resolve_sender_profile_for_delivery as resolve_sender_profile_for_delivery_inner;
+pub(super) use webhook_payload::{build_delivery_receipt_payload, build_delivery_webhook_payload};
 
-mod webhook_payload;
 mod pair_accepted;
 mod receipt_forward_queue;
 mod sender_profile;
+mod webhook_payload;
 
 const CONNECTOR_RETRY_DELAY_MS: i64 = 5_000;
 const INBOUND_RETRY_INTERVAL: Duration = Duration::from_secs(1);
 const INBOUND_RETRY_BATCH_SIZE: usize = 50;
 const INBOUND_MAX_ATTEMPTS: i64 = 3;
-
 pub(super) type OutboundInflightMap = Arc<Mutex<HashMap<String, String>>>;
 pub(super) type PendingReceiptQueueHandle = PendingReceiptQueue;
-
 pub(super) struct InboundLoopRuntime {
     pub options: ConfigPathOptions,
     pub agent_name: String,
@@ -54,7 +52,6 @@ pub(super) struct InboundLoopRuntime {
     pub outbound_inflight: OutboundInflightMap,
     pub pending_receipt_notifications: PendingReceiptQueueHandle,
 }
-
 pub(super) struct InboundRetryRuntime {
     pub options: ConfigPathOptions,
     pub agent_name: String,
@@ -65,7 +62,6 @@ pub(super) struct InboundRetryRuntime {
     pub pending_receipt_notifications: PendingReceiptQueueHandle,
     pub shutdown_rx: watch::Receiver<bool>,
 }
-
 struct InboundRuntimeContext<'a> {
     options: &'a ConfigPathOptions,
     agent_name: &'a str,
@@ -79,7 +75,6 @@ struct InboundRuntimeContext<'a> {
     outbound_inflight: &'a OutboundInflightMap,
     pending_receipt_notifications: &'a PendingReceiptQueueHandle,
 }
-
 struct InboundRetryContext<'a> {
     options: &'a ConfigPathOptions,
     agent_name: &'a str,
@@ -595,6 +590,35 @@ pub(super) async fn forward_deliver_to_webhook(
     sender_profile: Option<&SenderProfileHeaders>,
     group_name: Option<&str>,
 ) -> Result<()> {
+    let request = build_delivery_webhook_request(
+        http_client,
+        hook_url,
+        delivery_webhook_runtime,
+        deliver,
+        sender_profile,
+        group_name,
+    );
+    let response = request
+        .send()
+        .await
+        .map_err(|error| anyhow!("delivery webhook request failed: {error}"))?;
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "delivery webhook returned HTTP {}",
+            response.status()
+        ));
+    }
+    Ok(())
+}
+
+fn build_delivery_webhook_request(
+    http_client: &reqwest::Client,
+    hook_url: &str,
+    delivery_webhook_runtime: &DeliveryWebhookRuntimeConfig,
+    deliver: &DeliverFrame,
+    sender_profile: Option<&SenderProfileHeaders>,
+    group_name: Option<&str>,
+) -> reqwest::RequestBuilder {
     let mut request = http_client
         .post(hook_url)
         .header("content-type", "application/vnd.clawdentity.delivery+json")
@@ -626,15 +650,7 @@ pub(super) async fn forward_deliver_to_webhook(
     for (name, value) in &delivery_webhook_runtime.webhook_headers {
         request = request.header(name, value);
     }
-
-    let response = request
-        .send()
-        .await
-        .map_err(|error| anyhow!("delivery webhook request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(anyhow!("delivery webhook returned HTTP {}", response.status()));
-    }
-    Ok(())
+    request
 }
 
 pub(super) async fn resolve_group_name_for_delivery(

@@ -12,9 +12,9 @@ use clawdentity_core::runtime_webhook::DeliveryWebhookRuntimeConfig;
 use clawdentity_core::{
     ConnectorClient, ConnectorClientOptions, ConnectorClientSender, ConnectorServiceInstallInput,
     ConnectorServiceUninstallInput, CoreError, OutboundSendObservation, RuntimeServerState,
-    SqliteStore, UpsertPeerInput,
-    flush_outbound_queue_to_relay_with_send_observer, install_connector_service, list_peers,
-    now_utc_ms, spawn_connector_client, uninstall_connector_service, upsert_peer,
+    SqliteStore, UpsertPeerInput, flush_outbound_queue_to_relay_with_send_observer,
+    install_connector_service, list_peers, now_utc_ms, spawn_connector_client,
+    uninstall_connector_service, upsert_peer,
 };
 use serde_json::json;
 use tokio::sync::watch;
@@ -454,7 +454,9 @@ fn spawn_peer_refresh_task(
     store: SqliteStore,
     shutdown_rx: watch::Receiver<bool>,
 ) -> JoinHandle<Result<()>> {
-    tokio::spawn(async move { run_peer_refresh_loop(options, &agent_name, store, shutdown_rx).await })
+    tokio::spawn(
+        async move { run_peer_refresh_loop(options, &agent_name, store, shutdown_rx).await },
+    )
 }
 
 async fn run_outbound_flush_loop(
@@ -514,8 +516,7 @@ async fn run_peer_refresh_loop(
     store: SqliteStore,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    if refresh_peer_profiles_once(&options, agent_name, &store, &mut shutdown_rx).await
-    {
+    if refresh_peer_profiles_once(&options, agent_name, &store, &mut shutdown_rx).await {
         return Ok(());
     }
     let mut interval = tokio::time::interval(PEER_REFRESH_INTERVAL);

@@ -131,7 +131,6 @@ pub use registry::{
     fetch_registry_metadata, register_identity,
 };
 pub use runtime_auth::{RelayConnectHeaders, build_relay_connect_headers};
-pub use runtime_webhook::{DeliveryWebhookRuntimeConfig, check_delivery_webhook_health};
 pub use runtime_relay::{
     FlushOutboundResult, OutboundRetryPolicy, OutboundSendObservation, SentOutboundFrame,
     flush_outbound_queue_to_relay, flush_outbound_queue_to_relay_with_send_observer,
@@ -142,6 +141,7 @@ pub use runtime_replay::{
 };
 pub use runtime_server::{RuntimeServerState, create_runtime_router, run_runtime_server};
 pub use runtime_trusted_receipts::TrustedReceiptsStore;
+pub use runtime_webhook::{DeliveryWebhookRuntimeConfig, check_delivery_webhook_health};
 pub use service::{
     ConnectorServiceInstallInput, ConnectorServiceInstallResult, ConnectorServicePlatform,
     ConnectorServiceUninstallInput, ConnectorServiceUninstallResult, install_connector_service,
