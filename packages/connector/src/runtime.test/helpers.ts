@@ -36,8 +36,8 @@ const DID_AUTHORITY = "registry.example.test";
 export const RUNTIME_ENV_KEYS = [
   "CONNECTOR_INBOUND_DEAD_LETTER_NON_RETRYABLE_MAX_ATTEMPTS",
   "CONNECTOR_INBOUND_REPLAY_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS",
   "CONNECTOR_RUNTIME_REPLAY_MAX_ATTEMPTS",
   "CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS",
   "CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS",
@@ -171,7 +171,7 @@ export function createRuntimeCredentials(input: { issuer?: string } = {}) {
     sub: agentDid,
     ownerDid,
     name: "alpha",
-    framework: "openclaw",
+    framework: "deliveryWebhook",
     cnf: {
       jwk: {
         kty: "OKP" as const,
@@ -211,8 +211,8 @@ export async function writeRelayRuntimeConfig(
   token: string,
 ): Promise<void> {
   await writeFile(
-    join(configDir, "openclaw-relay.json"),
-    `${JSON.stringify({ openclawHookToken: token }, null, 2)}\n`,
+    join(configDir, "deliveryWebhook-relay.json"),
+    `${JSON.stringify({ deliveryWebhookToken: token }, null, 2)}\n`,
     "utf8",
   );
 }

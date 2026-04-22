@@ -23,7 +23,7 @@ type WsHarness = {
   cleanup: () => Promise<void>;
   sendReceiptFrame: (input: {
     requestId: string;
-    status: "processed_by_openclaw" | "dead_lettered";
+    status: "delivered_to_webhook" | "dead_lettered";
     toAgentDid?: string;
     reason?: string;
   }) => Promise<void>;
@@ -33,8 +33,8 @@ type WsHarness = {
 const DID_AUTHORITY = "registry.example.test";
 const ENV_KEYS = [
   "CONNECTOR_INBOUND_REPLAY_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS",
 ] as const;
 
 function createSandbox(): Sandbox {
@@ -89,7 +89,7 @@ async function createWsHarness(port: number): Promise<WsHarness> {
 
   const sendReceiptFrame = async (input: {
     requestId: string;
-    status: "processed_by_openclaw" | "dead_lettered";
+    status: "delivered_to_webhook" | "dead_lettered";
     toAgentDid?: string;
     reason?: string;
   }): Promise<void> => {
@@ -135,7 +135,7 @@ function createRuntimeAitToken(input: {
     sub: input.agentDid,
     ownerDid: input.ownerDid,
     name: "alpha",
-    framework: "openclaw",
+    framework: "deliveryWebhook",
     cnf: {
       jwk: {
         kty: "OKP" as const,
@@ -189,28 +189,28 @@ afterEach(() => {
 });
 
 describe("startConnectorRuntime receipt forwarding", () => {
-  it("forwards receipt frames to /hooks/agent with OpenClaw-compatible payload", async () => {
+  it("forwards receipt frames to /hooks/message with typed receipt payload", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39107";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39107";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookBodies: unknown[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
         return new Response("ok", { status: 200 });
       }
@@ -223,8 +223,8 @@ describe("startConnectorRuntime receipt forwarding", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookPath: "/hooks/agent",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookPath: "/hooks/message",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -243,18 +243,18 @@ describe("startConnectorRuntime receipt forwarding", () => {
 
       const payload = hookBodies[0] as {
         type?: string;
-        message?: string;
-        content?: string;
         status?: string;
-        originalFrameId?: string;
+        requestId?: string;
+        toAgentDid?: string;
         reason?: string;
+        relayMetadata?: { timestamp?: string };
       };
-      expect(payload.type).toBe("clawdentity:receipt");
-      expect(payload.originalFrameId).toBe(requestId);
+      expect(payload.type).toBe("clawdentity.receipt.v1");
+      expect(payload.requestId).toBe(requestId);
       expect(payload.status).toBe("dead_lettered");
       expect(payload.reason).toBe("hook rejected");
-      expect(payload.message).toContain("Clawdentity delivery receipt");
-      expect(payload.content).toContain("Clawdentity delivery receipt");
+      expect(payload.toAgentDid).toMatch(/^did:cdi:/);
+      expect(payload.relayMetadata?.timestamp).toBe("2026-02-20T00:00:00.000Z");
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -262,28 +262,28 @@ describe("startConnectorRuntime receipt forwarding", () => {
     }
   });
 
-  it("forwards receipt frames to /hooks/wake with required text field", async () => {
+  it("forwards delivered receipt frames with typed status contract", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39108";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/wake`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39108";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookBodies: unknown[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
         return new Response("ok", { status: 200 });
       }
@@ -296,8 +296,8 @@ describe("startConnectorRuntime receipt forwarding", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookPath: "/hooks/wake",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookPath: "/hooks/message",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -306,7 +306,7 @@ describe("startConnectorRuntime receipt forwarding", () => {
       const requestId = generateUlid(206);
       await wsHarness.sendReceiptFrame({
         requestId,
-        status: "processed_by_openclaw",
+        status: "delivered_to_webhook",
       });
 
       await vi.waitFor(() => {
@@ -315,16 +315,14 @@ describe("startConnectorRuntime receipt forwarding", () => {
 
       const payload = hookBodies[0] as {
         type?: string;
-        text?: string;
-        message?: string;
-        mode?: string;
+        requestId?: string;
         status?: string;
+        relayMetadata?: { timestamp?: string };
       };
-      expect(payload.type).toBe("clawdentity:receipt");
-      expect(payload.status).toBe("processed_by_openclaw");
-      expect(payload.mode).toBe("now");
-      expect(payload.text).toContain("Clawdentity delivery receipt");
-      expect(payload.message).toBe(payload.text);
+      expect(payload.type).toBe("clawdentity.receipt.v1");
+      expect(payload.requestId).toBe(requestId);
+      expect(payload.status).toBe("delivered_to_webhook");
+      expect(payload.relayMetadata?.timestamp).toBe("2026-02-20T00:00:00.000Z");
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();

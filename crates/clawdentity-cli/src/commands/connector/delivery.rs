@@ -11,7 +11,7 @@ use clawdentity_core::db_inbound::{
     mark_pending_attempt, move_pending_to_dead_letter, upsert_pending,
 };
 use clawdentity_core::http::client as create_http_client;
-use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
+use clawdentity_core::runtime_webhook::DeliveryWebhookRuntimeConfig;
 use clawdentity_core::{
     CONNECTOR_FRAME_VERSION, ConnectorClient, ConnectorClientSender, ConnectorFrame,
     DeliverAckFrame, DeliverFrame, EnqueueAckFrame, ReceiptFrame, ReceiptStatus, SqliteStore,
@@ -20,9 +20,9 @@ use clawdentity_core::{
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use super::headers::{SenderProfileHeaders, build_openclaw_delivery_headers};
+use super::headers::SenderProfileHeaders;
 use super::receipts::{DeliveryReceiptPayload, DeliveryReceiptStatus, ReceiptOutboxHandle};
-pub(super) use openclaw_payload::{build_openclaw_hook_payload, build_openclaw_receipt_payload};
+pub(super) use webhook_payload::{build_delivery_webhook_payload, build_delivery_receipt_payload};
 use pair_accepted::{apply_pair_accepted_system_delivery, is_trusted_pair_accepted_delivery};
 use receipt_forward_queue::{
     PendingReceiptNotification, PendingReceiptQueue, enqueue_pending_receipt_notification,
@@ -30,7 +30,7 @@ use receipt_forward_queue::{
 };
 use sender_profile::resolve_sender_profile_for_delivery as resolve_sender_profile_for_delivery_inner;
 
-mod openclaw_payload;
+mod webhook_payload;
 mod pair_accepted;
 mod receipt_forward_queue;
 mod sender_profile;
@@ -50,7 +50,7 @@ pub(super) struct InboundLoopRuntime {
     pub relay_sender: ConnectorClientSender,
     pub store: SqliteStore,
     pub config_dir: PathBuf,
-    pub openclaw_runtime: OpenclawRuntimeConfig,
+    pub delivery_webhook_runtime: DeliveryWebhookRuntimeConfig,
     pub outbound_inflight: OutboundInflightMap,
     pub pending_receipt_notifications: PendingReceiptQueueHandle,
 }
@@ -61,7 +61,7 @@ pub(super) struct InboundRetryRuntime {
     pub receipt_outbox: ReceiptOutboxHandle,
     pub store: SqliteStore,
     pub config_dir: PathBuf,
-    pub openclaw_runtime: OpenclawRuntimeConfig,
+    pub delivery_webhook_runtime: DeliveryWebhookRuntimeConfig,
     pub pending_receipt_notifications: PendingReceiptQueueHandle,
     pub shutdown_rx: watch::Receiver<bool>,
 }
@@ -74,7 +74,7 @@ struct InboundRuntimeContext<'a> {
     relay_sender: &'a ConnectorClientSender,
     http_client: &'a reqwest::Client,
     hook_url: &'a str,
-    openclaw_runtime: &'a OpenclawRuntimeConfig,
+    delivery_webhook_runtime: &'a DeliveryWebhookRuntimeConfig,
     receipt_outbox: &'a ReceiptOutboxHandle,
     outbound_inflight: &'a OutboundInflightMap,
     pending_receipt_notifications: &'a PendingReceiptQueueHandle,
@@ -87,7 +87,7 @@ struct InboundRetryContext<'a> {
     config_dir: &'a Path,
     http_client: &'a reqwest::Client,
     hook_url: &'a str,
-    openclaw_runtime: &'a OpenclawRuntimeConfig,
+    delivery_webhook_runtime: &'a DeliveryWebhookRuntimeConfig,
     receipt_outbox: &'a ReceiptOutboxHandle,
 }
 
@@ -96,7 +96,7 @@ pub(super) async fn run_inbound_loop(
     runtime: InboundLoopRuntime,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let hook_url = runtime.openclaw_runtime.hook_url()?;
+    let hook_url = runtime.delivery_webhook_runtime.validated_webhook_url()?;
     let http_client = create_http_client()?;
     let context = InboundRuntimeContext {
         options: &runtime.options,
@@ -106,7 +106,7 @@ pub(super) async fn run_inbound_loop(
         relay_sender: &runtime.relay_sender,
         http_client: &http_client,
         hook_url: &hook_url,
-        openclaw_runtime: &runtime.openclaw_runtime,
+        delivery_webhook_runtime: &runtime.delivery_webhook_runtime,
         receipt_outbox: &runtime.receipt_outbox,
         outbound_inflight: &runtime.outbound_inflight,
         pending_receipt_notifications: &runtime.pending_receipt_notifications,
@@ -142,7 +142,7 @@ async fn handle_connector_frame(frame: ConnectorFrame, context: &InboundRuntimeC
             flush_pending_receipt_notifications(
                 context.http_client,
                 context.hook_url,
-                context.openclaw_runtime,
+                context.delivery_webhook_runtime,
                 context.pending_receipt_notifications,
             )
             .await;
@@ -186,7 +186,7 @@ async fn handle_enqueue_ack(context: &InboundRuntimeContext<'_>, ack: EnqueueAck
     flush_pending_receipt_notifications(
         context.http_client,
         context.hook_url,
-        context.openclaw_runtime,
+        context.delivery_webhook_runtime,
         context.pending_receipt_notifications,
     )
     .await;
@@ -219,7 +219,7 @@ fn build_enqueue_rejected_receipt(
 }
 
 pub(super) async fn run_inbound_retry_loop(runtime: InboundRetryRuntime) -> Result<()> {
-    let hook_url = runtime.openclaw_runtime.hook_url()?;
+    let hook_url = runtime.delivery_webhook_runtime.validated_webhook_url()?;
     let http_client = create_http_client()?;
     let context = InboundRetryContext {
         options: &runtime.options,
@@ -228,7 +228,7 @@ pub(super) async fn run_inbound_retry_loop(runtime: InboundRetryRuntime) -> Resu
         config_dir: runtime.config_dir.as_path(),
         http_client: &http_client,
         hook_url: &hook_url,
-        openclaw_runtime: &runtime.openclaw_runtime,
+        delivery_webhook_runtime: &runtime.delivery_webhook_runtime,
         receipt_outbox: &runtime.receipt_outbox,
     };
     let mut shutdown_rx = runtime.shutdown_rx;
@@ -248,7 +248,7 @@ pub(super) async fn run_inbound_retry_loop(runtime: InboundRetryRuntime) -> Resu
                 flush_pending_receipt_notifications(
                     &http_client,
                     &hook_url,
-                    &runtime.openclaw_runtime,
+                    &runtime.delivery_webhook_runtime,
                     &runtime.pending_receipt_notifications,
                 )
                 .await;
@@ -307,10 +307,10 @@ async fn retry_pending_inbound_delivery(
         deliver.group_id.as_deref(),
     )
     .await;
-    match forward_deliver_to_openclaw(
+    match forward_deliver_to_webhook(
         context.http_client,
         context.hook_url,
-        context.openclaw_runtime,
+        context.delivery_webhook_runtime,
         &deliver,
         sender_profile.as_ref(),
         group_name.as_deref(),
@@ -325,7 +325,7 @@ async fn retry_pending_inbound_delivery(
                     request_id: item.request_id.clone(),
                     sender_agent_did: item.from_agent_did.clone(),
                     recipient_agent_did: item.to_agent_did.clone(),
-                    status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+                    status: DeliveryReceiptStatus::DeliveredToWebhook,
                     reason: None,
                 })
                 .await;
@@ -519,10 +519,10 @@ async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: 
     .await;
     let delivery_result = match system_delivery_result {
         Ok(_) => {
-            forward_deliver_to_openclaw(
+            forward_deliver_to_webhook(
                 context.http_client,
                 context.hook_url,
-                context.openclaw_runtime,
+                context.delivery_webhook_runtime,
                 &deliver,
                 sender_profile.as_ref(),
                 group_name.as_deref(),
@@ -551,7 +551,7 @@ async fn handle_deliver_frame(context: &InboundRuntimeContext<'_>, mut deliver: 
                 request_id: deliver.id.clone(),
                 sender_agent_did: deliver.from_agent_did.clone(),
                 recipient_agent_did: deliver.to_agent_did.clone(),
-                status: DeliveryReceiptStatus::ProcessedByOpenclaw,
+                status: DeliveryReceiptStatus::DeliveredToWebhook,
                 reason: None,
             })
             .await;
@@ -570,7 +570,7 @@ fn log_delivery_failure(deliver: &DeliverFrame, delivery_error: Option<anyhow::E
             error = %error,
             request_id = %deliver.id,
             to_agent_did = %deliver.to_agent_did,
-            "failed to forward inbound payload to OpenClaw hook"
+            "failed to forward inbound payload to delivery webhook"
         );
     }
 }
@@ -587,38 +587,52 @@ pub(super) fn build_deliver_ack_reason(
     }
 }
 
-pub(super) async fn forward_deliver_to_openclaw(
+pub(super) async fn forward_deliver_to_webhook(
     http_client: &reqwest::Client,
     hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
+    delivery_webhook_runtime: &DeliveryWebhookRuntimeConfig,
     deliver: &DeliverFrame,
     sender_profile: Option<&SenderProfileHeaders>,
     group_name: Option<&str>,
 ) -> Result<()> {
     let mut request = http_client
         .post(hook_url)
-        .json(&build_openclaw_hook_payload(
-            &openclaw_runtime.hook_path,
+        .header("content-type", "application/vnd.clawdentity.delivery+json")
+        .header("x-clawdentity-agent-did", &deliver.from_agent_did)
+        .header("x-clawdentity-to-agent-did", &deliver.to_agent_did)
+        .header("x-clawdentity-verified", "true")
+        .header("x-request-id", &deliver.id)
+        .json(&build_delivery_webhook_payload(
             deliver,
             sender_profile,
             group_name,
-            openclaw_runtime.target_agent_id.as_deref(),
         ));
-
-    for (name, value) in build_openclaw_delivery_headers(
-        deliver,
-        sender_profile,
-        openclaw_runtime.hook_token.as_deref(),
-    ) {
+    if let Some(profile) = sender_profile {
+        if let Some(agent_name) = profile.agent_name.as_deref() {
+            request = request.header("x-clawdentity-agent-name", agent_name);
+        }
+        if let Some(display_name) = profile.display_name.as_deref() {
+            request = request.header("x-clawdentity-display-name", display_name);
+        }
+    }
+    if let Some(group_id) = deliver
+        .group_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        request = request.header("x-clawdentity-group-id", group_id);
+    }
+    for (name, value) in &delivery_webhook_runtime.webhook_headers {
         request = request.header(name, value);
     }
 
     let response = request
         .send()
         .await
-        .map_err(|error| anyhow!("openclaw hook request failed: {error}"))?;
+        .map_err(|error| anyhow!("delivery webhook request failed: {error}"))?;
     if !response.status().is_success() {
-        return Err(anyhow!("openclaw hook returned HTTP {}", response.status()));
+        return Err(anyhow!("delivery webhook returned HTTP {}", response.status()));
     }
     Ok(())
 }

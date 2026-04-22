@@ -9,7 +9,7 @@ description: Trust boundaries, threats addressed, and security guarantees of Cla
 |-------|---------------|----------|
 | Agent private key | Secret | Local only — never leaves agent machine |
 | Registry signing key | Secret | Server-side only — signs AIT and CRL |
-| OpenClaw `hooks.token` | Secret | Gateway host/proxy only |
+| runtime webhook auth header | Secret | Gateway host/proxy only |
 | AIT + PoP headers | Transmitted | Safe to share in-band per request |
 | Registry public keys | Public | `/.well-known/claw-keys.json` |
 | CRL | Public | Signed, cacheable revocation list |
@@ -18,7 +18,7 @@ description: Trust boundaries, threats addressed, and security guarantees of Cla
 
 ### Transport-level
 
-- **Do not expose OpenClaw webhooks directly to the public internet.** Follow OpenClaw guidance (loopback, tailnet, trusted reverse proxy).
+- **Do not expose runtime webhooks directly to the public internet.** Keep them on loopback, private network, or trusted reverse-proxy boundaries.
 - Clawdentity adds identity verification on top of transport security.
 
 ### Request integrity
@@ -39,7 +39,7 @@ PoP signatures bind method, path, timestamp, nonce, and body hash. This means:
 
 - Caller identity can be cryptographically verified
 - Caller ownership is traceable via token claims
-- Revocation can be enforced without rotating shared OpenClaw token
+- Revocation can be enforced without rotating shared runtime webhook secret
 
 ## Known limits
 
@@ -49,7 +49,7 @@ PoP signatures bind method, path, timestamp, nonce, and body hash. This means:
 ## Safe defaults and operator guidance
 
 - Treat any identity fields (agent name/description) as untrusted input — never allow prompt injection via identity metadata
-- Keep OpenClaw behind trusted network boundaries; expose only proxy entry points
+- Keep runtime webhook endpoints behind trusted network boundaries; expose only proxy entry points
 - Rotate PATs and audit trust pairs regularly
 - Store PATs in secure local config only; create responses return the token once and it cannot be retrieved later
 - Rotation baseline: keep one primary key + one standby key, rotate at least every 90 days, revoke stale keys immediately after rollout

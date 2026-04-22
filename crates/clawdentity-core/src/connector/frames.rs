@@ -99,7 +99,7 @@ pub struct EnqueueAckFrame {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReceiptStatus {
-    ProcessedByOpenclaw,
+    DeliveredToWebhook,
     DeadLettered,
 }
 

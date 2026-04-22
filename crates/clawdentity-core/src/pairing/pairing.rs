@@ -13,9 +13,7 @@ use crate::did::parse_agent_did;
 use crate::error::{CoreError, Result};
 use crate::http::blocking_client;
 use crate::identity::decode_secret_key;
-use crate::peers::{
-    PersistPeerInput, load_peers_config, persist_peer, sync_openclaw_relay_peers_snapshot,
-};
+use crate::peers::{PersistPeerInput, persist_peer};
 use crate::qr::decode_ticket_from_png;
 use crate::signing::{SignHttpRequestInput, sign_http_request};
 
@@ -395,13 +393,13 @@ fn resolve_peer_proxy_url(
         .or_else(|| profile.proxy_origin.clone())
         .ok_or_else(|| CoreError::InvalidInput("peer proxy origin is required".to_string()))?;
     let origin = parse_proxy_url(&resolved_origin)?;
-    to_request_url(&origin, "/hooks/agent")
+    to_request_url(&origin, "/hooks/message")
 }
 
-/// Persist a confirmed peer and update OpenClaw relay peer projection.
+/// Persist a confirmed peer.
 pub fn persist_confirmed_peer_from_profile_and_proxy_origin(
     store: &SqliteStore,
-    config_dir: &Path,
+    _config_dir: &Path,
     peer_did: &str,
     peer_profile: &PairProfile,
     peer_proxy_origin: Option<String>,
@@ -420,8 +418,6 @@ pub fn persist_confirmed_peer_from_profile_and_proxy_origin(
             last_synced_at_ms: Some(crate::now_utc_ms()),
         },
     )?;
-    let peers_config = load_peers_config(store)?;
-    sync_openclaw_relay_peers_snapshot(config_dir, &peers_config)?;
     Ok(record.alias)
 }
 

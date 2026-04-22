@@ -5,8 +5,8 @@ import {
   DEFAULT_CRL_MAX_AGE_MS,
   DEFAULT_CRL_REFRESH_INTERVAL_MS,
   DEFAULT_CRL_STALE_BEHAVIOR,
+  DEFAULT_DELIVERY_WEBHOOK_BASE_URL,
   DEFAULT_INJECT_IDENTITY_INTO_MESSAGE,
-  DEFAULT_OPENCLAW_BASE_URL,
   DEFAULT_PROXY_ENVIRONMENT,
   DEFAULT_PROXY_LISTEN_PORT,
   DEFAULT_RELAY_MAX_FRAME_BYTES,
@@ -52,7 +52,11 @@ export const proxyRuntimeEnvSchema = z.object({
     .min(1)
     .max(65535)
     .default(DEFAULT_PROXY_LISTEN_PORT),
-  OPENCLAW_BASE_URL: z.string().trim().url().default(DEFAULT_OPENCLAW_BASE_URL),
+  DELIVERY_WEBHOOK_BASE_URL: z
+    .string()
+    .trim()
+    .url()
+    .default(DEFAULT_DELIVERY_WEBHOOK_BASE_URL),
   REGISTRY_URL: z.string().trim().url().optional(),
   REGISTRY_INTERNAL_SERVICE_ID: z.string().trim().min(1).optional(),
   REGISTRY_INTERNAL_SERVICE_SECRET: z.string().trim().min(1).optional(),
@@ -129,7 +133,7 @@ export const proxyRuntimeEnvSchema = z.object({
 
 export const proxyConfigSchema = z.object({
   listenPort: z.number().int().min(1).max(65535),
-  openclawBaseUrl: z.string().url(),
+  deliveryWebhookBaseUrl: z.string().url(),
   registryUrl: z.string().url(),
   registryInternalServiceId: z.string().min(1).optional(),
   registryInternalServiceSecret: z.string().min(1).optional(),

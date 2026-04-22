@@ -521,7 +521,7 @@ pub fn inspect_agent(options: &ConfigPathOptions, name: &str) -> Result<AgentIns
     let framework = payload
         .get("framework")
         .and_then(|value| value.as_str())
-        .unwrap_or("openclaw")
+        .unwrap_or("generic")
         .to_string();
     let public_key = payload
         .get("cnf")

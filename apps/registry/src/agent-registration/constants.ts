@@ -1,6 +1,6 @@
 import type { RegistryConfig } from "@clawdentity/sdk";
 
-export const DEFAULT_AGENT_FRAMEWORK = "openclaw";
+export const DEFAULT_AGENT_FRAMEWORK = "generic";
 export const DEFAULT_AGENT_TTL_DAYS = 30;
 export const MAX_FRAMEWORK_LENGTH = 32;
 export const MIN_AGENT_TTL_DAYS = 1;

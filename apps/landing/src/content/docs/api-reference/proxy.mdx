@@ -3,7 +3,7 @@ title: Proxy API
 description: HTTP API reference for the Clawdentity verification proxy.
 ---
 
-The proxy is a Cloudflare Worker that verifies Clawdentity identity headers and forwards authenticated requests to OpenClaw. It also supports WebSocket relay connections for real-time agent-to-agent message delivery.
+The proxy is a Cloudflare Worker that verifies Clawdentity identity headers and forwards authenticated requests to configured local runtime webhooks. It also supports WebSocket relay connections for real-time agent-to-agent message delivery.
 
 ## Rate limits
 
@@ -22,7 +22,7 @@ Returns proxy status, version, and environment. This endpoint bypasses authentic
 ### Agent hook (relay delivery)
 
 ```http
-POST /hooks/agent
+POST /hooks/message
 ```
 
 The primary proxy route. Accepts requests from authenticated agents and delivers them to the recipient agent's relay session via Durable Object.
@@ -103,9 +103,9 @@ GET /v1/relay/connect
 
 Upgrades to a WebSocket connection for real-time relay message delivery. Used by the connector runtime to maintain a persistent link between the local agent and the proxy.
 
-Requires the same Claw authentication headers as `/hooks/agent` (including `Authorization`, `X-Claw-Agent-Access`, and all PoP headers). Must include the `Upgrade: websocket` header.
+Requires the same Claw authentication headers as `/hooks/message` (including `Authorization`, `X-Claw-Agent-Access`, and all PoP headers). Must include the `Upgrade: websocket` header.
 
-**Session model:** Each agent DID maps to a Durable Object (`AgentRelaySession`). When a connector connects via WebSocket, the Durable Object accepts the socket and schedules heartbeat alarms at 30-second intervals. Incoming delivery requests from `/hooks/agent` are forwarded to the Durable Object, which sends a `deliver` frame over the WebSocket and waits for a `deliver_ack` response from the connector.
+**Session model:** Each agent DID maps to a Durable Object (`AgentRelaySession`). When a connector connects via WebSocket, the Durable Object accepts the socket and schedules heartbeat alarms at 30-second intervals. Incoming delivery requests from `/hooks/message` are forwarded to the Durable Object, which sends a `deliver` frame over the WebSocket and waits for a `deliver_ack` response from the connector.
 
 ### Pairing: Start (`POST /pair/start`)
 
@@ -169,7 +169,7 @@ Connector sends a receipt after processing a relayed message. Requires Claw auth
 {
   "requestId": "<original-relay-request-id>",
   "recipientAgentDid": "did:cdi:<authority>:agent:<ulid>",
-  "status": "processed_by_openclaw",
+  "status": "delivered_to_webhook",
   "timestamp": "2025-01-15T10:30:00.000Z"
 }
 ```
@@ -178,7 +178,7 @@ Connector sends a receipt after processing a relayed message. Requires Claw auth
 |-------|------|----------|-------------|
 | `requestId` | string | Yes | The `x-request-id` from the original relay request |
 | `recipientAgentDid` | string | Yes | DID of the agent that received the message |
-| `status` | string | Yes | `processed_by_openclaw` or `dead_lettered` |
+| `status` | string | Yes | `delivered_to_webhook` or `dead_lettered` |
 | `timestamp` | string | Yes | ISO-8601 timestamp of when the message was processed |
 
 **Response (201):** Receipt stored.
@@ -202,7 +202,7 @@ Query receipt status by request ID and recipient. Requires Claw authentication h
     {
       "requestId": "<id>",
       "recipientAgentDid": "did:cdi:<authority>:agent:<ulid>",
-      "status": "processed_by_openclaw",
+      "status": "delivered_to_webhook",
       "receivedAt": "2025-01-15T10:30:00.000Z"
     }
   ]
@@ -214,7 +214,7 @@ Query receipt status by request ID and recipient. Requires Claw authentication h
 | `receipts` | array | List of matching delivery receipts |
 | `receipts[].requestId` | string | Original relay request ID |
 | `receipts[].recipientAgentDid` | string | Recipient agent DID |
-| `receipts[].status` | string | `processed_by_openclaw` or `dead_lettered` |
+| `receipts[].status` | string | `delivered_to_webhook` or `dead_lettered` |
 | `receipts[].receivedAt` | string | ISO-8601 timestamp when the receipt was recorded |
 
 ## Error responses

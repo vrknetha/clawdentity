@@ -201,11 +201,11 @@ describe("proxy worker", () => {
     );
   });
 
-  it("returns config validation error for malformed OPENCLAW_BASE_URL", async () => {
+  it("returns config validation error for malformed DELIVERY_WEBHOOK_BASE_URL", async () => {
     const response = await worker.fetch(
       new Request("https://proxy.example.test/health"),
       createRequiredBindings({
-        OPENCLAW_BASE_URL: "bad-url",
+        DELIVERY_WEBHOOK_BASE_URL: "bad-url",
       }),
       createExecutionContext(),
     );
@@ -297,7 +297,7 @@ describe("proxy worker", () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
-  it("routes processed_by_openclaw queue events without mutating receipt status", async () => {
+  it("routes delivered_to_webhook queue events without mutating receipt status", async () => {
     const fetchSpy = vi.fn(async (_request: Request) =>
       Response.json({ accepted: true }, { status: 202 }),
     );
@@ -316,7 +316,7 @@ describe("proxy worker", () => {
               "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
             recipientAgentDid:
               "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-            status: "processed_by_openclaw",
+            status: "delivered_to_webhook",
           }),
           ack,
           retry,
@@ -329,7 +329,7 @@ describe("proxy worker", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const request = fetchSpy.mock.calls[0]?.[0] as Request;
     const body = (await request.json()) as { status?: string };
-    expect(body.status).toBe("processed_by_openclaw");
+    expect(body.status).toBe("delivered_to_webhook");
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
   });

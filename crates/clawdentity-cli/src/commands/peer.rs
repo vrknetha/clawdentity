@@ -1,10 +1,9 @@
 use anyhow::{Result, anyhow};
 use clap::Subcommand;
-use clawdentity_core::config::get_config_dir;
 use clawdentity_core::db::now_utc_ms;
 use clawdentity_core::{
-    ConfigPathOptions, SqliteStore, UpsertPeerInput, get_peer_by_alias, load_peers_config,
-    parse_agent_did, sync_openclaw_relay_peers_snapshot, upsert_peer,
+    ConfigPathOptions, SqliteStore, UpsertPeerInput, get_peer_by_alias, parse_agent_did,
+    upsert_peer,
 };
 use serde::Serialize;
 
@@ -99,12 +98,6 @@ async fn execute_peer_refresh(
 
     let refreshed_count = results.iter().filter(|row| row.refreshed).count();
     let failed_count = results.len().saturating_sub(refreshed_count);
-
-    if refreshed_count > 0 {
-        let config_dir = get_config_dir(options)?;
-        let peers_config = load_peers_config(&store)?;
-        sync_openclaw_relay_peers_snapshot(&config_dir, &peers_config)?;
-    }
 
     let summary = PeerRefreshSummary {
         refreshed_count,

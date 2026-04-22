@@ -1,6 +1,6 @@
 import { CONNECTOR_FRAME_VERSION } from "../constants.js";
 import type { DeliverAckFrame, DeliverFrame } from "../frames.js";
-import type { LocalOpenclawDeliveryClient } from "./delivery.js";
+import type { LocalDeliveryWebhookDeliveryClient } from "./delivery.js";
 import { sanitizeErrorReason } from "./helpers.js";
 import type { ConnectorClientHooks } from "./types.js";
 
@@ -27,7 +27,7 @@ export async function handleInboundDeliverFrame(input: {
   inboundDeliverHandler:
     | ((frame: DeliverFrame) => Promise<{ accepted: boolean; reason?: string }>)
     | undefined;
-  localOpenclawDelivery: LocalOpenclawDeliveryClient;
+  localDeliveryWebhookDelivery: LocalDeliveryWebhookDeliveryClient;
   isStarted: () => boolean;
   hooks: ConnectorClientHooks;
   now: () => number;
@@ -80,7 +80,7 @@ export async function handleInboundDeliverFrame(input: {
   }
 
   try {
-    await input.localOpenclawDelivery.deliverWithRetry(
+    await input.localDeliveryWebhookDelivery.deliverWithRetry(
       input.frame,
       input.isStarted,
     );

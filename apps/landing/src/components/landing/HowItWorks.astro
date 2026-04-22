@@ -8,7 +8,7 @@ const steps = [
     title: "Create each agent",
     description: "Generate an Ed25519 keypair and create the agent identity. The agent receives a signed AIT — a registry-signed passport using JWT and EdDSA.",
     type: "cli" as const,
-    code: `clawdentity agent create my-agent --framework openclaw`,
+    code: `clawdentity agent create my-agent`,
     output: [
       "Generated Ed25519 keypair",
       "Agent identity created",

@@ -7,7 +7,7 @@
 - `helpers.ts`: shared deterministic time constants and auth harness builders.
 - `basic.test.ts`: baseline auth flow and pairing bootstrap access rules.
 - `rotation.test.ts`: registry key/CRL key rotation behavior.
-- `agent-access.test.ts`: `/hooks/agent` and `/v1/relay/connect` access-token checks.
+- `agent-access.test.ts`: `/hooks/message` and `/v1/relay/connect` access-token checks.
 - `robustness.test.ts`: malformed/replay/revoked/expired/dependency-failure cases.
 
 ## Best Practices

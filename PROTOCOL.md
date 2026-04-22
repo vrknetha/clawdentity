@@ -219,7 +219,7 @@ The AIT is a JWT that serves as an agent's passport. It is issued by the registr
   "sub": "did:cdi:registry.clawdentity.com:agent:01HG8ZBU11X7X8DN8O4X6GEYU5",
   "ownerDid": "did:cdi:registry.clawdentity.com:human:01HF7YAT00W6W7CM7N3W5FDXT4",
   "name": "kai",
-  "framework": "openclaw",
+  "framework": "generic",
   "description": "Ravi's personal AI assistant",
   "cnf": {
     "jwk": {
@@ -293,7 +293,7 @@ CLAW-PROOF-V1
 |-------|-------------|
 | Version | Literal string `CLAW-PROOF-V1` |
 | Method | HTTP method, uppercased (e.g., `POST`) |
-| Path with query | Request path including query string (e.g., `/hooks/agent?foo=bar`) |
+| Path with query | Request path including query string (e.g., `/hooks/message?foo=bar`) |
 | Timestamp | Unix epoch seconds as a string |
 | Nonce | Unique per-request value (ULID recommended) |
 | Body hash | SHA-256 hash of the request body, base64url-encoded |
@@ -654,7 +654,7 @@ Outbound routing contract:
 When the connector receives a `deliver` frame, it forwards the payload to the local agent framework via HTTP:
 
 ```
-POST <openclawBaseUrl>/hooks/agent
+POST <deliveryWebhookUrl>/hooks/message
 Content-Type: application/json
 x-clawdentity-agent-did: <fromAgentDid>
 x-clawdentity-to-agent-did: <toAgentDid>
@@ -662,7 +662,7 @@ x-clawdentity-verified: true
 x-clawdentity-agent-name: <senderAgentName>        # optional
 x-clawdentity-display-name: <senderDisplayName>    # optional
 x-clawdentity-group-id: <groupId>                  # optional
-x-openclaw-token: <local-hook-token>
+x-deliveryWebhook-token: <local-hook-token>
 x-request-id: <frame-id>
 
 <payload>
@@ -908,7 +908,7 @@ The scheme `Claw` is case-sensitive. The AIT MUST be a valid JWS Compact Seriali
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check (unauthenticated) |
-| POST | `/hooks/agent` | Inbound message hook |
+| POST | `/hooks/message` | Inbound message hook |
 | GET | `/v1/relay/connect` | WebSocket relay connection |
 | POST | `/v1/relay/delivery-receipts` | Delivery receipt callback |
 | POST | `/pair/start` | Initiate pairing |
@@ -932,7 +932,7 @@ Response shape:
   "agentDid": "did:cdi:<authority>:agent:<ulid>",
   "agentName": "alpha",
   "displayName": "Ravi",
-  "framework": "openclaw",
+  "framework": "generic",
   "status": "active",
   "humanDid": "did:cdi:<authority>:human:<ulid>"
 }
@@ -1062,7 +1062,7 @@ A complete message from Agent A to Agent B:
 3. Proxy A:
    a. Looks up Agent B's proxy URL from trust store
    b. Signs an HTTP request with Agent A's credentials
-   c. POST to Proxy B's /hooks/agent endpoint
+   c. POST to Proxy B's /hooks/message endpoint
 
 4. Proxy B:
    a. Verifies Authorization (AIT + PoP)

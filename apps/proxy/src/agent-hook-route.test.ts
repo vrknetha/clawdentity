@@ -151,7 +151,27 @@ function createHookRouteApp(input: {
   });
 }
 
-describe("POST /hooks/agent", () => {
+describe("POST /hooks/message", () => {
+  it("does not route legacy /hooks/agent", async () => {
+    const relayHarness = createRelayHarness();
+    const app = createHookRouteApp({
+      relayNamespace: relayHarness.namespace,
+    });
+
+    const response = await app.request("/hooks/agent", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [RELAY_RECIPIENT_AGENT_DID_HEADER]:
+          "did:cdi:dev.registry.clawdentity.com:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
+      },
+      body: JSON.stringify({ event: "agent.started" }),
+    });
+
+    expect(response.status).toBe(404);
+    expect(relayHarness.fetchRpc).not.toHaveBeenCalled();
+  });
+
   it("delivers hook payload to recipient relay session", async () => {
     const relayHarness = createRelayHarness();
     const now = "2026-02-16T20:00:00.000Z";
@@ -160,7 +180,7 @@ describe("POST /hooks/agent", () => {
       now: () => now,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json; charset=utf-8",
@@ -215,7 +235,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -235,7 +255,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -258,7 +278,7 @@ describe("POST /hooks/agent", () => {
       groupTrustAuthorizer: vi.fn(async () => {}),
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -279,7 +299,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -303,7 +323,7 @@ describe("POST /hooks/agent", () => {
       groupTrustAuthorizer: vi.fn(async () => {}),
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -326,7 +346,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -352,7 +372,7 @@ describe("POST /hooks/agent", () => {
       injectIdentityIntoMessage: true,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -394,7 +414,7 @@ describe("POST /hooks/agent", () => {
       event: "agent.started",
     };
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -415,7 +435,7 @@ describe("POST /hooks/agent", () => {
       injectIdentityIntoMessage: true,
     });
 
-    await app.request("/hooks/agent", {
+    await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -427,7 +447,7 @@ describe("POST /hooks/agent", () => {
       }),
     });
 
-    await app.request("/hooks/agent", {
+    await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -452,7 +472,7 @@ describe("POST /hooks/agent", () => {
       injectIdentityIntoMessage: true,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -489,7 +509,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "text/plain",
@@ -515,7 +535,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -541,7 +561,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -560,7 +580,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -580,7 +600,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: undefined,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -601,7 +621,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -631,7 +651,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -667,7 +687,7 @@ describe("POST /hooks/agent", () => {
       relayNamespace: relayHarness.namespace,
     });
 
-    const response = await app.request("/hooks/agent", {
+    const response = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",

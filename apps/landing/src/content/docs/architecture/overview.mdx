@@ -5,150 +5,31 @@ description: Repository layout, deployment model, and system architecture of Cla
 
 ## Repository layout
 
-Clawdentity is an Nx monorepo with pnpm workspaces, deployed entirely on Cloudflare:
-
-```
+```text
 clawdentity/
 ├── apps/
-│   ├── registry/          — Identity registry (Cloudflare Worker)
-│   │                        Issues AITs, serves CRL + public keys
-│   │                        Worker config: wrangler.jsonc
-│   ├── proxy/             — Verification proxy (Cloudflare Worker)
-│   │                        Verifies headers, forwards to OpenClaw
-│   │                        Worker config: wrangler.jsonc
-│   ├── cli/               — Operator CLI
-│   │                        Agent create/revoke, invite, api-key, config
-│   ├── openclaw-skill/    — OpenClaw skill integration
-│   │                        Relay transform for agent-to-agent messaging
-│   └── landing/           — Documentation site (Astro + Starlight)
+│   ├── registry/    # identity and auth APIs
+│   ├── proxy/       # relay enforcement runtime
+│   ├── landing/     # docs site + generated skill artifacts
+│   └── agent-skill/ # generic runtime adapter instructions
 ├── packages/
-│   ├── protocol/          — Canonical types + signing rules
-│   │                        AIT claims, DID format, HTTP signing, endpoints
-│   ├── sdk/               — TypeScript SDK
-│   │                        Sign/verify, CRL cache, auth client, crypto
-│   └── connector/         — Connector library
-│                            WebSocket relay, inbound inbox with durable persistence,
-│                            delivery receipts, dead-letter queue
-└── Configuration
-    ├── nx.json            — Monorepo task orchestration
-    ├── pnpm-workspace.yaml
-    └── tsconfig.base.json
+│   ├── protocol/
+│   ├── sdk/
+│   ├── common/
+│   └── connector/
+└── crates/
+    ├── clawdentity-core/
+    └── clawdentity-cli/
 ```
 
-## System architecture
+## Runtime model
 
-```d2
-direction: down
+- Connector exposes local outbound API (`POST /v1/outbound`)
+- Connector keeps signed relay websocket session to proxy
+- Proxy verifies trust/identity and routes deliveries
+- Connector posts inbound webhook payloads to local runtime endpoint
 
-agent-machine: Agent Machine {
-  style.fill: "#e8f8e8"
+## Product boundary
 
-  openclaw: "OpenClaw\n(private, loopback only)" {
-    style.fill: "#f8e8f8"
-    style.font-size: 14
-  }
-
-  connector: "Connector\nHTTP server · WebSocket client\nInbox · Delivery receipts" {
-    style.fill: "#fff4e8"
-    style.font-size: 14
-  }
-
-  openclaw -> connector: "POST /v1/outbound" {
-    style.stroke: "#1976d2"
-  }
-  connector -> openclaw: "POST /hooks/agent" {
-    style.stroke: "#388e3c"
-  }
-}
-
-proxy: "Clawdentity Proxy (Worker)\nAIT · PoP · CRL verify\nTrust policy · Rate limiting" {
-  style.fill: "#e8f4f8"
-  style.font-size: 14
-}
-
-relay-do: "AgentRelaySession (DO)\nPer-agent WebSocket relay\nMessage queue · Heartbeat" {
-  style.fill: "#dce8f0"
-  style.font-size: 14
-}
-
-trust-do: "ProxyTrustState (DO)\nBidirectional trust pairs\nPairing tickets" {
-  style.fill: "#f0e8d8"
-  style.font-size: 14
-}
-
-registry: "Registry (Worker)\nIdentity issuance · CRL\nAuth management · Keys" {
-  style.fill: "#e8f0fe"
-  style.font-size: 14
-}
-
-proxy -> relay-do: "route by\nrecipient DID" {
-  style.stroke: "#666"
-}
-proxy -> trust-do: "check trust pair" {
-  style.stroke: "#666"
-}
-proxy -> registry: "keys + CRL +\nauth validate" {
-  style.stroke-dash: 3
-}
-
-agent-machine.connector -> proxy: "HTTP POST\n(signed outbound)" {
-  style.stroke: "#1976d2"
-  style.stroke-dash: 3
-}
-relay-do -> agent-machine.connector: "WebSocket\ndeliver frame" {
-  style.stroke: "#388e3c"
-}
-```
-
-## Technology stack
-
-| Component | Technology |
-|-----------|-----------|
-| Runtime | Cloudflare Workers |
-| Database | Cloudflare D1 (SQLite) |
-| ORM | Drizzle ORM |
-| HTTP framework | Hono |
-| Cryptography | Ed25519 (`@noble/ed25519`), JWT (`jose`) |
-| Validation | Zod |
-| Build | tsup |
-| Monorepo | Nx + pnpm workspaces |
-| Testing | Vitest |
-| Linting | Biome |
-
-## Deployment model
-
-- **Registry and Proxy** deploy as Cloudflare Workers via `wrangler`
-- **CLI** is distributed as a Rust release via `install.sh`, `install.ps1`, and direct downloads from `downloads.clawdentity.com`
-- **OpenClaw skill** assets are embedded into the Rust release and mirrored into landing/download artifacts
-- **Self-setup** via `clawdentity install --for openclaw` + `clawdentity provider setup --for openclaw --agent-name <name>` provisions runtime artifacts, wires hooks, and runs readiness checks
-- **Node.js proxy** can run as a standalone Node.js server via `apps/proxy/src/node-server.ts` for local environments
-- **D1 database** stores agent identities, invites, API keys, and auth sessions
-- **Migrations** are managed with Drizzle Kit and applied before each deployment
-
-### Environments
-
-| Environment | Purpose |
-|-------------|---------|
-| `local` | Local Wrangler development only |
-| `dev` | Cloud deployment for testing |
-| `production` | Cloud deployment for live traffic |
-
-## CI/CD pipeline
-
-The CI pipeline runs on GitHub Actions:
-
-1. Checkout with full history (for Nx affected)
-2. Install dependencies (`pnpm install --frozen-lockfile`)
-3. Lint, typecheck, test, and build (via `nx affected`)
-4. Deploy to Cloudflare Workers (on push to develop/main)
-5. Health check deployed endpoints
-6. Capture rollback artifacts on failure
-
-## Contributing
-
-This repo is delivered through small GitHub issues with a deployment-first gate:
-
-1. Pick an active issue and confirm dependencies/blockers
-2. Implement in a feature branch with tests
-3. Run validation (`pnpm affected:test:local`)
-4. Open a PR and post implementation evidence on the issue
+Clawdentity is runtime-agnostic.
+It does not install or repair provider runtimes.

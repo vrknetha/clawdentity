@@ -5,7 +5,7 @@ on:
     branches: [develop]
     paths:
       - "apps/landing/**"
-      - "apps/openclaw-skill/skill/**"
+      - "apps/agent-skill/skill/**"
       - "apps/landing/scripts/**"
       - ".github/workflows/deploy-landing*.yml"
   workflow_dispatch:
@@ -91,6 +91,7 @@ jobs:
       - name: Assert landing artifacts exist
         run: |
           set -euo pipefail
+          test -f apps/landing/dist/agent-skill.md
           test -f apps/landing/dist/skill.md
           test -f apps/landing/dist/install.sh
           test -f apps/landing/dist/install.ps1
@@ -109,6 +110,7 @@ jobs:
 
           urls = [
               "https://clawdentity-site-dev.pages.dev/",
+              "https://clawdentity-site-dev.pages.dev/agent-skill.md",
               "https://clawdentity-site-dev.pages.dev/skill.md",
               "https://clawdentity-site-dev.pages.dev/install.sh",
               "https://clawdentity-site-dev.pages.dev/install.ps1",

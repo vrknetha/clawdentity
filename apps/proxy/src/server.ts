@@ -147,7 +147,8 @@ function buildHealthPayload(input: {
     nonceReplayBindingConfigured:
       input.bindings.NONCE_REPLAY_GUARD !== undefined ||
       !requiresDurableNonceReplay,
-    openclawBaseUrlConfigured: input.config.openclawBaseUrl.length > 0,
+    deliveryWebhookBaseUrlConfigured:
+      input.config.deliveryWebhookBaseUrl.length > 0,
   };
 
   return {
@@ -193,7 +194,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     "*",
     createPublicRateLimitMiddleware({
       logger,
-      paths: ["/hooks/agent", RELAY_CONNECT_PATH],
+      paths: ["/hooks/message", RELAY_CONNECT_PATH],
       maxRequests:
         options.rateLimit?.publicIpMaxRequests ??
         DEFAULT_PRE_AUTH_IP_RATE_LIMIT_REQUESTS_PER_MINUTE,
@@ -243,7 +244,7 @@ export function createProxyApp(options: CreateProxyAppOptions): ProxyApp {
     );
   });
   app.post(
-    "/hooks/agent",
+    "/hooks/message",
     createAgentHookHandler({
       logger,
       injectIdentityIntoMessage: options.config.injectIdentityIntoMessage,

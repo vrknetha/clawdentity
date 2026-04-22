@@ -5,38 +5,14 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(scriptDir, "..", "..", "..");
 
-const sourceSkill = join(
-  repoRoot,
-  "apps",
-  "openclaw-skill",
-  "skill",
-  "SKILL.md",
-);
+const sourceSkill = join(repoRoot, "apps", "agent-skill", "skill", "SKILL.md");
 const landingSkill = join(repoRoot, "apps", "landing", "public", "skill.md");
-const rustSkill = join(
-  repoRoot,
-  "crates",
-  "clawdentity-core",
-  "assets",
-  "openclaw-skill",
-  "skill",
-  "SKILL.md",
-);
-const sourceTransform = join(
+const landingAgentSkill = join(
   repoRoot,
   "apps",
-  "openclaw-skill",
-  "dist",
-  "relay-to-peer.mjs",
-);
-const rustTransform = join(
-  repoRoot,
-  "crates",
-  "clawdentity-core",
-  "assets",
-  "openclaw-skill",
-  "transform",
-  "relay-to-peer.mjs",
+  "landing",
+  "public",
+  "agent-skill.md",
 );
 
 async function readUtf8(filePath) {
@@ -44,40 +20,24 @@ async function readUtf8(filePath) {
 }
 
 async function main() {
-  const [
-    source,
-    landing,
-    rustSkillBody,
-    sourceTransformBody,
-    rustTransformBody,
-  ] = await Promise.all([
+  const [source, landing, landingAgent] = await Promise.all([
     readUtf8(sourceSkill),
     readUtf8(landingSkill),
-    readUtf8(rustSkill),
-    readUtf8(sourceTransform),
-    readUtf8(rustTransform),
+    readUtf8(landingAgentSkill),
   ]);
 
   if (!landing.startsWith(source)) {
     throw new Error(
-      "[verify-skill-artifacts] landing skill.md is not derived from apps/openclaw-skill/skill/SKILL.md",
+      "[verify-skill-artifacts] landing skill.md is not derived from apps/agent-skill/skill/SKILL.md",
     );
   }
-
-  if (rustSkillBody !== source) {
+  if (!landingAgent.startsWith(source)) {
     throw new Error(
-      "[verify-skill-artifacts] Rust skill asset does not match apps/openclaw-skill/skill/SKILL.md",
+      "[verify-skill-artifacts] landing agent-skill.md is not derived from apps/agent-skill/skill/SKILL.md",
     );
   }
-
-  if (rustTransformBody !== sourceTransformBody) {
-    throw new Error(
-      "[verify-skill-artifacts] Rust relay transform asset does not match apps/openclaw-skill/dist/relay-to-peer.mjs",
-    );
-  }
-
   process.stdout.write(
-    "[verify-skill-artifacts] landing and Rust skill artifacts are in sync\n",
+    "[verify-skill-artifacts] landing skill artifacts are in sync\n",
   );
 }
 

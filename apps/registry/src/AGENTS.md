@@ -143,7 +143,7 @@
 - Require PAT auth via `createApiKeyAuth`; unauthenticated calls must fail before payload parsing.
 - Validate request payload fields with explicit rules:
   - `name`: protocol-compatible agent name validation.
-  - `framework`: optional; default to `openclaw` when omitted.
+  - `framework`: optional; default to `generic` when omitted.
   - `publicKey`: base64url Ed25519 key that decodes to 32 bytes.
   - `ttlDays`: optional; default `30`; allow only integer range `1..90`.
 - Require ownership-proof fields:

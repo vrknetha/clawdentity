@@ -3,9 +3,9 @@ title: Installation
 description: Install the Clawdentity CLI using platform installers, with source/release fallback options.
 ---
 
-import { Steps, Tabs, TabItem } from "@astrojs/starlight/components";
+import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-## Install the Clawdentity CLI (recommended)
+## Install the CLI (recommended)
 
 <Tabs>
   <TabItem label="Unix (Linux/macOS)">
@@ -24,110 +24,10 @@ irm https://clawdentity.com/install.ps1 | iex
   </TabItem>
 </Tabs>
 
-The installer scripts verify release checksums by default and install the CLI binary (`clawdentity` / `clawdentity.exe`).
-Rust toolchain is not required for this recommended path; installer scripts download prebuilt release binaries.
+## Next
 
-### Installer environment variables
+After install, follow [Quick Start](/getting-started/quickstart/).
 
-| Variable | Description |
-|--------|-------------|
-| `CLAWDENTITY_VERSION` | Optional version override (`0.1.2`, `v0.1.2`, or `rust/v0.1.2`). Defaults to the version in `https://downloads.clawdentity.com/rust/latest.json`. |
-| `CLAWDENTITY_INSTALL_DIR` | Optional install target directory. |
-| `CLAWDENTITY_INSTALL_DRY_RUN=1` | Print planned actions without installing. |
-| `CLAWDENTITY_NO_VERIFY=1` | Skip checksum verification (not recommended). |
-| `CLAWDENTITY_RELEASE_MANIFEST_URL` | Optional manifest override for CI or private mirrors. |
-
-### Example overrides
-
-```bash
-CLAWDENTITY_VERSION=0.1.2 CLAWDENTITY_INSTALL_DIR="$HOME/.local/bin" \
-  curl -fsSL https://clawdentity.com/install.sh | sh
-```
-
-```powershell
-$env:CLAWDENTITY_VERSION = "0.1.2"
-$env:CLAWDENTITY_INSTALL_DRY_RUN = "1"
-irm https://clawdentity.com/install.ps1 | iex
-```
-
-## Advanced fallback: build from source (requires Rust toolchain)
-
-Use this when you prefer building from source with Rust tooling:
-
-```bash
-cargo install --locked clawdentity-cli
-```
-
-Optional deterministic pin:
-
-```bash
-cargo install --locked --version <version> clawdentity-cli
-```
-
-## Fallback: direct release assets
-
-If you cannot use the hosted installer scripts, download release assets directly:
-
-| Artifact | Location |
-|----------|----------|
-| Release manifest | `https://downloads.clawdentity.com/rust/latest.json` |
-| Linux/macOS archive | `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-<platform>.tar.gz` |
-| Windows archive | `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-<platform>.zip` |
-| Checksums file | `https://downloads.clawdentity.com/rust/v<version>/clawdentity-<version>-checksums.txt` |
-
-Supported platforms:
-
-- `linux-x86_64`
-- `linux-aarch64`
-- `macos-x86_64`
-- `macos-aarch64`
-- `windows-x86_64`
-- `windows-aarch64`
-
-Always verify checksums before installing when downloading assets manually.
-
-## Hosted next step
-
-After installing the CLI, start with [Get Started with GitHub](https://registry.clawdentity.com/v1/onboarding/github/start). The hosted prompt is generated only after the redirect lands on [the GitHub starter-pass page](https://clawdentity.com/getting-started/github/).
-
-If you run a private or self-hosted rollout, use the advanced/manual path in [Quick Start](/getting-started/quickstart/) and the canonical skill artifact at [`/skill.md`](/skill.md).
-
-## Development setup
-
-For the hosted develop environment, the Pages site at `https://clawdentity-site-dev.pages.dev` serves the same installer entrypoints and the same release downloads surface. Keep source docs production-first and use installer env overrides only when you need to test a private mirror locally.
-
-For contributing to Clawdentity itself:
-
-<Steps>
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/vrknetha/clawdentity.git
-   cd clawdentity
-   ```
-
-2. **Install dependencies**
-
-   ```bash
-   pnpm install
-   ```
-
-3. **Build all packages**
-
-   ```bash
-   pnpm build
-   ```
-
-4. **Run tests**
-
-   ```bash
-   pnpm test
-   ```
-
-</Steps>
-
-## Next steps
-
-- [Quick Start](/getting-started/quickstart/) — end-to-end walkthrough
-- [Architecture Overview](/architecture/overview/) — understand the repo layout
+For runtime integration instructions, use:
+- [`/agent-skill.md`](/agent-skill.md)
+- compatibility alias: [`/skill.md`](/skill.md)

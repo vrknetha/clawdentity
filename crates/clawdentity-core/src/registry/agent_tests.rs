@@ -45,7 +45,7 @@ fn test_ait(agent_did: &str) -> String {
             "sub": agent_did,
             "ownerDid": "did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
             "exp": 2_208_988_800_u64,
-            "framework": "openclaw",
+            "framework": "generic",
             "cnf": { "jwk": { "kty": "OKP", "crv": "Ed25519", "x": "public-key-b64url" } }
         }))
         .expect("payload"),
@@ -74,7 +74,7 @@ async fn create_and_inspect_agent_round_trip() {
             "agent": {
                 "did": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "name": "alpha",
-                "framework": "openclaw",
+                "framework": "generic",
                 "expiresAt": "2030-01-01T00:00:00.000Z"
             },
             "ait": test_ait("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),
@@ -99,7 +99,7 @@ async fn create_and_inspect_agent_round_trip() {
             &create_options,
             CreateAgentInput {
                 name: "alpha".to_string(),
-                framework: Some("openclaw".to_string()),
+                framework: Some("generic".to_string()),
                 ttl_days: Some(30),
             },
         )
@@ -118,7 +118,7 @@ async fn create_and_inspect_agent_round_trip() {
         .await
         .expect("join")
         .expect("inspect");
-    assert_eq!(inspect.framework, "openclaw");
+    assert_eq!(inspect.framework, "generic");
     assert_eq!(inspect.did, created.did);
     assert_eq!(
         inspect.owner_did,
@@ -152,7 +152,7 @@ async fn refresh_agent_auth_updates_registry_auth_bundle() {
             "agent": {
                 "did": "did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
                 "name": "beta",
-                "framework": "openclaw",
+                "framework": "generic",
                 "expiresAt": "2030-01-01T00:00:00.000Z"
             },
             "ait": test_ait("did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4"),

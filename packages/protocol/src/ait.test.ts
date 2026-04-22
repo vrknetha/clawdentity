@@ -17,7 +17,7 @@ function makeValidClaims() {
     sub: makeAgentDid(AUTHORITY, agentUlid),
     ownerDid: makeHumanDid(AUTHORITY, ownerUlid),
     name: "agent_name.v1",
-    framework: "openclaw",
+    framework: "generic",
     description: "Safe agent description.",
     cnf: {
       jwk: {

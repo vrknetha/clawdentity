@@ -1,6 +1,6 @@
 import { generateUlid } from "@clawdentity/protocol";
 import { createLogger, type Logger, toIso } from "@clawdentity/sdk";
-import { LocalOpenclawDeliveryClient } from "./client/delivery.js";
+import { LocalDeliveryWebhookDeliveryClient } from "./client/delivery.js";
 import {
   ConnectorHeartbeatManager,
   type HeartbeatAckTimeoutEvent,
@@ -10,7 +10,7 @@ import {
   readUnexpectedResponseStatus,
   resolveWebSocketFactory,
   sanitizeErrorReason,
-  toOpenclawHookUrl,
+  toDeliveryWebhookHookUrl,
 } from "./client/helpers.js";
 import { routeConnectorInboundMessage } from "./client/inbound-router.js";
 import { ConnectorClientMetricsTracker } from "./client/metrics.js";
@@ -38,15 +38,15 @@ import type {
 import {
   CONNECTOR_FRAME_VERSION,
   DEFAULT_CONNECT_TIMEOUT_MS,
+  DEFAULT_DELIVERY_WEBHOOK_DELIVER_MAX_ATTEMPTS,
+  DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_BACKOFF_FACTOR,
+  DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_BUDGET_MS,
+  DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_INITIAL_DELAY_MS,
+  DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_MAX_DELAY_MS,
+  DEFAULT_DELIVERY_WEBHOOK_DELIVER_TIMEOUT_MS,
+  DEFAULT_DELIVERY_WEBHOOK_HOOK_PATH,
   DEFAULT_HEARTBEAT_ACK_TIMEOUT_MS,
   DEFAULT_HEARTBEAT_INTERVAL_MS,
-  DEFAULT_OPENCLAW_DELIVER_MAX_ATTEMPTS,
-  DEFAULT_OPENCLAW_DELIVER_RETRY_BACKOFF_FACTOR,
-  DEFAULT_OPENCLAW_DELIVER_RETRY_BUDGET_MS,
-  DEFAULT_OPENCLAW_DELIVER_RETRY_INITIAL_DELAY_MS,
-  DEFAULT_OPENCLAW_DELIVER_RETRY_MAX_DELAY_MS,
-  DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS,
-  DEFAULT_OPENCLAW_HOOK_PATH,
   DEFAULT_RECONNECT_BACKOFF_FACTOR,
   DEFAULT_RECONNECT_JITTER_RATIO,
   DEFAULT_RECONNECT_MAX_DELAY_MS,
@@ -99,7 +99,7 @@ export class ConnectorClient {
 
   private readonly heartbeatManager: ConnectorHeartbeatManager;
   private readonly outboundQueue: ConnectorOutboundQueueManager;
-  private readonly localOpenclawDelivery: LocalOpenclawDeliveryClient;
+  private readonly localDeliveryWebhookDelivery: LocalDeliveryWebhookDeliveryClient;
   private readonly metricsTracker: ConnectorClientMetricsTracker;
   private readonly reconnectScheduler: ConnectorReconnectScheduler;
 
@@ -138,39 +138,40 @@ export class ConnectorClient {
     this.reconnectJitterRatio =
       options.reconnectJitterRatio ?? DEFAULT_RECONNECT_JITTER_RATIO;
 
-    const openclawDeliverTimeoutMs =
-      options.openclawDeliverTimeoutMs ?? DEFAULT_OPENCLAW_DELIVER_TIMEOUT_MS;
-    const openclawDeliverMaxAttempts = Math.max(
+    const deliveryWebhookDeliverTimeoutMs =
+      options.deliveryWebhookDeliverTimeoutMs ??
+      DEFAULT_DELIVERY_WEBHOOK_DELIVER_TIMEOUT_MS;
+    const deliveryWebhookDeliverMaxAttempts = Math.max(
       1,
       Math.floor(
-        options.openclawDeliverMaxAttempts ??
-          DEFAULT_OPENCLAW_DELIVER_MAX_ATTEMPTS,
+        options.deliveryWebhookDeliverMaxAttempts ??
+          DEFAULT_DELIVERY_WEBHOOK_DELIVER_MAX_ATTEMPTS,
       ),
     );
-    const openclawDeliverRetryInitialDelayMs = Math.max(
+    const deliveryWebhookDeliverRetryInitialDelayMs = Math.max(
       0,
       Math.floor(
-        options.openclawDeliverRetryInitialDelayMs ??
-          DEFAULT_OPENCLAW_DELIVER_RETRY_INITIAL_DELAY_MS,
+        options.deliveryWebhookDeliverRetryInitialDelayMs ??
+          DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_INITIAL_DELAY_MS,
       ),
     );
-    const openclawDeliverRetryMaxDelayMs = Math.max(
-      openclawDeliverRetryInitialDelayMs,
+    const deliveryWebhookDeliverRetryMaxDelayMs = Math.max(
+      deliveryWebhookDeliverRetryInitialDelayMs,
       Math.floor(
-        options.openclawDeliverRetryMaxDelayMs ??
-          DEFAULT_OPENCLAW_DELIVER_RETRY_MAX_DELAY_MS,
+        options.deliveryWebhookDeliverRetryMaxDelayMs ??
+          DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_MAX_DELAY_MS,
       ),
     );
-    const openclawDeliverRetryBackoffFactor = Math.max(
+    const deliveryWebhookDeliverRetryBackoffFactor = Math.max(
       1,
-      options.openclawDeliverRetryBackoffFactor ??
-        DEFAULT_OPENCLAW_DELIVER_RETRY_BACKOFF_FACTOR,
+      options.deliveryWebhookDeliverRetryBackoffFactor ??
+        DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_BACKOFF_FACTOR,
     );
-    const openclawDeliverRetryBudgetMs = Math.max(
-      openclawDeliverTimeoutMs,
+    const deliveryWebhookDeliverRetryBudgetMs = Math.max(
+      deliveryWebhookDeliverTimeoutMs,
       Math.floor(
-        options.openclawDeliverRetryBudgetMs ??
-          DEFAULT_OPENCLAW_DELIVER_RETRY_BUDGET_MS,
+        options.deliveryWebhookDeliverRetryBudgetMs ??
+          DEFAULT_DELIVERY_WEBHOOK_DELIVER_RETRY_BUDGET_MS,
       ),
     );
 
@@ -213,21 +214,21 @@ export class ConnectorClient {
       },
     });
 
-    const openclawHookUrl = toOpenclawHookUrl(
-      options.openclawBaseUrl,
-      options.openclawHookPath ?? DEFAULT_OPENCLAW_HOOK_PATH,
+    const deliveryWebhookHookUrl = toDeliveryWebhookHookUrl(
+      options.deliveryWebhookBaseUrl,
+      options.deliveryWebhookPath ?? DEFAULT_DELIVERY_WEBHOOK_HOOK_PATH,
     );
 
-    this.localOpenclawDelivery = new LocalOpenclawDeliveryClient({
+    this.localDeliveryWebhookDelivery = new LocalDeliveryWebhookDeliveryClient({
       fetchImpl: options.fetchImpl ?? fetch,
-      openclawHookUrl,
-      openclawHookToken: options.openclawHookToken,
-      openclawDeliverTimeoutMs,
-      openclawDeliverMaxAttempts,
-      openclawDeliverRetryInitialDelayMs,
-      openclawDeliverRetryMaxDelayMs,
-      openclawDeliverRetryBackoffFactor,
-      openclawDeliverRetryBudgetMs,
+      deliveryWebhookHookUrl,
+      deliveryWebhookToken: options.deliveryWebhookToken,
+      deliveryWebhookDeliverTimeoutMs,
+      deliveryWebhookDeliverMaxAttempts,
+      deliveryWebhookDeliverRetryInitialDelayMs,
+      deliveryWebhookDeliverRetryMaxDelayMs,
+      deliveryWebhookDeliverRetryBackoffFactor,
+      deliveryWebhookDeliverRetryBudgetMs,
       now: this.now,
       logger: this.logger,
       resolveInboundSenderProfile: options.resolveInboundSenderProfile,
@@ -589,7 +590,7 @@ export class ConnectorClient {
       hooks: this.hooks,
       heartbeatManager: this.heartbeatManager,
       inboundDeliverHandler: this.inboundDeliverHandler,
-      localOpenclawDelivery: this.localOpenclawDelivery,
+      localDeliveryWebhookDelivery: this.localDeliveryWebhookDelivery,
       isStarted: () => this.started,
       makeFrameId: () => this.makeFrameId(),
       makeTimestamp: () => this.makeTimestamp(),

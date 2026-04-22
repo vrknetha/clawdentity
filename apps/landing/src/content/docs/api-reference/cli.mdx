@@ -3,345 +3,88 @@ title: CLI Reference
 description: Complete command reference for the Clawdentity CLI.
 ---
 
-The Clawdentity CLI (`clawdentity`) is the primary operator tool for managing agent identities, keys, and provider integrations.
+The Clawdentity CLI (`clawdentity`) manages identity, trust, and the generic connector runtime.
 
-## Admin commands
-
-### `admin bootstrap`
-
-Bootstraps the registry by creating the first admin account and PAT.
-
-```bash
-clawdentity admin bootstrap \
-  --registry-url <url> \
-  --bootstrap-secret <secret>
-```
-
-The returned API key is printed once and persisted to local config. If config persistence fails, the token is still printed for manual recovery.
-
-## Config commands
+## Core commands
 
 ### `config init`
-
-Initialize local config file at `~/.clawdentity/config.json`.
 
 ```bash
 clawdentity config init [--registry-url <url>]
 ```
 
-Options:
-- `--registry-url <url>` — override registry URL
-
-Creates the file with default values if it does not already exist. Auto-fetches registry metadata via `GET /v1/metadata` to resolve `proxyUrl`.
-
-### `config set`
-
-Set a config value.
-
-```bash
-clawdentity config set <key> <value>
-```
-
-Valid keys: `registryUrl`, `proxyUrl`, `apiKey`, `humanName`.
-
-### `config get`
-
-Get a resolved config value.
-
-```bash
-clawdentity config get <key>
-```
-
-Prints `(not set)` when the key has no value.
-
-### `config show`
-
-Show all resolved config values.
-
-```bash
-clawdentity config show
-```
-
-Outputs JSON with `apiKey` masked as `********`.
-
-## Invite commands
-
-### `invite create`
-
-Creates a registry onboarding invite code. Requires admin authentication.
-
-```bash
-clawdentity invite create [--expires-at <timestamp>] [--registry-url <url>]
-```
-
-Options:
-- `--expires-at <timestamp>` — optional invite expiry (ISO-8601)
-- `--registry-url <url>` — override registry URL
-
-Returns a single-use, time-limited invite code (`clw_inv_<random>`).
-
 ### `invite redeem`
 
-Redeems a hosted starter pass (`clw_stp_...`) or operator invite (`clw_inv_...`) to create an account and receive an API key.
-
 ```bash
-clawdentity invite redeem <code> [--display-name <name>] [--registry-url <url>]
+clawdentity invite redeem <code> --display-name <name> [--registry-url <url>]
 ```
-
-Options:
-- `--display-name <name>` — human display name for onboarding
-- `--registry-url <url>` — override registry URL
-
-The plaintext PAT is printed before config persistence so operators can recover from local write failures. Successful redemption also persists the resolved `proxyUrl` into local config when the registry returns it.
-
-## Agent commands
 
 ### `agent create`
 
-Creates a new agent identity using a two-step challenge-response handshake.
-
 ```bash
-clawdentity agent create <name> [--framework <framework>] [--ttl-days <days>]
+clawdentity agent create <name> [--framework <label>] [--ttl-days <days>]
 ```
 
-Options:
-- `--framework <framework>` — agent framework label (registry defaults to `openclaw`)
-- `--ttl-days <days>` — agent token TTL in days (registry default when omitted)
-
-Generates an Ed25519 keypair locally, proves key ownership to the registry, and stores all credentials under `~/.clawdentity/agents/<name>/`.
+`framework` is optional metadata only.
 
 ### `agent inspect`
-
-Displays agent identity details and token metadata.
 
 ```bash
 clawdentity agent inspect <name>
 ```
 
-### `agent auth revoke`
-
-Revokes an agent's active auth session tokens. Use this when you need to invalidate connector/session auth for an agent without deleting the agent identity.
-
-```bash
-clawdentity agent auth revoke <name>
-```
-
-### `agent auth refresh`
-
-Refreshes agent auth tokens using Claw + PoP headers.
-
-```bash
-clawdentity agent auth refresh <name>
-```
-
-Rewrites `registry-auth.json` atomically on success.
-
-## API key commands
-
-### `api-key create`
-
-Creates a new PAT. The token is printed once and not persisted automatically.
-
-```bash
-clawdentity api-key create --name <key-name>
-```
-
-### `api-key list`
-
-Lists PAT metadata (never exposes token values).
-
-```bash
-clawdentity api-key list
-```
-
-### `api-key revoke`
-
-Revokes a specific PAT by ULID.
-
-```bash
-clawdentity api-key revoke <key-id>
-```
-
-## Install command
-
-### `install`
-
-Detects or selects a provider platform and installs provider artifacts and defaults.
-
-```bash
-clawdentity install [--for <platform>] [--port <port>] [--token <token>] [--json]
-```
-
-Options:
-- `--for <platform>` — explicit platform (`openclaw`, `picoclaw`, `nanobot`, `nanoclaw`)
-- `--port <port>` — webhook port override
-- `--token <token>` — webhook auth token override
-- `--json` — machine-readable JSON output
-
-List providers:
-
-```bash
-clawdentity install --list [--json]
-```
-
-## Provider commands
-
-### `provider status`
-
-Reports auto-detected provider status or explicit provider diagnostics.
-
-```bash
-clawdentity provider status [--for <platform>] [--json]
-```
-
-### `provider setup`
-
-Configures provider runtime integration (paths, webhook settings, connector options).
-
-```bash
-clawdentity provider setup \
-  --for <platform> \
-  [--agent-name <name>] \
-  [--openclaw-agent-id <id>] \
-  [--platform-base-url <url>] \
-  [--webhook-host <host>] \
-  [--webhook-port <port>] \
-  [--webhook-token <token>] \
-  [--connector-base-url <url>] \
-  [--connector-url <url>] \
-  [--relay-transform-peers-path <path>] \
-  [--json]
-```
-
-OpenClaw-specific setup options:
-- `--openclaw-agent-id <id>` — target OpenClaw agent ID used for connector delivery on default `/hooks/agent` routing; defaults to `main` and is validated against OpenClaw config during setup
-- If you explicitly switch connector delivery to `/hooks/wake`, `openclawAgentId` is ignored for that wake-only path
-
-### `provider doctor`
-
-Runs provider health checks for config, runtime wiring, and connector readiness.
-
-```bash
-clawdentity provider doctor \
-  [--for <platform>] \
-  [--peer <alias>] \
-  [--platform-state-dir <path>] \
-  [--connector-base-url <url>] \
-  [--skip-connector-runtime] \
-  [--json]
-```
-
-### `provider relay-test`
-
-Sends a relay probe to a peer alias using provider runtime settings.
-
-```bash
-clawdentity provider relay-test \
-  [--for <platform>] \
-  [--peer <alias>] \
-  [--platform-state-dir <path>] \
-  [--platform-base-url <url>] \
-  [--webhook-token <token>] \
-  [--connector-base-url <url>] \
-  [--message <text>] \
-  [--session-id <id>] \
-  [--no-preflight] \
-  [--json]
-```
-
-## Pairing and cross-agent trust
-
-The CLI exposes the proxy trust pairing flow directly.
-
 ### `pair start`
 
-Starts a pairing flow with a peer alias and returns a pairing ticket (`clwpair1_...`).
-
 ```bash
-clawdentity pair start <peer-alias>
+clawdentity pair start <agent-name>
 ```
 
 ### `pair confirm`
-
-Confirms a pairing ticket shared out-of-band by the initiating operator.
 
 ```bash
 clawdentity pair confirm <ticket>
 ```
 
-### `pair status`
+## Connector commands
 
-Checks the trust status for a peer alias until the pair is confirmed.
+### `connector configure`
 
 ```bash
-clawdentity pair status <peer-alias>
+clawdentity connector configure <agent-name> \
+  --delivery-webhook-url <url> \
+  [--delivery-webhook-header "Name: value"] \
+  [--delivery-health-url <url>]
 ```
 
-The underlying proxy APIs are still documented in:
-- [/api-reference/proxy/](/api-reference/proxy/)
-- [/guides/discovery/](/guides/discovery/)
+### `connector doctor`
 
-## Connector commands
+```bash
+clawdentity connector doctor <agent-name>
+```
 
 ### `connector start`
 
-Starts the local relay connector runtime.
-
 ```bash
-clawdentity connector start <agentName> \
-  [--proxy-ws-url <url>] \
-  [--openclaw-base-url <url>] \
-  [--openclaw-hook-path <path>] \
-  [--openclaw-hook-token <token>]
+clawdentity connector start <agent-name> \
+  [--delivery-webhook-url <url>] \
+  [--delivery-webhook-header "Name: value"] \
+  [--delivery-health-url <url>] \
+  [--bind <addr>] [--port <port>] [--proxy-url <ws-url>]
 ```
-
-Options:
-- `--proxy-ws-url <url>` — proxy websocket URL (or `CLAWDENTITY_PROXY_WS_URL` env)
-- `--openclaw-base-url <url>` — OpenClaw base URL (default `OPENCLAW_BASE_URL` env or `http://127.0.0.1:18789`)
-- `--openclaw-hook-path <path>` — OpenClaw hooks path (default `OPENCLAW_HOOK_PATH` env or `/hooks/agent`)
-- `--openclaw-hook-token <token>` — OpenClaw hooks token (default `OPENCLAW_HOOK_TOKEN` env)
 
 ### `connector service install`
 
-Installs autostart service using OS-native tooling (launchd on macOS, systemd on Linux).
-
 ```bash
-clawdentity connector service install <agentName> \
-  [--platform <platform>] \
-  [--proxy-ws-url <url>] \
-  [--openclaw-base-url <url>] \
-  [--openclaw-hook-path <path>] \
-  [--openclaw-hook-token <token>]
+clawdentity connector service install <agent-name> \
+  [--delivery-webhook-url <url>] \
+  [--delivery-webhook-header "Name: value"] \
+  [--delivery-health-url <url>] \
+  [--platform auto|launchd|systemd]
 ```
 
-Options:
-- `--platform <platform>` — service platform: `auto`, `launchd`, or `systemd` (default `auto`)
-- `--proxy-ws-url <url>` — proxy websocket URL (or `CLAWDENTITY_PROXY_WS_URL` env)
-- `--openclaw-base-url <url>` — OpenClaw base URL override for connector runtime
-- `--openclaw-hook-path <path>` — OpenClaw hooks path override for connector runtime
-- `--openclaw-hook-token <token>` — OpenClaw hooks token override for connector runtime
+## Removed command groups
 
-### `connector service uninstall`
-
-Removes the autostart service. Safe to re-run.
-
-```bash
-clawdentity connector service uninstall <agentName> [--platform <platform>]
-```
-
-Options:
-- `--platform <platform>` — service platform: `auto`, `launchd`, or `systemd` (default `auto`)
-
-## Command idempotency
-
-| Command | Idempotent? | Note |
-|---------|-------------|------|
-| `config init` | Yes | Safe to re-run |
-| `invite redeem` | **No** | One-time; starter pass or invite is consumed on success |
-| `agent create` | No | Fails if agent directory exists |
-| `agent auth revoke` | Yes | Safe to re-run; token state remains revoked |
-| `install --for <platform>` | Yes | Reports platform install and verify status |
-| `provider setup --for <platform>` | Usually yes | Primary reconciliation re-entry point |
-| `provider doctor --for <platform>` | Yes | Read-only health checks |
-| `provider relay-test --for <platform>` | Mostly yes | Sends real probe traffic |
-| `connector service install` | Yes | Idempotent |
+These are intentionally removed in the runtime-agnostic hard cut:
+- `provider ...`
+- `install --for ...`
+- provider auto-detect/setup/doctor/relay-test

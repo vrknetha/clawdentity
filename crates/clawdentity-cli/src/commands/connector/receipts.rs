@@ -75,8 +75,8 @@ impl ReceiptOutboxHandle {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) enum DeliveryReceiptStatus {
-    #[serde(rename = "processed_by_openclaw")]
-    ProcessedByOpenclaw,
+    #[serde(rename = "delivered_to_webhook")]
+    DeliveredToWebhook,
     #[serde(rename = "dead_lettered")]
     DeadLettered,
 }
@@ -116,7 +116,7 @@ fn make_receipt_key(input: &DeliveryReceiptPayload) -> String {
         "{}:{}",
         input.request_id,
         match input.status {
-            DeliveryReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+            DeliveryReceiptStatus::DeliveredToWebhook => "delivered_to_webhook",
             DeliveryReceiptStatus::DeadLettered => "dead_lettered",
         }
     )
@@ -171,7 +171,7 @@ async fn post_receipt(
         "senderAgentDid": payload.sender_agent_did,
         "recipientAgentDid": payload.recipient_agent_did,
         "status": match payload.status {
-            DeliveryReceiptStatus::ProcessedByOpenclaw => "processed_by_openclaw",
+            DeliveryReceiptStatus::DeliveredToWebhook => "delivered_to_webhook",
             DeliveryReceiptStatus::DeadLettered => "dead_lettered",
         },
         "reason": payload.reason,

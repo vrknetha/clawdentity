@@ -254,7 +254,7 @@ describe("AgentRelaySession delivery", () => {
       requestId: receiptRequestId,
       senderAgentDid: SENDER_AGENT_DID,
       recipientAgentDid: RECIPIENT_AGENT_DID,
-      status: "processed_by_openclaw",
+      status: "delivered_to_webhook",
     });
 
     const pairClient = createMockSocket();
@@ -288,7 +288,7 @@ describe("AgentRelaySession delivery", () => {
     expect(receiptFrame?.type).toBe("receipt");
     if (receiptFrame?.type === "receipt") {
       expect(receiptFrame.originalFrameId).toBe(receiptRequestId);
-      expect(receiptFrame.status).toBe("processed_by_openclaw");
+      expect(receiptFrame.status).toBe("delivered_to_webhook");
       expect(receiptFrame.toAgentDid).toBe(RECIPIENT_AGENT_DID);
     }
   });

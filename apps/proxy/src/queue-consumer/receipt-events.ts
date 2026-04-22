@@ -10,7 +10,7 @@ export type ReceiptQueueEvent = {
   requestId: string;
   senderAgentDid: string;
   recipientAgentDid: string;
-  status: "processed_by_openclaw" | "dead_lettered";
+  status: "delivered_to_webhook" | "dead_lettered";
   reason?: string;
   processedAt?: string;
 };
@@ -43,7 +43,7 @@ export function parseReceiptQueueEvent(payload: unknown): ReceiptQueueEvent {
       "recipientAgentDid",
     ),
     status:
-      input.status === "processed_by_openclaw" ||
+      input.status === "delivered_to_webhook" ||
       input.status === "dead_lettered"
         ? input.status
         : (() => {

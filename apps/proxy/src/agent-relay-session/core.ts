@@ -627,7 +627,7 @@ export class AgentRelaySession {
     nowMs: number;
     originalFrameId: string;
     reason?: string;
-    status: "processed_by_openclaw" | "dead_lettered";
+    status: "delivered_to_webhook" | "dead_lettered";
     toAgentDid: string;
   }): void {
     const payload = toReceiptFramePayload({
@@ -656,7 +656,7 @@ export class AgentRelaySession {
     for (const receipt of Object.values(queueState.receipts)) {
       if (
         receipt.expiresAtMs <= nowMs ||
-        (receipt.state !== "processed_by_openclaw" &&
+        (receipt.state !== "delivered_to_webhook" &&
           receipt.state !== "dead_lettered")
       ) {
         continue;

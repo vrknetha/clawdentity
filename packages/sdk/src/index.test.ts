@@ -151,7 +151,7 @@ describe("sdk", () => {
         ownerDid:
           "did:cdi:registry.clawdentity.dev:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
         name: "jwt-root-test",
-        framework: "openclaw",
+        framework: "generic",
         cnf: {
           jwk: {
             kty: "OKP",

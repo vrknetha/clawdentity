@@ -1,0 +1,11 @@
+{
+  "name": "@clawdentity/agent-skill",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo 'agent-skill docs only'",
+    "test": "echo 'no tests'",
+    "typecheck": "echo 'no typecheck'"
+  }
+}

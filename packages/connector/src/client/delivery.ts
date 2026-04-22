@@ -1,26 +1,27 @@
 import type { Logger } from "@clawdentity/sdk";
-import type { DeliverFrame } from "../frames.js";
 import {
-  applyOpenclawSenderProfileHeaders,
-  type OpenclawSenderProfile,
-} from "../openclaw-headers.js";
-import { buildOpenclawHookPayload } from "../openclaw-payload.js";
+  applyDeliveryWebhookSenderProfileHeaders,
+  type DeliveryWebhookSenderProfile,
+} from "../deliveryWebhook-headers.js";
+import { buildDeliveryWebhookHookPayload } from "../deliveryWebhook-payload.js";
+import type { DeliverFrame } from "../frames.js";
 import { isAbortError, sanitizeErrorReason, wait } from "./helpers.js";
 import { computeNextBackoffDelayMs } from "./retry.js";
 
-class LocalOpenclawDeliveryError extends Error {
+class LocalDeliveryWebhookDeliveryError extends Error {
   readonly retryable: boolean;
 
   constructor(input: { message: string; retryable: boolean }) {
     super(input.message);
-    this.name = "LocalOpenclawDeliveryError";
+    this.name = "LocalDeliveryWebhookDeliveryError";
     this.retryable = input.retryable;
   }
 }
 
-function isRetryableOpenclawDeliveryError(error: unknown): boolean {
+function isRetryableDeliveryWebhookDeliveryError(error: unknown): boolean {
   return (
-    error instanceof LocalOpenclawDeliveryError && error.retryable === true
+    error instanceof LocalDeliveryWebhookDeliveryError &&
+    error.retryable === true
   );
 }
 
@@ -32,22 +33,22 @@ function parseOptionalNonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export class LocalOpenclawDeliveryClient {
+export class LocalDeliveryWebhookDeliveryClient {
   private readonly fetchImpl: typeof fetch;
-  private readonly openclawHookUrl: string;
-  private readonly openclawHookToken: string | undefined;
-  private readonly openclawDeliverTimeoutMs: number;
-  private readonly openclawDeliverMaxAttempts: number;
-  private readonly openclawDeliverRetryInitialDelayMs: number;
-  private readonly openclawDeliverRetryMaxDelayMs: number;
-  private readonly openclawDeliverRetryBackoffFactor: number;
-  private readonly openclawDeliverRetryBudgetMs: number;
+  private readonly deliveryWebhookHookUrl: string;
+  private readonly deliveryWebhookToken: string | undefined;
+  private readonly deliveryWebhookDeliverTimeoutMs: number;
+  private readonly deliveryWebhookDeliverMaxAttempts: number;
+  private readonly deliveryWebhookDeliverRetryInitialDelayMs: number;
+  private readonly deliveryWebhookDeliverRetryMaxDelayMs: number;
+  private readonly deliveryWebhookDeliverRetryBackoffFactor: number;
+  private readonly deliveryWebhookDeliverRetryBudgetMs: number;
   private readonly resolveInboundSenderProfile:
     | ((
         fromAgentDid: string,
       ) =>
-        | OpenclawSenderProfile
-        | Promise<OpenclawSenderProfile | undefined>
+        | DeliveryWebhookSenderProfile
+        | Promise<DeliveryWebhookSenderProfile | undefined>
         | undefined)
     | undefined;
   private readonly now: () => number;
@@ -55,36 +56,40 @@ export class LocalOpenclawDeliveryClient {
 
   constructor(input: {
     fetchImpl: typeof fetch;
-    openclawHookUrl: string;
-    openclawHookToken: string | undefined;
-    openclawDeliverTimeoutMs: number;
-    openclawDeliverMaxAttempts: number;
-    openclawDeliverRetryInitialDelayMs: number;
-    openclawDeliverRetryMaxDelayMs: number;
-    openclawDeliverRetryBackoffFactor: number;
-    openclawDeliverRetryBudgetMs: number;
+    deliveryWebhookHookUrl: string;
+    deliveryWebhookToken: string | undefined;
+    deliveryWebhookDeliverTimeoutMs: number;
+    deliveryWebhookDeliverMaxAttempts: number;
+    deliveryWebhookDeliverRetryInitialDelayMs: number;
+    deliveryWebhookDeliverRetryMaxDelayMs: number;
+    deliveryWebhookDeliverRetryBackoffFactor: number;
+    deliveryWebhookDeliverRetryBudgetMs: number;
     resolveInboundSenderProfile:
       | ((
           fromAgentDid: string,
         ) =>
-          | OpenclawSenderProfile
-          | Promise<OpenclawSenderProfile | undefined>
+          | DeliveryWebhookSenderProfile
+          | Promise<DeliveryWebhookSenderProfile | undefined>
           | undefined)
       | undefined;
     now: () => number;
     logger: Logger;
   }) {
     this.fetchImpl = input.fetchImpl;
-    this.openclawHookUrl = input.openclawHookUrl;
-    this.openclawHookToken = input.openclawHookToken;
-    this.openclawDeliverTimeoutMs = input.openclawDeliverTimeoutMs;
-    this.openclawDeliverMaxAttempts = input.openclawDeliverMaxAttempts;
-    this.openclawDeliverRetryInitialDelayMs =
-      input.openclawDeliverRetryInitialDelayMs;
-    this.openclawDeliverRetryMaxDelayMs = input.openclawDeliverRetryMaxDelayMs;
-    this.openclawDeliverRetryBackoffFactor =
-      input.openclawDeliverRetryBackoffFactor;
-    this.openclawDeliverRetryBudgetMs = input.openclawDeliverRetryBudgetMs;
+    this.deliveryWebhookHookUrl = input.deliveryWebhookHookUrl;
+    this.deliveryWebhookToken = input.deliveryWebhookToken;
+    this.deliveryWebhookDeliverTimeoutMs =
+      input.deliveryWebhookDeliverTimeoutMs;
+    this.deliveryWebhookDeliverMaxAttempts =
+      input.deliveryWebhookDeliverMaxAttempts;
+    this.deliveryWebhookDeliverRetryInitialDelayMs =
+      input.deliveryWebhookDeliverRetryInitialDelayMs;
+    this.deliveryWebhookDeliverRetryMaxDelayMs =
+      input.deliveryWebhookDeliverRetryMaxDelayMs;
+    this.deliveryWebhookDeliverRetryBackoffFactor =
+      input.deliveryWebhookDeliverRetryBackoffFactor;
+    this.deliveryWebhookDeliverRetryBudgetMs =
+      input.deliveryWebhookDeliverRetryBudgetMs;
     this.resolveInboundSenderProfile = input.resolveInboundSenderProfile;
     this.now = input.now;
     this.logger = input.logger;
@@ -94,42 +99,46 @@ export class LocalOpenclawDeliveryClient {
     frame: DeliverFrame,
     shouldContinue: () => boolean,
   ): Promise<void> {
-    let senderProfile: OpenclawSenderProfile | undefined;
+    let senderProfile: DeliveryWebhookSenderProfile | undefined;
     if (this.resolveInboundSenderProfile !== undefined) {
       try {
         senderProfile = await this.resolveInboundSenderProfile(
           frame.fromAgentDid,
         );
       } catch (error) {
-        this.logger.warn("connector.openclaw.sender_profile_lookup_failed", {
-          fromAgentDid: frame.fromAgentDid,
-          reason: sanitizeErrorReason(error),
-        });
+        this.logger.warn(
+          "connector.deliveryWebhook.sender_profile_lookup_failed",
+          {
+            fromAgentDid: frame.fromAgentDid,
+            reason: sanitizeErrorReason(error),
+          },
+        );
       }
     }
 
     const startedAt = this.now();
     let attempt = 1;
-    let retryDelayMs = this.openclawDeliverRetryInitialDelayMs;
+    let retryDelayMs = this.deliveryWebhookDeliverRetryInitialDelayMs;
 
     while (true) {
       try {
         await this.deliverOnce(frame, senderProfile);
         return;
       } catch (error) {
-        const retryable = isRetryableOpenclawDeliveryError(error);
-        const attemptsRemaining = attempt < this.openclawDeliverMaxAttempts;
+        const retryable = isRetryableDeliveryWebhookDeliveryError(error);
+        const attemptsRemaining =
+          attempt < this.deliveryWebhookDeliverMaxAttempts;
         const elapsedMs = this.now() - startedAt;
         const hasBudgetForRetry =
-          elapsedMs + retryDelayMs + this.openclawDeliverTimeoutMs <=
-          this.openclawDeliverRetryBudgetMs;
+          elapsedMs + retryDelayMs + this.deliveryWebhookDeliverTimeoutMs <=
+          this.deliveryWebhookDeliverRetryBudgetMs;
         const shouldRetry =
           retryable &&
           attemptsRemaining &&
           hasBudgetForRetry &&
           shouldContinue();
 
-        this.logger.warn("connector.openclaw.deliver_failed", {
+        this.logger.warn("connector.deliveryWebhook.deliver_failed", {
           ackId: frame.id,
           attempt,
           retryable,
@@ -144,8 +153,8 @@ export class LocalOpenclawDeliveryClient {
         await wait(retryDelayMs);
         retryDelayMs = computeNextBackoffDelayMs({
           currentDelayMs: retryDelayMs,
-          maxDelayMs: this.openclawDeliverRetryMaxDelayMs,
-          backoffFactor: this.openclawDeliverRetryBackoffFactor,
+          maxDelayMs: this.deliveryWebhookDeliverRetryMaxDelayMs,
+          backoffFactor: this.deliveryWebhookDeliverRetryBackoffFactor,
         });
         attempt += 1;
       }
@@ -154,40 +163,42 @@ export class LocalOpenclawDeliveryClient {
 
   private async deliverOnce(
     frame: DeliverFrame,
-    senderProfile: OpenclawSenderProfile | undefined,
+    senderProfile: DeliveryWebhookSenderProfile | undefined,
   ): Promise<void> {
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       controller.abort();
-    }, this.openclawDeliverTimeoutMs);
+    }, this.deliveryWebhookDeliverTimeoutMs);
 
     const headers: Record<string, string> = {
-      "content-type": "application/json",
+      "content-type": "application/vnd.clawdentity.delivery+json",
       "x-clawdentity-agent-did": frame.fromAgentDid,
       "x-clawdentity-to-agent-did": frame.toAgentDid,
       "x-clawdentity-verified": "true",
       "x-request-id": frame.id,
     };
 
-    if (this.openclawHookToken !== undefined) {
-      headers["x-openclaw-token"] = this.openclawHookToken;
+    if (this.deliveryWebhookToken !== undefined) {
+      headers["x-deliveryWebhook-token"] = this.deliveryWebhookToken;
     }
     const groupId = parseOptionalNonEmptyString(frame.groupId);
     if (groupId) {
       headers["x-clawdentity-group-id"] = groupId;
     }
-    applyOpenclawSenderProfileHeaders({
+    applyDeliveryWebhookSenderProfileHeaders({
       headers,
       senderProfile,
     });
 
     try {
-      const response = await this.fetchImpl(this.openclawHookUrl, {
+      const response = await this.fetchImpl(this.deliveryWebhookHookUrl, {
         method: "POST",
         headers,
         body: JSON.stringify(
-          buildOpenclawHookPayload({
-            hookUrl: this.openclawHookUrl,
+          buildDeliveryWebhookHookPayload({
+            contentType: frame.contentType,
+            deliverySource: frame.deliverySource,
+            deliveryTimestamp: frame.ts,
             payload: frame.payload,
             senderDid: frame.fromAgentDid,
             toAgentDid: frame.toAgentDid,
@@ -202,8 +213,8 @@ export class LocalOpenclawDeliveryClient {
       });
 
       if (!response.ok) {
-        throw new LocalOpenclawDeliveryError({
-          message: `Local OpenClaw hook rejected payload with status ${response.status}`,
+        throw new LocalDeliveryWebhookDeliveryError({
+          message: `Local delivery webhook rejected payload with status ${response.status}`,
           retryable:
             response.status === 401 ||
             response.status === 403 ||
@@ -214,17 +225,17 @@ export class LocalOpenclawDeliveryClient {
       }
     } catch (error) {
       if (isAbortError(error)) {
-        throw new LocalOpenclawDeliveryError({
-          message: "Local OpenClaw hook request timed out",
+        throw new LocalDeliveryWebhookDeliveryError({
+          message: "Local delivery webhook request timed out",
           retryable: true,
         });
       }
 
-      if (error instanceof LocalOpenclawDeliveryError) {
+      if (error instanceof LocalDeliveryWebhookDeliveryError) {
         throw error;
       }
 
-      throw new LocalOpenclawDeliveryError({
+      throw new LocalDeliveryWebhookDeliveryError({
         message: sanitizeErrorReason(error),
         retryable: true,
       });

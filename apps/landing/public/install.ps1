@@ -94,7 +94,7 @@ function Resolve-SkillUrl {
     $SiteBaseUrlInput
   }
 
-  return "$(Trim-TrailingSlash $siteBaseUrl)/skill.md"
+  return "$(Trim-TrailingSlash $siteBaseUrl)/agent-skill.md"
 }
 
 function Set-VersionInfo {

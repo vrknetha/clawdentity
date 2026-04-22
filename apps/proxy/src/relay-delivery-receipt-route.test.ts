@@ -40,7 +40,7 @@ function createRelayReceiptHarness(input?: {
   lookupReceiptState?:
     | "queued"
     | "delivered"
-    | "processed_by_openclaw"
+    | "delivered_to_webhook"
     | "dead_lettered";
   recordStatus?: number;
   lookupStatus?: number;
@@ -86,7 +86,7 @@ function createRelayReceiptHarness(input?: {
                 receipt: {
                   deliveryId: "dlv_1",
                   requestId: payload.requestId,
-                  state: input?.lookupReceiptState ?? "processed_by_openclaw",
+                  state: input?.lookupReceiptState ?? "delivered_to_webhook",
                   senderAgentDid: payload.senderAgentDid,
                   recipientAgentDid:
                     "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
@@ -186,7 +186,7 @@ describe("relay delivery receipt route", () => {
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -199,7 +199,7 @@ describe("relay delivery receipt route", () => {
     expect(await response.json()).toEqual({ accepted: true });
     expect(relayHarness.recordInputs).toHaveLength(1);
     expect(relayHarness.recordInputs[0]?.requestId).toBe("req-1");
-    expect(relayHarness.recordInputs[0]?.status).toBe("processed_by_openclaw");
+    expect(relayHarness.recordInputs[0]?.status).toBe("delivered_to_webhook");
     expect(relayHarness.namespace.idFromName).toHaveBeenCalledTimes(1);
     expect(relayHarness.namespace.idFromName).toHaveBeenCalledWith(
       "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
@@ -234,7 +234,7 @@ describe("relay delivery receipt route", () => {
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -253,7 +253,7 @@ describe("relay delivery receipt route", () => {
     };
     expect(queued.type).toBe("delivery_receipt");
     expect(queued.requestId).toBe("req-queue-1");
-    expect(queued.status).toBe("processed_by_openclaw");
+    expect(queued.status).toBe("delivered_to_webhook");
   });
 
   it("publishes dead_lettered receipt events to queue without direct DO writes", async () => {
@@ -285,7 +285,7 @@ describe("relay delivery receipt route", () => {
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
           status: "dead_lettered",
-          reason: "openclaw hook failed",
+          reason: "generic hook failed",
         }),
       },
       {
@@ -306,7 +306,7 @@ describe("relay delivery receipt route", () => {
     expect(queued.type).toBe("delivery_receipt");
     expect(queued.requestId).toBe("req-queue-dead");
     expect(queued.status).toBe("dead_lettered");
-    expect(queued.reason).toBe("openclaw hook failed");
+    expect(queued.reason).toBe("generic hook failed");
   });
 
   it("returns 503 when queue binding is missing outside local environment", async () => {
@@ -336,7 +336,7 @@ describe("relay delivery receipt route", () => {
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -378,7 +378,7 @@ describe("relay delivery receipt route", () => {
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -460,7 +460,7 @@ describe("relay delivery receipt route", () => {
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -500,7 +500,7 @@ describe("relay delivery receipt route", () => {
           senderAgentDid: "\n\t",
           recipientAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -540,7 +540,7 @@ describe("relay delivery receipt route", () => {
           senderAgentDid:
             "did:cdi:registry.clawdentity.dev:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
           recipientAgentDid: "   ",
-          status: "processed_by_openclaw",
+          status: "delivered_to_webhook",
         }),
       },
       {
@@ -587,7 +587,7 @@ describe("relay delivery receipt route", () => {
     };
     expect(body.found).toBe(true);
     expect(body.receipt?.requestId).toBe("req-3");
-    expect(body.receipt?.state).toBe("processed_by_openclaw");
+    expect(body.receipt?.state).toBe("delivered_to_webhook");
     expect(relayHarness.lookupInputs).toHaveLength(1);
     expect(relayHarness.lookupInputs[0]?.senderAgentDid).toBe(
       "did:cdi:registry.clawdentity.dev:agent:01HF7YAT00EXEKCZ140TBBFB97",

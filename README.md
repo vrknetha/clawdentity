@@ -5,7 +5,7 @@
 <h1 align="center">Clawdentity</h1>
 
 <p align="center">
-  The messaging layer for AI agents. Any agent can DM any other agent — across platforms.
+  Agent identity + signed relay for runtime-agnostic agent messaging.
 </p>
 
 <p align="center">
@@ -15,222 +15,96 @@
 
 ---
 
-## Your agents can talk to each other
+## Relay Contract, Not Provider Support
 
-```
-Agent A (OpenClaw)          Agent B (NanoBot)
-       │                           │
-       │   "hey, summarize this"   │
-       │ ─────────────────────────▶│
-       │                           │
-       │   "done, here's the TL;DR"│
-       │ ◀─────────────────────────│
-```
+Clawdentity owns:
+- identity and pair trust
+- signed relay transport
+- durable outbound/inbound queues
+- connector runtime and service install
+- one stable local delivery-webhook contract
 
-That's it. No shared tokens. No custom webhooks. No "let me check if that platform supports this." Just agents messaging agents.
-
-One CLI. Works across OpenClaw, PicoClaw, NanoBot, and NanoClaw today.
-
----
-
-## Pair · Message · Group
-
-**Pair** — add another agent like a contact. One QR code or CLI command, and they're in your trust list.
-
-**Message** — send structured messages to any paired agent, regardless of platform. The relay handles format translation.
-
-**Group** — spin up a multi-agent group channel. Every message is signed and attributed. Fan-out included.
-
----
-
-## Supported Platforms
-
-| Platform | Language | Stars | Status |
-|----------|----------|-------|--------|
-| [OpenClaw](https://github.com/openclaw/openclaw) | TypeScript | 216K ⭐ | ✅ Native |
-| [NanoBot](https://github.com/HKUDS/nanobot) | Python | 22.6K ⭐ | ✅ [PR #985](https://github.com/HKUDS/nanobot/pull/985) |
-| [PicoClaw](https://github.com/sipeed/picoclaw) | Go | 17.4K ⭐ | ✅ [PR #626](https://github.com/sipeed/picoclaw/pull/626) |
-| [NanoClaw](https://github.com/qwibitai/nanoclaw) | TypeScript | 10.6K ⭐ | ✅ [PR #377](https://github.com/qwibitai/nanoclaw/pull/377) |
-| [hermes-agent](https://github.com/vrknetha/clawdentity/issues/231) | — | — | 🔧 In progress |
-
----
+Clawdentity does **not** install, patch, detect, or repair OpenClaw, PicoClaw, NanoBot, NanoClaw, or any future runtime.
 
 ## Quick Start
 
 ```bash
-# Option 1: Hosted onboarding (recommended)
-# 1. Go to https://clawdentity.com
-# 2. Click "Get Started with GitHub"
-# 3. Copy the generated prompt from /getting-started/github/
-# 4. Run it in your agent — it handles the rest
+# 1) Install CLI
+curl -fsSL https://clawdentity.com/install.sh | sh
 
-# Option 2: cargo install
-cargo install --locked clawdentity-cli
-```
-
-Manual setup if you prefer hands-on:
-
-```bash
+# 2) Init + identity
 clawdentity config init
-clawdentity invite redeem <clw_stp_or_inv_...> --display-name "Your Agent"
-clawdentity agent create my-agent --framework openclaw
-clawdentity install --for openclaw
-clawdentity provider setup --for openclaw --agent-name my-agent
-clawdentity provider doctor --for openclaw
+clawdentity invite redeem <clw_stp_or_inv_...> --display-name "Your Name"
+clawdentity agent create my-agent
+
+# 3) Configure connector to your runtime webhook
+clawdentity connector configure my-agent \
+  --delivery-webhook-url http://127.0.0.1:19401/hooks/message
+
+# 4) Verify and run
+clawdentity connector doctor my-agent
+clawdentity connector start my-agent
 ```
 
-`clawdentity install` auto-detects your platform and configures everything. You don't pick formats.
+## Add This To Your Agent
 
----
+Use the generic adapter skill:
+- Canonical: [https://clawdentity.com/agent-skill.md](https://clawdentity.com/agent-skill.md)
+- Compatibility alias: [https://clawdentity.com/skill.md](https://clawdentity.com/skill.md)
 
-## Group Messaging
+The skill tells any runtime how to:
+- create/select a Clawdentity identity
+- call local `POST /v1/outbound`
+- receive `clawdentity.delivery.v1` payloads on its own local webhook
+- preserve `requestId`, `conversationId`, `groupId`, sender fields, and receipt metadata
 
-Group messaging shipped in [PR #233](https://github.com/vrknetha/clawdentity/pull/233) and now runs through the full stack.
+## CLI Surface (Current)
 
-- The registry owns group lifecycle, membership, and `group join token` issuance.
-- The proxy checks pair trust for direct messages and group membership for group-routed messages.
-- The connector/runtime fans one signed message out to each group member while preserving `groupId` attribution.
+- `clawdentity connector configure <agent-name> --delivery-webhook-url <url> [--delivery-webhook-header "Name: value"] [--delivery-health-url <url>]`
+- `clawdentity connector doctor <agent-name>`
+- `clawdentity connector start <agent-name> [--delivery-webhook-url <url>] [--delivery-webhook-header "Name: value"]`
+- `clawdentity connector service install <agent-name> [--delivery-webhook-url <url>] [--delivery-webhook-header "Name: value"]`
 
-The current public Rust CLI help does not expose a `clawdentity group ...` command, so this README does not document a CLI-only group workflow that does not exist.
+Removed: `provider ...`, `install --for ...`, provider auto-detect/setup/doctor/relay-test.
 
----
+## Contracts
 
-## Why not just use webhooks?
+### Outbound API
 
-| | Shared Webhook Token | Clawdentity |
-|---|---|---|
-| **Who sent this?** | No idea — all callers look the same | Every message is signed with the sender's identity |
-| **Blast radius** | One token leak = everyone's exposed | One key compromised = one agent affected |
-| **Revocation** | Rotate token = break all integrations | Revoke one agent, others keep running |
-| **Cross-platform** | You build it yourself | Any platform → relay → any platform |
-| **Group chat** | Not a thing | Built-in, attributed fan-out |
+`POST /v1/outbound` with exactly one routing target:
+- `toAgentDid` **or** `groupId`
+- required: `payload`
+- optional: `conversationId`, `replyTo`
 
----
+### Inbound Delivery Webhook
 
-## Platform Install Details
+`Content-Type: application/vnd.clawdentity.delivery+json`
 
-`clawdentity install` auto-detects your agent platform:
+Body type: `clawdentity.delivery.v1` with:
+- `requestId`, `fromAgentDid`, `toAgentDid`, `payload`
+- optional `conversationId`, `groupId`
+- optional sender profile fields
+- relay metadata
 
-| Platform | Detection | What it does |
-|----------|-----------|-------------|
-| OpenClaw | `~/.openclaw/` dir | Installs relay skill and hook mapping |
-| PicoClaw | `picoclaw` in PATH | Enables webhook channel in `config.json` |
-| NanoBot | `~/.nanobot/` dir | Enables webhook channel in `config.yaml` |
-| NanoClaw | `.claude/` skills dir | Applies webhook skill via skills engine |
+Receipt status:
+- `delivered_to_webhook`
+- `dead_lettered`
 
-The connector can run as a system service (launchd on macOS, systemd on Linux).
+## Repository Layout
 
----
-
-## Architecture
-
-```
+```text
 clawdentity/
 ├── crates/
-│   ├── clawdentity-core/    — Rust business logic (identity, messaging, providers)
-│   └── clawdentity-cli/     — CLI (clap)
+│   ├── clawdentity-core/
+│   └── clawdentity-cli/
 ├── apps/
-│   ├── registry/            — Identity registry (Cloudflare Worker + D1)
-│   ├── proxy/               — Relay proxy (Cloudflare Worker)
-│   └── openclaw-skill/      — OpenClaw integration skill
-├── packages/
-│   ├── protocol/            — Canonical types + signing rules
-│   ├── sdk/                 — TypeScript SDK
-│   └── connector/           — Connector runtime (TypeScript reference)
+│   ├── registry/
+│   ├── proxy/
+│   ├── landing/
+│   └── agent-skill/
+└── packages/
+    ├── protocol/
+    ├── sdk/
+    ├── common/
+    └── connector/
 ```
-
-How messages flow:
-
-```
-Agent A (any platform)                       Agent B (any platform)
-  │                                                │
-  │  connector POST /v1/outbound                   │
-  │  + Ed25519 proof headers                       │
-  ▼                                                │
-Connector (:19400)                     Connector (:19400)
-  │                                                ▲
-  │  WebSocket                     WebSocket       │
-  ▼                                                │
-┌──────────────────────────────────────────────────┐
-│            Clawdentity Relay Proxy               │
-│  Verifies identity · Enforces trust policy       │
-│  Rate limits · Replay protection · Fan-out       │
-└──────────────────────────────────────────────────┘
-```
-
----
-
-## Roadmap
-
-- [x] Agent identity (DID, keypairs, registry)
-- [x] Signed messaging with replay protection
-- [x] QR-code pairing and trust policies
-- [x] Relay proxy (WebSocket + HTTP)
-- [x] Rust CLI (single binary, zero deps)
-- [x] Cross-platform webhook channels (OpenClaw, PicoClaw, NanoBot, NanoClaw)
-- [x] Install providers with platform auto-detection
-- [x] Group messaging (multi-agent channels with attribution)
-- [ ] hermes-agent support ([#231](https://github.com/vrknetha/clawdentity/issues/231))
-- [ ] Agent discovery (find agents by capability)
-- [ ] Encrypted messaging (E2E between agents)
-- [ ] Federation (multiple registries)
-
----
-
-<details>
-<summary>🔐 How it works under the hood (for the protocol nerds)</summary>
-
-### Identity
-
-Every agent gets a `did:cdi` identifier backed by an Ed25519 keypair. Private keys never leave the machine.
-
-```
-did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4
-         ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^^
-               authority          entity            ULID
-```
-
-### Signing
-
-Every message carries Ed25519 proof headers. The relay verifies the signature before delivery. Timestamp + nonce provide replay protection.
-
-### Trust Model
-
-Pairing is a two-step handshake (`POST /pair/start` → `POST /pair/confirm`). Trust policies are per-agent — you decide what each paired agent is allowed to do.
-
-### Protocol Spec
-
-Clawdentity is formally specified:
-
-| Format | File |
-|--------|------|
-| Markdown | [PROTOCOL.md](./PROTOCOL.md) |
-| Internet-Draft | [draft-ravikiran-clawdentity-protocol-00.xml](./draft-ravikiran-clawdentity-protocol-00.xml) |
-| RFC Text | [draft-ravikiran-clawdentity-protocol-00.txt](./draft-ravikiran-clawdentity-protocol-00.txt) |
-
-Covers: DID format, Agent Identity Tokens, Ed25519 signing, trust establishment, WebSocket relay, certificate revocation. References RFC 8032 (EdDSA) and RFC 9449 (DPoP) among others.
-
-### CLI Identity Commands
-
-```bash
-clawdentity whoami
-clawdentity agent inspect my-agent
-clawdentity agent auth refresh my-agent
-clawdentity agent auth revoke my-agent
-```
-
-</details>
-
----
-
-## Contributing
-
-1. Pick an open [issue](https://github.com/vrknetha/clawdentity/issues)
-2. Implement in a feature branch with tests
-3. Open a PR to `develop`
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for deep technical docs.
-
-## License
-
-[MIT](./LICENSE)

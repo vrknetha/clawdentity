@@ -148,7 +148,7 @@ describe("POST /v1/agents", () => {
       ownerDid: challengeBody.ownerDid,
       publicKey: encodeBase64url(agentKeypair.publicKey),
       name: "agent-registry-verify",
-      framework: "openclaw",
+      framework: "generic",
       ttlDays: 10,
       secretKey: agentKeypair.secretKey,
     });
@@ -163,7 +163,7 @@ describe("POST /v1/agents", () => {
         },
         body: JSON.stringify({
           name: "agent-registry-verify",
-          framework: "openclaw",
+          framework: "generic",
           ttlDays: 10,
           publicKey: encodeBase64url(agentKeypair.publicKey),
           challengeId: challengeBody.challengeId,

@@ -54,19 +54,21 @@
 - `deploy-landing.yml` deploys landing docs/asset output from `main` to the Pages `main` branch.
 - Both landing deploy workflows must trigger on:
   - `apps/landing/**`
-  - `apps/openclaw-skill/skill/**`
+  - `apps/agent-skill/skill/**`
   - `apps/landing/scripts/**`
   - `.github/workflows/deploy-landing*.yml`
 - Landing workflows must bootstrap Cloudflare Pages project `clawdentity-site` if missing before deploy.
 - Landing workflows must assert generated artifacts exist before invoking `pages deploy`:
+  - `apps/landing/dist/agent-skill.md`
   - `apps/landing/dist/skill.md`
   - `apps/landing/dist/install.sh`
   - `apps/landing/dist/install.ps1`
 - Production landing deploys must also mirror latest operator assets into R2:
+  - `skill/latest/agent-skill.md`
   - `skill/latest/skill.md`
   - `install.sh`
   - `install.ps1`
-- Keep Cloudflare Pages as the canonical host for `https://clawdentity.com/skill.md`, `https://clawdentity.com/install.sh`, and `https://clawdentity.com/install.ps1`; R2 is the backup/latest mirror, not the primary operator URL.
+- Keep Cloudflare Pages as the canonical host for `https://clawdentity.com/agent-skill.md`, `https://clawdentity.com/skill.md`, `https://clawdentity.com/install.sh`, and `https://clawdentity.com/install.ps1`; R2 is the backup/latest mirror, not the primary operator URL.
 
 ## Release Rules (Rust)
 - `publish-rust.yml` must publish six binary archives per release (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64/aarch64).
@@ -81,6 +83,8 @@
   - six platform archives
   - `clawdentity-<version>-checksums.txt`
   - `rust/latest.json`
+  - `skill/v<version>/agent-skill.md`
+  - `skill/latest/agent-skill.md`
   - `skill/v<version>/skill.md`
   - `skill/latest/skill.md`
 - Release CI must smoke-test the staged installer against the generated manifest before uploading artifacts.

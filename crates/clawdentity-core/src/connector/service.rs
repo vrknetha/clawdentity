@@ -32,9 +32,9 @@ pub struct ConnectorServiceInstallInput {
     pub agent_name: String,
     pub platform: Option<String>,
     pub proxy_ws_url: Option<String>,
-    pub openclaw_base_url: Option<String>,
-    pub openclaw_hook_path: Option<String>,
-    pub openclaw_hook_token: Option<String>,
+    pub delivery_webhook_url: Option<String>,
+    pub delivery_webhook_headers: Vec<String>,
+    pub delivery_health_url: Option<String>,
     pub executable_path: Option<PathBuf>,
 }
 
@@ -191,32 +191,31 @@ fn build_connector_start_args(
         args.push("--proxy-ws-url".to_string());
         args.push(proxy_ws_url.to_string());
     }
-    if let Some(openclaw_base_url) = input
-        .openclaw_base_url
+    if let Some(delivery_webhook_url) = input
+        .delivery_webhook_url
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        args.push("--openclaw-base-url".to_string());
-        args.push(openclaw_base_url.to_string());
+        args.push("--delivery-webhook-url".to_string());
+        args.push(delivery_webhook_url.to_string());
     }
-    if let Some(openclaw_hook_path) = input
-        .openclaw_hook_path
+    if let Some(delivery_health_url) = input
+        .delivery_health_url
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        args.push("--openclaw-hook-path".to_string());
-        args.push(openclaw_hook_path.to_string());
+        args.push("--delivery-health-url".to_string());
+        args.push(delivery_health_url.to_string());
     }
-    if let Some(openclaw_hook_token) = input
-        .openclaw_hook_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        args.push("--openclaw-hook-token".to_string());
-        args.push(openclaw_hook_token.to_string());
+    for delivery_webhook_header in &input.delivery_webhook_headers {
+        let trimmed = delivery_webhook_header.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        args.push("--delivery-webhook-header".to_string());
+        args.push(trimmed.to_string());
     }
     args
 }
@@ -559,9 +558,9 @@ mod tests {
             agent_name: "alpha".to_string(),
             platform: Some("systemd".to_string()),
             proxy_ws_url: Some("wss://proxy.example/v1/relay/connect".to_string()),
-            openclaw_base_url: Some("http://127.0.0.1:18789".to_string()),
-            openclaw_hook_path: Some("/hooks/agent".to_string()),
-            openclaw_hook_token: Some("token".to_string()),
+            delivery_webhook_url: Some("http://127.0.0.1:11434/hooks/relay".to_string()),
+            delivery_webhook_headers: vec!["Authorization: Bearer token".to_string()],
+            delivery_health_url: Some("http://127.0.0.1:11434/health".to_string()),
             executable_path: Some("/tmp/clawdentity".into()),
         };
         let command = {
@@ -581,7 +580,7 @@ mod tests {
         );
         assert!(systemd.contains("connector\" \"start\" \"alpha"));
         assert!(systemd.contains("--home-dir"));
-        assert!(systemd.contains("--openclaw-hook-token"));
+        assert!(systemd.contains("--delivery-webhook-header"));
 
         let launchd = create_launchd_plist_content(
             "com.clawdentity.clawdentity-connector-alpha",

@@ -28,7 +28,7 @@ describe("connector frame parsing", () => {
         message: "hello",
       },
       conversationId: "conv_123",
-      replyTo: "https://example.com/hooks/agent",
+      replyTo: "https://example.com/hooks/message",
     };
 
     const serialized = serializeFrame(frame);
@@ -142,7 +142,7 @@ describe("connector frame parsing", () => {
       originalFrameId: generateUlid(1700000000100),
       toAgentDid: createAgentDid(1700000000200),
       status: "dead_lettered" as const,
-      reason: "OpenClaw hook rejected after max attempts",
+      reason: "delivery webhook rejected after max attempts",
     };
 
     const serialized = serializeFrame(frame);

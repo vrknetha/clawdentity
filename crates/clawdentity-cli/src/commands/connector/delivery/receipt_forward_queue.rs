@@ -3,9 +3,9 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, anyhow};
 use clawdentity_core::ReceiptFrame;
 use clawdentity_core::db::now_utc_ms;
-use clawdentity_core::runtime_openclaw::OpenclawRuntimeConfig;
+use clawdentity_core::runtime_webhook::DeliveryWebhookRuntimeConfig;
 
-use super::build_openclaw_receipt_payload;
+use super::build_delivery_receipt_payload;
 
 const RECEIPT_FORWARD_RETRY_INITIAL_DELAY_MS: i64 = 1_000;
 const RECEIPT_FORWARD_RETRY_MAX_DELAY_MS: i64 = 60_000;
@@ -59,7 +59,7 @@ pub(in crate::commands::connector) fn enqueue_pending_receipt_notification(
 pub(in crate::commands::connector) async fn flush_pending_receipt_notifications(
     http_client: &reqwest::Client,
     hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
+    delivery_webhook_runtime: &DeliveryWebhookRuntimeConfig,
     queue: &PendingReceiptQueue,
 ) {
     let now_ms = now_utc_ms();
@@ -72,10 +72,10 @@ pub(in crate::commands::connector) async fn flush_pending_receipt_notifications(
         if should_drop_notification(&notification, now_ms) {
             continue;
         }
-        if let Err(error) = forward_receipt_to_openclaw(
+        if let Err(error) = forward_receipt_to_webhook(
             http_client,
             hook_url,
-            openclaw_runtime,
+            delivery_webhook_runtime,
             &notification.receipt,
         )
         .await
@@ -88,7 +88,7 @@ pub(in crate::commands::connector) async fn flush_pending_receipt_notifications(
                 request_id = %notification.receipt.original_frame_id,
                 status = ?notification.receipt.status,
                 next_attempt_at_ms = notification.next_attempt_at_ms,
-                "failed to forward receipt payload to OpenClaw hook; queued for retry"
+                "failed to forward receipt payload to delivery webhook; queued for retry"
             );
             retry_notifications.push(notification);
         }
@@ -179,44 +179,31 @@ fn compute_receipt_retry_delay_ms(attempt_count: i64) -> i64 {
         .clamp(1, RECEIPT_FORWARD_RETRY_MAX_DELAY_MS)
 }
 
-async fn forward_receipt_to_openclaw(
+async fn forward_receipt_to_webhook(
     http_client: &reqwest::Client,
     hook_url: &str,
-    openclaw_runtime: &OpenclawRuntimeConfig,
+    delivery_webhook_runtime: &DeliveryWebhookRuntimeConfig,
     receipt: &ReceiptFrame,
 ) -> Result<()> {
     let mut request = http_client
         .post(hook_url)
-        .header("content-type", "application/json")
-        .header(
-            "x-clawdentity-content-type",
-            "application/vnd.clawdentity.receipt+json",
-        )
+        .header("content-type", "application/vnd.clawdentity.receipt+json")
         .header("x-clawdentity-to-agent-did", &receipt.to_agent_did)
         .header("x-clawdentity-verified", "true")
         .header("x-request-id", &receipt.original_frame_id)
-        .json(&build_openclaw_receipt_payload(
-            &openclaw_runtime.hook_path,
-            receipt,
-            openclaw_runtime.target_agent_id.as_deref(),
-        ));
+        .json(&build_delivery_receipt_payload(receipt));
 
-    if let Some(token) = openclaw_runtime
-        .hook_token
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        request = request.header("x-openclaw-token", token);
+    for (name, value) in &delivery_webhook_runtime.webhook_headers {
+        request = request.header(name, value);
     }
 
     let response = request
         .send()
         .await
-        .map_err(|error| anyhow!("openclaw receipt hook request failed: {error}"))?;
+        .map_err(|error| anyhow!("delivery webhook receipt request failed: {error}"))?;
     if !response.status().is_success() {
         return Err(anyhow!(
-            "openclaw receipt hook returned HTTP {}",
+            "delivery webhook receipt request returned HTTP {}",
             response.status()
         ));
     }

@@ -86,7 +86,7 @@ export function createRelayService(input: RelayServiceInput): {
       if (!response.ok) {
         if (response.status === 401) {
           throw new AppError({
-            code: "OPENCLAW_RELAY_AGENT_AUTH_REJECTED",
+            code: "DELIVERY_WEBHOOK_RELAY_AGENT_AUTH_REJECTED",
             message: "Peer relay rejected agent auth credentials",
             status: 401,
             expose: true,
@@ -187,7 +187,7 @@ export function createRelayService(input: RelayServiceInput): {
       if (!response.ok) {
         if (response.status === 401) {
           throw new AppError({
-            code: "OPENCLAW_RELAY_AGENT_AUTH_REJECTED",
+            code: "DELIVERY_WEBHOOK_RELAY_AGENT_AUTH_REJECTED",
             message:
               "Delivery receipt callback rejected agent auth credentials",
             status: 401,

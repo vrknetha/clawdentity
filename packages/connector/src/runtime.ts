@@ -9,15 +9,15 @@ import { createConnectorInboundInbox } from "./inbound-inbox.js";
 import { createRuntimeAuthController } from "./runtime/auth-lifecycle.js";
 import { toInitialAuthBundle } from "./runtime/auth-storage.js";
 import { RECEIPT_OUTBOX_RETRY_INTERVAL_MS } from "./runtime/constants.js";
+import { deliverReceiptToDeliveryWebhookHook } from "./runtime/deliveryWebhook.js";
+import { createDeliveryWebhookHookTokenController } from "./runtime/deliveryWebhook-hook-token.js";
+import { createDeliveryWebhookGatewayProbeController } from "./runtime/deliveryWebhook-probe.js";
 import { sanitizeErrorReason } from "./runtime/errors.js";
-import { deliverReceiptToOpenclawHook } from "./runtime/openclaw.js";
-import { createOpenclawHookTokenController } from "./runtime/openclaw-hook-token.js";
-import { createOpenclawGatewayProbeController } from "./runtime/openclaw-probe.js";
 import { createOutboundQueuePersistence } from "./runtime/outbound-queue.js";
 import { parseRequiredString } from "./runtime/parse.js";
 import {
+  loadDeliveryWebhookProbePolicy,
   loadInboundReplayPolicy,
-  loadOpenclawProbePolicy,
 } from "./runtime/policy.js";
 import { createDeliveryReceiptOutbox } from "./runtime/receipt-outbox.js";
 import { createRelayService } from "./runtime/relay-service.js";
@@ -26,19 +26,19 @@ import { createInboundReplayController } from "./runtime/replay.js";
 import { createRuntimeRequestHandler } from "./runtime/server.js";
 import type {
   ConnectorRuntimeHandle,
-  OpenclawGatewayProbeStatus,
+  DeliveryWebhookGatewayProbeStatus,
   StartConnectorRuntimeInput,
 } from "./runtime/types.js";
 import {
   normalizeOutboundBaseUrl,
   normalizeOutboundPath,
   normalizeWebSocketUrl,
-  resolveOpenclawBaseUrl,
-  resolveOpenclawHookPath,
-  resolveOpenclawHookToken,
+  resolveDeliveryWebhookBaseUrl,
+  resolveDeliveryWebhookHookPath,
+  resolveDeliveryWebhookHookToken,
   resolveRegistryUrlFromIssuer,
+  toDeliveryWebhookHookUrl,
   toHttpOriginFromWebSocketUrl,
-  toOpenclawHookUrl,
 } from "./runtime/url.js";
 import { buildUpgradeHeaders, createWebSocketFactory } from "./runtime/ws.js";
 
@@ -78,16 +78,23 @@ export async function startConnectorRuntime(
     RELAY_DELIVERY_RECEIPTS_PATH.slice(1),
     `${toHttpOriginFromWebSocketUrl(wsParsed)}/`,
   ).toString();
-  const openclawBaseUrl = resolveOpenclawBaseUrl(input.openclawBaseUrl);
-  const openclawProbeUrl = openclawBaseUrl;
-  const openclawHookPath = resolveOpenclawHookPath(input.openclawHookPath);
-  const explicitOpenclawHookToken = resolveOpenclawHookToken(
-    input.openclawHookToken,
+  const deliveryWebhookBaseUrl = resolveDeliveryWebhookBaseUrl(
+    input.deliveryWebhookBaseUrl,
   );
-  const openclawHookUrl = toOpenclawHookUrl(openclawBaseUrl, openclawHookPath);
+  const deliveryWebhookProbeUrl = deliveryWebhookBaseUrl;
+  const deliveryWebhookPath = resolveDeliveryWebhookHookPath(
+    input.deliveryWebhookPath,
+  );
+  const explicitDeliveryWebhookHookToken = resolveDeliveryWebhookHookToken(
+    input.deliveryWebhookToken,
+  );
+  const deliveryWebhookHookUrl = toDeliveryWebhookHookUrl(
+    deliveryWebhookBaseUrl,
+    deliveryWebhookPath,
+  );
 
   const inboundReplayPolicy = loadInboundReplayPolicy();
-  const openclawProbePolicy = loadOpenclawProbePolicy();
+  const deliveryWebhookProbePolicy = loadDeliveryWebhookProbePolicy();
 
   const inboundInbox = createConnectorInboundInbox({
     configDir: input.configDir,
@@ -97,21 +104,24 @@ export async function startConnectorRuntime(
     maxPendingBytes: inboundReplayPolicy.inboxMaxBytes,
   });
 
-  const openclawGatewayProbeStatus: OpenclawGatewayProbeStatus = {
+  const deliveryWebhookGatewayProbeStatus: DeliveryWebhookGatewayProbeStatus = {
     reachable: true,
   };
 
   let runtimeStopping = false;
   let replayIntervalHandle: ReturnType<typeof setInterval> | undefined;
-  let openclawProbeIntervalHandle: ReturnType<typeof setInterval> | undefined;
+  let deliveryWebhookProbeIntervalHandle:
+    | ReturnType<typeof setInterval>
+    | undefined;
   let receiptOutboxIntervalHandle: ReturnType<typeof setInterval> | undefined;
   const runtimeShutdownController = new AbortController();
 
-  const openclawHookTokenController = createOpenclawHookTokenController({
-    configDir: input.configDir,
-    explicitOpenclawHookToken,
-    logger,
-  });
+  const deliveryWebhookTokenController =
+    createDeliveryWebhookHookTokenController({
+      configDir: input.configDir,
+      explicitDeliveryWebhookHookToken,
+      logger,
+    });
 
   const resolveUpgradeHeaders = async (): Promise<Record<string, string>> => {
     await authController.refreshCurrentAuthIfNeeded();
@@ -153,7 +163,7 @@ export async function startConnectorRuntime(
     recipientAgentDid: string;
     requestId: string;
     senderAgentDid: string;
-    status: "processed_by_openclaw" | "dead_lettered";
+    status: "delivered_to_webhook" | "dead_lettered";
   }): Promise<void> => {
     await receiptOutbox.enqueue(receipt);
     try {
@@ -169,8 +179,8 @@ export async function startConnectorRuntime(
 
   const replayController = createInboundReplayController({
     fetchImpl,
-    getCurrentOpenclawHookToken:
-      openclawHookTokenController.getCurrentOpenclawHookToken,
+    getCurrentDeliveryWebhookHookToken:
+      deliveryWebhookTokenController.getCurrentDeliveryWebhookHookToken,
     inboundInbox,
     inboundReplayPolicy,
     isRuntimeStopping: () => runtimeStopping,
@@ -180,23 +190,25 @@ export async function startConnectorRuntime(
         logger,
       }),
     logger,
-    openclawGatewayProbeStatus,
-    openclawHookUrl,
-    openclawProbeUrl,
+    deliveryWebhookGatewayProbeStatus,
+    deliveryWebhookHookUrl,
+    deliveryWebhookProbeUrl,
     postDeliveryReceipt: queueReceiptAndTryFlush,
     runtimeShutdownSignal: runtimeShutdownController.signal,
-    syncOpenclawHookToken: openclawHookTokenController.syncOpenclawHookToken,
+    syncDeliveryWebhookHookToken:
+      deliveryWebhookTokenController.syncDeliveryWebhookHookToken,
   });
 
-  const openclawProbeController = createOpenclawGatewayProbeController({
-    fetchImpl,
-    isRuntimeStopping: () => runtimeStopping,
-    logger,
-    openclawGatewayProbeStatus,
-    openclawProbePolicy,
-    openclawProbeUrl,
-    runtimeShutdownSignal: runtimeShutdownController.signal,
-  });
+  const deliveryWebhookProbeController =
+    createDeliveryWebhookGatewayProbeController({
+      fetchImpl,
+      isRuntimeStopping: () => runtimeStopping,
+      logger,
+      deliveryWebhookGatewayProbeStatus,
+      deliveryWebhookProbePolicy,
+      deliveryWebhookProbeUrl,
+      runtimeShutdownSignal: runtimeShutdownController.signal,
+    });
 
   const outboundQueuePersistence = createOutboundQueuePersistence({
     configDir: input.configDir,
@@ -207,10 +219,10 @@ export async function startConnectorRuntime(
   const connectorClient = new ConnectorClient({
     connectorUrl: wsParsed.toString(),
     connectionHeadersProvider: resolveUpgradeHeaders,
-    openclawBaseUrl,
-    openclawHookPath,
-    openclawHookToken:
-      openclawHookTokenController.getCurrentOpenclawHookToken(),
+    deliveryWebhookBaseUrl,
+    deliveryWebhookPath,
+    deliveryWebhookToken:
+      deliveryWebhookTokenController.getCurrentDeliveryWebhookHookToken(),
     fetchImpl,
     logger,
     hooks: {
@@ -233,11 +245,11 @@ export async function startConnectorRuntime(
       },
       onReceipt: async (frame) => {
         try {
-          await deliverReceiptToOpenclawHook({
+          await deliverReceiptToDeliveryWebhookHook({
             fetchImpl,
-            openclawHookUrl,
-            openclawHookToken:
-              openclawHookTokenController.getCurrentOpenclawHookToken(),
+            deliveryWebhookHookUrl,
+            deliveryWebhookToken:
+              deliveryWebhookTokenController.getCurrentDeliveryWebhookHookToken(),
             receipt: frame,
             shutdownSignal: runtimeShutdownController.signal,
           });
@@ -308,9 +320,9 @@ export async function startConnectorRuntime(
       clearInterval(replayIntervalHandle);
       replayIntervalHandle = undefined;
     }
-    if (openclawProbeIntervalHandle !== undefined) {
-      clearInterval(openclawProbeIntervalHandle);
-      openclawProbeIntervalHandle = undefined;
+    if (deliveryWebhookProbeIntervalHandle !== undefined) {
+      clearInterval(deliveryWebhookProbeIntervalHandle);
+      deliveryWebhookProbeIntervalHandle = undefined;
     }
     if (receiptOutboxIntervalHandle !== undefined) {
       clearInterval(receiptOutboxIntervalHandle);
@@ -345,8 +357,8 @@ export async function startConnectorRuntime(
     );
   });
 
-  await openclawHookTokenController.syncOpenclawHookToken("batch");
-  await openclawProbeController.probeOpenclawGateway();
+  await deliveryWebhookTokenController.syncDeliveryWebhookHookToken("batch");
+  await deliveryWebhookProbeController.probeDeliveryWebhookGateway();
   connectorClient.connect();
   await inboundInbox.pruneDelivered();
   await receiptOutbox.flushDue();
@@ -356,9 +368,9 @@ export async function startConnectorRuntime(
     void replayController.replayPendingInboundMessages();
   }, inboundReplayPolicy.replayIntervalMs);
 
-  openclawProbeIntervalHandle = setInterval(() => {
-    void openclawProbeController.probeOpenclawGateway();
-  }, openclawProbePolicy.intervalMs);
+  deliveryWebhookProbeIntervalHandle = setInterval(() => {
+    void deliveryWebhookProbeController.probeDeliveryWebhookGateway();
+  }, deliveryWebhookProbePolicy.intervalMs);
 
   receiptOutboxIntervalHandle = setInterval(() => {
     void receiptOutbox.flushDue();

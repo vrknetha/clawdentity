@@ -80,7 +80,6 @@ GITHUB_OAUTH_STATE_SECRET="${GITHUB_OAUTH_STATE_SECRET:-}"
 ROOT_ENV_PATH="$REPO_ROOT/.env"
 REGISTRY_ENV_PATH="$REPO_ROOT/apps/registry/.env"
 PROXY_ENV_PATH="$REPO_ROOT/apps/proxy/.env"
-SKILL_ENV_PATH="$REPO_ROOT/apps/openclaw-skill/.env"
 
 write_header "$ROOT_ENV_PATH"
 root_keys=(
@@ -143,20 +142,9 @@ for key in "${proxy_optional_keys[@]}"; do
   append_if_set "$PROXY_ENV_PATH" "$key" "${!key:-}"
 done
 
-write_header "$SKILL_ENV_PATH"
-skill_keys=(
-  "CLAWDENTITY_CONNECTOR_BASE_URL"
-  "CLAWDENTITY_CONNECTOR_OUTBOUND_PATH"
-  "OPENCLAW_BASE_URL"
-)
-for key in "${skill_keys[@]}"; do
-  append_if_set "$SKILL_ENV_PATH" "$key" "${!key:-}"
-done
-
-chmod 600 "$ROOT_ENV_PATH" "$REGISTRY_ENV_PATH" "$PROXY_ENV_PATH" "$SKILL_ENV_PATH"
+chmod 600 "$ROOT_ENV_PATH" "$REGISTRY_ENV_PATH" "$PROXY_ENV_PATH"
 
 printf '[env:sync] updated:\n'
 printf '  - %s\n' "$ROOT_ENV_PATH"
 printf '  - %s\n' "$REGISTRY_ENV_PATH"
 printf '  - %s\n' "$PROXY_ENV_PATH"
-printf '  - %s\n' "$SKILL_ENV_PATH"

@@ -1,93 +1,29 @@
 ---
 title: Introduction
-description: Verified identity and revocation for AI agents across OpenClaw, PicoClaw, NanoBot, and NanoClaw.
+description: Verified identity and revocation for agent-to-agent communication across any runtime.
 ---
 
-Clawdentity solves one question for cross-provider agent-to-agent communication:
+Clawdentity answers one core question:
 
-> **"Who is this agent, who owns it, and is it revoked?"**
+> Who sent this agent message, and should we trust it right now?
 
-It does this with three building blocks:
+It does this with:
+- **AIT (Agent Identity Token)** for agent identity
+- **PoP signatures** on relay requests
+- **CRL** for revocation checks
 
-- **AIT (Agent Identity Token)** — a registry-signed passport (JWT / EdDSA)
-- **PoP (Proof-of-Possession)** — every request is signed with the agent's private key
-- **CRL (Revocation List)** — a signed revocation feed clients cache and refresh
+## Runtime-agnostic model
 
-## How Clawdentity relates to provider runtimes
+Clawdentity is a relay + identity layer.
 
-**OpenClaw** is an agent runtime — it runs your AI agent locally and exposes a webhook interface for incoming messages. Agents talk to each other by calling each other's webhooks.
+Your runtime is responsible for:
+- exposing a local inbound webhook
+- calling local connector `POST /v1/outbound`
+- handling `clawdentity.delivery.v1` payloads
 
-**Clawdentity** is an identity layer that sits in front of runtime webhooks. It answers "who sent this request?" before your runtime ever sees it.
+Clawdentity is responsible for:
+- signing/verification correctness
+- trust enforcement
+- durable relay and delivery receipts
 
-OpenClaw authenticates webhook calls with a single shared token (`hooks.token`). That works for transport, but every caller looks the same — there is no way to tell agents apart, trace who sent what, or revoke one caller without breaking all of them.
-
-The OpenClaw path is shown below as the reference flow; the same trust model applies to supported providers.
-
-Clawdentity fixes this by running as a **proxy** in front of OpenClaw:
-
-```d2
-direction: down
-
-caller: Caller Agent {
-  shape: rectangle
-}
-
-proxy: Clawdentity Proxy {
-  shape: rectangle
-  style.fill: "#e8f4f8"
-  label: |md
-    **Clawdentity Proxy**
-    Verifies identity · Checks revocation
-    Enforces trust policy
-  |
-}
-
-connector: Local Connector {
-  shape: rectangle
-  style.fill: "#fff4e8"
-  label: |md
-    **Connector**
-    Relays to local OpenClaw
-  |
-}
-
-openclaw: OpenClaw {
-  shape: rectangle
-  label: |md
-    **OpenClaw**
-    Private, never exposed
-  |
-}
-
-caller -> proxy: "Authorization: Claw <AIT>\nX-Claw-Proof / Nonce / Timestamp"
-proxy -> connector: "WebSocket deliver frame"
-connector -> openclaw: "x-openclaw-token: <hooks.token>\n(internal only)"
-```
-
-The shared `hooks.token` stays **private** on the local machine — only the connector uses it to forward verified requests to OpenClaw. Callers never see it.
-
-## What Clawdentity adds
-
-- Verifiable per-agent identity (AIT + PoP)
-- Fast revocation propagation (signed CRL + cache refresh)
-- QR-code pairing — one scan to approve trust between two agents
-- Proxy-side policy enforcement (trust policy + rate limits + replay protection)
-
-## Why shared tokens fall short
-
-| Property | Shared Webhook Token | Clawdentity |
-|----------|---------------------|-------------|
-| **Identity** | All callers look the same | Each agent has a unique DID and signed passport |
-| **Accountability** | Cannot trace who sent what | Every request proves exactly which agent sent it |
-| **Blast radius** | One leak exposes everything | One compromised key only affects that agent |
-| **Revocation** | Rotate shared token = break all integrations | Revoke one agent instantly via CRL, others unaffected |
-| **Replay protection** | None | Timestamp + nonce + signature on every request |
-| **Tamper detection** | None | Body hash + PoP signature = any modification is detectable |
-| **Per-caller policy** | Not possible | Trust pairs via QR pairing, per-agent rate limits |
-| **Key exposure** | Token must be shared with every caller | Private key never leaves the agent's machine |
-
-## Next steps
-
-- [Quick Start](/getting-started/quickstart/) — get your first verified agent call working
-- [Installation](/getting-started/installation/) — install the CLI via `install.sh` / `install.ps1`
-- [Identity Model](/concepts/identity-model/) — understand AITs, DIDs, and PoP
+Use the generic runtime instructions at [`/agent-skill.md`](/agent-skill.md).

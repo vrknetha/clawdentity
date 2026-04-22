@@ -1,54 +1,16 @@
 # AGENTS.md (crates/clawdentity-cli/src/commands/connector)
 
 ## Purpose
-- Keep connector runtime helpers split by concern so structural rules stay green.
+- Keep connector runtime helpers split by concern and aligned to the generic relay contract.
 
 ## Rules
-- Put inbound relay delivery, retry persistence, and OpenClaw hook payload shaping in focused helper modules instead of growing `connector.rs`.
-- If inbound delivery is persisted for local retry, ACK the relay as accepted so the retry path stays single-source.
-- Wake payloads must only include `sessionId` when the inbound payload explicitly carries one.
-- `/hooks/agent` is the default path for visible peer delivery in current OpenClaw runtimes; use `/hooks/wake` only for explicit wake-only workflows.
-- Inject `agentId` into OpenClaw payloads only when delivering to `/hooks/agent` and a non-empty mapped `openclawAgentId` exists for the active Clawdentity agent.
-- Keep `/hooks/agent` routing symmetric for deliveries and receipts: when a mapped `openclawAgentId` exists, both payload types must include `agentId`.
-- Never inject `agentId` for `/hooks/wake`; wake-mode payload shape must stay stable for backward compatibility.
-- Runtime config resolution for OpenClaw routing must read per-agent `openclawAgentId` from connector assignment state and gracefully return `None` when mapping data is absent.
-- Connector startup must enforce `CLAWDENTITY_EXPECTED_AGENT_NAME` when present and fail fast on mismatched agent selection; this prevents cross-container identity inversion in local dual-agent harnesses.
-- Connector runtime tests must cover expected-agent-name bypass behavior (`None`/blank expected value) in addition to match/mismatch failures so env-unset paths remain intentional and stable.
-- Keep connector test files under structural limits by grouping focused cases into submodules (for example `tests/expected_agent_name.rs`) instead of growing a single monolithic `tests.rs`.
-- Keep hook payload builders split into focused helpers so the structural 50-line non-test function rule stays green.
-- Inbound OpenClaw hook requests must keep canonical identity headers (`x-clawdentity-agent-did`, `x-clawdentity-to-agent-did`, `x-clawdentity-verified`, `x-request-id`) and only add sender profile headers (`x-clawdentity-agent-name`, `x-clawdentity-display-name`) when local peer metadata exists.
-- Inbound sender name metadata must be resolved name-first from trusted local peer metadata, with registry profile refresh (`GET /v1/agents/profile?did=...`) when local names are missing or stale; never treat sender-supplied payload names as authoritative.
-- Sender profile refresh is best-effort: failed refresh must not block valid delivery, and fallback behavior must preserve IDs while returning the freshest available local/cached names when present.
-- Group-scoped inbound deliveries must propagate `x-clawdentity-group-id` and preserve `group_id` in pending/dead-letter persistence so retries keep thread context.
-- Group name resolution for inbound delivery must use registry lookups plus short-lived cache reuse; when no trustworthy name is available, keep `groupId` and leave `groupName` missing instead of echoing IDs as names.
-- Keep sender-profile DID lookup and header shaping in focused helpers/modules instead of expanding `delivery.rs`.
-- Keep OpenClaw payload/summary shaping in `delivery/openclaw_payload.rs`; `delivery.rs` should orchestrate delivery flow and persistence, not own long JSON/text render helpers.
-- OpenClaw inbound payload shape is canonical and non-legacy: emit `message`, `senderDid`, `senderAgentName`, `senderDisplayName`, `recipientDid`, `groupId`, `groupName`, `isGroupMessage`, `requestId`, and `metadata` only.
-- Group-name lookups for inbound delivery should use a short in-process TTL cache behind the runtime-config helper so repeated group traffic does not force one registry read per message.
-- Periodic peer-profile refresh must stay shutdown-aware: check `shutdown_rx` before and between peer lookups, and make each registry call cancellable with `tokio::select!` so connector stop latency does not scale with peer count or network timeout.
-- Keep receipt-forward queue policy and flush mechanics in `delivery/receipt_forward_queue.rs`; do not let `delivery.rs` grow past structural limits.
-- Keep inbound delivery orchestration dependencies grouped in a small runtime context struct when passing through async helpers, so Clippy `too_many_arguments` stays green without using allow-attributes.
-- Prefer `&Path` in internal helper signatures and only use `PathBuf` where ownership is required, so Clippy `ptr_arg` remains green in connector runtime code.
-- Handle pairing acceptance system events in `delivery/pair_accepted.rs` and invoke that processor in both live inbound delivery flow and retry replay flow.
-- Keep pair-accepted peer persistence idempotent by reusing core helper `persist_confirmed_peer_from_profile_and_proxy_origin`; registry enrichment from `GET /v1/agents/profile` is best-effort and must not block trusted peer persistence when registry is unavailable.
-- Keep `delivery/pair_accepted.rs` under structural line limits by moving larger test coverage into `delivery/pair_accepted/tests.rs` rather than growing the runtime module file.
-- Pair-accepted system side effects must run only for trusted relay delivery provenance (`deliverySource=proxy.events.queue.pair_accepted`); never mutate peer state for user-authored payload-only `system.type=pair.accepted`.
-- Pair-accepted system payload validation must include DID checks, responder proxy origin URL checks, and event timestamp parsing before mutating peer state.
-- Pair-accepted structured fields are mandatory for trusted side effects; optional `system.message` is UX-only and must never be used as a replacement for persistence/trust metadata.
-- For OpenClaw-facing notifications, prefer proxy-provided non-empty `system.message` when present and fall back to local generated message text when absent.
-- Treat blank/whitespace `system.message` as absent UX metadata so trusted peer persistence cannot fail on cosmetic message formatting drift.
-- After trusted `pair.accepted` peer persistence succeeds, reconcile local `onboarding-session.json` to `messaging_ready` + `pairing.phase=peer_saved` as a best-effort UX sync; stale onboarding session state must not block relay send when peer state is already persisted.
-- Keep `pair.accepted` onboarding-session reconciliation split into small helpers (`read`/`reconcile`/`write`) so non-test function line-budget checks stay green while preserving best-effort semantics.
-- Runtime input resolution may use a short in-process TTL cache to avoid per-message file reads, but it must stay short-lived so refreshed auth/config changes still become visible without restarting the connector.
-- Keep proxy receipt dispatch + durable outbox behavior in `receipts.rs`; do not re-embed receipt persistence/retry logic into `connector.rs` or `delivery.rs`.
-- Keep receipt outbox mutations in a single-writer command flow (enqueue/flush serialized) so disk-backed retries remain race-safe under concurrent runtime tasks.
-- Persist receipt outbox updates with atomic write-then-rename (`*.tmp-*` -> final path) so crashes cannot leave partially written JSON that drops queued receipts.
-- Treat relay `enqueue_ack.accepted=false` as a first-class outbound failure signal: remove inflight tracking for that frame and emit an OpenClaw-visible dead-letter style notification instead of log-only handling.
-- Keep outbound inflight frame tracking synchronized between flush loop and inbound frame handling so enqueue acks can be correlated to `toAgentDid`, and record inflight correlation at queue/send time (not post-flush) to avoid ack races.
-- Never synthesize a production-looking fallback DID when enqueue-ack correlation is missing; drop and log unknown-ack failures to avoid misrouting receipts to real agents.
-- Group-membership lookup HTTP calls should reuse a shared `reqwest::Client` (with fixed timeout) instead of building a new client per lookup, so connector fan-out avoids repeated connection-pool churn.
-- Keep receipt-forward retry buffering in `delivery.rs` for OpenClaw hook outages: queue failed receipt forwards with bounded exponential backoff and retry from the inbound retry loop.
-- Keep in-memory receipt-forward retry queues bounded by max pending, max attempts, and max age so connector processes cannot leak memory during prolonged hook outages.
-- Receipt callback routing authority is always the runtime-owned local proxy receipt URL; do not trust inbound `reply_to` for callback destination selection.
-- Receipt PoP nonces must be cryptographically random, URL-safe, and one-time per request signing call; never derive them from timestamps/counters.
-- Keep receipt payload tests asserting status parity at top-level and metadata level so `dead_lettered` and `processed_by_openclaw` stay externally consistent for OpenClaw hooks.
+- Inbound delivery payload contract is canonical:
+  - `Content-Type: application/vnd.clawdentity.delivery+json`
+  - body `type: "clawdentity.delivery.v1"`
+- Preserve these fields in webhook payloads: `requestId`, `fromAgentDid`, `toAgentDid`, `payload`, optional `conversationId`, optional `groupId`, sender display fields, relay metadata.
+- Receipt status values are constrained to `delivered_to_webhook` and `dead_lettered`.
+- If inbound delivery is persisted for local retry, ACK relay as accepted so retry ownership is single-source.
+- Keep sender-profile/group-name resolution best-effort; failures must not block valid relay delivery.
+- Keep runtime config per agent under Clawdentity state (`agents/<agent>/delivery-webhook.json`).
+- Keep delivery header parsing strict (`Name: value`) and reject malformed header entries.
+- Apply fixed delivery headers directly in hot send paths; avoid rebuilding static header-name strings per message.

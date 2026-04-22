@@ -451,8 +451,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm -F @clawdentity/openclaw-skill build
-          pnpm -F @clawdentity/openclaw-skill run sync:rust-assets
+          pnpm -F @clawdentity/agent-skill build
           node apps/landing/scripts/build-skill-md.mjs
           node apps/landing/scripts/verify-skill-artifacts.mjs
 
@@ -503,6 +502,8 @@ jobs:
           cp "dist/clawdentity-${VERSION}-checksums.txt" "dist/publish/rust/v${VERSION}/"
           cp "dist/install.sh" "dist/publish/install.sh"
           cp "dist/install.ps1" "dist/publish/install.ps1"
+          cp "apps/landing/public/agent-skill.md" "dist/publish/skill/v${VERSION}/agent-skill.md"
+          cp "apps/landing/public/agent-skill.md" "dist/publish/skill/latest/agent-skill.md"
           cp "apps/landing/public/skill.md" "dist/publish/skill/v${VERSION}/skill.md"
           cp "apps/landing/public/skill.md" "dist/publish/skill/latest/skill.md"
 
@@ -587,7 +588,9 @@ jobs:
           Canonical downloads:
           - Latest manifest: `https://downloads.clawdentity.com/rust/latest.json`
           - Immutable binaries/checksums: `https://downloads.clawdentity.com/rust/v<version>/...`
-          - Immutable skill snapshot: `https://downloads.clawdentity.com/skill/v<version>/skill.md`
+          - Immutable skill snapshots:
+            - `https://downloads.clawdentity.com/skill/v<version>/agent-skill.md`
+            - `https://downloads.clawdentity.com/skill/v<version>/skill.md`
 
           Assets in this release:
           - Linux: x86_64 and aarch64

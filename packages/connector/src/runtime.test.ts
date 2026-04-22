@@ -31,7 +31,7 @@ type WsHarness = {
   }) => Promise<void>;
   sendReceiptFrame: (input: {
     requestId: string;
-    status: "processed_by_openclaw" | "dead_lettered";
+    status: "delivered_to_webhook" | "dead_lettered";
     toAgentDid?: string;
     reason?: string;
   }) => Promise<void>;
@@ -41,8 +41,8 @@ type WsHarness = {
 
 const ENV_KEYS = [
   "CONNECTOR_INBOUND_REPLAY_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS",
-  "CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS",
+  "CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS",
   "CONNECTOR_RUNTIME_REPLAY_MAX_ATTEMPTS",
   "CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS",
   "CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS",
@@ -154,7 +154,7 @@ async function createWsHarness(port: number): Promise<WsHarness> {
 
   const sendReceiptFrame = async (input: {
     requestId: string;
-    status: "processed_by_openclaw" | "dead_lettered";
+    status: "delivered_to_webhook" | "dead_lettered";
     toAgentDid?: string;
     reason?: string;
   }): Promise<void> => {
@@ -202,7 +202,7 @@ function createRuntimeAitToken(input: {
     sub: input.agentDid,
     ownerDid: input.ownerDid,
     name: "alpha",
-    framework: "openclaw",
+    framework: "deliveryWebhook",
     cnf: {
       jwk: {
         kty: "OKP" as const,
@@ -250,8 +250,8 @@ function createRuntimeCredentials(input: { issuer?: string } = {}) {
 
 async function writeRelayRuntimeConfig(configDir: string, token: string) {
   await writeFile(
-    join(configDir, "openclaw-relay.json"),
-    `${JSON.stringify({ openclawHookToken: token }, null, 2)}\n`,
+    join(configDir, "deliveryWebhook-relay.json"),
+    `${JSON.stringify({ deliveryWebhookToken: token }, null, 2)}\n`,
     "utf8",
   );
 }
@@ -273,15 +273,15 @@ afterEach(() => {
 describe("startConnectorRuntime", () => {
   it("skips replay while gateway probe is down and resumes after recovery", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39101";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39101";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let probeReachable = false;
     let hookPostCount = 0;
 
@@ -289,14 +289,14 @@ describe("startConnectorRuntime", () => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         if (!probeReachable) {
           throw new Error("connect ECONNREFUSED");
         }
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
         return new Response("ok", { status: 200 });
       }
@@ -309,7 +309,7 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -325,11 +325,11 @@ describe("startConnectorRuntime", () => {
       await vi.waitFor(async () => {
         const status = (await readConnectorStatus(runtime.outboundUrl)) as {
           inbound?: {
-            openclawGateway?: { reachable?: boolean };
+            deliveryWebhookGateway?: { reachable?: boolean };
             pending?: { pendingCount?: number };
           };
         };
-        expect(status.inbound?.openclawGateway?.reachable).toBe(false);
+        expect(status.inbound?.deliveryWebhookGateway?.reachable).toBe(false);
         expect(status.inbound?.pending?.pendingCount).toBe(1);
       });
 
@@ -339,11 +339,11 @@ describe("startConnectorRuntime", () => {
       await vi.waitFor(async () => {
         const status = (await readConnectorStatus(runtime.outboundUrl)) as {
           inbound?: {
-            openclawGateway?: { reachable?: boolean };
+            deliveryWebhookGateway?: { reachable?: boolean };
             pending?: { pendingCount?: number };
           };
         };
-        expect(status.inbound?.openclawGateway?.reachable).toBe(true);
+        expect(status.inbound?.deliveryWebhookGateway?.reachable).toBe(true);
         expect(status.inbound?.pending?.pendingCount).toBe(0);
       });
       expect(hookPostCount).toBe(1);
@@ -356,29 +356,29 @@ describe("startConnectorRuntime", () => {
 
   it("refreshes hook token from relay runtime config after hook 401", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     await writeRelayRuntimeConfig(sandbox.rootDir, "token-a");
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39102";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39102";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const postTokens: string[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         const headers = new Headers(init?.headers);
-        const token = headers.get("x-openclaw-token") ?? "";
+        const token = headers.get("x-deliveryWebhook-token") ?? "";
         postTokens.push(token);
         if (postTokens.length === 1) {
           await writeRelayRuntimeConfig(sandbox.rootDir, "token-b");
@@ -395,7 +395,7 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -427,7 +427,7 @@ describe("startConnectorRuntime", () => {
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39106";
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39106";
     const issuerFromAit = "https://registry.example.test/base";
     const expectedRefreshUrl =
       "https://registry.example.test/v1/agents/auth/refresh";
@@ -437,7 +437,7 @@ describe("startConnectorRuntime", () => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
@@ -474,7 +474,7 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials,
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -490,29 +490,29 @@ describe("startConnectorRuntime", () => {
 
   it("preserves explicit hook token over relay runtime config token", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     await writeRelayRuntimeConfig(sandbox.rootDir, "token-from-relay-config");
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39105";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39105";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const postTokens: string[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         const headers = new Headers(init?.headers);
-        postTokens.push(headers.get("x-openclaw-token") ?? "");
+        postTokens.push(headers.get("x-deliveryWebhook-token") ?? "");
         return new Response("ok", { status: 200 });
       }
 
@@ -524,8 +524,8 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookToken: "token-from-cli",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookToken: "token-from-cli",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -554,8 +554,8 @@ describe("startConnectorRuntime", () => {
 
   it("retries replay delivery for transient hook failures", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
     process.env.CONNECTOR_RUNTIME_REPLAY_MAX_ATTEMPTS = "3";
     process.env.CONNECTOR_RUNTIME_REPLAY_RETRY_INITIAL_DELAY_MS = "5";
     process.env.CONNECTOR_RUNTIME_REPLAY_RETRY_MAX_DELAY_MS = "5";
@@ -564,19 +564,19 @@ describe("startConnectorRuntime", () => {
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39103";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39103";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     let hookPostCount = 0;
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookPostCount += 1;
         if (hookPostCount < 3) {
           return new Response("temporary failure", { status: 500 });
@@ -592,7 +592,7 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
+      deliveryWebhookBaseUrl,
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -619,28 +619,28 @@ describe("startConnectorRuntime", () => {
     }
   });
 
-  it("forwards receipt frames to /hooks/agent with OpenClaw-compatible payload", async () => {
+  it("forwards receipt frames to /hooks/message with typed receipt payload", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39107";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/agent`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39107";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookBodies: unknown[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
         return new Response("ok", { status: 200 });
       }
@@ -653,8 +653,8 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookPath: "/hooks/agent",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookPath: "/hooks/message",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -673,18 +673,18 @@ describe("startConnectorRuntime", () => {
 
       const payload = hookBodies[0] as {
         type?: string;
-        message?: string;
-        content?: string;
         status?: string;
-        originalFrameId?: string;
+        requestId?: string;
+        toAgentDid?: string;
         reason?: string;
+        relayMetadata?: { timestamp?: string };
       };
-      expect(payload.type).toBe("clawdentity:receipt");
-      expect(payload.originalFrameId).toBe(requestId);
+      expect(payload.type).toBe("clawdentity.receipt.v1");
+      expect(payload.requestId).toBe(requestId);
       expect(payload.status).toBe("dead_lettered");
       expect(payload.reason).toBe("hook rejected");
-      expect(payload.message).toContain("Clawdentity delivery receipt");
-      expect(payload.content).toContain("Clawdentity delivery receipt");
+      expect(payload.toAgentDid).toMatch(/^did:cdi:/);
+      expect(payload.relayMetadata?.timestamp).toBe("2026-02-20T00:00:00.000Z");
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();
@@ -692,28 +692,28 @@ describe("startConnectorRuntime", () => {
     }
   });
 
-  it("forwards receipt frames to /hooks/wake with required text field", async () => {
+  it("forwards delivered receipt frames with typed status contract", async () => {
     process.env.CONNECTOR_INBOUND_REPLAY_INTERVAL_MS = "20";
-    process.env.CONNECTOR_OPENCLAW_PROBE_INTERVAL_MS = "25";
-    process.env.CONNECTOR_OPENCLAW_PROBE_TIMEOUT_MS = "20";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_INTERVAL_MS = "25";
+    process.env.CONNECTOR_DELIVERY_WEBHOOK_PROBE_TIMEOUT_MS = "20";
 
     const sandbox = createSandbox();
     const wsPort = await findAvailablePort();
     const wsHarness = await createWsHarness(wsPort);
     const outboundPort = await findAvailablePort();
-    const openclawBaseUrl = "http://127.0.0.1:39108";
-    const openclawHookUrl = `${openclawBaseUrl}/hooks/wake`;
+    const deliveryWebhookBaseUrl = "http://127.0.0.1:39108";
+    const deliveryWebhookHookUrl = `${deliveryWebhookBaseUrl}/hooks/message`;
     const hookBodies: unknown[] = [];
 
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const url = input instanceof URL ? input.toString() : String(input);
       const method = init?.method ?? "GET";
 
-      if (method === "GET" && url === openclawBaseUrl) {
+      if (method === "GET" && url === deliveryWebhookBaseUrl) {
         return new Response("ok", { status: 200 });
       }
 
-      if (method === "POST" && url === openclawHookUrl) {
+      if (method === "POST" && url === deliveryWebhookHookUrl) {
         hookBodies.push(JSON.parse(String(init?.body ?? "{}")));
         return new Response("ok", { status: 200 });
       }
@@ -726,8 +726,8 @@ describe("startConnectorRuntime", () => {
       configDir: sandbox.rootDir,
       credentials: createRuntimeCredentials(),
       fetchImpl: fetchMock,
-      openclawBaseUrl,
-      openclawHookPath: "/hooks/wake",
+      deliveryWebhookBaseUrl,
+      deliveryWebhookPath: "/hooks/message",
       outboundBaseUrl: `http://127.0.0.1:${outboundPort}`,
       proxyWebsocketUrl: wsHarness.wsUrl,
     });
@@ -736,7 +736,7 @@ describe("startConnectorRuntime", () => {
       const requestId = generateUlid(206);
       await wsHarness.sendReceiptFrame({
         requestId,
-        status: "processed_by_openclaw",
+        status: "delivered_to_webhook",
       });
 
       await vi.waitFor(() => {
@@ -745,16 +745,14 @@ describe("startConnectorRuntime", () => {
 
       const payload = hookBodies[0] as {
         type?: string;
-        text?: string;
-        message?: string;
-        mode?: string;
+        requestId?: string;
         status?: string;
+        relayMetadata?: { timestamp?: string };
       };
-      expect(payload.type).toBe("clawdentity:receipt");
-      expect(payload.status).toBe("processed_by_openclaw");
-      expect(payload.mode).toBe("now");
-      expect(payload.text).toContain("Clawdentity delivery receipt");
-      expect(payload.message).toBe(payload.text);
+      expect(payload.type).toBe("clawdentity.receipt.v1");
+      expect(payload.requestId).toBe(requestId);
+      expect(payload.status).toBe("delivered_to_webhook");
+      expect(payload.relayMetadata?.timestamp).toBe("2026-02-20T00:00:00.000Z");
     } finally {
       await runtime.stop();
       await wsHarness.cleanup();

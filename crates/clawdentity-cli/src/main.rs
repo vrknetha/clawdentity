@@ -17,11 +17,8 @@ use clawdentity_core::{
 
 use crate::commands::connector::execute_connector_command;
 use crate::commands::group::execute_group_command;
-use crate::commands::install::execute_install_command;
-use crate::commands::onboarding::execute_onboarding_command;
 use crate::commands::pair::execute_pair_command;
 use crate::commands::peer::execute_peer_command;
-use crate::commands::provider::execute_provider_command;
 use crate::commands::verify::execute_verify_command;
 use crate::commands::{
     AdminCommand, AgentAuthCommand, AgentCommand, ApiKeyCommand, Commands, ConfigCommand,
@@ -474,25 +471,6 @@ async fn run(cli: Cli) -> Result<()> {
         }
         Some(Commands::Group { command }) => {
             execute_group_command(&options, command, cli.json).await?;
-        }
-        Some(Commands::Onboarding { command }) => {
-            execute_onboarding_command(&options, command, cli.json).await?;
-        }
-        Some(Commands::Install {
-            platform,
-            port,
-            token,
-            list,
-        }) => {
-            let home_dir = cli.home_dir.clone();
-            run_blocking(move || {
-                execute_install_command(home_dir, cli.json, platform, port, token, list)
-            })
-            .await?;
-        }
-        Some(Commands::Provider { command }) => {
-            let home_dir = cli.home_dir.clone();
-            run_blocking(move || execute_provider_command(home_dir, cli.json, command)).await?;
         }
         Some(Commands::Verify { token_or_file }) => {
             let options_for_verify = options.clone();

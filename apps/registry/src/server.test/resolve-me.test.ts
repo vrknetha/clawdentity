@@ -18,7 +18,7 @@ describe("GET /v1/resolve/:id", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "resolve-me",
-          framework: "openclaw",
+          framework: "generic",
           status: "active",
           expiresAt: "2026-04-01T00:00:00.000Z",
         },
@@ -49,7 +49,7 @@ describe("GET /v1/resolve/:id", () => {
     expect(body).toEqual({
       did: makeAgentDid(DID_AUTHORITY, agentId),
       name: "resolve-me",
-      framework: "openclaw",
+      framework: "generic",
       status: "active",
       ownerDid: authRow.humanDid,
     });
@@ -57,7 +57,7 @@ describe("GET /v1/resolve/:id", () => {
     expect(body).not.toHaveProperty("displayName");
   });
 
-  it("falls back framework to openclaw when stored framework is null", async () => {
+  it("falls back framework to generic when stored framework is null", async () => {
     const { authRow } = await makeValidPatContext();
     const agentId = generateUlid(1700500000100);
     const { database } = createFakeDb(
@@ -88,7 +88,7 @@ describe("GET /v1/resolve/:id", () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as { framework: string };
-    expect(body.framework).toBe("openclaw");
+    expect(body.framework).toBe("generic");
   });
 
   it("returns 400 for invalid id path", async () => {
@@ -148,7 +148,7 @@ describe("GET /v1/resolve/:id", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "rate-limited-agent",
-          framework: "openclaw",
+          framework: "generic",
           status: "active",
           expiresAt: "2026-04-01T00:00:00.000Z",
         },

@@ -317,7 +317,7 @@ mod tests {
     fn fake_ait(agent_did: &str, owner_did: &str, public_key: &str) -> String {
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"test-kid"}"#);
         let payload = URL_SAFE_NO_PAD.encode(format!(
-            "{{\"sub\":\"{agent_did}\",\"ownerDid\":\"{owner_did}\",\"framework\":\"openclaw\",\"cnf\":{{\"jwk\":{{\"x\":\"{public_key}\"}}}},\"exp\":2524608000}}"
+            "{{\"sub\":\"{agent_did}\",\"ownerDid\":\"{owner_did}\",\"framework\":\"generic\",\"cnf\":{{\"jwk\":{{\"x\":\"{public_key}\"}}}},\"exp\":2524608000}}"
         ));
         format!("{header}.{payload}.sig")
     }
@@ -391,7 +391,7 @@ mod tests {
                 "agentDid": "did:cdi:127.0.0.1:agent:01HF7YAT31JZHSMW1CG6Q6MHB7",
                 "agentName": "alpha",
                 "displayName": "Alice",
-                "framework": "openclaw",
+                "framework": "generic",
                 "status": "active",
                 "humanDid": "did:cdi:127.0.0.1:human:01HF7YAT31JZHSMW1CG6Q6MHB8"
             })))

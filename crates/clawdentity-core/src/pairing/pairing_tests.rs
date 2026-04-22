@@ -26,7 +26,7 @@ fn seed_agent_material(config_dir: &Path, agent_name: &str) {
             "sub":"did:cdi:registry.clawdentity.com:agent:01HF7YAT00W6W7CM7N3W5FDXT4",
             "ownerDid":"did:cdi:registry.clawdentity.com:human:01HF7YAT31JZHSMW1CG6Q6MHB7",
             "exp": 2208988800_u64,
-            "framework":"openclaw",
+            "framework":"generic",
             "cnf": {"jwk":{"kty":"OKP","crv":"Ed25519","x":"abc"}}
         }))
         .expect("payload"),

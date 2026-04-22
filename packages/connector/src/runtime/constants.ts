@@ -1,5 +1,6 @@
 export const REGISTRY_AUTH_FILENAME = "registry-auth.json";
-export const OPENCLAW_RELAY_RUNTIME_FILE_NAME = "openclaw-relay.json";
+export const DELIVERY_WEBHOOK_RELAY_RUNTIME_FILE_NAME =
+  "deliveryWebhook-relay.json";
 export const AGENTS_DIR_NAME = "agents";
 export const OUTBOUND_QUEUE_DIR_NAME = "outbound-queue";
 export const OUTBOUND_QUEUE_FILENAME = "queue.json";

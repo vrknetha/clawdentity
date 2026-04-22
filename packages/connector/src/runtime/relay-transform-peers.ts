@@ -1,15 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { Logger } from "@clawdentity/sdk";
-import type { OpenclawSenderProfile } from "../openclaw-headers.js";
-import { OPENCLAW_RELAY_RUNTIME_FILE_NAME } from "./constants.js";
+import type { DeliveryWebhookSenderProfile } from "../deliveryWebhook-headers.js";
+import { DELIVERY_WEBHOOK_RELAY_RUNTIME_FILE_NAME } from "./constants.js";
 import { sanitizeErrorReason } from "./errors.js";
 import { isRecord, parseOptionalProxyOrigin } from "./parse.js";
 
 export type RelayTransformPeerEntry = {
   agentDid: string;
   proxyOrigin?: string;
-  senderProfile?: OpenclawSenderProfile;
+  senderProfile?: DeliveryWebhookSenderProfile;
 };
 
 function parseOptionalNonEmptyString(value: unknown): string | undefined {
@@ -27,7 +27,7 @@ async function readRelayTransformPeersPath(input: {
 }): Promise<string | undefined> {
   const relayRuntimeConfigPath = join(
     input.configDir,
-    OPENCLAW_RELAY_RUNTIME_FILE_NAME,
+    DELIVERY_WEBHOOK_RELAY_RUNTIME_FILE_NAME,
   );
 
   let relayRuntimeRaw: string;
@@ -147,8 +147,8 @@ export async function loadRelayTransformPeerEntries(input: {
 export async function loadSenderProfilesByDid(input: {
   configDir: string;
   logger: Logger;
-}): Promise<Map<string, OpenclawSenderProfile>> {
-  const byDid = new Map<string, OpenclawSenderProfile>();
+}): Promise<Map<string, DeliveryWebhookSenderProfile>> {
+  const byDid = new Map<string, DeliveryWebhookSenderProfile>();
   const entries = await loadRelayTransformPeerEntries(input);
 
   for (const entry of entries) {

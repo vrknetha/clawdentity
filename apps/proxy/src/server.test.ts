@@ -152,7 +152,7 @@ describe("proxy server", () => {
     expect(() =>
       startProxyServer({
         env: {
-          OPENCLAW_BASE_URL: "bad-url",
+          DELIVERY_WEBHOOK_BASE_URL: "bad-url",
         },
       }),
     ).toThrow(ProxyConfigError);
@@ -176,7 +176,7 @@ describe("proxy server", () => {
     ).toThrow(ProxyConfigError);
   });
 
-  it("returns 429 for repeated unauthenticated probes on /hooks/agent from same IP", async () => {
+  it("returns 429 for repeated unauthenticated probes on /hooks/message from same IP", async () => {
     const app = createProxyApp({
       config: parseProxyConfig({}),
       rateLimit: {
@@ -186,7 +186,7 @@ describe("proxy server", () => {
     });
 
     for (let index = 0; index < 2; index += 1) {
-      const response = await app.request("/hooks/agent", {
+      const response = await app.request("/hooks/message", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -197,7 +197,7 @@ describe("proxy server", () => {
       expect(response.status).toBe(401);
     }
 
-    const rateLimited = await app.request("/hooks/agent", {
+    const rateLimited = await app.request("/hooks/message", {
       method: "POST",
       headers: {
         "content-type": "application/json",

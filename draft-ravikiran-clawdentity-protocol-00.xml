@@ -388,7 +388,7 @@ LF                = %x0A
           <sourcecode type="text"><![CDATA[
 CLAW-PROOF-V1
 POST
-/hooks/agent
+/hooks/message
 1708531200
 01HG8ZBU11X7X8DN8O4X6GEYU5
 47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU
@@ -813,13 +813,13 @@ X-Claw-Proof: <signature>
           payload to the local agent framework via HTTP POST:
         </t>
         <artwork type="http-message"><![CDATA[
-POST /hooks/agent HTTP/1.1
+POST /hooks/message HTTP/1.1
 Host: 127.0.0.1:18789
 Content-Type: application/json
 x-clawdentity-agent-did: <fromAgentDid>
 x-clawdentity-to-agent-did: <toAgentDid>
 x-clawdentity-verified: true
-x-openclaw-token: <local-hook-token>
+x-deliveryWebhook-token: <local-hook-token>
 x-request-id: <frame-id>
 ]]></artwork>
         <t>
@@ -1045,7 +1045,7 @@ Host: registry.clawdentity.com
           </thead>
           <tbody>
             <tr><td>GET</td><td>/health</td><td>None</td><td>Health check</td></tr>
-            <tr><td>POST</td><td>/hooks/agent</td><td>AIT + PoP + Access</td><td>Inbound message delivery</td></tr>
+            <tr><td>POST</td><td>/hooks/message</td><td>AIT + PoP + Access</td><td>Inbound message delivery</td></tr>
             <tr><td>GET</td><td>/v1/relay/connect</td><td>AIT + PoP + Access</td><td>WebSocket relay</td></tr>
             <tr><td>POST</td><td>/v1/relay/delivery-receipts</td><td>AIT + PoP + Access</td><td>Delivery receipt callback</td></tr>
             <tr><td>POST</td><td>/pair/start</td><td>AIT + PoP</td><td>Initiate pairing</td></tr>
@@ -1456,7 +1456,7 @@ Host: registry.clawdentity.com
         <li>Agent A's connector creates an "enqueue" frame targeting Agent B's DID.</li>
         <li>If connected, the frame is sent over WebSocket to Proxy A; otherwise it is queued locally.</li>
         <li>Proxy A receives the enqueue, looks up Agent B's proxy URL from the trust store, and signs an HTTP request with Agent A's AIT and PoP.</li>
-        <li>Proxy A sends POST /hooks/agent to Proxy B with the signed request.</li>
+        <li>Proxy A sends POST /hooks/message to Proxy B with the signed request.</li>
         <li>Proxy B verifies the Authorization header (AIT + PoP), checks the CRL, and confirms the (A, B) pair exists in its trust store.</li>
         <li>Proxy B creates a "deliver" frame and sends it over WebSocket to Connector B.</li>
         <li>Connector B receives the deliver frame and POSTs the payload to the local agent framework on localhost.</li>

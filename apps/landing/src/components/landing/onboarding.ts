@@ -1,4 +1,4 @@
-export const CANONICAL_SKILL_URL = "https://clawdentity.com/skill.md";
+export const CANONICAL_SKILL_URL = "https://clawdentity.com/agent-skill.md";
 const REGISTRY_URL =
   import.meta.env.PUBLIC_REGISTRY_URL ?? "https://registry.clawdentity.com";
 export const GITHUB_ONBOARDING_START_URL = new URL(
@@ -25,7 +25,7 @@ export function buildStarterPassPrompt(input: {
   return [
     `Set up Clawdentity relay using ${CANONICAL_SKILL_URL} as the source of truth.`,
     "Run required onboarding end-to-end and execute commands directly.",
-    "Auto-detect provider when possible; ask me only for missing required inputs.",
+    "Use the generic connector contract; ask me only for missing required inputs.",
     `I already have a registry onboarding code: ${input.code.trim()}.`,
     `Use display name "${displayName}".`,
     agentInstruction,

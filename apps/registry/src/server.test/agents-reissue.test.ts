@@ -74,7 +74,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, foreignAgentId),
           ownerId: "human-2",
           name: "foreign-agent",
-          framework: "openclaw",
+          framework: "generic",
           status: "active",
           publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
           expiresAt: "2026-04-01T00:00:00.000Z",
@@ -117,7 +117,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "revoked-agent",
-          framework: "openclaw",
+          framework: "generic",
           status: "revoked",
           publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
           expiresAt: "2026-04-01T00:00:00.000Z",
@@ -166,7 +166,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
-          framework: "openclaw",
+          framework: "generic",
           status: "active",
           publicKey: "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA",
           expiresAt: "2026-04-01T00:00:00.000Z",
@@ -227,7 +227,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
-          framework: "openclaw",
+          framework: "generic",
           publicKey: encodeBase64url(agentKeypair.publicKey),
           status: "active",
           expiresAt: "2026-04-01T00:00:00.000Z",
@@ -272,7 +272,7 @@ describe("POST /v1/agents/:id/reissue", () => {
     expect(body.agent.id).toBe(agentId);
     expect(body.agent.did).toBe(makeAgentDid(DID_AUTHORITY, agentId));
     expect(body.agent.ownerDid).toBe(authRow.humanDid);
-    expect(body.agent.framework).toBe("openclaw");
+    expect(body.agent.framework).toBe("generic");
     expect(body.agent.publicKey).toBe(encodeBase64url(agentKeypair.publicKey));
     expect(body.agent.currentJti).not.toBe(previousJti);
     expect(body.agent.status).toBe("active");
@@ -367,7 +367,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
-          framework: "openclaw",
+          framework: "generic",
           publicKey: encodeBase64url(agentKeypair.publicKey),
           status: "active",
           expiresAt: "2026-04-01T00:00:00.000Z",
@@ -446,7 +446,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
-          framework: "openclaw",
+          framework: "generic",
           publicKey: encodeBase64url(agentKeypair.publicKey),
           status: "active",
           expiresAt: previousExpiresAt,
@@ -528,7 +528,7 @@ describe("POST /v1/agents/:id/reissue", () => {
           did: makeAgentDid(DID_AUTHORITY, agentId),
           ownerId: "human-1",
           name: "owned-agent",
-          framework: "openclaw",
+          framework: "generic",
           publicKey: encodeBase64url(agentKeypair.publicKey),
           status: "active",
           expiresAt: "2026-04-01T00:00:00.000Z",
